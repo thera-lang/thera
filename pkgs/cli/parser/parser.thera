@@ -3,13 +3,17 @@
 //
 // Two shape changes from Dart, both because Thera lacks the control flow:
 //
-//  * Error recovery. Dart throws a `_ParseFail` sentinel from `_fail` and catches
-//    it at the single declaration boundary. Thera has no exceptions, so this is a
-//    **panic flag**: `fail` records the error and sets `panicking`; the
-//    token-consuming primitives (`advance`/`match_kind`) and every parse loop
-//    short-circuit while it is set (so no tokens are consumed and no cascading
-//    errors are recorded during the unwind); methods return a throwaway node that
-//    the boundary discards. `parse_decl_or_recover` clears the flag and resyncs.
+//  * Error recovery (docs/parser-recovery.md). Two mechanisms, split by whether
+//    the parser knows what it wanted:
+//     - A **known hole** (a missing `)`, a field name after `.`): `expect`
+//       records one error and synthesizes the token in place, WITHOUT unwinding —
+//       parsing continues and the surrounding tree (the completion anchor)
+//       survives. Loops stay terminating via the forward-progress invariant (§3).
+//     - **Genuine confusion** (a token that starts nothing): `fail` records the
+//       error and sets the **panic flag**; the token-consuming primitives
+//       (`advance`/`match_kind`) and every parse loop short-circuit while it is
+//       set (no tokens consumed, no cascading errors), and `parse_decl_or_recover`
+//       clears the flag and resyncs to the next declaration.
 //  * No `break`. Dart's comma-separated list loops `break` after a missing
 //    separator; here each carries a `going` flag the body clears instead.
 
@@ -174,6 +178,19 @@ impl Parser {
         return false;
     }
 
+    // Consume the expected token, or recover a *known hole* in place. On a
+    // mismatch the parser knows exactly which token it wanted, so it records one
+    // error and returns a synthesized token of that kind at the cursor — WITHOUT
+    // consuming input or entering panic mode. Parsing continues past the hole, so
+    // the surrounding tree (the completion anchor) survives. Genuine confusion — a
+    // token that can start nothing — still goes through `fail`, which unwinds to a
+    // recovery point. See docs/parser-recovery.md §1.
+    //
+    // The forward-progress invariant (§3) is what keeps this from spinning: a list
+    // loop whose element parser filled entirely from synthetic tokens (consuming
+    // nothing) must force one token of progress; see `parse_impl` and the loop
+    // guards. Most loops get progress for free — a comma separator, a required
+    // starter keyword, or `parse_primary`'s `fail` on an unstartable token.
     fn expect(self, _ kind: TokenKind, _ description: String) -> Token {
         if self.check(kind) {
             return self.advance();
@@ -184,8 +201,21 @@ impl Parser {
         } else {
             '"${t.span.text()}"'
         };
-        self.fail('expected ${description}, found ${found}');
-        return self.current();
+        self.record_error('expected ${description}, found ${found}', t.span);
+        return self.synthetic_token(kind);
+    }
+
+    // A zero-width token of `kind` at the cursor, standing in for an
+    // expected-but-missing token. Its text is empty (`lexeme()` == ''), so an
+    // `obj.` field or a missing type name reads as the empty-name recovery hole;
+    // its span is zero-length, so span-keyed consumers skip it (PA6).
+    fn synthetic_token(self, _ kind: TokenKind) -> Token {
+        return Token {
+            kind: kind,
+            span: synthetic_span(self.current().span),
+            value: Option.Some(''),
+            interps: [],
+        };
     }
 
     // Records an error and enters panic mode, to be unwound at the declaration
@@ -196,11 +226,21 @@ impl Parser {
     }
 
     fn fail_at(self, _ message: String, _ span: SourceSpan) -> Void {
+        if self.record_error(message, span) {
+            self.panicking = true;
+        }
+    }
+
+    // Record one diagnostic unless we're already unwinding a panic (one error per
+    // panic episode — the dedup `fail` has always had). Returns whether it was
+    // recorded, so `fail_at` knows whether to enter panic mode. `expect` uses this
+    // directly to note a *known hole* without unwinding (docs/parser-recovery.md).
+    fn record_error(self, _ message: String, _ span: SourceSpan) -> Bool {
         if self.panicking {
-            return;
+            return false;
         }
         self.errors.push(diagnostic.at(message, span));
-        self.panicking = true;
+        return true;
     }
 
     fn sync_to_decl(self) -> Void {
@@ -808,6 +848,7 @@ impl Parser {
         self.expect(TokenKind.LBrace, '{');
         let methods: List<FnDecl> = [];
         while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let before = self.pos;
             let method_start_tok = self.current();
             let decos: List<Decorator> = [];
             while !self.panicking && self.check(TokenKind.At) {
@@ -825,6 +866,14 @@ impl Parser {
                 method_start_tok.span
             };
             methods.push(self.parse_fn_decl(decos, m_native, m_pub, m_start));
+            // Forward-progress guard (docs/parser-recovery.md §3): unlike the
+            // interface-method loop, a bad method start here has no required
+            // keyword to `fail` on — with non-fatal `expect`, `parse_fn_decl` can
+            // synthesize an entire signature without consuming a token, which would
+            // spin this loop. If nothing was consumed, drop one token to advance.
+            if self.pos == before && !self.panicking {
+                self.advance();
+            }
         }
         let rbrace = self.expect(TokenKind.RBrace, '}');
         return Decl.Impl(ImplDecl {

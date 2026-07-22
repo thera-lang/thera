@@ -5,13 +5,16 @@
 // build's fixpoint guards the no-op-on-valid invariant globally, these lock it
 // locally and document intent.
 //
-// STAGE 0 scope: this file establishes the harness (the structural dumper +
-// `Expr.Error`) and locks in the behavior already reachable. `expect` is still
-// fatal, so a hole inside a *declaration* is still discarded at the decl boundary
-// (`parse_tokens`); but `parse_expression` has no such boundary, so an expression
-// parsed in isolation already surfaces its holes as `Expr.Error` / empty-name
-// `Field` nodes. Stage 1 makes `expect` non-fatal, at which point holes survive
-// inside full declarations too — the cases below extend there.
+// STAGE 1 scope: `expect` is now non-fatal — a *known hole* (a missing `)`, a
+// field name after `.`) records one error and fills a synthetic token in place,
+// so the surrounding declaration survives instead of being discarded. *Genuine
+// confusion* (a token that can start nothing — a `{` where a parameter belongs, a
+// `;` where an expression must begin) still goes through `fail` and unwinds to
+// the declaration boundary. So a dangling dot or a missing delimiter now survives
+// inside a full function; a missing *expression* (`let x =`, `a +`) still unwinds
+// at the decl level (its statement-level recovery is Stage 2). The termination
+// test below guards the forward-progress invariant (§3) for the constructs whose
+// recovery this stage changed.
 
 import std.testing;
 
@@ -88,16 +91,95 @@ fn test_dangling_dot_yields_empty_field() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// --- Baseline: recovery still doesn't cascade or spin (unchanged by Stage 0) ---
+// --- Stage 1: known holes survive inside a full declaration ---
 
 @test
-fn test_decl_recovery_still_isolates_siblings() -> Result<Void, Error> {
-    // A malformed declaration is still discarded at the decl boundary and the
-    // parser resyncs to the next `fn` (Stage 0 changes the placeholder node, not
-    // the decl-level recovery mechanism).
+fn test_dangling_dot_survives_in_full_function() -> Result<Void, Error> {
+    // THE completion win: `user.` deep in a function body no longer discards the
+    // whole declaration. The `Field(user, "")` node survives — with its empty
+    // member as the completion anchor — and so do the statements around it.
+    let src = 'fn f(_ user: Int) -> Int { let name = user.; return 0; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error for the dangling dot')?;
+    let expected = 'fn f(user: Int) -> Int\n'
+        + '  block\n'
+        + '    let name = user.\n'
+        + '    return 0';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_missing_call_paren_survives() -> Result<Void, Error> {
+    // A missing `)` is a known hole: the arg loop closes on its structural check
+    // and `expect` fills the delimiter. The call — and its declaration — survive.
+    let src = 'fn f() -> Int { let x = g(1, 2; return x; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error for the missing `)`')?;
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    let x = g(1, 2)\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+// --- Baseline: genuine confusion still unwinds and isolates siblings ---
+
+@test
+fn test_genuine_confusion_still_isolates_siblings() -> Result<Void, Error> {
+    // `fn { }` is genuine confusion, not a known hole — a `{` where the parameter
+    // list belongs makes `parse_param` `fail`, which unwinds and drops the decl.
+    // The parser resyncs to the next `fn` and the good sibling survives. (This is
+    // the "lost case" the plan keeps unwinding to the declaration boundary.)
     let r = parse_tokens(tokenize('fn { } fn good() -> Int { return 1; }').tokens);
     testing.assert(r.has_errors(), message: 'expected a parse error')?;
     let dumped = dump_program(r.program);
     testing.assert_eq(actual: dumped, expected: 'fn good() -> Int\n  block\n    return 1')?;
+    return Result.Ok(void);
+}
+
+// --- Forward-progress invariant: recovery never spins (§3) ---
+
+// Parse every token-prefix of `src` (each re-terminated with EOF) and count them.
+// A non-advancing recovery loop would hang instead of returning — exactly the
+// mid-edit fragment the LSP feeds the parser on each keystroke.
+fn count_prefix_parses(_ src: String) -> Int {
+    let toks = tokenize(src).tokens;
+    let eof = toks[toks.len() - 1];
+    let mut count = 0;
+    let mut n = 1;
+    while n < toks.len() {
+        let prefix = toks.slice(0, n);
+        prefix.push(eof);
+        let _r = parse_tokens(prefix);
+        count = count + 1;
+        n = n + 1;
+    }
+    return count;
+}
+
+@test
+fn test_recovery_terminates_on_changed_constructs() -> Result<Void, Error> {
+    // Non-fatal `expect` let sub-parsers return without consuming; every prefix of
+    // these must still parse to completion. The snippets stress the constructs
+    // whose recovery non-fatal `expect` changed — impl/interface method bodies
+    // (the loop with the forward-progress guard), enum/struct fields, match arms,
+    // generic argument lists, and dangling members/delimiters.
+    let samples: List<String> = [
+        'impl Foo { fn bar() -> Int { return 1; } fn baz(',
+        'impl Eq for Foo { fn eq(self, _ o: Foo) -> Bool { return true; } }',
+        'interface Show { fn show(self) -> String; }',
+        'enum Color { Red, Green, Blue }',
+        'struct P { let x: Int; let y: Int; }',
+        'fn f() -> Int { return match x { Some(v) => v, None => 0 }; }',
+        'fn f() -> List<Map<String, Int>> { return xs.map(x => x.).first(); }',
+        'fn f() -> Int { let p = P { x: 1, y: }; return p.x; }',
+    ];
+    let mut total = 0;
+    for s in samples {
+        total = total + count_prefix_parses(s);
+    }
+    testing.assert(total > 0, message: 'expected prefixes to be parsed')?;
     return Result.Ok(void);
 }
