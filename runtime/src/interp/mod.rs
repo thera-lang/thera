@@ -3938,10 +3938,7 @@ mod tests {
         m.dispatch = vec![DispatchEntry::new(0, "debug", 1)];
         let dog = Value::new_struct(0, vec![Value::new_str("Rex"), Value::Int(3)]);
         // Direct receiver and nested (inside a list) both use the impl.
-        assert_eq!(
-            super::run(&m, 0, &[dog]),
-            Ok(Value::new_str("custom"))
-        );
+        assert_eq!(super::run(&m, 0, &[dog]), Ok(Value::new_str("custom")));
         assert_eq!(
             super::run(&m, 0, &[Value::new_list(vec![dog])]),
             Ok(Value::new_str("[custom]"))
