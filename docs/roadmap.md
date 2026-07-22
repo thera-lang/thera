@@ -15,8 +15,8 @@ to `.thera-bc`, and runs the `check`/`emit`/`run`/`test`/`lsp` CLI (see
 It compiles its own sources and the whole stdlib; `bin/build_sdk.sh` embeds it
 into the `thera` binary with a **fixpoint check** that the front-end reproduces
 itself byte-for-byte. The Dart toolchain that bootstrapped it has been removed —
-the build bootstraps from a checked-in `bootstrap/frontend.thera-bc` snapshot (see
-`bootstrap/README.md`), and `bin/test.sh` (cargo + the `pkgs/cli`/`sdk/std`
+the build bootstraps from a checked-in `bootstrap/frontend.thera-bc` snapshot
+(see `bootstrap/README.md`), and `bin/test.sh` (cargo + the `pkgs/cli`/`sdk/std`
 `@test` suites + examples) is the suite.
 
 **Runtime (`runtime/`, Rust).** A Tier-0 bytecode interpreter with an explicit
@@ -74,8 +74,12 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     and its first consumers — `io.lines`/`BufReader`, `fs.walk`, and streaming
     `fs.open`/`create` → `File` (`Reader`/`Writer`/`Seek`/`Closer`); `List.pop`
     also landed. `std.log` (named, per-source logging) is now in — see
-    _Changelog_. Remaining: the rest of the "batteries included" goal
-    (`std.term`, `std.http`), and sorted/`Ord`-keyed `Set`/`Map` variants.
+    _Changelog_. `std.term` and `std.http` (client + simple server + wire codec,
+    over the provisional `std.net`) have since landed too. Remaining of the
+    "batteries included" goal: **TLS for `std.http`** (the client is
+    `http://`-only — an `https://` URL parses then fails at `connect`; tracked
+    under _Networking punchlist_ as the last thing between `std.http` and
+    complete), and sorted/`Ord`-keyed `Set`/`Map` variants.
   - **`List.enumerate()` — _landed._** A lazy `Iterator<Indexed<T>>` right on
     `List` (`for p in xs.enumerate() { … p.index … p.value … }`), the idiomatic
     replacement for a `while i < xs.len()` index loop — no import, no new
@@ -134,63 +138,65 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     Left thread-blocking on purpose (fast, non-blocking syscalls): `fs.exists`,
     `process.start`/`kill`/`close_stdin`.
   - **Phase 4 — readiness poller.** _Done_ (`mio`, so `kqueue`/`epoll`/IOCP; the
-    hand-rolled alternative needs `libc` for the syscalls anyway, making the real
-    cost one extra crate versus two unsafe backends and no windows). Sockets are
-    **non-blocking**, so unlike every other blocking family their syscalls run
-    inline on the Thera thread and never reach the worker pool — a blocking
-    `accept` would pin one of its four threads indefinitely, and four such ops
-    would stall every other fiber's I/O. Instead `EWOULDBLOCK` parks the fiber
-    (`ParkRequest::Ready`) and the `call.native` re-runs when the kernel reports
-    readiness — `BlockRetry`'s discipline, woken by the poller. The driver's idle
-    loop keeps **one** wait point (`poll()` bounded by the earliest timer), with
-    worker completions interrupting it through a `Waker`, so there is no poller
-    thread and the runtime stays single-threaded.
+    hand-rolled alternative needs `libc` for the syscalls anyway, making the
+    real cost one extra crate versus two unsafe backends and no windows).
+    Sockets are **non-blocking**, so unlike every other blocking family their
+    syscalls run inline on the Thera thread and never reach the worker pool — a
+    blocking `accept` would pin one of its four threads indefinitely, and four
+    such ops would stall every other fiber's I/O. Instead `EWOULDBLOCK` parks
+    the fiber (`ParkRequest::Ready`) and the `call.native` re-runs when the
+    kernel reports readiness — `BlockRetry`'s discipline, woken by the poller.
+    The driver's idle loop keeps **one** wait point (`poll()` bounded by the
+    earliest timer), with worker completions interrupting it through a `Waker`,
+    so there is no poller thread and the runtime stays single-threaded.
 
     Two properties keep this small. Sockets carry **no readiness state** despite
-    mio being edge-triggered: a fiber only parks *after* its syscall returned
+    mio being edge-triggered: a fiber only parks _after_ its syscall returned
     `EWOULDBLOCK`, so any earlier edge was stale and the next transition fires a
     fresh one — the syscall is the ground truth, and every socket native
-    therefore attempts its op *before* parking (a correctness rule, not a fast
-    path). And because the ops never leave the Thera thread, sockets need none of
-    phase 3's take-out/return discipline, so concurrent read + write on one
+    therefore attempts its op _before_ parking (a correctness rule, not a fast
+    path). And because the ops never leave the Thera thread, sockets need none
+    of phase 3's take-out/return discipline, so concurrent read + write on one
     socket from two fibers works (unlike a `File`, where it does not).
 
     The retry means every socket native must be **idempotent**: `read`/`accept`
-    are naturally so; `write` is safe only because it returns a *count* and lets
+    are naturally so; `write` is safe only because it returns a _count_ and lets
     `io.write_all` loop (a write-all native would re-send bytes on retry); and
     `connect` is split into `socket_connect` + `socket_connect_finish` because
     re-issuing `connect(2)` on a pending fd reports `EALREADY`. DNS is the one
     socket op still on the worker pool — it blocks with no fd to poll, but is
     bounded, so it cannot pin a worker the way `accept` would.
+
   - **Refinements:** per-channel waiter lists, true 0-capacity rendezvous
-    channels and exit semantics for surviving spawned fibers (`select` is done). The
-    poller wants the same waiter-list refinement, and for the same reason: any
-    readiness event currently wakes *every* socket-parked fiber (`wake_all_poll`,
-    matching `wake_all`'s coarseness), so each retries its syscall and the ones
-    that aren't ready re-park. Correct, but O(parked) work per event — it will
-    want per-fd routing (the mio `Token` is already the socket handle) before a
-    server holds many idle connections open.
+    channels and exit semantics for surviving spawned fibers (`select` is done).
+    The poller wants the same waiter-list refinement, and for the same reason:
+    any readiness event currently wakes _every_ socket-parked fiber
+    (`wake_all_poll`, matching `wake_all`'s coarseness), so each retries its
+    syscall and the ones that aren't ready re-park. Correct, but O(parked) work
+    per event — it will want per-fd routing (the mio `Token` is already the
+    socket handle) before a server holds many idle connections open.
+
 - **Fiber synchronization primitives — the combinator layer.** The _core_ async
   values already exist: `Fiber<T>` + `join` **is** a Future (uncolored; and
   `join` is idempotent/multicast — `sched_result` reads `Done(v)` by `&self`, so
   any fiber can await the same result repeatedly, giving a broadcast/shared
   future for free), and `channel<T>(1)` is a Completer. What's thin is the
   second-order layer built on them:
-  - **`select` / race.** _Done (2026-07)._ A `Selectable` interface plus an index:
-    `fiber.select(sources) -> Int`, with `Fiber`, `Channel`, `Timer`, and
+  - **`select` / race.** _Done (2026-07)._ A `Selectable` interface plus an
+    index: `fiber.select(sources) -> Int`, with `Fiber`, `Channel`, `Timer`, and
     `net.TcpStream` implementing it. Not Go's `select { case … }` syntax, and it
     doesn't need to be — Go fuses the receive into the branch because another
     thread could take the value between "ready" and "receive"; cooperative
-    scheduling means nothing runs between those steps, so ask-then-act is exactly
-    equivalent with no new grammar. Lowest ready index wins (deterministic, unlike
-    Go's random pick, matching the scheduler's stance) — which does mean a hot
-    source at index 0 can starve index 1.
+    scheduling means nothing runs between those steps, so ask-then-act is
+    exactly equivalent with no new grammar. Lowest ready index wins
+    (deterministic, unlike Go's random pick, matching the scheduler's stance) —
+    which does mean a hot source at index 0 can starve index 1.
 
     The interface needs two methods, not one: `is_ready` (which must be
     **non-destructive**, since it's asked speculatively about sources the caller
-    may never act on) and `source`, because `select` has to know *how* to wait as
-    well as whether to. `TcpListener` is therefore not selectable — probing it
-    means `accept`, which consumes.
+    may never act on) and `source`, because `select` has to know _how_ to wait
+    as well as whether to. `TcpListener` is therefore not selectable — probing
+    it means `accept`, which consumes.
 
   - **Cancellation token** — a reusable `cancel()` / `is_cancelled()` /
     selectable `done` (the LSP hand-rolled a generation counter for exactly
@@ -209,11 +215,12 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - _No `Mutex`/lock is warranted:_ cooperative single-threading makes
     shared-state mutation between yield points race-free; a lock only matters to
     hold a section _across_ a yield, which is a one-token semaphore.
+
 - **Interpreter performance — profiled (2026-06); the easy wins are in.**
-  Probes: the front-end **self-compile** (`thera emit pkgs/cli/main.thera`) ≈ 11.6
-  s release, and **mandelbrot** ≈ 0.81 s (a call-free arithmetic/loop guard).
-  Measured with the built-in `native-stats` feature (per-native call counts) +
-  macOS `sample` (time). Findings:
+  Probes: the front-end **self-compile** (`thera emit pkgs/cli/main.thera`) ≈
+  11.6 s release, and **mandelbrot** ≈ 0.81 s (a call-free arithmetic/loop
+  guard). Measured with the built-in `native-stats` feature (per-native call
+  counts) + macOS `sample` (time). Findings:
   - **The cost is the heap-access path, not dispatch.** `HEAP.with` (a
     thread-local `RefCell`) is ~62 % of `run_loop` inclusive / ~15 % pure
     self-time, and allocation (`Vec::from_iter` + `memmove`, ~27 %: per-object
@@ -276,8 +283,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - **Impl:** add `Obj::Foreign`; arms in `for_each_child` (none) /
     `heap_bytes`; the `derive(Clone, PartialEq)` won't cover `dyn Any`, so a
     small newtype with manual `Clone` (`Rc` bump) + `PartialEq` (`Rc::ptr_eq` —
-    identity). The `str_byte_slice` primitive and the Thera `std.regex` layer are
-    untouched.
+    identity). The `str_byte_slice` primitive and the Thera `std.regex` layer
+    are untouched.
   - **Scope it to _pure_ resources.** Collect-on-unreachable is right for a
     regex (no external effect). It is **wrong** for `std.process` — a spawned
     child must not be reaped/killed because a GC pass noticed its handle went
@@ -304,14 +311,14 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   bring-up.
 - **Profiling Thera code — planned, staged.** OS-level samplers (`perf`,
   Instruments, samply) are nearly blind to an interpreter: every Thera function
-  is the same `run_loop` native frame, and the Thera call stack lives in the VM's
-  `Vec<Frame>`. So the runtime grows its own profiler — as CPython
+  is the same `run_loop` native frame, and the Thera call stack lives in the
+  VM's `Vec<Frame>`. So the runtime grows its own profiler — as CPython
   (cProfile/py-spy), Ruby (stackprof/rbspy), and Lua do. The primary audience is
   **coding agents**, which shifts the design toward _deterministic,
   function-level, flat text_ over flame-graph SVGs and line-level precision.
   1. **In-VM profiler — done (v1).** Implemented as an always-shipping runtime
-     feature gated by the **`THERA_PROFILE`** env var (not a compile-time feature
-     like `native-stats`; `run_loop` reads it once into a local, so a
+     feature gated by the **`THERA_PROFILE`** env var (not a compile-time
+     feature like `native-stats`; `run_loop` reads it once into a local, so a
      non-profiled run pays one predictable branch — `src/profile.rs`). Per Thera
      function: exact **call counts**, **self + inclusive time** via
      **instruction-budget sampling** (every `THERA_PROFILE_INTERVAL`=1000
@@ -321,17 +328,18 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
      **deterministic** (instruction-keyed, not wall-clock — two runs are
      byte-identical, what an agent's before/after needs), guarded by a
      presence + determinism smoke in `bin/test.sh`. Because the env var
-     propagates to the child runtime and the front-end is itself a Thera program,
-     it profiles both a user program (`THERA_PROFILE=1 thera run x.thera`) and the
-     front-end's own compilation (`THERA_PROFILE=1 thera check pkgs/cli` — which
-     already shows the lexer at ~50% self-time and ~55M allocations, the data
-     for the check-perf work). A `thera run --profile` flag is thin sugar to add
-     later; line/allocation call-site precision is #2 below.
+     propagates to the child runtime and the front-end is itself a Thera
+     program, it profiles both a user program
+     (`THERA_PROFILE=1 thera run x.thera`) and the front-end's own compilation
+     (`THERA_PROFILE=1 thera check pkgs/cli` — which already shows the lexer at
+     ~50% self-time and ~55M allocations, the data for the check-perf work). A
+     `thera run --profile` flag is thin sugar to add later; line/allocation
+     call-site precision is #2 below.
   2. **Line attribution — enhancement.** A bytecode→source-line table in
-     `.thera-bc` (debug info) so a sample/counter resolves to a Thera line. Demoted
-     from a v1 prerequisite once we accepted function-level is enough for
-     _algorithmic_ issues. The same debug info gives traps a source location and
-     backs the test-failure / stack-trace needs.
+     `.thera-bc` (debug info) so a sample/counter resolves to a Thera line.
+     Demoted from a v1 prerequisite once we accepted function-level is enough
+     for _algorithmic_ issues. The same debug info gives traps a source location
+     and backs the test-failure / stack-trace needs.
   3. **OS-profiler integration — JIT tier.** Once Cranelift lands, JITed Thera
      functions are real native frames; emit `perf`'s `/tmp/perf-<pid>.map` or
      `jitdump` (the V8/JVM/.NET trick) so `perf`/samply/Instruments resolve
@@ -430,10 +438,10 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   trace / `--entry` ambiguity). _On hold:_ `FuncDef.name` is the only
   compile-time string emitted into `.thera-bc`, and `owner` is an absolute
   canonical path — embedding it would leak home-dir paths and break the
-  reproducible `bootstrap/frontend.thera-bc`. Prerequisite: normalize file keys to
-  a portable scheme (`sdk:`/`file:`/`pkg:` + relative). Not a miscompile (calls
-  resolve by owner-correct index) — observability; revisit on a forcing function
-  (real stack traces).
+  reproducible `bootstrap/frontend.thera-bc`. Prerequisite: normalize file keys
+  to a portable scheme (`sdk:`/`file:`/`pkg:` + relative). Not a miscompile
+  (calls resolve by owner-correct index) — observability; revisit on a forcing
+  function (real stack traces).
 - **Residual owner-blind keying (audit tail).** Two narrow cases stay
   name-keyed, deferred: interface _name_ collisions across libraries, and the
   `native` instance/static method tables (natives only come from SDK core). Plus
@@ -463,20 +471,21 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     perceived-performance battle (requests no longer block behind the full
     workspace analysis); this only smooths the _initial_ scan's fill-in, so it's
     worth doing only if that first pass feels slow in practice.
-  - **Reconcile `files.watcherExclude` with `thera.exclude`.** The on-disk scan is
-    now cached and invalidated by `didChangeWatchedFiles` (see _Changelog_), so
-    the watcher is the sole source of truth for on-disk state. VS Code's watcher
-    honors the user's `files.watcherExclude`, which the server never sees: a
-    directory excluded there reports no events, so a `.thera` file under it is
-    scanned once and then frozen at that content for the session — no diagnostic
-    ever updates for it. Nothing warns; it just goes quiet. Options: read
-    `files.watcherExclude` via `workspace/configuration` and either fold it into
-    the scan's prune set (don't analyze what we can't be told about — consistent,
-    and the file simply drops out) or report the overlap as a diagnostic. The
-    same question in reverse says `thera.exclude`'s `<base>/**` prunes could seed
-    the watcher registration, so we don't ask to be told about subtrees we never
-    scan. Low priority: the default `files.watcherExclude` covers `node_modules`
-    and `.git/objects`, neither of which holds Thera sources.
+  - **Reconcile `files.watcherExclude` with `thera.exclude`.** The on-disk scan
+    is now cached and invalidated by `didChangeWatchedFiles` (see _Changelog_),
+    so the watcher is the sole source of truth for on-disk state. VS Code's
+    watcher honors the user's `files.watcherExclude`, which the server never
+    sees: a directory excluded there reports no events, so a `.thera` file under
+    it is scanned once and then frozen at that content for the session — no
+    diagnostic ever updates for it. Nothing warns; it just goes quiet. Options:
+    read `files.watcherExclude` via `workspace/configuration` and either fold it
+    into the scan's prune set (don't analyze what we can't be told about —
+    consistent, and the file simply drops out) or report the overlap as a
+    diagnostic. The same question in reverse says `thera.exclude`'s `<base>/**`
+    prunes could seed the watcher registration, so we don't ask to be told about
+    subtrees we never scan. Low priority: the default `files.watcherExclude`
+    covers `node_modules` and `.git/objects`, neither of which holds Thera
+    sources.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -517,34 +526,34 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Developer tooling
 
-- **Verify the code snippets in docs.** Nothing checks that a fenced `thera` block
-  in `docs/*.md` or a `///`/`//!` doc comment compiles, and they rot silently —
-  which is the worst way for them to fail, because a snippet's whole audience is
-  someone (or something) learning the language from it. An LLM reading a doc that
-  teaches syntax the compiler rejects is precisely the failure this language
-  exists to avoid.
+- **Verify the code snippets in docs.** Nothing checks that a fenced `thera`
+  block in `docs/*.md` or a `///`/`//!` doc comment compiles, and they rot
+  silently — which is the worst way for them to fail, because a snippet's whole
+  audience is someone (or something) learning the language from it. An LLM
+  reading a doc that teaches syntax the compiler rejects is precisely the
+  failure this language exists to avoid.
 
-  Not hypothetical: the `std.net`/`std.http` arc (2026-07) shipped a module header
-  using `loop { … }`, which is not Thera (there is `while`/`for` and no `loop`), and
-  `docs/stdlib.md` plus a `server.thera` example both showed `serve(addr, handler)`
-  with a named function — the form that motivated the first-class-functions fix,
-  and that did not compile when it was written. Both were caught by hand, which is
-  exactly the thing that doesn't scale.
+  Not hypothetical: the `std.net`/`std.http` arc (2026-07) shipped a module
+  header using `loop { … }`, which is not Thera (there is `while`/`for` and no
+  `loop`), and `docs/stdlib.md` plus a `server.thera` example both showed
+  `serve(addr, handler)` with a named function — the form that motivated the
+  first-class-functions fix, and that did not compile when it was written. Both
+  were caught by hand, which is exactly the thing that doesn't scale.
 
-  Design notes. The hard part is that a snippet is a **fragment**, not a program:
-  most need a wrapper (`fn main`), some need imports, some are deliberately partial
-  (`pub struct Router { let /* method+path table */; }`), and some — the sketches
-  in `stdlib.md` — describe an API that does **not exist yet**, so "it must
-  compile" is the wrong bar for them. So the mechanism needs an opt-in/opt-out
-  marker per block, and the interesting question is which way the default points.
-  Prior art worth copying: Rust's `rustdoc --test` (hidden `#` lines for the
-  boilerplate; ` ```ignore `/` ```no_run ` for the exceptions) and Go's
-  `Example_*` functions (real compiled code, with `// Output:` checked). Note
-  `tests/lang/` already has most of the harness shape — directive comments, expect
-  lines, an xfail escape hatch — so this may be less new machinery than it looks.
-  Sequencing thought: doc comments in `sdk/std` are the higher-value half and the
-  easier bar (they document code that exists); the `docs/*.md` design sketches are
-  the half that needs the opt-out.
+  Design notes. The hard part is that a snippet is a **fragment**, not a
+  program: most need a wrapper (`fn main`), some need imports, some are
+  deliberately partial (`pub struct Router { let /* method+path table */; }`),
+  and some — the sketches in `stdlib.md` — describe an API that does **not exist
+  yet**, so "it must compile" is the wrong bar for them. So the mechanism needs
+  an opt-in/opt-out marker per block, and the interesting question is which way
+  the default points. Prior art worth copying: Rust's `rustdoc --test` (hidden
+  `#` lines for the boilerplate; ` ```ignore `/` ```no_run ` for the exceptions)
+  and Go's `Example_*` functions (real compiled code, with `// Output:`
+  checked). Note `tests/lang/` already has most of the harness shape — directive
+  comments, expect lines, an xfail escape hatch — so this may be less new
+  machinery than it looks. Sequencing thought: doc comments in `sdk/std` are the
+  higher-value half and the easier bar (they document code that exists); the
+  `docs/*.md` design sketches are the half that needs the opt-out.
 
 - **Doc-comment tooling — convention specced, machinery pending.** The doc
   conventions are defined ([language.md](language.md#documentation)): `///` item
@@ -740,19 +749,19 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 - **Only an identifier or a field may be a call target.** `maker()(5)` and
   `fns[0](10)` are rejected with `unsupported call target`
-  ([codegen.thera](../pkgs/cli/codegen/codegen.thera) → `call_expr`) — an arbitrary
-  expression in callee position doesn't compile, so a function value has to be
-  bound to a name before it can be called. Equally true of a lambda, so it is not
-  about function *references*; it surfaced next to them (2026-07) because a
-  reference makes function values easy to produce.
+  ([codegen.thera](../pkgs/cli/codegen/codegen.thera) → `call_expr`) — an
+  arbitrary expression in callee position doesn't compile, so a function value
+  has to be bound to a name before it can be called. Equally true of a lambda,
+  so it is not about function _references_; it surfaced next to them (2026-07)
+  because a reference makes function values easy to produce.
 
   This is the same spec/implementation shape the first-class-functions gap had:
-  [language.md](language.md) §Functions shows `adder(by: 2)` returning `(Int) ->
-  Int` as a headline, and the obvious next keystroke — calling it — needs a bound
-  name. Decide whether the spec means to allow an expression callee (and if so,
-  compile it: the callee is just another operand to evaluate before
-  `call.indirect`) or to require the binding, and say which. A conformance test
-  under `tests/lang/functions/` should pin whichever.
+  [language.md](language.md) §Functions shows `adder(by: 2)` returning
+  `(Int) -> Int` as a headline, and the obvious next keystroke — calling it —
+  needs a bound name. Decide whether the spec means to allow an expression
+  callee (and if so, compile it: the callee is just another operand to evaluate
+  before `call.indirect`) or to require the binding, and say which. A
+  conformance test under `tests/lang/functions/` should pin whichever.
 
 - Instance level mutability would be easier for agents to reason about. We
   should consider the impact, pros, and cons of switching from field level
@@ -808,8 +817,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   `list_index`/`list_set`/`map_index`, `map_new`/`map_set`) with no named Thera
   method behind them — the one category of addressable behaviour not represented
   in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
-  what turns those into ordinary Thera methods; revisit the exact shape then (the
-  `[]` half is the _Index operator_ item).
+  what turns those into ordinary Thera methods; revisit the exact shape then
+  (the `[]` half is the _Index operator_ item).
 - **Primitive vtables — scope it (runtime / generics / soundness).** A primitive
   reached through _virtual_ dispatch — `call.virtual('display'|'eq'|'debug')`
   from a generic `<T: Display>` / interface-typed context where the runtime
@@ -939,11 +948,11 @@ findings recorded.
   support anyway.
 - **Type aliases** — **deferred indefinitely, by design.** An alias is a
   _transparent_ name (`type Fallible = Result<Void, Error>`), which adds exactly
-  the indirection Thera's local-reasoning thesis is built to avoid: an LLM seeing
-  `Fallible` must resolve it elsewhere. The verbosity win (the top candidate,
-  `Result<Void, Error>`, is frequent but not _complex_) doesn't outweigh giving
-  a reader more work; genuinely meaningful nested types are better served by a
-  nominal `struct`. Recorded as a language non-goal in
+  the indirection Thera's local-reasoning thesis is built to avoid: an LLM
+  seeing `Fallible` must resolve it elsewhere. The verbosity win (the top
+  candidate, `Result<Void, Error>`, is frequent but not _complex_) doesn't
+  outweigh giving a reader more work; genuinely meaningful nested types are
+  better served by a nominal `struct`. Recorded as a language non-goal in
   [language.md](language.md). Would need a very compelling use case to reopen.
 
 The review's holes are all closed or deferred-with-findings above; the landed
@@ -974,65 +983,72 @@ deferred bare-`TypeParameter` narrowing.
 
 ### Networking punchlist
 
-The agreed order is **(1) per-fd routing → (2) `select` → (3) TLS**. The first two
-are known gaps in the phase-4 poller that landed with the `std.http` arc (see the
-Changelog's **Readiness poller** entry), and both are things a real server hits
-rather than latent tidiness: the poller is correct, but not yet _scalable_ or
-_cancellable_. The third finishes the client. **(1) and (2) are done**; TLS is
-next.
+The agreed order is **(1) per-fd routing → (2) `select` → (3) TLS**. The first
+two are known gaps in the phase-4 poller that landed with the `std.http` arc
+(see the Changelog's **Readiness poller** entry), and both are things a real
+server hits rather than latent tidiness: the poller is correct, but not yet
+_scalable_ or _cancellable_. The third finishes the client. **(1) and (2) are
+done**; TLS is next.
 
 1. **Per-fd wakeup routing.** _Done (2026-07)._ Readiness events route by socket
-   handle — which already *is* the `mio::Token` — so an event wakes only the
-   fibers parked on that socket instead of every socket-parked fiber. Measured on
-   the 20-connection `std.net` suite: spurious retries down ~27% (`socket_accept`
-   67→48, `socket_connect_finish` 68→50). That understates it — the win scales
-   with connection count, which is the point: `wake_all_poll` was O(parked) per
-   event, exactly the shape a server holding many idle connections hits.
+   handle — which already _is_ the `mio::Token` — so an event wakes only the
+   fibers parked on that socket instead of every socket-parked fiber. Measured
+   on the 20-connection `std.net` suite: spurious retries down ~27%
+   (`socket_accept` 67→48, `socket_connect_finish` 68→50). That understates it —
+   the win scales with connection count, which is the point: `wake_all_poll` was
+   O(parked) per event, exactly the shape a server holding many idle connections
+   hits.
 
    **The catch, and it is the interesting part:** the coarse wake was an
-   accidental safety net. A fiber parked on a socket that *another fiber closes*
-   used to be rescued by an unrelated socket's event waking everyone. With routing
-   it would park forever, because a closed socket produces no more events of its
-   own — a hang, not an error. So `socket_close` now explicitly wakes its waiters
-   (`wake_poll_waiters`); they retry, find the handle gone, and get a closed error.
-   This was confirmed the hard way: the probe hung at exactly that point when built
-   without the wake. Pinned by `closing_a_socket_wakes_a_fiber_parked_on_it`.
+   accidental safety net. A fiber parked on a socket that _another fiber closes_
+   used to be rescued by an unrelated socket's event waking everyone. With
+   routing it would park forever, because a closed socket produces no more
+   events of its own — a hang, not an error. So `socket_close` now explicitly
+   wakes its waiters (`wake_poll_waiters`); they retry, find the handle gone,
+   and get a closed error. This was confirmed the hard way: the probe hung at
+   exactly that point when built without the wake. Pinned by
+   `closing_a_socket_wakes_a_fiber_parked_on_it`.
 
    That also makes close-from-another-fiber the **only** cancellation mechanism
-   there is until (2) lands, so it is a supported pattern rather than an edge case.
+   there is until (2) lands, so it is a supported pattern rather than an edge
+   case.
 
    Left coarser on purpose: fibers sharing a handle (a reader and a writer) are
-   woken together, and the one whose direction didn't fire re-parks. Splitting by
-   direction as well as handle would remove that second-order waste; not worth the
-   state until a profile says so, since the first-order win is all in the handle.
+   woken together, and the one whose direction didn't fire re-parks. Splitting
+   by direction as well as handle would remove that second-order waste; not
+   worth the state until a profile says so, since the first-order win is all in
+   the handle.
 
-2. **Socket timeouts.** _Done (2026-07)._ `select` landed and timeouts fell out of
-   it: `fiber.select([sock, fiber.after(d)])`, or `fiber.with_timeout(work, d)`.
-   A `TcpStream` is selectable on readability, probed non-destructively with mio's
-   `peek` so the `read` that follows still sees the bytes.
+2. **Socket timeouts.** _Done (2026-07)._ `select` landed and timeouts fell out
+   of it: `fiber.select([sock, fiber.after(d)])`, or
+   `fiber.with_timeout(work, d)`. A `TcpStream` is selectable on readability,
+   probed non-destructively with mio's `peek` so the `read` that follows still
+   sees the bytes.
 
    The runtime piece is `ParkRequest::Multi`, which lists a fiber in `blocked` +
    `timers` + `poll_blocked[h]` at once. Two safety properties hold it up, and
-   **both were verified by deliberately breaking them**, since a test that passes
-   either way is worthless here:
-   - **Idempotent waking** (a `queued` flag behind one `make_ready` choke point).
-     Without it, one fiber that sends on a channel *and* closes a socket wakes a
-     selector twice before it is scheduled, and the scheduler traps —
+   **both were verified by deliberately breaking them**, since a test that
+   passes either way is worthless here:
+   - **Idempotent waking** (a `queued` flag behind one `make_ready` choke
+     point). Without it, one fiber that sends on a channel _and_ closes a socket
+     wakes a selector twice before it is scheduled, and the scheduler traps —
      `scheduled a running or finished fiber`. Reachable precisely because
      `socket_close` wakes waiters during another fiber's run, unlike timers and
      poll events, which only fire from the idle loop when nothing is queued.
-   - **Sweep-on-schedule** (`unlist`). Without it, a select's *losing* deadline
-     stays live and fires at whatever the fiber parks on next: a later 80ms sleep
-     returned in 0ms. Worse in principle — a stale wake landing on an `Await`-parked
-     fiber would resume it before its syscall finished, handing back the discarded
-     placeholder as the result.
+   - **Sweep-on-schedule** (`unlist`). Without it, a select's _losing_ deadline
+     stays live and fires at whatever the fiber parks on next: a later 80ms
+     sleep returned in 0ms. Worse in principle — a stale wake landing on an
+     `Await`-parked fiber would resume it before its syscall finished, handing
+     back the discarded placeholder as the result.
 
    Still open, and the honest limit: **the timed-out work is not cancelled**,
-   because a fiber cannot be killed. `with_timeout` bounds the wait, not the work.
-   Releasing the resource is the caller's job — for a socket, close it.
+   because a fiber cannot be killed. `with_timeout` bounds the wait, not the
+   work. Releasing the resource is the caller's job — for a socket, close it.
 
 Ordering: (1) and (2) are done; **(3) TLS is next**, and is now the only thing
-between `std.http` and complete.
+between `std.http` and complete. Design + staged plan (crate choice, native ABI,
+the park/retry mapping, `TlsStream`, and a hermetic test strategy) in
+[http-tls.md](http-tls.md).
 
 ### Scheduler punchlist
 
@@ -1040,18 +1056,18 @@ Findings from a 2026-07 design review of fiber waiting/waking (the park
 taxonomy, the readiness poller, `select`). The review's verdict was that the
 design is sound — the two `Multi`-park invariants (idempotent waking,
 sweep-on-schedule) are enforced at single choke points and mutation-tested — so
-these are the gaps *around* it, not problems *in* it. None is a correctness
-bug; all three grow teeth with a long-running server, which is where the
-networking arc is headed.
+these are the gaps _around_ it, not problems _in_ it. None is a correctness bug;
+all three grow teeth with a long-running server, which is where the networking
+arc is headed.
 
-1. **Selects with no `Progress` source still join the coarse `blocked` list.**
-   A `Multi` park adds the fiber to `blocked` unconditionally, so a
+1. **Selects with no `Progress` source still join the coarse `blocked` list.** A
+   `Multi` park adds the fiber to `blocked` unconditionally, so a
    `select([sock, fiber.after(d)])` — socket + timer, no channel or join
-   anywhere in it — is woken by *every* channel send/receive/close and fiber
+   anywhere in it — is woken by _every_ channel send/receive/close and fiber
    completion in the program, re-probes all its sources, and re-parks. That is
    the per-fd-routing problem (item 1 above) reappearing one layer up: N
-   connections each select-waiting with a timeout do O(N) spurious re-probes
-   per channel operation. Cheap targeted fix when a profile asks: the Thera-side
+   connections each select-waiting with a timeout do O(N) spurious re-probes per
+   channel operation. Cheap targeted fix when a profile asks: the Thera-side
    `select` already knows whether any source returned `SelectSource.Progress`,
    so `_select_park` can take that as a flag and skip `blocked` when none did.
    The full fix is per-resource waiter lists for channels and joins (already
@@ -1064,27 +1080,27 @@ networking arc is headed.
    so `select_park` converts wall→monotonic on every park — while `time.sleep`
    is `Instant` end-to-end. A wall-clock step forward fires select deadlines
    early; a step backward extends them (the probe loop re-parks with a
-   recomputed remainder — it converges, no hang, but an NTP step is added to
-   the wait). `with_timeout` semantics want monotonic throughout. The wrinkle:
-   `SelectSource.Deadline` needs an *absolute* time that stays fixed across
+   recomputed remainder — it converges, no hang, but an NTP step is added to the
+   wait). `with_timeout` semantics want monotonic throughout. The wrinkle:
+   `SelectSource.Deadline` needs an _absolute_ time that stays fixed across
    re-parks, so the fix is a runtime-provided monotonic clock (millis since
    program start, say) for `Timer` to capture instead of the epoch — a new
    native and a `std.time` surface decision, hence parked here.
 
-3. **The scheduler never reclaims fibers or channels.** `fibers` is
-   deliberately never compacted (stable ids), every `Done` fiber's result stays
-   GC-rooted forever (`gather_scheduler_roots`), and `channels` only grows.
-   Invisible in every current program, but the server pattern — one long run of
+3. **The scheduler never reclaims fibers or channels.** `fibers` is deliberately
+   never compacted (stable ids), every `Done` fiber's result stays GC-rooted
+   forever (`gather_scheduler_roots`), and `channels` only grows. Invisible in
+   every current program, but the server pattern — one long run of
    `while true { accept; spawn(handle) }` — leaks a fiber slot plus its rooted
    result per connection served. Needs a design decision, not a patch, because
    join-ability is what blocks reclamation: a `Done` fiber can't be freed while
-   a `join` might still come. Candidate shapes: make `join` one-shot and
-   reclaim on it, plus a story for never-joined fire-and-forget fibers (drop
-   the result on completion when no join can observe it, or an explicit
-   detached spawn); refcounting `Fiber<T>` handles has been avoided so far.
-   Channels want the same eventually (`close` could free the slot once
-   drained). **This is the biggest of the three** — it gates calling the
-   `std.http` server production-shaped.
+   a `join` might still come. Candidate shapes: make `join` one-shot and reclaim
+   on it, plus a story for never-joined fire-and-forget fibers (drop the result
+   on completion when no join can observe it, or an explicit detached spawn);
+   refcounting `Fiber<T>` handles has been avoided so far. Channels want the
+   same eventually (`close` could free the slot once drained). **This is the
+   biggest of the three** — it gates calling the `std.http` server
+   production-shaped.
 
 Also noted by the review, one comment's worth of insurance: nothing enforces
 that an `IoFinish` closure captures no `Value` (they aren't GC roots; all ~25
@@ -1116,21 +1132,21 @@ conformance specs. Newest first.
   (2026-07). The tail of the idle-CPU arc (next entry): even with an unchanged
   pull at ~18ms, the client re-issued it every 2s forever, because
   `vscode-languageclient` re-arms its workspace-pull timer after every
-  *settlement* — the only lever is not settling. The spec plans for exactly this:
-  clients implement partial-result progress for the workspace pull "to allow
-  servers to keep the request open for a long time", and re-trigger if it closes.
-  So a pull carrying a `partialResultToken` now gets its report as `$/progress`
-  and **no response** (`Server.open_pull`); the request settles only on
-  supersession or cancel (empty final result / `RequestCancelled`) — and
+  _settlement_ — the only lever is not settling. The spec plans for exactly
+  this: clients implement partial-result progress for the workspace pull "to
+  allow servers to keep the request open for a long time", and re-trigger if it
+  closes. So a pull carrying a `partialResultToken` now gets its report as
+  `$/progress` and **no response** (`Server.open_pull`); the request settles
+  only on supersession or cancel (empty final result / `RequestCancelled`) — and
   `shutdown` supersedes an in-flight scan then settles, so the client is never
   owed a response. Idle is now genuinely zero: no timers on either side, the
   dispatch loop parked on stdin.
 
   Held open, the stream becomes closed files' **only** channel — verified in the
-  client source: `workspace/diagnostic/refresh` re-pulls open *documents* only,
+  client source: `workspace/diagnostic/refresh` re-pulls open _documents_ only,
   never the workspace. So workspace-affecting changes (surface edits, closes,
-  watcher events, exclude changes) now stream **delta batches**: only files whose
-  diagnostics changed (partial results merge per-uri, so omission means
+  watcher events, exclude changes) now stream **delta batches**: only files
+  whose diagnostics changed (partial results merge per-uri, so omission means
   unchanged — an idle workspace streams nothing), plus **retractions** (an empty
   `full`, no `resultId`) for files that left the scan — deleted, newly excluded,
   or a closed loose file — which nothing else would ever clear. Deltas diff
@@ -1143,13 +1159,13 @@ conformance specs. Newest first.
   Clients that send no token (and the in-process tests) keep the
   respond-and-re-pull path unchanged.
 
-  The follow-up (phase 2) made the pulls that *do* still happen — the initial
+  The follow-up (phase 2) made the pulls that _do_ still happen — the initial
   one, and every re-pull for a polling client — skip even the per-file
   byte-compare when nothing changed: `input_generation` counts every input
   mutation (edit, close, watcher event, roots/exclude change — exactly the five
   entry points), the `ScanCache` is stamped with the generation its texts were
   captured under, and a matching stamp reuses in O(1). The compare stays as the
-  fallback tier — it catches an edit that *reverted*, and a match there
+  fallback tier — it catches an edit that _reverted_, and a match there
   re-stamps. Measured on this repo: an unchanged re-pull 43ms → 13ms (the
   remainder is emit + serialize). Pinned by poisoning the cache so the two tiers
   disagree — only the generation tier can serve the marker. The clock also
@@ -1166,104 +1182,109 @@ conformance specs. Newest first.
   pull replaced it or the session is shutting down (the pre-3.17
   `ContentModified` is gone). Distinguishing the causes required tracking the
   scan's request id (`Server.scan_id`), which also fixed a latent sloppiness:
-  `$/cancelRequest` used to bump the generation *blindly*, so a cancel for any
+  `$/cancelRequest` used to bump the generation _blindly_, so a cancel for any
   already-completed request killed an innocent scan — cancels now match by id,
   and an unrelated one is ignored per the protocol. Behavior-neutral for
   vscode-languageclient (it re-arms its workspace timer on any settlement and
   only reads `retriggerRequest` on document pulls), so this is truthfulness for
   other clients, not observable behavior for VS Code.
+
 - **LSP: an idle server costs ~nothing (and stops going stale)** (2026-07). An
   idle `thera lsp` sat at 40–80% CPU with the editor untouched. Not a scheduler
   spin: the server measures 0% idle and never wakes itself. The cause is that
   `vscode-languageclient`'s `pullWorkspace` re-arms `setTimeout(…, 2000)`
   unconditionally after every reply — idle or not, forever — so a pull's cost is
   paid continuously. `resultId` caching (already correct here) only saves
-  re-*sending* items, never re-*computing* them; and our supersession reply
+  re-_sending_ items, never re-_computing_ them; and our supersession reply
   (`ContentModified`, -32801) is swallowed by the client as a resolved default,
   so neither of the classic runaway-pull traps applied. The client's design
   simply assumes an unchanged pull is cheap. Three fixes, warm pull 2.19s → 60ms
-  (~52% CPU → ~3%): (1) `fs.read_dir` — the walk stat-ed every entry to ask "file
-  or directory?", which `readdir` already answers (1593ms → 255ms); (2)
+  (~52% CPU → ~3%): (1) `fs.read_dir` — the walk stat-ed every entry to ask
+  "file or directory?", which `readdir` already answers (1593ms → 255ms); (2)
   `thera.exclude` prunes subtrees during the walk rather than filtering files
   after it, and this repo excludes `runtime/target/**`; (3) a content-keyed scan
   cache — identical texts in, identical diagnostics out, so an unchanged pull
   skips checking entirely. Along the way this turned up a **pre-existing
-  staleness bug**, reproduced on the prior commit: `parsed_primary` keys the parse
-  cache by path and evicts only on overlay events, so a file changed on disk with
-  no buffer open (a branch switch, a rebase) kept serving its first-ever parse for
-  the life of the session. Fixed by registering `workspace/didChangeWatchedFiles`
-  (dynamic registration only — there is no static capability) and invalidating on
-  each event. With the watcher in place the scan itself is cached too (it was
-  re-walking and re-reading every file each pull to rediscover what the watcher had
-  already reported), leaving a warm pull at **~18ms — ~0.9% of a core**. Every
-  cache invalidation was verified load-bearing by removing it and watching a test
-  fail. Measurement note: the first probe polled for replies on a 50ms `sleep`,
-  quantizing every timing to the next tick — it reported a flat "55ms" that hid
-  both the cost and the improvement. Wait on an event, not a poll.
+  staleness bug**, reproduced on the prior commit: `parsed_primary` keys the
+  parse cache by path and evicts only on overlay events, so a file changed on
+  disk with no buffer open (a branch switch, a rebase) kept serving its
+  first-ever parse for the life of the session. Fixed by registering
+  `workspace/didChangeWatchedFiles` (dynamic registration only — there is no
+  static capability) and invalidating on each event. With the watcher in place
+  the scan itself is cached too (it was re-walking and re-reading every file
+  each pull to rediscover what the watcher had already reported), leaving a warm
+  pull at **~18ms — ~0.9% of a core**. Every cache invalidation was verified
+  load-bearing by removing it and watching a test fail. Measurement note: the
+  first probe polled for replies on a 50ms `sleep`, quantizing every timing to
+  the next tick — it reported a flat "55ms" that hid both the cost and the
+  improvement. Wait on an event, not a poll.
 - **Function references** (2026-07). A named `fn` is now usable as a value —
   `apply(double, 21)`, `let f = double`, `return stringify_it` — closing a
   **spec/implementation divergence** rather than adding a feature:
-  [language.md](language.md) §Functions already opened "Functions are first-class
-  values" and its type table already called `(Int, String) -> Bool` "the type of
-  lambdas **and function references**". Only lambdas worked; a bare `fn` name in
-  value position failed in codegen with `not a local variable: double`.
+  [language.md](language.md) §Functions already opened "Functions are
+  first-class values" and its type table already called `(Int, String) -> Bool`
+  "the type of lambdas **and function references**". Only lambdas worked; a bare
+  `fn` name in value position failed in codegen with
+  `not a local variable: double`.
 
-  Found while building `std.http.server`, where a handler is exactly the case for
-  naming a function and handing it over — `serve(addr, my_handler)` is the form
-  docs/stdlib.md's own sketch showed, and it did not compile.
+  Found while building `std.http.server`, where a handler is exactly the case
+  for naming a function and handing it over — `serve(addr, my_handler)` is the
+  form docs/stdlib.md's own sketch showed, and it did not compile.
 
   Two halves, and the second mattered more than the symptom suggested:
   - **codegen** — a reference is a closure over the function's own unit with no
     captures, i.e. the same `closure.new` a lambda emits, appended to the
-    local→const→global resolution chain (a name is a function reference only if it
-    is nothing else, and one name space per scope means it cannot be two).
+    local→const→global resolution chain (a name is a function reference only if
+    it is nothing else, and one name space per scope means it cannot be two).
   - **inference** — `infer_ident` fell through to `Unknown`, which is lenient on
     both sides, so the reference was not merely uncompilable but **untyped**:
-    `apply(takes_string, 21)` against `(Int) -> Int` type-checked and only died in
-    codegen. A reference now carries its function's signature, so the mismatch is a
-    proper argument-anchored error (`expected (Int) -> Int, found (String) -> Int`).
-    Generic functions stay `Unknown`: `show<T: Display>` is a family, not a type,
-    and choosing a member needs an instantiation the position doesn't supply.
+    `apply(takes_string, 21)` against `(Int) -> Int` type-checked and only died
+    in codegen. A reference now carries its function's signature, so the
+    mismatch is a proper argument-anchored error
+    (`expected (Int) -> Int, found (String) -> Int`). Generic functions stay
+    `Unknown`: `show<T: Display>` is a family, not a type, and choosing a member
+    needs an instantiation the position doesn't supply.
 
-  Pinned by `tests/lang/functions/fn_reference.thera` (the xfail written when the
-  gap was found, now a passing test) and `fn_reference_reject.thera` (the typing).
-  Uncovered next door, still open: only an identifier or a field may be a **call
-  target** (`fns[0](10)` doesn't compile) — see _Open work → Language_.
+  Pinned by `tests/lang/functions/fn_reference.thera` (the xfail written when
+  the gap was found, now a passing test) and `fn_reference_reject.thera` (the
+  typing). Uncovered next door, still open: only an identifier or a field may be
+  a **call target** (`fns[0](10)` doesn't compile) — see _Open work → Language_.
 
 - **Readiness poller + `std.net`** (2026-07). Fibers phase 4, and the socket
   layer under the coming `std.http`. `mio` joins as the 4th runtime dependency —
   the call was never "dep vs. no dep", since hand-rolling `kqueue`/`epoll` needs
   `libc` for the syscalls anyway: the real cost was one extra crate (`log`)
-  against two unsafe backends and no windows. Sockets are **non-blocking** and so
-  never touch the phase-3 worker pool — a blocking `accept` would pin one of its
-  four threads indefinitely, and four would stall every other fiber's I/O.
+  against two unsafe backends and no windows. Sockets are **non-blocking** and
+  so never touch the phase-3 worker pool — a blocking `accept` would pin one of
+  its four threads indefinitely, and four would stall every other fiber's I/O.
   `EWOULDBLOCK` parks the fiber (`ParkRequest::Ready`) and the `call.native`
   re-runs on readiness: `BlockRetry`'s discipline, woken by the poller. The
   driver keeps **one** wait point (`poll()`, timer-bounded, with worker
   completions interrupting via a `Waker`), so there is no poller thread and the
   runtime stays single-threaded.
 
-  Two findings made it smaller than budgeted. Sockets need **no readiness state**
-  despite mio being edge-triggered — the usual lost-edge hazard can't occur when
-  a fiber parks only *after* its syscall returned `EWOULDBLOCK`, since any
-  earlier edge was stale by construction; the syscall is the ground truth, which
-  promotes "attempt before parking" to a correctness rule. And because the ops
-  never leave the Thera thread, sockets skip phase 3's take-out/return discipline
-  entirely, so concurrent read + write on one socket from two fibers works
-  (unlike a `File`). The retry does make **idempotency** a rule: `write` returns a
-  *count* rather than writing all (a write-all native would re-send on retry),
-  and `connect` splits into `socket_connect` + `socket_connect_finish` because
-  re-issuing `connect(2)` on a pending fd reports `EALREADY`. DNS stays on the
-  worker pool — blocking, but bounded.
+  Two findings made it smaller than budgeted. Sockets need **no readiness
+  state** despite mio being edge-triggered — the usual lost-edge hazard can't
+  occur when a fiber parks only _after_ its syscall returned `EWOULDBLOCK`,
+  since any earlier edge was stale by construction; the syscall is the ground
+  truth, which promotes "attempt before parking" to a correctness rule. And
+  because the ops never leave the Thera thread, sockets skip phase 3's
+  take-out/return discipline entirely, so concurrent read + write on one socket
+  from two fibers works (unlike a `File`). The retry does make **idempotency** a
+  rule: `write` returns a _count_ rather than writing all (a write-all native
+  would re-send on retry), and `connect` splits into `socket_connect` +
+  `socket_connect_finish` because re-issuing `connect(2)` on a pending fd
+  reports `EALREADY`. DNS stays on the worker pool — blocking, but bounded.
 
   `std.net` is deliberately **provisional** (docs/stdlib.md § "not in core"): a
   Go-shaped `listen`/`connect`/`accept` with `TcpStream` as an ordinary
   `Reader`+`Writer`+`Closer`, carrying only what `std.http` needs — no UDP,
   deadlines, half-close, socket options, or TLS. Its first client already paid
-  off: the accept loop drove the retry-on-wake shape, and exposed that **`io.copy`
-  assumed writes never go short** — true of files, false of sockets, and a silent
-  byte-dropping bug for any short-writing `Writer` (fixed; `io.write_all` added
-  and `copy` routed through it). Open tail: _Open work → Networking punchlist_.
+  off: the accept loop drove the retry-on-wake shape, and exposed that
+  **`io.copy` assumed writes never go short** — true of files, false of sockets,
+  and a silent byte-dropping bug for any short-writing `Writer` (fixed;
+  `io.write_all` added and `copy` routed through it). Open tail: _Open work →
+  Networking punchlist_.
 
 - **Diagnostics review — arc complete** (2026-07). The final rung of the staged
   language review (grammar → spec → type system → diagnostics), asking: do the
@@ -1506,9 +1527,9 @@ conformance specs. Newest first.
   `Ok`/`Some` fallback for `Result`/`Option`. This is the enabling primitive for
   runtime reflection/introspection. Format in bytecode.md.
 
-- **`thera test`/`check`/`lint` UX for LLM output** (2026-07). The analyzers stop
-  emitting lines just for doing work: quiet-by-default reports (failure blocks
-  only), a one-line proof-of-work summary
+- **`thera test`/`check`/`lint` UX for LLM output** (2026-07). The analyzers
+  stop emitting lines just for doing work: quiet-by-default reports (failure
+  blocks only), a one-line proof-of-work summary
   (`Ran N tests for M test files; K failures.` /
   `Checked N source files; M issues found.`), `--verbose` for the classic
   per-test report, and no-argument invocations defaulting to the current
@@ -1700,10 +1721,10 @@ conformance specs. Newest first.
   the file from the repo copy, the core types (`List<T>`, …) existed twice with
   distinct identities, so a core file's own generic methods stopped
   type-checking against their own `List<T>` and every top-level decl looked like
-  it shadowed the prelude copy of itself. `thera check sdk/std` via a foreign SDK
-  is now clean (was ~8 false diagnostics). Ordinary project files (not under a
-  `std` tree) are unaffected — they keep resolving against the configured SDK —
-  and the normal build resolves identically (fixpoint holds). Also: an
+  it shadowed the prelude copy of itself. `thera check sdk/std` via a foreign
+  SDK is now clean (was ~8 false diagnostics). Ordinary project files (not under
+  a `std` tree) are unaffected — they keep resolving against the configured SDK
+  — and the normal build resolves identically (fixpoint holds). Also: an
   unresolved for-loop iterable now types its element as `Unknown`, not `Int`
   (the `Int` fallback is scoped to ranges), so a genuinely unknown element no
   longer cascades into "no method X on Int".
