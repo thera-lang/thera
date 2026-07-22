@@ -5,21 +5,22 @@
 // build's fixpoint guards the no-op-on-valid invariant globally, these lock it
 // locally and document intent.
 //
-// STAGE 1 scope: `expect` is now non-fatal — a *known hole* (a missing `)`, a
-// field name after `.`) records one error and fills a synthetic token in place,
-// so the surrounding declaration survives instead of being discarded. *Genuine
-// confusion* (a token that can start nothing — a `{` where a parameter belongs, a
-// `;` where an expression must begin) still goes through `fail` and unwinds to
-// the declaration boundary. So a dangling dot or a missing delimiter now survives
-// inside a full function; a missing *expression* (`let x =`, `a +`) still unwinds
-// at the decl level (its statement-level recovery is Stage 2). The termination
-// test below guards the forward-progress invariant (§3) for the constructs whose
-// recovery this stage changed.
+// STAGE 2 scope (statement blocks): a statement that hits genuine confusion no
+// longer unwinds the whole declaration. `parse_stmt_or_recover` clears the panic,
+// resyncs to the next statement boundary, and drops an `Expr.Error` placeholder,
+// so the statements *around* the hole survive and a broken function body keeps
+// its signature (signature-past-body). A stray decl keyword inside a block is
+// treated as a block boundary, so the next declaration is reclaimed rather than
+// swallowed. (Expression blocks — match arms / block expressions — are Stage 2b.)
+//
+// Recap of the earlier stages still asserted below: Stage 0 added `Expr.Error` +
+// the structural dumper; Stage 1 made `expect` non-fatal so *known holes* (a
+// missing `)`, a field after `.`) survive in place. The termination sweep guards
+// the forward-progress invariant (§3) across every construct these stages touch.
 
 import std.testing;
 
 import '../lexer/lexer' as _;
-import '../ast/ast' as _;
 import '../ast/describe' as _;
 import '../ast/dump' as _;
 import 'parser' as _;
@@ -124,6 +125,77 @@ fn test_missing_call_paren_survives() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// --- Stage 2: statement-level recovery (siblings + signature-past-body) ---
+
+@test
+fn test_broken_statement_preserves_siblings() -> Result<Void, Error> {
+    // A statement that can't parse (`let y = ` with no initializer — a `;` where
+    // an expression must begin, i.e. genuine confusion) is replaced by an
+    // `Expr.Error` placeholder; the statements before AND after it survive.
+    let src = 'fn f() -> Int { let x = 1; let y = ; return x; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error for the empty initializer')?;
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    let x = 1\n'
+        + '    expr <error>\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_broken_body_keeps_signature() -> Result<Void, Error> {
+    // Signature-past-body (§5): a body full of garbage no longer discards the
+    // declaration — the block recovers internally, so `parse_block` returns and
+    // the `FnDecl` keeps its real signature (name, params, return type). A
+    // dependent in another file can still resolve against it.
+    let src = 'fn compute(_ x: Int) -> Int { ) ) ) }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error for the garbage body')?;
+    let expected = 'fn compute(x: Int) -> Int\n'
+        + '  block\n'
+        + '    expr <error>';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_broken_body_does_not_swallow_next_decl() -> Result<Void, Error> {
+    // A broken body must not consume the following declaration. Even when the hole
+    // leaves the body unclosed, the stray `fn` is treated as a block boundary, so
+    // both declarations survive.
+    let src = 'fn a() -> Int { % } fn b() -> Int { return 2; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error in a\'s body')?;
+    let expected = 'fn a() -> Int\n'
+        + '  block\n'
+        + '    expr <error>\n'
+        + 'fn b() -> Int\n'
+        + '  block\n'
+        + '    return 2';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_broken_match_arm_does_not_cascade() -> Result<Void, Error> {
+    // Anti-cascade regression: a panic raised *inside* a match's braces (a missing
+    // `,` after an arm) must resync to the statement's own brace depth, not mistake
+    // the match's closing `}` for the block's. Otherwise the block ends early and
+    // the rest of the body spills to top level as spurious "expected a declaration"
+    // errors. Exactly one error (the missing `,`), and `return x` survives.
+    let src = 'fn f() -> Int { let x = match n { 1 => 10 2 => 20 }; return x; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert_eq(actual: r.errors.len(), expected: 1)?;
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    expr <error>\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
 // --- Baseline: genuine confusion still unwinds and isolates siblings ---
 
 @test
@@ -175,6 +247,10 @@ fn test_recovery_terminates_on_changed_constructs() -> Result<Void, Error> {
         'fn f() -> Int { return match x { Some(v) => v, None => 0 }; }',
         'fn f() -> List<Map<String, Int>> { return xs.map(x => x.).first(); }',
         'fn f() -> Int { let p = P { x: 1, y: }; return p.x; }',
+        'fn f() -> Int { let x = 1; % ; let y = 2; return x; }',
+        'fn a() -> Int { ) ) } fn b() -> Int { return 2; }',
+        'fn f() -> Int { if c { let x = ; } return 0; }',
+        'fn f() -> Int { for x in xs { @ } return 0; }',
     ];
     let mut total = 0;
     for s in samples {
