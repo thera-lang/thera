@@ -365,10 +365,13 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   `testkit` (parse/parse_at) retired the duplicated per-file harness helpers; a
   `floor_test` drift guard links real `std.core` once and asserts the floor's
   arities match core's; and the floor's contract is documented on
-  `builtin_type_defs`. **Remaining (opt-in):** give the specific harnesses that
-  need method/enum-body coverage an option to link the real `std.core` closure
-  (cached once), while the fully-hermetic mode stays for the
-  resolver/registry-floor tests that deliberately assert no-prelude behavior.
+  `builtin_type_defs`. **Remaining — deferred until needed:** the floor's
+  method/enum-body gap forces only ~2 minor test workarounds today and leaves no
+  coverage hole (core-method behavior is exercised by `tests/lang/`, the
+  `sdk/std` suites, and examples). So rather than a proactive sweep, add a
+  linked-real-`std.core` harness the first time a specific checker/inference test
+  genuinely needs core-method/enum-body resolution — the machinery is ~15 lines
+  (see `floor_test.thera`), and the fully-hermetic mode stays the default.
 
 - **Resolution — smaller open items.** (Qualified-only + `pub` visibility
   enforcement, the `FileScope` refactor, and owner-correct value _and type_
