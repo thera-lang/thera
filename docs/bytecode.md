@@ -43,7 +43,7 @@ A few consequences fall out of these directly:
 
 One value = one **64-bit slot** on the operand stack and in the locals array.
 
-| Thera type          | Slot contents                                | Ref? |
+| Thera type         | Slot contents                                | Ref? |
 | ------------------ | -------------------------------------------- | ---- |
 | `Int`              | i64                                          | no   |
 | `Double`           | f64 (bit-pattern in the slot)                | no   |

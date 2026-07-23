@@ -1,7 +1,7 @@
 # Thera grammar
 
-**What this is:** a semi-formal EBNF description of Thera's concrete syntax — the
-single reference for the keyword set, the operator/precedence table, and the
+**What this is:** a semi-formal EBNF description of Thera's concrete syntax —
+the single reference for the keyword set, the operator/precedence table, and the
 shape of every declaration, statement, and expression. It is **descriptive**:
 the hand-written recursive-descent parser (`pkgs/cli/lexer/`,
 `pkgs/cli/parser/`) is the source of truth, and this doc tracks it. A lexer test

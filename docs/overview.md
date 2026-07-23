@@ -181,9 +181,9 @@ tooling.
 
 ## 3. High Points of Leverage for LLM Productivity
 
-Thera's syntax and semantics are carefully tuned to give AI coding agents maximum
-leverage, ensuring they can produce correct code, refactor easily, and avoid
-common cognitive errors.
+Thera's syntax and semantics are carefully tuned to give AI coding agents
+maximum leverage, ensuring they can produce correct code, refactor easily, and
+avoid common cognitive errors.
 
 ```
                       ┌─────────────────────────────────┐
@@ -221,9 +221,9 @@ raw text.
 In dynamic or mutable-by-default languages, variables can change state at any
 program point. For an LLM to predict execution behavior, it must scan back and
 forth to track variables across multiple lines (the "multi-hop attention tax").
-In Thera, bindings are immutable by default, enforcing a single-static-assignment
-style. State is transformed via pipeline flows, allowing the model to reason
-about code in a purely linear fashion.
+In Thera, bindings are immutable by default, enforcing a
+single-static-assignment style. State is transformed via pipeline flows,
+allowing the model to reason about code in a purely linear fashion.
 
 ### IV. Explicit Braces (Indent-Independent Diffs)
 
@@ -311,8 +311,8 @@ around a tiered VM pipeline (Tier 0 is built and runs everything today; the JIT
 tier is planned):
 
 1. **Tier-0 Bytecode Interpreter:** When a program starts, it is compiled into a
-   lightweight stack-based bytecode format (`.thera-bc`) and run immediately by a
-   fast loop interpreter written in Rust. Since most CLI script paths execute
+   lightweight stack-based bytecode format (`.thera-bc`) and run immediately by
+   a fast loop interpreter written in Rust. Since most CLI script paths execute
    exactly once, the interpreter bypasses JIT compilation overhead, running the
    code instantly at zero compilation cost.
 2. **Tier-1 Cranelift JIT (planned):** Functions will carry call counters and
@@ -359,15 +359,15 @@ collector.
 
 ### Self-Hosting and the Native ABI
 
-The `thera` executable is the Rust runtime. It runs the Thera compiler front-end,
-pre-compiled to bytecode (`frontend.thera-bc`) and shipped beside the binary as
-`bin/inc/frontend.thera-bc`, which the runtime loads on a front-end subcommand (a
-single-binary release can instead `include_bytes!` the blob).
+The `thera` executable is the Rust runtime. It runs the Thera compiler
+front-end, pre-compiled to bytecode (`frontend.thera-bc`) and shipped beside the
+binary as `bin/inc/frontend.thera-bc`, which the runtime loads on a front-end
+subcommand (a single-binary release can instead `include_bytes!` the blob).
 
-When running `thera run script.thera`, the VM runs that front-end bytecode
-on its interpreter to parse and compile the user script into an in-memory
-`Module`, which it then executes. This bootstrap path ensures that the front-end
-remains a regular Thera program, laying the groundwork for self-hosting.
+When running `thera run script.thera`, the VM runs that front-end bytecode on
+its interpreter to parse and compile the user script into an in-memory `Module`,
+which it then executes. This bootstrap path ensures that the front-end remains a
+regular Thera program, laying the groundwork for self-hosting.
 
 Native standard library functions are declared in Thera via the `native fn`
 syntax and bound to the runtime using the `@extern('symbol_name')` decorator.

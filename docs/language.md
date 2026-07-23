@@ -740,14 +740,14 @@ when a missing element would mean a bug.
 `thera: trap: <message>` and exits non-zero. The message is human-readable and
 names the specifics:
 
-| Fault                     | Message                                                                               |
-| ------------------------- | ------------------------------------------------------------------------------------- |
-| list index out of range   | `index out of range: the index is <i> but the length is <n>`                          |
-| missing map key           | `key not found: <key>` (string keys are quoted, e.g. `'bob'`)                         |
-| integer divide-by-zero    | `division by zero`                                                                    |
-| send on a closed channel  | `send on a closed channel`                                                            |
+| Fault                     | Message                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| list index out of range   | `index out of range: the index is <i> but the length is <n>`                           |
+| missing map key           | `key not found: <key>` (string keys are quoted, e.g. `'bob'`)                          |
+| integer divide-by-zero    | `division by zero`                                                                     |
+| send on a closed channel  | `send on a closed channel`                                                             |
 | out of memory             | `out of memory: the live heap is <n> MiB but the limit is <m> MiB (THERA_MAX_HEAP_MB)` |
-| runaway recursion         | `stack overflow: the call stack reached <n> frames`                                   |
+| runaway recursion         | `stack overflow: the call stack reached <n> frames`                                    |
 | type error (checker hole) | `runtime type error: expected <type>, found <type>` (both are Thera type names)        |
 
 Distinct from the type-error message is
@@ -1091,9 +1091,9 @@ The `.thera` extension is always implied and must not be written in the import
 path. Absolute paths and `..` traversals are not supported.
 
 **A path may resolve to a file or to a directory.** For a path `P` (after
-anchoring as above): if `P.thera` exists it is the library; otherwise, if `P/` is
-a directory, the library is its **barrel** file `P/<last>.thera` (named after the
-directory). Having both `P.thera` and a `P/` directory is an error.
+anchoring as above): if `P.thera` exists it is the library; otherwise, if `P/`
+is a directory, the library is its **barrel** file `P/<last>.thera` (named after
+the directory). Having both `P.thera` and a `P/` directory is an error.
 
 ```thera
 import 'wordcount'  // → wordcount.thera        (single-file library)
@@ -1146,9 +1146,9 @@ through the `foo` namespace, as in any other importer). The filename convention
 grants the access, avoiding a general package-private axis.
 
 Visibility and qualification are **front-end** concerns — name resolution
-applies them and they are erased in `.thera-bc` (calls are by index; the bytecode
-has no notion of "private" or namespaces). The precise resolution rules — bare
-vs. qualified, the prelude, and the algorithm — are in
+applies them and they are erased in `.thera-bc` (calls are by index; the
+bytecode has no notion of "private" or namespaces). The precise resolution rules
+— bare vs. qualified, the prelude, and the algorithm — are in
 [Name resolution & scoping](#name-resolution--scoping). Qualified-only access
 and `pub` privacy **are enforced**: a bare cross-library reference, a qualified
 access to a non-public member, and a bare reference to a value owned by an
@@ -1352,13 +1352,13 @@ outside it is treated as plain text):
   code-shaped text. Backticks always work, so the bracket form is a pure opt-in
   upgrade, never required.
 - **Lists:** `-` bullets and `1.` ordered lists.
-- **Code blocks:** fenced only, tagged with the language — ` ```thera `. Indented
-  code blocks are **not** supported (they force an ambiguous indent-width rule
-  under the `///` prefix); a fence is delimited, needs no measuring, and is the
-  form LLMs read and emit most reliably. A fence may be left **untagged** when
-  its content is preformatted text that is _not_ Thera code — a syntax table, a
-  grammar fragment, or sample program output — so the `thera` tag never falsely
-  implies something is runnable.
+- **Code blocks:** fenced only, tagged with the language — ` ```thera `.
+  Indented code blocks are **not** supported (they force an ambiguous
+  indent-width rule under the `///` prefix); a fence is delimited, needs no
+  measuring, and is the form LLMs read and emit most reliably. A fence may be
+  left **untagged** when its content is preformatted text that is _not_ Thera
+  code — a syntax table, a grammar fragment, or sample program output — so the
+  `thera` tag never falsely implies something is runnable.
 
 There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite
 long, sectioned docs that cut against the brevity goal, and a symbol's name is
@@ -1367,7 +1367,7 @@ set of **bold-label paragraphs** instead:
 
 | Label          | Use                                                                               |
 | -------------- | --------------------------------------------------------------------------------- |
-| `**Example:**` | a usage example (usually a fenced `thera` block)                                   |
+| `**Example:**` | a usage example (usually a fenced `thera` block)                                  |
 | `**Errors:**`  | the conditions under which a `Result` returns `Err`                               |
 | `**Traps:**`   | the conditions under which the call traps (see [Runtime faults](#runtime-faults)) |
 | `**Note:**`    | a caveat or non-obvious consequence                                               |
@@ -1426,7 +1426,8 @@ pub native fn read_text(_ path: String) -> Result<String, Error>
 ```
 
 Native functions are an implementation detail of stdlib libraries. User code
-calls the Thera wrappers (e.g. `fs.read_text`), not the native bindings directly.
+calls the Thera wrappers (e.g. `fs.read_text`), not the native bindings
+directly.
 
 An opaque type wraps a native handle whose internal layout is managed by the
 runtime. Declare it as an empty struct:
@@ -1939,8 +1940,8 @@ their targets explicit.
 
 Diagnostics come in two severities. An **error** is invalid code: it blocks
 `run`/`emit`/`test` and makes `thera check` exit 1. A **warning** is legal code
-that is probably a mistake: `thera check` (and the LSP) report it, but nothing is
-blocked and the exit code stays 0 — a signal, not a gate. A warning line is
+that is probably a mistake: `thera check` (and the LSP) report it, but nothing
+is blocked and the exit code stays 0 — a signal, not a gate. A warning line is
 tagged and closes with its **rule name**:
 
 ```
@@ -1987,21 +1988,21 @@ The warning rules:
 
 ### Commands
 
-| Command           | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
+| Command            | Description                                                  |
+| ------------------ | ------------------------------------------------------------ |
 | `thera run`        | Run a source file                                            |
 | `thera check`      | Type-check without running (defaults to the cwd)             |
 | `thera test`       | Run tests (defaults to the cwd; `--verbose` for full report) |
 | `thera fmt`        | Format source files in place (`--check` to only report)      |
 | `thera lint`       | Report non-idiomatic code shapes (defaults to the cwd)       |
 | `thera lint --fix` | Apply the safe lint rewrites (explicit target required)      |
-| `thera emit`       | Compile to a `.thera-bc` bytecode file                         |
+| `thera emit`       | Compile to a `.thera-bc` bytecode file                       |
 | `thera lsp`        | Start the language server                                    |
 
 ### `thera test`
 
-`thera test [file|dir]` runs the `@test` functions in a `*_test.thera` file, or in
-every `*_test.thera` found under a directory (the current directory when no
+`thera test [file|dir]` runs the `@test` functions in a `*_test.thera` file, or
+in every `*_test.thera` found under a directory (the current directory when no
 target is given). The default output is quiet: a block per **failing** test —
 its name, with the failure detail indented under it in the standard
 `path:line:column: message` diagnostic shape — then one summary line. A green
@@ -2066,15 +2067,16 @@ discovery) needs to know about the difference.
 ### Two binaries: `thera-rt` and `thera`
 
 The Rust crate builds **`thera-rt`** — the _bare runtime_: it loads and runs a
-`.thera-bc` and nothing else. The SDK build ships that same binary as **`thera`**
-alongside the compiled front-end (`frontend.thera-bc`, in `bin/inc/`). So `thera`
-is `thera-rt` plus a front-end it loads at runtime: invoked on a `.thera-bc` (or
-`--entry`) it behaves as the bare runtime; invoked on a subcommand (`run`,
-`check`, `test`, `emit`, `fmt`, `lint`, `fix`, `lsp`) it loads and boots the
-front-end. The distinction lets a `cargo build` (which yields `thera-rt`) be
-unambiguously the runtime, while `thera` is unambiguously the runtime +
-front-end. (A single-binary release can `include_bytes!` the front-end instead of
-shipping it beside the binary; the runtime prefers a baked-in blob when present.)
+`.thera-bc` and nothing else. The SDK build ships that same binary as
+**`thera`** alongside the compiled front-end (`frontend.thera-bc`, in
+`bin/inc/`). So `thera` is `thera-rt` plus a front-end it loads at runtime:
+invoked on a `.thera-bc` (or `--entry`) it behaves as the bare runtime; invoked
+on a subcommand (`run`, `check`, `test`, `emit`, `fmt`, `lint`, `fix`, `lsp`) it
+loads and boots the front-end. The distinction lets a `cargo build` (which
+yields `thera-rt`) be unambiguously the runtime, while `thera` is unambiguously
+the runtime + front-end. (A single-binary release can `include_bytes!` the
+front-end instead of shipping it beside the binary; the runtime prefers a
+baked-in blob when present.)
 
 ### Distributed layout
 
@@ -2097,9 +2099,9 @@ upward from the current directory (the in-repo dev case). The stdlib directory
 beneath that root is the one place the two layouts diverge — `std_root` accepts
 either `<root>/std` (distributed) or `<root>/sdk/std` (in-repo):
 
-| Mode        | Binary / entry point | SDK root     | stdlib dir        |
-| ----------- | -------------------- | ------------ | ----------------- |
-| In-repo     | `<repo>/bin/…`       | `<repo>/`    | `<repo>/sdk/std/` |
+| Mode        | Binary / entry point  | SDK root     | stdlib dir        |
+| ----------- | --------------------- | ------------ | ----------------- |
+| In-repo     | `<repo>/bin/…`        | `<repo>/`    | `<repo>/sdk/std/` |
 | Distributed | `<install>/bin/thera` | `<install>/` | `<install>/std/`  |
 
 Discovery is location-based (no environment variable): the binary finds its SDK

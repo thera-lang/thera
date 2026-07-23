@@ -103,10 +103,10 @@ enough to reduce hallucination.
 
 ## The tiers
 
-| Tier          | Import          | Contents                                                                                                                                           |
-| ------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods |
-| **Core std**  | `import std.x`  | `io iter fs path env process time fiber math random sort json encoding hash http log cli term char regex testing`                                  |
+| Tier          | Import          | Contents                                                                                                                                                                                |
+| ------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods                                      |
+| **Core std**  | `import std.x`  | `io iter fs path env process time fiber math random sort json encoding hash http log cli term char regex testing`                                                                       |
 | **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server _frameworks_ (a simple server is core), raw sockets (a provisional `std.net` backs `std.http`), compression, full crypto/TLS, UUID, templating, … |
 
 The line between core and ecosystem: core covers what a typical CLI tool or
@@ -572,10 +572,10 @@ Notes: no mutexes/atomics — single-threaded means no data races
 `Selectable` interface plus an index (`fiber.select(sources) -> Int`), over
 fibers, channels, timers, and sockets — with `fiber.with_timeout(work, dur)` on
 top. It needs no Go-style `select { case … }` syntax because cooperative
-scheduling makes ask-then-act race-free. The **runtime implementation** — fibers as stackless coroutines over
-the interpreter's explicit frame stack, the scheduler, parking, GC roots across
-fibers, and the I/O staging — is sketched in [architecture.md](architecture.md)
-§Concurrency.
+scheduling makes ask-then-act race-free. The **runtime implementation** — fibers
+as stackless coroutines over the interpreter's explicit frame stack, the
+scheduler, parking, GC roots across fibers, and the I/O staging — is sketched in
+[architecture.md](architecture.md) §Concurrency.
 
 **Fibers gate the IO-heavy libraries.** The "concurrency is invisible" principle
 (§ Cross-cutting #5) — blocking I/O parks the fiber instead of the thread — only
@@ -584,22 +584,22 @@ wants concurrent, blocking-looking I/O depends on `std.fiber` first; the two
 should be sequenced together (see § Sequencing). That parking now covers every
 blocking family: timers, the `fs`/`process` syscalls (a worker pool), and
 **sockets** (a readiness poller — see roadmap.md phase 4, and the provisional
-`std.net`). And because the fiber API is
-load-bearing for that whole tier, its design should be driven by **iterative
-feedback from real IO use cases** (a concurrent HTTP fetch, a server accept
-loop, piping between processes) rather than fixed up front — prototype against
-those clients and let them shape `spawn`/`join`/channels (and whether `select`
-is needed) before freezing the surface. The first such client has landed: the
-accept loop in `std.net`'s tests drove `ParkRequest::Ready`'s retry-on-wake shape
-(and, in passing, exposed that `io.copy` assumed writes never go short — true of
-files, false of sockets). It also sharpened the case for **`select`**, which has
-since landed — a socket read now takes a deadline.
+`std.net`). And because the fiber API is load-bearing for that whole tier, its
+design should be driven by **iterative feedback from real IO use cases** (a
+concurrent HTTP fetch, a server accept loop, piping between processes) rather
+than fixed up front — prototype against those clients and let them shape
+`spawn`/`join`/channels (and whether `select` is needed) before freezing the
+surface. The first such client has landed: the accept loop in `std.net`'s tests
+drove `ParkRequest::Ready`'s retry-on-wake shape (and, in passing, exposed that
+`io.copy` assumed writes never go short — true of files, false of sockets). It
+also sharpened the case for **`select`**, which has since landed — a socket read
+now takes a deadline.
 
 ### `std.math` — numeric functions _(implemented)_
 
-Thera has no function overloading and no implicit `Int`→`Double` coercion, so the
-surface splits by a single rule: **type-preserving ops that also apply to `Int`
-are methods on the numeric types; inherently-`Double` ops are `std.math`
+Thera has no function overloading and no implicit `Int`→`Double` coercion, so
+the surface splits by a single rule: **type-preserving ops that also apply to
+`Int` are methods on the numeric types; inherently-`Double` ops are `std.math`
 functions.**
 
 Methods (core prelude, on **both** `Int` and `Double`, returning their own
@@ -677,7 +677,8 @@ primitives included). Living in their own module keeps the common names
 
 Purpose: parse and serialize JSON. A structural `Json` value, with a
 hand-written scanner + recursive-descent parser in pure Thera
-(`sdk/std/json/json.thera`) — the worked stand-in for self-hosting the front-end.
+(`sdk/std/json/json.thera`) — the worked stand-in for self-hosting the
+front-end.
 
 ```
 pub enum Json {
@@ -712,8 +713,9 @@ return `Json` (Null on miss) rather than `Option`, so navigation chains —
 `decode`).
 
 **Encoding ergonomics — three layers.** Building a heterogeneous value needs
-`Json` (Thera has no heterogeneous map/list literal — a raw `['a': 1, 'b': true]`
-is a `Map`, not a `Json`, and won't pass to `stringify`). The layers:
+`Json` (Thera has no heterogeneous map/list literal — a raw
+`['a': 1, 'b': true]` is a `Map`, not a `Json`, and won't pass to `stringify`).
+The layers:
 
 1. **Constructors (today):**
    `json.obj(['two': json.int(123), 'three': json.double(1.2)])` — container
@@ -796,9 +798,9 @@ checksum, not a hash.
 ### `std.http` / `std.http.server` — HTTP client + simple server
 
 _Status: the **wire codec**, the **server**, and the **client** are implemented,
-over the provisional `std.net`. **TLS is not**, so the client is `http://`-only —
-an `https://` URL parses and then fails at `send` saying so. Also deferred with
-it: redirect following, connection pooling, and streaming bodies._
+over the provisional `std.net`. **TLS is not**, so the client is `http://`-only
+— an `https://` URL parses and then fails at `send` saying so. Also deferred
+with it: redirect following, connection pooling, and streaming bodies._
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
 are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both
@@ -878,15 +880,16 @@ named driver for the fiber API (§ `std.fiber`), and duly drove it.
 
 As-built notes, none of them visible from the sketch above:
 
-- **Keep-alive** is on by default, per HTTP/1.1; only an explicit `connection:
-  close` ends a connection. An HTTP/1.0 client (whose default is the opposite) is
-  safe under that rule anyway, because every response the codec writes carries a
-  `content-length` — so a 1.0 client frames the response without waiting for EOF
-  and just closes, which the serve loop reads as a clean end-of-stream.
-- **`serve` cannot be stopped.** It blocks until bind or accept fails; stopping it
-  needs cancellation, which needs `select` (§ Networking punchlist). This is why
-  `serve_listener` exists — bind `:0`, read the port back, *then* serve — and it
-  is what tests use.
+- **Keep-alive** is on by default, per HTTP/1.1; only an explicit
+  `connection: close` ends a connection. An HTTP/1.0 client (whose default is
+  the opposite) is safe under that rule anyway, because every response the codec
+  writes carries a `content-length` — so a 1.0 client frames the response
+  without waiting for EOF and just closes, which the serve loop reads as a clean
+  end-of-stream.
+- **`serve` cannot be stopped.** It blocks until bind or accept fails; stopping
+  it needs cancellation, which needs `select` (§ Networking punchlist). This is
+  why `serve_listener` exists — bind `:0`, read the port back, _then_ serve —
+  and it is what tests use.
 - **The `Router` distinguishes 404 from 405.** A path that exists under another
   verb gets a 405 with an `allow` header rather than a 404: "no such thing" and
   "wrong verb" are different answers, and the distinction is worth the few lines
@@ -1007,8 +1010,8 @@ path the `to_writer` sink takes. (Landing this drove the front-end fix that
 infers an un-annotated module global's type from its initializer — see
 [roadmap.md](roadmap.md) changelog; before it, `config`'s type was `Unknown` and
 member access failed in codegen.) A _global_ `set_output` to redirect the
-ambient sink to an arbitrary `Writer` is deferred — it would mean holding a Thera
-value in the config as a GC root — and `to_writer` already covers the
+ambient sink to an arbitrary `Writer` is deferred — it would mean holding a
+Thera value in the config as a GC root — and `to_writer` already covers the
 custom-sink and capture cases.
 
 **Out of scope → ecosystem / DIY** (the industrial tier): async / non-blocking
@@ -1132,9 +1135,10 @@ case folding belong to a Unicode/ICU package, not core. Identifier predicates
 > **Status: implemented** (the runtime's **2nd deliberate dependency**, after
 > `std.hash`). Backed by the Rust team's `regex` crate (RE2-derived) — the same
 > "take a vetted, best-of-breed crate" call. A compiled pattern lives in a
-> runtime-held registry (the `std.process` handle pattern); Thera holds an opaque
-> `Int` handle inside `Regex`. The earlier pure-Thera version over `re2_*`
-> natives that didn't survive the runtime migration has been replaced wholesale.
+> runtime-held registry (the `std.process` handle pattern); Thera holds an
+> opaque `Int` handle inside `Regex`. The earlier pure-Thera version over
+> `re2_*` natives that didn't survive the runtime migration has been replaced
+> wholesale.
 
 Compile a pattern once, then match / find / capture / replace against Unicode
 text. RE2 syntax (linear-time, no backtracking / lookaround) — see
@@ -1199,19 +1203,20 @@ So the boundary is explicit (and so an agent knows where to look):
   `std.http.server` — bind + handle + a tiny path matcher) **are core**; see §
   `std.http`.
 
-  A **provisional** `std.net` does exist — TCP `listen`/`accept`/`connect` plus a
-  `TcpStream` that is a `Reader`+`Writer`+`Closer` — but only as the layer
+  A **provisional** `std.net` does exist — TCP `listen`/`accept`/`connect` plus
+  a `TcpStream` that is a `Reader`+`Writer`+`Closer` — but only as the layer
   `std.http` is built on, and only as much of it as HTTP needs (no UDP, no
   deadlines, no half-close, no socket options, no TLS). It is documented in its
   own module header as expected to change, and is **not** a committed surface:
   treat it as internal until this entry says otherwise. Promoting it is the
-  natural pivot if the demand shows up — and the demand to watch for is specific,
-  because natives are bound by name in the runtime with **no FFI path for
-  third-party packages**: until `std.net` is committed, "other network protocols
-  → ecosystem" is aspirational, since nobody outside this repo can build a
-  WebSocket, Redis, or Postgres client without it. The first real non-HTTP
-  protocol need is the forcing function; the same "pivot when demonstrated, not
-  speculatively" rule as TOML above applies.
+  natural pivot if the demand shows up — and the demand to watch for is
+  specific, because natives are bound by name in the runtime with **no FFI path
+  for third-party packages**: until `std.net` is committed, "other network
+  protocols → ecosystem" is aspirational, since nobody outside this repo can
+  build a WebSocket, Redis, or Postgres client without it. The first real
+  non-HTTP protocol need is the forcing function; the same "pivot when
+  demonstrated, not speculatively" rule as TOML above applies.
+
 - **Databases / SQLite** → ecosystem.
 - **Full cryptography / TLS primitives, signing** → ecosystem (digests +
   randomness are core; TLS for `http` is a runtime native).
@@ -1243,10 +1248,10 @@ remains:
      boxes its values to `Json.Object`. So
      `let doc: Json = ['two': 123, 'tags': ['a', 'b'], 'ok': true]` works.
      Scoped to literals/primitives in `Json` context (not arbitrary coercion),
-     and **encode-only**. It introduces Thera's first implicit _primitive_ boxing
-     — softened by the `Ok`-wrap precedent (same mechanism, another blessed
-     type) and by being lossless. Highest ergonomic-return-per-effort; the most
-     LLM-friendly for inline JSON.
+     and **encode-only**. It introduces Thera's first implicit _primitive_
+     boxing — softened by the `Ok`-wrap precedent (same mechanism, another
+     blessed type) and by being lossless. Highest ergonomic-return-per-effort;
+     the most LLM-friendly for inline JSON.
    - **Compile-time reflection `encode<T>`/`decode<T>` (research-later;
      bigger).** Typed struct ↔ JSON with no manual wrapping, and the only path
      to typed **decoding** (the harder, more valuable half) plus `Debug`/`Eq`
@@ -1274,8 +1279,8 @@ remains:
    What remains is **`std.http`** itself (client + simple server, both committed
    to core). The order to build it in, and why:
    - **The wire codec first** — `Request`/`Response`, status codes, and HTTP/1.1
-     framing (`Content-Length`, chunked). Pure Thera over `io.Reader`/`Writer`, so
-     it unit-tests against `Bytes`/`StringWriter` with no sockets at all.
+     framing (`Content-Length`, chunked). Pure Thera over `io.Reader`/`Writer`,
+     so it unit-tests against `Bytes`/`StringWriter` with no sockets at all.
    - **Then the server**, which is not gated on TLS (terminated upstream) and
      writes the harder half of that codec — parsing an untrusted request is
      strictly harder than serializing one. Its accept loop is also the named
@@ -1293,12 +1298,12 @@ remains:
    the namespace is the last dotted segment and `http.get(url)` should stay the
    spelling of the most-written line in the surface.
 
-   One correction to the sketch in § `std.http` above: `headers: Map<String,
-   String>` models neither the case-insensitivity of header names nor the headers
-   that legitimately repeat. Rather than grow a bespoke header type, **normalize**
-   to what `Map` represents well — lowercase names on parse, repeats comma-joined
-   — and document it. (`Set-Cookie` is the one header that cannot be comma-joined;
-   it needs a carve-out.)
+   One correction to the sketch in § `std.http` above:
+   `headers: Map<String, String>` models neither the case-insensitivity of
+   header names nor the headers that legitimately repeat. Rather than grow a
+   bespoke header type, **normalize** to what `Map` represents well — lowercase
+   names on parse, repeats comma-joined — and document it. (`Set-Cookie` is the
+   one header that cannot be comma-joined; it needs a carve-out.)
 
 3. **Visibility enforcement** ([language.md](language.md)). Some modules (e.g.
    `std.process`) have native bindings that should be module-private; today the
