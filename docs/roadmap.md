@@ -499,16 +499,15 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
     (Runtime).
-  - **Further renderers — completion, signature help, semantic tokens.** Thin
-    query-layer renderers; completion + signatureHelp additionally need the
-    parser recovery below.
+  - **Further renderers — semantic tokens.** A thin query-layer renderer.
+    (**Completion and signature help landed** — see the parser-recovery item.)
   - **Segregate intentional-error test fixtures — done** (see _Changelog_). The
     server now drops a `tests/lang/` fixture's _declared_ diagnostics
     (`// expect error:` / `// expect warning:` on the line, or a wholesale
     `//! xfail:`) per-file, reusing the markers the conformance harness already
     reads — so the clean fixtures come under analysis and a _surprise_ error
     still surfaces, with no `thera.exclude` glob to maintain.
-- **Parser error recovery for the LSP — core landed; two tails open.** The LSP's
+- **Parser error recovery for the LSP — core + Stage 2b landed.** The LSP's
   normal input is _syntactically broken_ code mid-edit; the parser synthesizes a
   best-effort tree (recover past the error) so semantic resolution still runs
   and can offer completions/hover. **The core mechanism shipped** (Stages 0–3;
@@ -517,25 +516,50 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   placeholder + empty-name convention give the resolver/checker/inference a
   lenient, no-cascade arm, `brace_depth`-driven statement resync contains the
   lost case, and signature-past-body recovery keeps a broken decl's signature.
-  Remaining:
-  - **Stage 2b — recovery inside expression blocks** (`parse_expr_block`:
-    match-arm `{…}` bodies and block-expressions). A broken statement there
-    still discards the enclosing declaration; the interleaved tail-expression
-    handling makes per-element recovery fiddlier than the statement-block case.
-  - **The behavioral `complete_at(source, offset)` oracle** — asserts completion
-    items directly rather than via the structural dump; lands with the
-    `textDocument/completion` item below. Until then the structural dump
-    (`ast/dump.thera`) + span assertions are the oracle.
+  - **Stage 2b — recovery inside expression blocks and match arms — _landed
+    (2026-07)._** `parse_expr_block` recovers a broken element in place
+    (parse*block's discipline: clear the panic, `sync_to_stmt` at the block's
+    own depth, `Expr.Error` placeholder — or an `Expr.Error` \_tail* when the
+    hole is the block's value, so it types Unknown rather than a cascading
+    Void), and the match-arm loop recovers a broken pattern/`=>`/body to the
+    next arm via `sync_to_arm` (a missing `,` resumes in place — the cursor
+    already sits at the next arm). So a broken statement inside an arm keeps the
+    enclosing `let`, the match tree, and the sibling arms — pinned structurally
+    in `recovery_test.thera` and behaviorally by the completion oracle (a cursor
+    inside a broken arm completes).
 
   (Keep in mind when touching the parser — the precedence-table refactor
   preserved the `panicking`/recovery structure.)
-  - **Dependent feature: `textDocument/completion`.** Autocomplete requires
-    navigating a mid-keystroke AST (e.g., `obj.`). Deferring until the parser
-    can reliably build an AST that doesn't drop the trailing, incomplete member
-    access.
-  - **Dependent feature: `textDocument/signatureHelp`.** Surfaces parameter
-    names while inside a function call. Relies on the parser correctly framing
-    an unterminated call `foo(`, which current coarse recovery struggles with.
+  - **`textDocument/completion` — _landed (2026-07)._** `complete_at` (the
+    behavioral oracle the recovery stages promised, in
+    `pkgs/cli/lsp/completion.thera` + `completion_test.thera`) classifies the
+    cursor over the token stream and enumerates from the same owner-correct
+    surfaces hover resolves against: member completion after `.` (a value
+    receiver's committed type — which works mid-edit because the session now
+    checks recovered trees — a namespace's public surface, a bare/qualified
+    type's static surface, `self`), and bare-name completion (locals via a
+    collect-all refactor of the binding walkers, the file's decls, its bare
+    surface, its namespaces). Registered with `.` as the trigger character.
+    Along the way, non-fatal `expect`'s synthetic token was re-anchored from the
+    _next_ token to **just past the previous token** (the hole the cursor sits
+    in — `S.make().` before a `return` on the next line anchored on the wrong
+    line; at EOF the two coincide, which is why the span tests never caught it).
+    Known gaps: primitive receivers (`'s'.` — the hover gap, needs primitive
+    vtables), cursors inside comments/non-interpolated strings (tokens carry no
+    trivia), and `${…}` interpolation contexts.
+  - **`textDocument/signatureHelp` — _landed (2026-07)._** The parser now frames
+    an unterminated call — a token that closes an enclosing construct
+    (`}`/`]`/`;`) can't start an argument, so the args loop stops there and the
+    synthesized `)` completes the call node with the arguments already written,
+    instead of a failed argument parse unwinding the whole statement.
+    `signature_help_at` (`pkgs/cli/lsp/signature_help.thera`) locates the
+    innermost enclosing call in the AST (snapping a cursor in trailing
+    whitespace back onto code — an unterminated call's span ends at its last
+    real token), resolves the callee through hover's `callee_fn_site` (free fns,
+    static and instance methods on the receiver's committed type), and reports
+    the active parameter by counting completed arguments (`self` dropped, so an
+    instance call's first argument is parameter 0). Registered with `(` and `,`
+    as trigger characters.
 
 ### Developer tooling
 

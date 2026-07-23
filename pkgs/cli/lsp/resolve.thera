@@ -380,7 +380,7 @@ fn type_member(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ type_name: 
 // The file (key) that owns bare `name` as seen from the primary file: its own
 // top-level declaration, else the file's bare surface (prelude / `as _`) —
 // language.md's bare resolution, over the loader's maps.
-fn bare_owner_key(_ ctx: ResolveCtx, _ name: String) -> Option<String> {
+pub fn bare_owner_key(_ ctx: ResolveCtx, _ name: String) -> Option<String> {
     return owner_key_from(ctx, ctx.program, name);
 }
 
@@ -403,7 +403,7 @@ pub fn file_binds_namespace(_ ctx: ResolveCtx, _ name: String) -> Bool {
 }
 
 // The public surface bound to namespace `ns` in the primary file, or None.
-fn namespace_surface(_ ctx: ResolveCtx, _ ns: String) -> Option<element.LibraryNamespace> {
+pub fn namespace_surface(_ ctx: ResolveCtx, _ ns: String) -> Option<element.LibraryNamespace> {
     return match ctx.file_namespaces.get(element.file_key(ctx.program.file_path)) {
         Some(m) => m.get(ns),
         None => Option.None,
@@ -411,7 +411,7 @@ fn namespace_surface(_ ctx: ResolveCtx, _ ns: String) -> Option<element.LibraryN
 }
 
 // The parsed program whose canonical key is `key` — the primary or an import.
-fn program_of_key(_ ctx: ResolveCtx, _ key: String) -> Option<Program> {
+pub fn program_of_key(_ ctx: ResolveCtx, _ key: String) -> Option<Program> {
     if element.file_key(ctx.program.file_path) == key {
         return Option.Some(ctx.program);
     }
@@ -574,26 +574,37 @@ fn receiver_at_in(_ toks: List<Token>, _ text: String, _ offset: Int) -> Receive
         let s = p.value.span;
         if p.value.kind == TokenKind.Identifier && offset >= s.offset && offset <= s.offset + s.length {
             if p.index >= 2 && toks[p.index - 1].kind == TokenKind.Dot {
-                let recv = toks[p.index - 2];
-                if recv.kind == TokenKind.KwSelf {
-                    return Receiver.SelfRecv;
-                }
-                if recv.kind == TokenKind.Identifier {
-                    if p.index >= 4 && toks[p.index - 3].kind == TokenKind.Dot {
-                        let head = toks[p.index - 4];
-                        if head.kind == TokenKind.Identifier {
-                            return Receiver.Qualified(head.lexeme(), recv.lexeme());
-                        }
-                        return Receiver.Computed; // `self.x.y`, `f().a.b`
-                    }
-                    return Receiver.Named(recv.lexeme(), recv.span);
-                }
-                return Receiver.Computed; // `f().x`, `xs[i].y`, literal receivers
+                return receiver_of_dot(toks, p.index - 1);
             }
             return Receiver.NotMember;
         }
     }
     return Receiver.NotMember;
+}
+
+// The receiver classification for the `.` at token index `dot_idx` — shared by
+// a complete member access (classified from the member token after the dot)
+// and the mid-keystroke completion shape (`obj.`, where no member token exists
+// yet and only the dot places the cursor).
+pub fn receiver_of_dot(_ toks: List<Token>, _ dot_idx: Int) -> Receiver {
+    if dot_idx < 1 {
+        return Receiver.NotMember;
+    }
+    let recv = toks[dot_idx - 1];
+    if recv.kind == TokenKind.KwSelf {
+        return Receiver.SelfRecv;
+    }
+    if recv.kind == TokenKind.Identifier {
+        if dot_idx >= 3 && toks[dot_idx - 2].kind == TokenKind.Dot {
+            let head = toks[dot_idx - 3];
+            if head.kind == TokenKind.Identifier {
+                return Receiver.Qualified(head.lexeme(), recv.lexeme());
+            }
+            return Receiver.Computed; // `self.x.y`, `f().a.b`
+        }
+        return Receiver.Named(recv.lexeme(), recv.span);
+    }
+    return Receiver.Computed; // `f().x`, `xs[i].y`, literal receivers
 }
 
 // --- enclosing context ---
@@ -659,6 +670,17 @@ fn method_at(_ methods: List<FnDecl>, _ offset: Int) -> Option<FnDecl> {
 
 fn span_covers(_ span: SourceSpan, _ offset: Int) -> Bool {
     return offset >= span.offset && offset <= span.offset + span.length;
+}
+
+// The enclosing function/method at `offset` (for local-scope completion).
+pub fn enclosing_fn_at(_ program: Program, _ offset: Int) -> Option<FnDecl> {
+    return enclosing_ctx(program, offset).fn_decl;
+}
+
+// The bare name of the enclosing impl/interface's type at `offset`, if any —
+// what `self.` members resolve and complete against.
+pub fn enclosing_self_type_name(_ program: Program, _ offset: Int) -> Option<String> {
+    return enclosing_ctx(program, offset).self_type.map((st) => st.name);
 }
 
 // --- per-case resolution ---
@@ -736,30 +758,37 @@ fn variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ enum_n
 
 // --- local bindings (LS2/LS4) ---
 
-// A local binding site for the name under the cursor: where it binds and its
-// written annotation (its *inferred* type still needs inference-at-offset —
-// the render degrades to the bare name).
-struct BindingSite {
+// A local binding site: its name, where it binds, and its written annotation
+// (an unannotated binding's *inferred* type comes from the committed-type
+// record — the render degrades to the bare name without one).
+pub struct BindingSite {
+    let name: String;
     let span: SourceSpan;
     let type_ann: Option<TypeRef>;
 }
 
-// The local binding `ref` resolves to inside `fn_decl`, or None: parameters,
-// plus every binding form in scopes covering the cursor (`let`, `for`/`match`/
-// if-let patterns, lambda params). The *nearest declaration at or before* the
-// cursor wins, so a shadowing `let` beats the parameter it shadows (LS4) and
-// an earlier same-named binding.
-fn local_binding_at(_ fn_decl: FnDecl, _ ref: NameRef) -> Option<BindingSite> {
+// Every local binding site in scope at `offset` inside `fn_decl`: parameters,
+// plus every binding form (`let`, `for`/`match`/if-let patterns, lambda
+// params) in scopes covering the cursor. Completion enumerates these;
+// `local_binding_at` filters to the one name under the cursor.
+pub fn local_bindings_at(_ fn_decl: FnDecl, _ offset: Int) -> List<BindingSite> {
     let sites: List<BindingSite> = [];
     for p in fn_decl.params {
-        if !p.is_self && p.name == ref.name {
-            sites.push(BindingSite { span: p.name_span, type_ann: p.type_ann });
+        if !p.is_self {
+            sites.push(BindingSite { name: p.name, span: p.name_span, type_ann: p.type_ann });
         }
     }
-    if let Some(body) = fn_decl.body { bindings_in_block(body, ref, sites); }
+    if let Some(body) = fn_decl.body { bindings_in_block(body, offset, sites); }
+    return sites;
+}
+
+// The local binding `ref` resolves to inside `fn_decl`, or None. The *nearest
+// declaration at or before* the cursor wins, so a shadowing `let` beats the
+// parameter it shadows (LS4) and an earlier same-named binding.
+fn local_binding_at(_ fn_decl: FnDecl, _ ref: NameRef) -> Option<BindingSite> {
     let mut best: Option<BindingSite> = Option.None;
-    for site in sites {
-        if site.span.offset <= ref.span.offset {
+    for site in local_bindings_at(fn_decl, ref.span.offset) {
+        if site.name == ref.name && site.span.offset <= ref.span.offset {
             best = match best {
                 Some(b) => if site.span.offset >= b.span.offset { Option.Some(site) } else { Option.Some(b) },
                 None => Option.Some(site),
@@ -798,7 +827,7 @@ fn local_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ site: BindingSite) -> Res
 // The committed type recorded for exactly `span`, or None. Later entries
 // supersede earlier ones (the `let` refinement override); a fully-unknown
 // type is withheld (the bare-name render is more honest than `?`).
-fn recorded_type_at(_ ctx: ResolveCtx, _ span: SourceSpan) -> Option<types.Type> {
+pub fn recorded_type_at(_ ctx: ResolveCtx, _ span: SourceSpan) -> Option<types.Type> {
     let mut found: Option<types.Type> = Option.None;
     for r in ctx.primary_types {
         if r.offset == span.offset && r.length == span.length {
@@ -811,15 +840,15 @@ fn recorded_type_at(_ ctx: ResolveCtx, _ span: SourceSpan) -> Option<types.Type>
     return found;
 }
 
-// Collect binding sites for `ref.name` reachable at `ref`'s offset. The walk
-// prunes to scopes that *cover* the cursor (a binding inside a block the
-// cursor isn't in is not in scope), so nearest-preceding-wins is a faithful
-// shadowing approximation without an inference pass.
-fn bindings_in_block(_ b: Block, _ ref: NameRef, _ out: List<BindingSite>) -> Void {
+// Collect every binding site reachable at `offset`. The walk prunes to scopes
+// that *cover* the cursor (a binding inside a block the cursor isn't in is not
+// in scope), so nearest-preceding-wins is a faithful shadowing approximation
+// without an inference pass.
+fn bindings_in_block(_ b: Block, _ offset: Int, _ out: List<BindingSite>) -> Void {
     for st in b.stmts {
-        bindings_in_stmt(st, ref, out);
+        bindings_in_stmt(st, offset, out);
     }
-    if let Some(t) = b.tail { bindings_in_expr(t, ref, out); }
+    if let Some(t) = b.tail { bindings_in_expr(t, offset, out); }
 }
 
 fn block_covers(_ b: Block, _ offset: Int) -> Bool {
@@ -827,37 +856,35 @@ fn block_covers(_ b: Block, _ offset: Int) -> Bool {
         && offset <= b.end_span.offset + b.end_span.length;
 }
 
-fn bindings_in_stmt(_ st: Stmt, _ ref: NameRef, _ out: List<BindingSite>) -> Void {
+fn bindings_in_stmt(_ st: Stmt, _ offset: Int, _ out: List<BindingSite>) -> Void {
     match st {
         Let(x) => {
-            if x.name == ref.name {
-                out.push(BindingSite { span: x.name_span, type_ann: x.type_ann });
-            }
-            bindings_in_expr(x.value, ref, out);
+            out.push(BindingSite { name: x.name, span: x.name_span, type_ann: x.type_ann });
+            bindings_in_expr(x.value, offset, out);
         },
-        Assign(_, _, _, value) => { bindings_in_expr(value, ref, out); },
-        Expr(_, e) => { bindings_in_expr(e, ref, out); },
+        Assign(_, _, _, value) => { bindings_in_expr(value, offset, out); },
+        Expr(_, e) => { bindings_in_expr(e, offset, out); },
         Return(_, value) => {
-            if let Some(v) = value { bindings_in_expr(v, ref, out); }
+            if let Some(v) = value { bindings_in_expr(v, offset, out); }
         },
-        Throw(_, value) => { bindings_in_expr(value, ref, out); },
+        Throw(_, value) => { bindings_in_expr(value, offset, out); },
         If(x) => {
-            bindings_in_expr(x.condition, ref, out);
-            if block_covers(x.then_block, ref.span.offset) { bindings_in_block(x.then_block, ref, out); }
+            bindings_in_expr(x.condition, offset, out);
+            if block_covers(x.then_block, offset) { bindings_in_block(x.then_block, offset, out); }
             if let Some(eb) = x.else_block {
-                if block_covers(eb, ref.span.offset) { bindings_in_block(eb, ref, out); }
+                if block_covers(eb, offset) { bindings_in_block(eb, offset, out); }
             }
         },
         While(x) => {
-            bindings_in_expr(x.condition, ref, out);
-            if block_covers(x.body, ref.span.offset) { bindings_in_block(x.body, ref, out); }
+            bindings_in_expr(x.condition, offset, out);
+            if block_covers(x.body, offset) { bindings_in_block(x.body, offset, out); }
         },
         For(x) => {
-            bindings_in_expr(x.iterable, ref, out);
+            bindings_in_expr(x.iterable, offset, out);
             // The loop variable binds within the body (and at its own pattern).
-            if block_covers(x.body, ref.span.offset) || span_covers(pattern_span(x.pattern), ref.span.offset) {
-                bindings_in_pattern(x.pattern, ref, out);
-                if block_covers(x.body, ref.span.offset) { bindings_in_block(x.body, ref, out); }
+            if block_covers(x.body, offset) || span_covers(pattern_span(x.pattern), offset) {
+                bindings_in_pattern(x.pattern, out);
+                if block_covers(x.body, offset) { bindings_in_block(x.body, offset, out); }
             }
         },
         Break(_) => void,
@@ -865,100 +892,96 @@ fn bindings_in_stmt(_ st: Stmt, _ ref: NameRef, _ out: List<BindingSite>) -> Voi
     }
 }
 
-fn bindings_in_expr(_ e: Expr, _ ref: NameRef, _ out: List<BindingSite>) -> Void {
+fn bindings_in_expr(_ e: Expr, _ offset: Int, _ out: List<BindingSite>) -> Void {
     // Only scopes covering the cursor can bind it.
-    if !span_covers(expr_span(e), ref.span.offset) {
+    if !span_covers(expr_span(e), offset) {
         return;
     }
     match e {
         Block(_, b) => {
-            if block_covers(b, ref.span.offset) { bindings_in_block(b, ref, out); }
+            if block_covers(b, offset) { bindings_in_block(b, offset, out); }
         },
         If(x) => {
-            bindings_in_expr(x.condition, ref, out);
-            if block_covers(x.then_block, ref.span.offset) { bindings_in_block(x.then_block, ref, out); }
+            bindings_in_expr(x.condition, offset, out);
+            if block_covers(x.then_block, offset) { bindings_in_block(x.then_block, offset, out); }
             if let Some(eb) = x.else_block {
-                if block_covers(eb, ref.span.offset) { bindings_in_block(eb, ref, out); }
+                if block_covers(eb, offset) { bindings_in_block(eb, offset, out); }
             }
         },
         Match(x) => {
-            bindings_in_expr(x.subject, ref, out);
+            bindings_in_expr(x.subject, offset, out);
             for arm in x.arms {
                 // An arm's pattern binds within the arm (and at the pattern).
-                if span_covers(arm.span, ref.span.offset) {
-                    bindings_in_pattern(arm.pattern, ref, out);
-                    bindings_in_expr(arm.body, ref, out);
+                if span_covers(arm.span, offset) {
+                    bindings_in_pattern(arm.pattern, out);
+                    bindings_in_expr(arm.body, offset, out);
                 }
             }
         },
         Lambda(x) => {
             for p in x.params {
-                if p.name == ref.name {
-                    out.push(BindingSite { span: p.span, type_ann: p.type_ann });
-                }
+                out.push(BindingSite { name: p.name, span: p.span, type_ann: p.type_ann });
             }
-            bindings_in_expr(x.body, ref, out);
+            bindings_in_expr(x.body, offset, out);
         },
         Call(x) => {
-            bindings_in_expr(x.callee, ref, out);
+            bindings_in_expr(x.callee, offset, out);
             for a in x.args {
-                bindings_in_expr(a.value, ref, out);
+                bindings_in_expr(a.value, offset, out);
             }
         },
         Binary(_, l, _, r) => {
-            bindings_in_expr(l, ref, out);
-            bindings_in_expr(r, ref, out);
+            bindings_in_expr(l, offset, out);
+            bindings_in_expr(r, offset, out);
         },
-        Unary(_, _, operand) => { bindings_in_expr(operand, ref, out); },
-        Field(_, obj, _) => { bindings_in_expr(obj, ref, out); },
+        Unary(_, _, operand) => { bindings_in_expr(operand, offset, out); },
+        Field(_, obj, _) => { bindings_in_expr(obj, offset, out); },
         Index(_, obj, idx) => {
-            bindings_in_expr(obj, ref, out);
-            bindings_in_expr(idx, ref, out);
+            bindings_in_expr(obj, offset, out);
+            bindings_in_expr(idx, offset, out);
         },
-        Propagate(_, inner) => { bindings_in_expr(inner, ref, out); },
+        Propagate(_, inner) => { bindings_in_expr(inner, offset, out); },
         Range(_, a, b2) => {
-            bindings_in_expr(a, ref, out);
-            bindings_in_expr(b2, ref, out);
+            bindings_in_expr(a, offset, out);
+            bindings_in_expr(b2, offset, out);
         },
         Struct(x) => {
             for f in x.fields {
-                bindings_in_expr(f.value, ref, out);
+                bindings_in_expr(f.value, offset, out);
             }
         },
         ListLit(_, items) => {
             for it in items {
-                bindings_in_expr(it, ref, out);
+                bindings_in_expr(it, offset, out);
             }
         },
         MapLit(_, entries) => {
             for en in entries {
-                bindings_in_expr(en.key, ref, out);
-                bindings_in_expr(en.value, ref, out);
+                bindings_in_expr(en.key, offset, out);
+                bindings_in_expr(en.value, offset, out);
             }
         },
         Str(_, parts) => {
             for part in parts {
-                if let Interp(_, ie) = part { bindings_in_expr(ie, ref, out); }
+                if let Interp(_, ie) = part { bindings_in_expr(ie, offset, out); }
             }
         },
         Return(_, value) => {
-            if let Some(v) = value { bindings_in_expr(v, ref, out); }
+            if let Some(v) = value { bindings_in_expr(v, offset, out); }
         },
-        Throw(_, value) => { bindings_in_expr(value, ref, out); },
+        Throw(_, value) => { bindings_in_expr(value, offset, out); },
         _ => void,
     }
 }
 
-fn bindings_in_pattern(_ pat: Pattern, _ ref: NameRef, _ out: List<BindingSite>) -> Void {
+fn bindings_in_pattern(_ pat: Pattern, _ out: List<BindingSite>) -> Void {
     match pat {
         Ident(span, name) => {
-            if name == ref.name {
-                out.push(BindingSite { span: span, type_ann: Option.None });
-            }
+            out.push(BindingSite { name: name, span: span, type_ann: Option.None });
         },
         Constructor(_, _, args) => {
             for a in args {
-                bindings_in_pattern(a, ref, out);
+                bindings_in_pattern(a, out);
             }
         },
         Wildcard(_) => void,
@@ -976,7 +999,7 @@ fn bindings_in_pattern(_ pat: Pattern, _ ref: NameRef, _ out: List<BindingSite>)
 // value chain (`a.b.c`) from a namespace one, but the AST does — the member-access
 // `Field(obj, member)` node yields `obj`'s span, whose committed type the member
 // then resolves on (CH19). None when the cursor isn't on such a member.
-fn member_receiver_span(_ program: Program, _ offset: Int) -> Option<SourceSpan> {
+pub fn member_receiver_span(_ program: Program, _ offset: Int) -> Option<SourceSpan> {
     for decl in program.decls {
         if let Some(s) = member_receiver_in_decl(decl, offset) {
             return Option.Some(s);
@@ -1151,6 +1174,185 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
     };
 }
 
+// --- enclosing-call location (signature help) ---
+
+// The innermost call whose *argument region* covers `offset` — the cursor
+// sits past the callee, inside the parens. Innermost-first (`f(g(|` answers
+// `g`), searched across every expression-bearing declaration like the
+// computed-receiver walk. The parser frames an unterminated call (the args
+// loop stops at a closer token and the synthesized `)` anchors just past the
+// last real token), so the mid-keystroke `add(` has a node to find.
+pub fn enclosing_call_at(_ program: Program, _ offset: Int) -> Option<CallExpr> {
+    for decl in program.decls {
+        let found = match decl {
+            Fn(f) => call_in_fn(f, offset),
+            Impl(i) => {
+                let mut hit: Option<CallExpr> = Option.None;
+                for m in i.methods {
+                    if hit.is_none() { hit = call_in_fn(m, offset); }
+                }
+                hit
+            },
+            Interface(it) => {
+                let mut hit: Option<CallExpr> = Option.None;
+                for m in it.methods {
+                    if hit.is_none() { hit = call_in_fn(m, offset); }
+                }
+                hit
+            },
+            Const(c) => call_in_expr(c.value, offset),
+            Let(l) => call_in_expr(l.value, offset),
+            _ => Option.None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    return Option.None;
+}
+
+fn call_in_fn(_ f: FnDecl, _ offset: Int) -> Option<CallExpr> {
+    if !span_covers(f.span, offset) {
+        return Option.None;
+    }
+    return match f.body {
+        Some(body) => call_in_block(body, offset),
+        None => Option.None,
+    };
+}
+
+fn call_in_block(_ b: Block, _ offset: Int) -> Option<CallExpr> {
+    for st in b.stmts {
+        if let Some(c) = call_in_stmt(st, offset) {
+            return Option.Some(c);
+        }
+    }
+    return match b.tail {
+        Some(t) => call_in_expr(t, offset),
+        None => Option.None,
+    };
+}
+
+fn call_in_stmt(_ st: Stmt, _ offset: Int) -> Option<CallExpr> {
+    return match st {
+        Let(x) => call_in_expr(x.value, offset),
+        Assign(_, target, _, value) => {
+            if let Some(c) = call_in_expr(target, offset) { return Option.Some(c); }
+            call_in_expr(value, offset)
+        },
+        Expr(_, e) => call_in_expr(e, offset),
+        Return(_, value) => match value {
+            Some(v) => call_in_expr(v, offset),
+            None => Option.None,
+        },
+        Throw(_, value) => call_in_expr(value, offset),
+        If(x) => {
+            if let Some(c) = call_in_expr(x.condition, offset) { return Option.Some(c); }
+            if let Some(c) = call_in_block(x.then_block, offset) { return Option.Some(c); }
+            match x.else_block {
+                Some(eb) => call_in_block(eb, offset),
+                None => Option.None,
+            }
+        },
+        While(x) => {
+            if let Some(c) = call_in_expr(x.condition, offset) { return Option.Some(c); }
+            call_in_block(x.body, offset)
+        },
+        For(x) => {
+            if let Some(c) = call_in_expr(x.iterable, offset) { return Option.Some(c); }
+            call_in_block(x.body, offset)
+        },
+        Break(_) => Option.None,
+        Continue(_) => Option.None,
+    };
+}
+
+fn call_in_expr(_ e: Expr, _ offset: Int) -> Option<CallExpr> {
+    if !span_covers(expr_span(e), offset) {
+        return Option.None;
+    }
+    return match e {
+        Call(x) => {
+            // Innermost wins: a call deeper in an argument (or the callee
+            // chain) beats this one.
+            for a in x.args {
+                if let Some(c) = call_in_expr(a.value, offset) { return Option.Some(c); }
+            }
+            if let Some(c) = call_in_expr(x.callee, offset) { return Option.Some(c); }
+            let callee_end = expr_span(x.callee);
+            if offset > callee_end.offset + callee_end.length {
+                return Option.Some(x);
+            }
+            Option.None
+        },
+        Field(_, obj, _) => call_in_expr(obj, offset),
+        Index(_, obj, idx) => {
+            if let Some(c) = call_in_expr(obj, offset) { return Option.Some(c); }
+            call_in_expr(idx, offset)
+        },
+        Binary(_, l, _, r) => {
+            if let Some(c) = call_in_expr(l, offset) { return Option.Some(c); }
+            call_in_expr(r, offset)
+        },
+        Unary(_, _, operand) => call_in_expr(operand, offset),
+        Propagate(_, inner) => call_in_expr(inner, offset),
+        Range(_, a, b2) => {
+            if let Some(c) = call_in_expr(a, offset) { return Option.Some(c); }
+            call_in_expr(b2, offset)
+        },
+        Block(_, b) => call_in_block(b, offset),
+        If(x) => {
+            if let Some(c) = call_in_expr(x.condition, offset) { return Option.Some(c); }
+            if let Some(c) = call_in_block(x.then_block, offset) { return Option.Some(c); }
+            match x.else_block {
+                Some(eb) => call_in_block(eb, offset),
+                None => Option.None,
+            }
+        },
+        Match(x) => {
+            if let Some(c) = call_in_expr(x.subject, offset) { return Option.Some(c); }
+            for arm in x.arms {
+                if let Some(c) = call_in_expr(arm.body, offset) { return Option.Some(c); }
+            }
+            Option.None
+        },
+        Lambda(x) => call_in_expr(x.body, offset),
+        Struct(x) => {
+            for f in x.fields {
+                if let Some(c) = call_in_expr(f.value, offset) { return Option.Some(c); }
+            }
+            Option.None
+        },
+        ListLit(_, items) => {
+            for it in items {
+                if let Some(c) = call_in_expr(it, offset) { return Option.Some(c); }
+            }
+            Option.None
+        },
+        MapLit(_, entries) => {
+            for en in entries {
+                if let Some(c) = call_in_expr(en.key, offset) { return Option.Some(c); }
+                if let Some(c) = call_in_expr(en.value, offset) { return Option.Some(c); }
+            }
+            Option.None
+        },
+        Str(_, parts) => {
+            for part in parts {
+                if let Interp(_, ie) = part {
+                    if let Some(c) = call_in_expr(ie, offset) { return Option.Some(c); }
+                }
+            }
+            Option.None
+        },
+        Return(_, value) => match value {
+            Some(v) => call_in_expr(v, offset),
+            None => Option.None,
+        },
+        Throw(_, value) => call_in_expr(value, offset),
+        _ => Option.None,
+    };
+}
+
 // --- structural names: field declarations, struct-literal fields, call labels ---
 
 // A name the AST places precisely as a declaration or a label, not a lexical
@@ -1265,7 +1467,7 @@ fn match_variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ subject_span: Sou
 
 // The function/method a call targets, with its file: a free function (`f(...)`),
 // a static method (`Type.m(...)`), or an instance method (`value.m(...)`).
-fn callee_fn_site(_ ctx: ResolveCtx, _ callee: Expr) -> Option<MethodSite> {
+pub fn callee_fn_site(_ ctx: ResolveCtx, _ callee: Expr) -> Option<MethodSite> {
     return match callee {
         Ident(_, name) => match find_decl_site(ctx, name) {
             Some(ds) => match ds.decl {
@@ -1610,7 +1812,7 @@ fn type_param_of(_ tps: List<TypeParam>, _ name: String) -> Option<TypeParam> {
 
 // --- member / variant / field lookup (file-aware, for navigation) ---
 
-struct MethodSite {
+pub struct MethodSite {
     let fn_decl: FnDecl;
     let file: String;
 }
@@ -1698,6 +1900,105 @@ fn find_variant_site(_ ctx: ResolveCtx, _ owner: String, _ enum_name: String, _ 
     return Option.None;
 }
 
+// --- member enumeration (completion) ---
+
+// A candidate member for completion: its name, kind, and hover-style detail.
+pub struct MemberEntry {
+    let name: String;
+    let kind: SymbolKind;
+    let detail: String;
+}
+
+// Every member of the type (`owner`, `type_name`) as seen from the primary
+// file — the "list" dual of `find_method_site`/`find_field`/`find_variant_site`.
+// `instance` selects the value-receiver surface (fields + `self` methods);
+// otherwise the type-receiver surface (enum variants + static methods).
+pub fn type_members(_ ctx: ResolveCtx, _ owner: String, _ type_name: String,
+    instance: Bool) -> List<MemberEntry> {
+    let out: List<MemberEntry> = [];
+    if let Some(p) = program_of_key(ctx, owner) {
+        for decl in p.decls {
+            if instance {
+                if let Type(t) = decl {
+                    if t.name == type_name {
+                        for f in t.fields {
+                            out.push(MemberEntry { name: f.name, kind: SymbolKind.Field,
+                                detail: '${f.name}: ${describe.describe_type(f.type_ann)}' });
+                        }
+                    }
+                }
+            } else {
+                if let Enum(e) = decl {
+                    if e.name == type_name {
+                        for v in e.variants {
+                            out.push(MemberEntry { name: v.name, kind: SymbolKind.Variant,
+                                detail: variant_render(type_name, v) });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let primary_key = element.file_key(ctx.program.file_path);
+    method_entries(ctx, ctx.program, owner, type_name, instance, primary_key, out);
+    for imp in ctx.imports {
+        method_entries(ctx, imp, owner, type_name, instance, primary_key, out);
+    }
+    return out;
+}
+
+// Append `p`'s impl/interface methods of (`owner`, `type_name`) matching the
+// receiver kind (`instance`: with `self` / without) — the same owner-aware
+// selection as `methods_of`. A method from another file must be `pub`
+// (suggesting an uncallable private method is noise); the primary's own are
+// always offered.
+fn method_entries(_ ctx: ResolveCtx, _ p: Program, _ owner: String, _ type_name: String,
+    _ instance: Bool, _ primary_key: String, _ out: List<MemberEntry>) -> Void {
+    for decl in p.decls {
+        let methods = match decl {
+            Impl(i) => if i.type_name == type_name
+                && owner_key_from(ctx, p, type_name) == Option.Some(owner) { i.methods } else { [] },
+            Interface(it) => if it.name == type_name
+                && element.file_key(p.file_path) == owner { it.methods } else { [] },
+            _ => [],
+        };
+        let same_file = element.file_key(p.file_path) == primary_key;
+        for m in methods {
+            if method_has_self(m) == instance && (m.is_pub || same_file) {
+                out.push(MemberEntry { name: m.name, kind: SymbolKind.Method,
+                    detail: describe_fn(m) });
+            }
+        }
+    }
+    return;
+}
+
+fn method_has_self(_ m: FnDecl) -> Bool {
+    for p in m.params {
+        if p.is_self {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The namespace's public surface as completion entries (`ns.` →), each name
+// resolved to its declaring file for its kind and detail.
+pub fn namespace_entries(_ ctx: ResolveCtx, _ surface: element.LibraryNamespace) -> List<MemberEntry> {
+    let out: List<MemberEntry> = [];
+    for name in surface.origin.keys() {
+        if let Some(owner) = surface.origin.get(name) {
+            if let Some(p) = program_of_key(ctx, owner) {
+                if let Some(d) = find_decl_in(p, name) {
+                    out.push(MemberEntry { name: name, kind: decl_symbol_kind(d),
+                        detail: describe_decl(d) });
+                }
+            }
+        }
+    }
+    return out;
+}
+
 // --- top-level declaration lookup ---
 
 // The declaration bare `name` resolves to from the primary file: its own
@@ -1761,7 +2062,7 @@ pub fn decl_name_span(_ decl: Decl) -> Option<SourceSpan> {
 
 // The kind of a top-level declaration (the Impl/Import arms are unreachable —
 // `find_decl_site`/`ns_member` only surface nameable decls).
-fn decl_symbol_kind(_ decl: Decl) -> SymbolKind {
+pub fn decl_symbol_kind(_ decl: Decl) -> SymbolKind {
     return match decl {
         Fn(_) => SymbolKind.Function,
         Type(_) => SymbolKind.Struct,
@@ -1847,7 +2148,7 @@ pub fn describe_decl(_ decl: Decl) -> String {
     };
 }
 
-fn describe_fn(_ d: FnDecl) -> String {
+pub fn describe_fn(_ d: FnDecl) -> String {
     let params = d.params.map((p) => describe_param(p)).join(', ');
     let ret = match d.return_type {
         Some(t) => ' -> ${describe.describe_type(t)}',
@@ -1856,7 +2157,7 @@ fn describe_fn(_ d: FnDecl) -> String {
     return 'fn ${d.name}(${params})${ret}';
 }
 
-fn describe_param(_ p: Param) -> String {
+pub fn describe_param(_ p: Param) -> String {
     if p.is_self {
         return 'self';
     }

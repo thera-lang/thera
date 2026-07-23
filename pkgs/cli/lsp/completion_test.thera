@@ -1,0 +1,284 @@
+// Tests for completion (completion.thera): the behavioral `complete_at`
+// oracle over broken, mid-keystroke source — the consumer the parser-recovery
+// contract promised (docs/frontend.md §Parser error recovery — Testing).
+// Each fixture is *deliberately* mid-edit (a dangling `obj.`, a half-typed
+// name); the hermetic check walks the recovered tree, so committed-type
+// records exist for the receiver despite the parse error.
+
+import std.testing;
+
+import '../checker/checker';
+import '../element/element' as _; // LibraryNamespace
+import '../lexer/lexer';
+import '../parser/parser';
+import '../testkit';
+import 'completion' as _;
+import 'resolve' as _;
+
+// A hermetic ResolveCtx over `src` alone (no imports, no prelude), with
+// committed-type records from a hermetic check of the recovered tree.
+fn ctx_of(_ src: String) -> ResolveCtx {
+    let toks = lexer.tokenize(src).tokens;
+    let program = parser.parse_tokens(toks).program;
+    let checked = checker.check(program, [], [:], [:]);
+    return ResolveCtx {
+        program: program,
+        tokens: toks,
+        imports: [],
+        file_namespaces: [:],
+        file_bare_surface: [:],
+        primary_types: checked.records,
+    };
+}
+
+fn labels(_ src: String, _ offset: Int) -> List<String> {
+    return complete_at(ctx_of(src), src, offset).map((it) => it.label);
+}
+
+// The offset `delta` code points past the first occurrence of `marker`.
+fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
+    return src.find(marker).unwrap_or(0) + delta;
+}
+
+fn assert_has(_ ls: List<String>, _ name: String) -> Result<Void, Error> {
+    return testing.assert(ls.contains(name), message: 'expected `${name}` in [${ls.join(', ')}]');
+}
+
+fn assert_lacks(_ ls: List<String>, _ name: String) -> Result<Void, Error> {
+    return testing.assert(!ls.contains(name), message: 'expected no `${name}` in [${ls.join(', ')}]');
+}
+
+const SELF_SRC: String = 'struct S { let count: Int; }\n'
+    + 'impl S {\n'
+    + '    fn helper(self, _ n: Int) -> Int { return self.count + n; }\n'
+    + '    fn go(self) -> Int { return self.; }\n'
+    + '}\n';
+
+// `self.` mid-keystroke: the parse error leaves an empty-member hole, and the
+// enclosing impl's instance surface (fields + self methods) completes.
+@test
+fn test_member_completion_on_dangling_self_dot() -> Result<Void, Error> {
+    let ls = labels(SELF_SRC, at(SELF_SRC, 'return self.;', 12));
+    assert_has(ls, 'count')?;
+    assert_has(ls, 'helper')?;
+    assert_has(ls, 'go')?;
+    return Result.Ok(void);
+}
+
+const VALUE_SRC: String = 'struct S { let count: Int; }\n'
+    + 'impl S {\n'
+    + '    pub fn helper(self) -> Int { return self.count; }\n'
+    + '    pub fn make() -> S { return S { count: 1 }; }\n'
+    + '}\n'
+    + 'fn f() -> Int {\n'
+    + '    let s = S { count: 1 };\n'
+    + '    s.\n'
+    + '    return 0;\n'
+    + '}\n';
+
+// A dangling `s.` on a local value: the receiver's committed type (from the
+// check of the recovered tree) lists the instance surface — fields and `self`
+// methods, not statics.
+@test
+fn test_member_completion_on_local_value_receiver() -> Result<Void, Error> {
+    let ls = labels(VALUE_SRC, at(VALUE_SRC, '    s.\n', 6));
+    assert_has(ls, 'count')?;
+    assert_has(ls, 'helper')?;
+    assert_lacks(ls, 'make')?;
+    return Result.Ok(void);
+}
+
+// A typed prefix after the dot (`s.co`) narrows the instance surface.
+@test
+fn test_member_completion_filters_by_prefix() -> Result<Void, Error> {
+    let src = VALUE_SRC.replace('    s.\n', '    s.co\n');
+    let ls = labels(src, at(src, '    s.co', 8));
+    assert_has(ls, 'count')?;
+    assert_lacks(ls, 'helper')?;
+    return Result.Ok(void);
+}
+
+const ENUM_SRC: String = 'enum Color { Red, Green(Int) }\n'
+    + 'impl Color {\n'
+    + '    pub fn favorite() -> Color { return Color.Red; }\n'
+    + '    pub fn dim(self) -> Color { return self; }\n'
+    + '}\n'
+    + 'fn paint() -> Int {\n'
+    + '    Color.\n'
+    + '    return 0;\n'
+    + '}\n';
+
+// A bare type receiver (`Color.`) completes the static surface: variants and
+// static methods, not instance methods.
+@test
+fn test_member_completion_on_type_receiver() -> Result<Void, Error> {
+    let ls = labels(ENUM_SRC, at(ENUM_SRC, '    Color.\n', 10));
+    assert_has(ls, 'Red')?;
+    assert_has(ls, 'Green')?;
+    assert_has(ls, 'favorite')?;
+    assert_lacks(ls, 'dim')?;
+    return Result.Ok(void);
+}
+
+const SCOPE_SRC: String = 'fn compute(_ base: Int) -> Int {\n'
+    + '    let banana = 1;\n'
+    + '    let cherry = 2;\n'
+    + '    return ba\n'
+    + '}\n'
+    + 'fn other() -> Int { return 0; }\n';
+
+// A half-typed bare name completes from the enclosing scope, filtered by the
+// prefix: the parameter and the matching local, not the non-matching local.
+@test
+fn test_scope_completion_filters_by_prefix() -> Result<Void, Error> {
+    let ls = labels(SCOPE_SRC, at(SCOPE_SRC, 'return ba', 9));
+    assert_has(ls, 'banana')?;
+    assert_has(ls, 'base')?;
+    assert_lacks(ls, 'cherry')?;
+    assert_lacks(ls, 'other')?;
+    return Result.Ok(void);
+}
+
+// With no prefix (right after `return `), the whole scope offers: locals,
+// parameters, and the file's declarations.
+@test
+fn test_scope_completion_lists_locals_and_decls() -> Result<Void, Error> {
+    let ls = labels(SCOPE_SRC, at(SCOPE_SRC, 'return ba', 7));
+    assert_has(ls, 'banana')?;
+    assert_has(ls, 'cherry')?;
+    assert_has(ls, 'base')?;
+    assert_has(ls, 'compute')?;
+    assert_has(ls, 'other')?;
+    return Result.Ok(void);
+}
+
+// A binding declared *after* the cursor is not in scope yet.
+@test
+fn test_scope_completion_excludes_later_bindings() -> Result<Void, Error> {
+    let src = 'fn f() -> Int {\n'
+        + '    let early = 1;\n'
+        + '    return \n'
+        + '    let late = 2;\n'
+        + '}\n';
+    let ls = labels(src, at(src, 'return \n', 7));
+    assert_has(ls, 'early')?;
+    assert_lacks(ls, 'late')?;
+    return Result.Ok(void);
+}
+
+// `self` is offered inside a method and carries the impl's type.
+@test
+fn test_scope_completion_offers_self_in_method() -> Result<Void, Error> {
+    let ls = labels(SELF_SRC, at(SELF_SRC, 'return self.count', 0));
+    assert_has(ls, 'self')?;
+    return Result.Ok(void);
+}
+
+// A computed receiver (`S.make().`): the recovery hole's zero-width member
+// span anchors the `Field` node at the cursor, and the call's committed type
+// lists the instance surface.
+@test
+fn test_member_completion_on_computed_receiver() -> Result<Void, Error> {
+    let src = VALUE_SRC.replace('    s.\n', '    S.make().\n');
+    let ls = labels(src, at(src, '    S.make().', 13));
+    assert_has(ls, 'count')?;
+    assert_has(ls, 'helper')?;
+    assert_lacks(ls, 'make')?;
+    return Result.Ok(void);
+}
+
+// Completion inside a broken match arm: Stage 2b recovery keeps the arm block
+// and the match tree, so the receiver's record survives and completes — the
+// case that drove the expression-block recovery work.
+@test
+fn test_member_completion_inside_broken_match_arm() -> Result<Void, Error> {
+    let src = 'struct S { let count: Int; }\n'
+        + 'impl S { pub fn helper(self) -> Int { return self.count; } }\n'
+        + 'fn f(_ n: Int) -> Int {\n'
+        + '    let s = S { count: 1 };\n'
+        + '    let x = match n {\n'
+        + '        1 => { let y = ; s. },\n'
+        + '        _ => 0,\n'
+        + '    };\n'
+        + '    return x;\n'
+        + '}\n';
+    let ls = labels(src, at(src, 's. },', 2));
+    assert_has(ls, 'count')?;
+    assert_has(ls, 'helper')?;
+    return Result.Ok(void);
+}
+
+// --- cross-file surfaces (namespace / qualified type / bare surface) ---
+
+// A one-import closure with hand-rolled loader maps (the resolve_test
+// pattern): `util` binds lib_a's public surface, and bare `width` rides the
+// primary's bare surface.
+fn cross_ctx(_ src: String) -> ResolveCtx {
+    let a = testkit.parse_at('pub fn helper(_ n: Int) -> Int { return n; }\n'
+        + 'pub const width: Int = 4;\n'
+        + 'pub enum Mode { Fast, Slow }\n'
+        + 'fn hidden() -> Int { return 0; }\n', '/libs/a.thera');
+    let bare: Map<String, Map<String, String>> = [:];
+    bare['/app/main.thera'] = ['width': '/libs/a.thera'];
+    let surface = LibraryNamespace {
+        names: Set.from(['helper', 'width', 'Mode']),
+        collisions: Set.new(),
+        origin: ['helper': '/libs/a.thera', 'width': '/libs/a.thera', 'Mode': '/libs/a.thera'],
+    };
+    let ns_map: Map<String, LibraryNamespace> = [:];
+    ns_map['util'] = surface;
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    nss['/app/main.thera'] = ns_map;
+    return ResolveCtx {
+        program: testkit.parse_at(src, '/app/main.thera'),
+        tokens: lexer.tokenize(src).tokens,
+        imports: [a],
+        file_namespaces: nss,
+        file_bare_surface: bare,
+        primary_types: [],
+    };
+}
+
+const NS_SRC: String = 'import \'a\' as util;\n'
+    + 'fn main() -> Int {\n'
+    + '    util.\n'
+    + '    return 0;\n'
+    + '}\n';
+
+// `ns.` lists the namespace's public surface — not the library's privates.
+@test
+fn test_member_completion_on_namespace() -> Result<Void, Error> {
+    let ls = complete_at(cross_ctx(NS_SRC), NS_SRC, at(NS_SRC, '    util.\n', 9))
+        .map((it) => it.label);
+    assert_has(ls, 'helper')?;
+    assert_has(ls, 'width')?;
+    assert_has(ls, 'Mode')?;
+    assert_lacks(ls, 'hidden')?;
+    return Result.Ok(void);
+}
+
+// `ns.Type.` lists the type's static surface, owner-correct through the
+// namespace's origin map.
+@test
+fn test_member_completion_on_qualified_type() -> Result<Void, Error> {
+    let src = NS_SRC.replace('    util.\n', '    util.Mode.\n');
+    let ls = complete_at(cross_ctx(src), src, at(src, '    util.Mode.', 14))
+        .map((it) => it.label);
+    assert_has(ls, 'Fast')?;
+    assert_has(ls, 'Slow')?;
+    assert_lacks(ls, 'helper')?;
+    return Result.Ok(void);
+}
+
+// Bare-name completion offers the file's bare surface and its bound import
+// namespaces alongside its own declarations.
+@test
+fn test_scope_completion_offers_surface_and_namespaces() -> Result<Void, Error> {
+    let src = NS_SRC.replace('    util.\n', '    return \n');
+    let ls = complete_at(cross_ctx(src), src, at(src, '    return \n', 11))
+        .map((it) => it.label);
+    assert_has(ls, 'width')?;
+    assert_has(ls, 'util')?;
+    assert_has(ls, 'main')?;
+    return Result.Ok(void);
+}

@@ -220,14 +220,23 @@ impl Parser {
         return self.synthetic_token(kind);
     }
 
-    // A zero-width token of `kind` at the cursor, standing in for an
-    // expected-but-missing token. Its text is empty (`lexeme()` == ''), so an
-    // `obj.` field or a missing type name reads as the empty-name recovery hole;
-    // its span is zero-length, so span-keyed consumers skip it (PA6).
+    // A zero-width token of `kind` standing in for an expected-but-missing
+    // token, anchored at the *hole* — just past the previous token, where the
+    // missing token would be typed. Anchoring at the next token instead would
+    // put a mid-line hole (`S.make().` before a `return` on the next line) on
+    // the wrong line and break the completion cursor; at EOF the two anchors
+    // coincide. Its text is empty (`lexeme()` == ''), so an `obj.` field or a
+    // missing type name reads as the empty-name recovery hole; its span is
+    // zero-length, so span-keyed consumers skip it (PA6).
     fn synthetic_token(self, _ kind: TokenKind) -> Token {
+        let anchor = if self.pos > 0 {
+            synthetic_span_after(self.prev_span())
+        } else {
+            synthetic_span(self.current().span)
+        };
         return Token {
             kind: kind,
-            span: synthetic_span(self.current().span),
+            span: anchor,
             value: Option.Some(''),
             interps: [],
         };
@@ -319,6 +328,34 @@ impl Parser {
                     return;
                 }
                 if self.is_stmt_keyword(k) || k == TokenKind.KwIf || k == TokenKind.KwThrow {
+                    return;
+                }
+            }
+            self.advance();
+        }
+    }
+
+    // Resync to the next arm boundary within a `match` body, after an arm
+    // failed mid-parse: consume through the `,` separating arms (resume at the
+    // next pattern), stopping before the match's closing `}`. `target_depth`
+    // is the match interior's `brace_depth`; a `,` or `}` deeper than it sits
+    // inside braces the broken arm opened and is consumed on the way. The
+    // caller has already cleared `panicking`, so `advance` consumes normally.
+    fn sync_to_arm(self, _ target_depth: Int) -> Void {
+        while !self.at_end() {
+            // As in sync_to_stmt: a stray top-level decl keyword means a hole
+            // already ate the closing braces — stop so decl-level recovery
+            // reclaims the declaration.
+            if self.at_block_terminating_decl() {
+                return;
+            }
+            if self.brace_depth == target_depth {
+                let k = self.current().kind;
+                if k == TokenKind.RBrace {
+                    return; // the match's close — leave it for the arm loop
+                }
+                if k == TokenKind.Comma {
+                    self.advance(); // consume the separator; resume at the next arm
                     return;
                 }
             }
@@ -1368,32 +1405,66 @@ impl Parser {
 
     // Parse a block in expression position (a BlockExpr or a `{…}` match arm): a
     // final expression with no trailing `;` becomes the block's tail value.
+    // Element recovery mirrors parse_block (Stage 2b): a broken element clears
+    // the panic and resyncs *within* the block, so its siblings — and the
+    // enclosing match/block tree a completion cursor sits in — survive. An
+    // external panic (a broken match subject reaching the `{`) still propagates
+    // via the loop's entry guard, exactly as parse_block distinguishes the two.
+    // An element broken in *tail* position becomes the block's `Expr.Error`
+    // tail, so the block types Unknown rather than a cascading Void.
     fn parse_expr_block(self) -> Block {
         let start = self.expect(TokenKind.LBrace, '{');
         let stmts: List<Stmt> = [];
         let mut tail = Option.None;
         let mut going = true;
-        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end()
+            && !self.at_block_terminating_decl() {
+            let elem_pos = self.pos;
+            let elem_depth = self.brace_depth; // the block's interior depth
+            let elem_start = self.current().span;
             if self.is_stmt_keyword(self.current().kind) {
-                stmts.push(self.parse_stmt());
+                let s = self.parse_stmt();
+                if !self.panicking {
+                    stmts.push(s);
+                }
             } else if self.check(TokenKind.KwIf) {
-                let if_start = self.current().span;
                 let if_expr = self.parse_if_expr(false);
-                if self.check(TokenKind.RBrace) {
-                    tail = Option.Some(if_expr);
-                    going = false;
-                } else {
-                    self.match_kind(TokenKind.Semi);
-                    stmts.push(Stmt.Expr(if_start.cover(self.prev_span()), if_expr));
+                if !self.panicking {
+                    if self.check(TokenKind.RBrace) {
+                        tail = Option.Some(if_expr);
+                        going = false;
+                    } else {
+                        self.match_kind(TokenKind.Semi);
+                        stmts.push(Stmt.Expr(elem_start.cover(self.prev_span()), if_expr));
+                    }
                 }
             } else {
-                let expr_start = self.current().span;
                 let expr = self.parse_expr();
+                if !self.panicking {
+                    if self.check(TokenKind.RBrace) {
+                        tail = Option.Some(expr);
+                        going = false;
+                    } else {
+                        let s = self.finish_expr_stmt(elem_start, expr);
+                        if !self.panicking {
+                            stmts.push(s);
+                        }
+                    }
+                }
+            }
+            if self.panicking {
+                self.panicking = false; // clear before syncing (sync consumes tokens)
+                self.sync_to_stmt(elem_depth);
+                // Forward progress (§3), as in parse_stmt_or_recover.
+                if self.pos == elem_pos && !self.at_end() {
+                    self.advance();
+                }
                 if self.check(TokenKind.RBrace) {
-                    tail = Option.Some(expr);
+                    // The hole is the last element — the block's unknowable value.
+                    tail = Option.Some(Expr.Error(elem_start));
                     going = false;
                 } else {
-                    stmts.push(self.finish_expr_stmt(expr_start, expr));
+                    stmts.push(Stmt.Expr(elem_start, Expr.Error(elem_start)));
                 }
             }
         }
@@ -2069,6 +2140,15 @@ impl Parser {
         let args: List<CallArg> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+            // A token that closes an enclosing construct can never start an
+            // argument: the call is unterminated (`add(` before the body's
+            // `}`). Stop so the trailing `expect` fills the `)` and the call
+            // node survives — the frame signature help anchors on — instead
+            // of a failed argument parse unwinding the whole statement.
+            if self.check(TokenKind.RBrace) || self.check(TokenKind.RBracket)
+                || self.check(TokenKind.Semi) {
+                break;
+            }
             let mut label = Option.None;
             let mut label_span: Option<SourceSpan> = Option.None;
             if self.check(TokenKind.Identifier) && self.next_tok().kind == TokenKind.Colon {
@@ -2427,17 +2507,22 @@ impl Parser {
         let subject = self.parse_expr_no_brace();
         self.expect(TokenKind.LBrace, '{');
         let arms: List<MatchArm> = [];
-        while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+        while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end()
+            && !self.at_block_terminating_decl() {
+            let arm_pos = self.pos;
+            let arm_depth = self.brace_depth; // the match interior's depth
             let pattern = self.parse_pattern();
             self.expect(TokenKind.FatArrow, '=>');
             let is_block = self.check(TokenKind.LBrace);
             let mut body = self.err_expr();
-            if is_block {
-                let block_start = self.current();
-                let block = self.parse_expr_block();
-                body = Expr.Block(block_start.span.cover(block_span(block)), block);
-            } else {
-                body = self.parse_expr();
+            if !self.panicking {
+                if is_block {
+                    let block_start = self.current();
+                    let block = self.parse_expr_block();
+                    body = Expr.Block(block_start.span.cover(block_span(block)), block);
+                } else {
+                    body = self.parse_expr();
+                }
             }
             // The `,` separates arms: required after an expression-bodied arm
             // (the error marks the arm's end — where the `,` belongs), optional
@@ -2446,7 +2531,26 @@ impl Parser {
             // parenthesized patterns would create (`A => f (x) => …`).
             if !self.panicking && !is_block && !self.check(TokenKind.Comma)
                 && !self.check(TokenKind.RBrace) {
+                // A missing separator leaves the cursor exactly at the next
+                // arm's start: record it and resume *without* syncing (a sync
+                // would swallow that arm — there is no `,` ahead of it), so
+                // `1 => 10 2 => 20` keeps both arms.
                 self.fail_at('expected `,` after a match arm', self.prev_span());
+                self.panicking = false;
+            }
+            // Arm recovery (Stage 2b): a broken pattern/`=>`/body — or the
+            // missing `,` above — clears the panic and resyncs to the next arm
+            // at this match's depth, so the sibling arms (and the match tree
+            // itself) survive. The body stays whatever parsed: the real
+            // expression when only the separator failed, else the `err_expr`
+            // placeholder anchored where the body should have begun.
+            if self.panicking {
+                self.panicking = false; // clear before syncing (sync consumes tokens)
+                self.sync_to_arm(arm_depth);
+                // Forward progress (§3), as in parse_stmt_or_recover.
+                if self.pos == arm_pos && !self.at_end() {
+                    self.advance();
+                }
             }
             self.match_kind(TokenKind.Comma);
             arms.push(MatchArm {
