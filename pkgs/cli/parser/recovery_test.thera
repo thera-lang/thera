@@ -181,19 +181,74 @@ fn test_broken_body_does_not_swallow_next_decl() -> Result<Void, Error> {
 
 @test
 fn test_broken_match_arm_does_not_cascade() -> Result<Void, Error> {
-    // Anti-cascade regression: a panic raised *inside* a match's braces (a missing
-    // `,` after an arm) must resync to the statement's own brace depth, not mistake
-    // the match's closing `}` for the block's. Otherwise the block ends early and
-    // the rest of the body spills to top level as spurious "expected a declaration"
-    // errors. Exactly one error (the missing `,`), and `return x` survives.
+    // A missing `,` after an arm leaves the cursor exactly at the next arm's
+    // start, so arm recovery (Stage 2b) resumes there without syncing: exactly
+    // one error, and *both* arms — and the whole `let` — survive. (Before
+    // Stage 2b the entire statement collapsed to an `Expr.Error`.)
     let src = 'fn f() -> Int { let x = match n { 1 => 10 2 => 20 }; return x; }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert_eq(actual: r.errors.len(), expected: 1)?;
     let expected = 'fn f() -> Int\n'
         + '  block\n'
-        + '    expr <error>\n'
+        + '    let x = match n { 1 => 10, 2 => 20 }\n'
         + '    return x';
     testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+// --- Stage 2b: recovery inside expression blocks and match arms ---
+
+@test
+fn test_broken_stmt_in_match_arm_block_keeps_the_match() -> Result<Void, Error> {
+    // The motivating completion case: a broken statement inside an arm's `{…}`
+    // body recovers *within* the arm block, so the enclosing `let`, the match
+    // tree, and the sibling arm all survive (previously the whole statement
+    // collapsed to an `Expr.Error`).
+    let src = 'fn f(_ n: Int) -> Int { let x = match n { 1 => { let y = ; y }, _ => 0 }; return x; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert_eq(actual: r.errors.len(), expected: 1)?;
+    let expected = 'fn f(n: Int) -> Int\n'
+        + '  block\n'
+        + '    let x = match n { 1 => block{...}, _ => 0 }\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_broken_arm_expression_body_keeps_siblings() -> Result<Void, Error> {
+    // An arm whose expression body can't parse (`1 => ,`) recovers to the next
+    // arm: the broken arm keeps its pattern with an `<error>` body, and the
+    // sibling arm survives.
+    let src = 'fn f(_ n: Int) -> Int { let x = match n { 1 => , _ => 0 }; return x; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert_eq(actual: r.errors.len(), expected: 1)?;
+    let expected = 'fn f(n: Int) -> Int\n'
+        + '  block\n'
+        + '    let x = match n { 1 => <error>, _ => 0 }\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_broken_stmt_in_block_expression_keeps_the_binding() -> Result<Void, Error> {
+    // A block *expression* initializer with a broken statement recovers in
+    // place: the `let x` binding and the trailing statement survive. The same
+    // shape with the hole in *tail* position recovers to an `Expr.Error` tail.
+    let stmt_src = 'fn f() -> Int { let x = { let y = ; 5 }; return x; }';
+    let r = parse_tokens(tokenize(stmt_src).tokens);
+    testing.assert_eq(actual: r.errors.len(), expected: 1)?;
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    let x = block{...}\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+
+    let tail_src = 'fn f() -> Int { let x = { 5 + }; return x; }';
+    let rt = parse_tokens(tokenize(tail_src).tokens);
+    testing.assert_eq(actual: rt.errors.len(), expected: 1)?;
+    testing.assert_eq(actual: dump_program(rt.program), expected: expected)?;
     return Result.Ok(void);
 }
 
@@ -356,6 +411,10 @@ fn test_recovery_terminates_on_changed_constructs() -> Result<Void, Error> {
         'fn a() -> Int { ) ) } fn b() -> Int { return 2; }',
         'fn f() -> Int { if c { let x = ; } return 0; }',
         'fn f() -> Int { for x in xs { @ } return 0; }',
+        // Stage 2b: broken elements inside expression blocks and match arms.
+        'fn f(_ n: Int) -> Int { let x = match n { 1 => { let y = ; y }, _ => 0 }; return x; }',
+        'fn f() -> Int { let x = { let y = ; 5 }; return x; }',
+        'fn f(_ n: Int) -> Int { return match n { 1 => , _ => 0 }; }',
         // EOF-truncated fragments (graceful-EOF, §3): each open construct must
         // recover to completion rather than hang.
         'fn a() -> Int { let x = foo(',
