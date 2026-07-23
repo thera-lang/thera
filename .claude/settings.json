@@ -33,6 +33,8 @@
       "Bash(echo *)",
       "Bash(echo *)",
       "Bash(echo \"exit=$?\")",
+      "Bash(echo \"fmt exit=$?\")",
+      "Bash(gh run *)",
       "Bash(git checkout *)",
       "Bash(git diff *)",
       "Bash(git log *)",

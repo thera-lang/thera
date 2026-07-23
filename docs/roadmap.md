@@ -503,19 +503,27 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     or a per-file marker the harness already reads — so the workspace scan skips
     the latter at the source, with no exclude glob to maintain and no wasted
     analysis on files whose errors are the point.
-- **Parser error recovery for the LSP.** The LSP's normal input is
-  _syntactically broken_ code mid-edit; the parser should synthesize a
-  best-effort tree (recover past the error) so semantic resolution still runs
-  and offers completions/hover. `sync_to_decl` is now **brace-depth-aware** (the
-  audit's PA4 — no more phantom top-level `let`s from resyncing inside a broken
-  body). **Design + staged plan in [parser-recovery.md](parser-recovery.md):**
-  non-fatal `expect` (fill known holes in place so the leaf node survives for
-  completion) + an `Expr.Error` placeholder the resolver/checker analyze
-  leniently (no semantic cascade) + the finer recovery points still open
-  (per-method in impl/interface, statement/block boundary, match-arm, list
-  separators) + signature-past-body. (Keep in mind when touching the parser —
-  the recent precedence-table refactor preserved the `panicking`/recovery
-  structure.)
+- **Parser error recovery for the LSP — core landed; two tails open.** The LSP's
+  normal input is _syntactically broken_ code mid-edit; the parser synthesizes a
+  best-effort tree (recover past the error) so semantic resolution still runs and
+  can offer completions/hover. **The core mechanism shipped** (Stages 0–3; see
+  the _Changelog_ and the design in [frontend.md](frontend.md) §Parser error
+  recovery): non-fatal `expect` fills known holes in place, an `Expr.Error`
+  placeholder + empty-name convention give the resolver/checker/inference a
+  lenient, no-cascade arm, `brace_depth`-driven statement resync contains the
+  lost case, and signature-past-body recovery keeps a broken decl's signature.
+  Remaining:
+  - **Stage 2b — recovery inside expression blocks** (`parse_expr_block`:
+    match-arm `{…}` bodies and block-expressions). A broken statement there still
+    discards the enclosing declaration; the interleaved tail-expression handling
+    makes per-element recovery fiddlier than the statement-block case.
+  - **The behavioral `complete_at(source, offset)` oracle** — asserts completion
+    items directly rather than via the structural dump; lands with the
+    `textDocument/completion` item below. Until then the structural dump
+    (`ast/dump.thera`) + span assertions are the oracle.
+
+  (Keep in mind when touching the parser — the precedence-table refactor
+  preserved the `panicking`/recovery structure.)
   - **Dependent feature: `textDocument/completion`.** Autocomplete requires
     navigating a mid-keystroke AST (e.g., `obj.`). Deferring until the parser
     can reliably build an AST that doesn't drop the trailing, incomplete member
@@ -1127,6 +1135,25 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Parser error recovery — the resilient-parsing core (Stages 0–3)** (2026-07).
+  The parser now produces a structurally useful AST from broken, mid-edit source
+  — the groundwork the LSP's completion/hover needs and the anti-cascade the
+  compiler wants — without perturbing the happy path (fixpoint-clean; the recovery
+  paths are never taken on valid input). Design in
+  [frontend.md](frontend.md) §Parser error recovery. What landed: a **non-fatal
+  `expect`** that fills a _known hole_ (missing `)`, a field after `.`) with a
+  zero-width synthetic token at the cursor and keeps parsing, so the leaf survives
+  as a completion anchor; an **`Expr.Error` placeholder** (types as `Unknown`) plus
+  the **empty-name convention** for member/type holes, both given a lenient,
+  no-diagnostic arm in the resolver/checker/inference (the suppression contract)
+  and a defensive codegen trap; **statement-level recovery** driven by a running
+  `brace_depth` (`parse_stmt_or_recover`/`sync_to_stmt`), so a broken statement's
+  siblings survive and a broken body keeps its **signature** (signature-past-body);
+  graceful EOF (open constructs recover with synthesized delimiters); and the
+  structural AST dump (`ast/dump.thera`) + `parser/recovery_test.thera` as the
+  oracle. Remaining tails (Stage 2b expression-block recovery, the behavioral
+  `complete_at` oracle) are tracked under _LSP → Parser error recovery_.
 
 - **LSP: the workspace pull is held open — an idle server does nothing at all**
   (2026-07). The tail of the idle-CPU arc (next entry): even with an unchanged

@@ -3,12 +3,12 @@
 //
 // Two shape changes from Dart, both because Thera lacks the control flow:
 //
-//  * Error recovery (docs/parser-recovery.md). Two mechanisms, split by whether
-//    the parser knows what it wanted:
+//  * Error recovery (docs/frontend.md §Parser error recovery). Two mechanisms,
+//    split by whether the parser knows what it wanted:
 //     - A **known hole** (a missing `)`, a field name after `.`): `expect`
 //       records one error and synthesizes the token in place, WITHOUT unwinding —
 //       parsing continues and the surrounding tree (the completion anchor)
-//       survives. Loops stay terminating via the forward-progress invariant (§3).
+//       survives. Loops stay terminating via the forward-progress invariant.
 //     - **Genuine confusion** (a token that starts nothing): `fail` records the
 //       error and sets the **panic flag**; the token-consuming primitives
 //       (`advance`/`match_kind`) and every parse loop short-circuit while it is
@@ -65,7 +65,8 @@ struct Parser {
     // statement's start and resyncs back to that depth, so a panic raised deep
     // inside nested braces (a match arm, a nested block) doesn't mistake an inner
     // `}` for the enclosing block's close. Unused on valid input (it only steers
-    // recovery), so it never perturbs the happy path. docs/parser-recovery.md §4.
+    // recovery), so it never perturbs the happy path.
+    // docs/frontend.md §Parser error recovery.
     let mut brace_depth: Int;
     // Generic-delimiter offsets accumulated as the parse consumes `<`/`>` in a
     // type-argument / type-parameter position; surfaced on ParseResult.
@@ -198,9 +199,9 @@ impl Parser {
     // consuming input or entering panic mode. Parsing continues past the hole, so
     // the surrounding tree (the completion anchor) survives. Genuine confusion — a
     // token that can start nothing — still goes through `fail`, which unwinds to a
-    // recovery point. See docs/parser-recovery.md §1.
+    // recovery point. See docs/frontend.md §Parser error recovery.
     //
-    // The forward-progress invariant (§3) is what keeps this from spinning: a list
+    // The forward-progress invariant is what keeps this from spinning: a list
     // loop whose element parser filled entirely from synthetic tokens (consuming
     // nothing) must force one token of progress; see `parse_impl` and the loop
     // guards. Most loops get progress for free — a comma separator, a required
@@ -248,7 +249,7 @@ impl Parser {
     // Record one diagnostic unless we're already unwinding a panic (one error per
     // panic episode — the dedup `fail` has always had). Returns whether it was
     // recorded, so `fail_at` knows whether to enter panic mode. `expect` uses this
-    // directly to note a *known hole* without unwinding (docs/parser-recovery.md).
+    // directly to note a *known hole* without unwinding (docs/frontend.md).
     fn record_error(self, _ message: String, _ span: SourceSpan) -> Bool {
         if self.panicking {
             return false;
@@ -349,7 +350,8 @@ impl Parser {
     // hole ate its `}`); the block loop and `sync_to_stmt` treat it as a block
     // boundary and bail to decl-level recovery, so the declaration it starts
     // survives rather than being swallowed. Never true on valid input — these
-    // keywords never appear inside a statement block. docs/parser-recovery.md §4.
+    // keywords never appear inside a statement block.
+    // docs/frontend.md §Parser error recovery.
     fn at_block_terminating_decl(self) -> Bool {
         let k = self.current().kind;
         return k == TokenKind.KwFn
@@ -934,7 +936,7 @@ impl Parser {
                 method_start_tok.span
             };
             methods.push(self.parse_fn_decl(decos, m_native, m_pub, m_start));
-            // Forward-progress guard (docs/parser-recovery.md §3): unlike the
+            // Forward-progress guard (docs/frontend.md §Parser error recovery): unlike the
             // interface-method loop, a bad method start here has no required
             // keyword to `fail` on — with non-fatal `expect`, `parse_fn_decl` can
             // synthesize an entire signature without consuming a token, which would
@@ -1289,8 +1291,8 @@ impl Parser {
     // and contributes an `Expr.Error` placeholder at the broken statement's start.
     // So the statements *around* the hole survive, and — because the enclosing
     // `parse_block` now returns normally instead of unwinding past the signature —
-    // a broken function body keeps its signature (signature-past-body, §5).
-    // docs/parser-recovery.md §4.
+    // a broken function body keeps its signature (signature-past-body).
+    // docs/frontend.md §Parser error recovery.
     fn parse_stmt_or_recover(self) -> Stmt {
         let before = self.pos;
         let target_depth = self.brace_depth; // the block's interior depth

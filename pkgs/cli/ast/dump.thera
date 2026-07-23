@@ -1,5 +1,6 @@
 // Structural, indented dump of AST declarations, statements, and blocks — the
-// golden oracle for parser-recovery tests (docs/parser-recovery.md). Unlike
+// golden oracle for parser-recovery tests (docs/frontend.md §Parser error
+// recovery). Unlike
 // `describe_expr`'s surface-syntax one-liners, this renders the *node structure*
 // at the declaration/statement/block level, so a test can assert what survived
 // recovery: which siblings remain, whether a broken body kept its signature, and
