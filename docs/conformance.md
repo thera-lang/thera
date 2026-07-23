@@ -212,7 +212,7 @@ and [grammar.md](grammar.md) (syntax).
 | `mod-no-bare-fallback`      | language.md          | a bare name owned by an un-imported (closure-only) library is `undefined` — no global last-wins fallback                                                                                                 | ✓      |
 | `mod-shared-value-name`     | language.md          | two libraries may share a top-level value name; each qualified call dispatches to its own library (value-uniqueness lift)                                                                                | ✓      |
 | `mod-shared-type-name`      | language.md          | two libraries may share a top-level _type_ name; each qualified `ns.T` constructs/resolves its own library's type (type-uniqueness lift)                                                                 | ✓      |
-| `mod-whitebox-same-dir`     | Modules / Testing    | `<base>_test.thera` gets `<base>.thera`'s private surface bare — same directory only                                                                                                                       | ✓      |
+| `mod-whitebox-same-dir`     | Modules / Testing    | `<base>_test.thera` gets `<base>.thera`'s private surface bare — same directory only                                                                                                                     | ✓      |
 | `mod-shared-const-name`     | language.md          | two libraries may share a const name: `ns.NAME` inlines its own library's initializer, resolved against the const's file; owner-keyed cycle guard                                                        | ✓      |
 | `mod-shared-global-name`    | language.md          | two libraries may share a module-global name: distinct slots, both initializers run, owner-keyed init order and dependency edges                                                                         | ✓      |
 | `mod-native-name-isolation` | language.md          | a `native fn` binds within its own library: `ns.fn(...)` resolves on `ns`'s surface, never a flat native table (no cross-import hijack)                                                                  | ✓      |
@@ -225,7 +225,7 @@ and [grammar.md](grammar.md) (syntax).
 | `mod-no-surface-shadow`     | language.md          | a top-level declaration may not re-introduce a bare-surface name (prelude or `as _`); the eponymous-barrel namespace is exempt                                                                           | ✓      |
 | `vis-pub`                   | Visibility           | non-`pub` top-level is file-private (enforced)                                                                                                                                                           | ✓      |
 | `vis-barrel`                | Visibility           | barrel re-exports a directory library's symbols (std.cli)                                                                                                                                                | ◐      |
-| `vis-whitebox-test`         | Visibility / Testing | `foo_test.thera` sees `foo.thera` privates (bare)                                                                                                                                                          | ✓      |
+| `vis-whitebox-test`         | Visibility / Testing | `foo_test.thera` sees `foo.thera` privates (bare)                                                                                                                                                        | ✓      |
 
 ## Entry point & misc
 
@@ -262,8 +262,8 @@ implementation detail.
 
 - **`vis-whitebox-test`** — once believed unpinnable here (the harness drives
   `thera run`/`check`, not `thera test`), but the white-box grant keys off the
-  **filename**, not the command: `tests/lang/imports/widget_test.thera` calls its
-  sibling's private `internal_value()` bare under `thera run` and pins it.
+  **filename**, not the command: `tests/lang/imports/widget_test.thera` calls
+  its sibling's private `internal_value()` bare under `thera run` and pins it.
 
 - **`mod-qualified-only`, `vis-pub`** — a bare cross-library reference and a
   qualified access to a non-public member are both `check` errors
@@ -277,8 +277,9 @@ implementation detail.
 - **`iface-display`** — total rendering: `${}` / `println` use a value's
   `Display` if it has one, else its auto-derived `Debug` (Debug-fallback), so
   interpolation works for any value and is never a `check` error.
-- **trap messages** — faults abort with a human-readable `thera: trap: <message>`
-  (`impl Display for Trap`); `MissingKey` names the key. Pinned by `fault-*`.
+- **trap messages** — faults abort with a human-readable
+  `thera: trap: <message>` (`impl Display for Trap`); `MissingKey` names the
+  key. Pinned by `fault-*`.
 - **`Double` Display for integral values** — `1.0` renders as `1.0`, not `1`
   (`value::format_double`). Pinned by `lex-float`.
 - **`err-constructor` docs** — language.md now shows the lowercase `error('…')`

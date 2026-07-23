@@ -68,35 +68,36 @@ Two sub-decisions, both with a real trade-off to settle before coding.
 > weaponized within hours, not weeks. So when these decisions are actually made,
 > the dominant criteria are: **a named security-response process and a track
 > record of fast, coordinated patches**; **a maintainer base large and funded
-> enough that CVEs get triaged promptly**; **how quickly a fix propagates to us**
-> (which is as much about our own update discipline — see below — as the
+> enough that CVEs get triaged promptly**; **how quickly a fix propagates to
+> us** (which is as much about our own update discipline — see below — as the
 > upstream's); and **audit history**. Build ergonomics, pure-Rust-ness, and
 > dep-set tidiness are real but **secondary** — they break a tie between options
 > that are both strong on security, and never outweigh a worse security posture.
 > The corollary is an operational commitment, not just a crate pick: whatever we
 > choose, the TLS/crypto deps go on a **fast patch track** — `cargo audit`/
-> `cargo deny` in CI, Dependabot (or equivalent) enabled, and a standing
-> intent to ship a runtime patch release promptly on an advisory rather than
-> batching it with feature work.
+> `cargo deny` in CI, Dependabot (or equivalent) enabled, and a standing intent
+> to ship a runtime patch release promptly on an advisory rather than batching
+> it with feature work.
 
 1. **Crypto provider.** rustls needs a provider for the primitives (AEAD, ECDHE,
-   signatures, HKDF). Options, to be judged first on the security weighting above:
+   signatures, HKDF). Options, to be judged first on the security weighting
+   above:
    - **`aws-lc-rs`** (rustls's default) or **`ring`** — the battle-tested
      choices, with the largest deployment base and, for `aws-lc-rs`, a funded
      security team and FIPS lineage; this is where the fast-patch, well-audited
      argument is strongest. The cost is that **both pull in a C/assembly build
      step** (a C compiler; on some platforms cmake/nasm) — the runtime's _first_
      dependency needing a C toolchain (every prior dep is pure Rust (`sha2`) or
-     libc-only (`mio`)), a CI/dev-bar and reproducible-build consideration, but a
-     _secondary_ one under the weighting.
+     libc-only (`mio`)), a CI/dev-bar and reproducible-build consideration, but
+     a _secondary_ one under the weighting.
    - **A RustCrypto-backed provider** (`rustls` + a RustCrypto provider) — keeps
      the **pure-Rust** property and consolidates with the existing `sha2`
      (RustCrypto) dependency. Attractive on tidiness, but it must clear the
      security bar on its own merits — assess its maintenance funding, audit
      history, and patch cadence against the hardened providers rather than
-     defaulting to it for cleanliness. Worth evaluating, but **not** presumptively
-     preferred: a cleaner dep graph does not beat a stronger security-response
-     record.
+     defaulting to it for cleanliness. Worth evaluating, but **not**
+     presumptively preferred: a cleaner dep graph does not beat a stronger
+     security-response record.
 2. **Root store.** `webpki-roots` (the Mozilla bundle, compiled in —
    deterministic, no platform dependency) vs `rustls-native-certs` (reads the OS
    trust store — picks up enterprise/custom roots, but platform-variable). The
@@ -311,9 +312,9 @@ in-process loop.
 - **`tls_write` idempotency shape**: buffer-all-and-count vs split buffer/flush
   natives (§ Park/retry). The one genuinely non-mechanical ABI call.
 - **Root store**: bundled `webpki-roots` (deterministic, but distrusting a CA
-  needs a dep bump) vs `rustls-native-certs` (automatic OS-managed trust updates,
-  platform-variable). Reproducibility vs automatic trust updates — the security
-  weighting arbitrates.
+  needs a dep bump) vs `rustls-native-certs` (automatic OS-managed trust
+  updates, platform-variable). Reproducibility vs automatic trust updates — the
+  security weighting arbitrates.
 - **`TlsStream` placement**: `std.net` (natural, grows a provisional surface) vs
   a private sibling under `std.http`.
 - **Trust-injection seam**: how the test-only "trust this cert" knob is passed

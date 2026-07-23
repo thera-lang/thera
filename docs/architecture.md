@@ -35,8 +35,8 @@ Thera source ──(compile, off the hot path)──► Thera bytecode  (our IR;
 ```
 
 - **`bin/thera` is the runtime**: bytecode interpreter + Cranelift JIT + GC +
-  stdlib, written in **Rust**. A compile step (implicit for `thera run foo.thera`)
-  produces bytecode.
+  stdlib, written in **Rust**. A compile step (implicit for
+  `thera run foo.thera`) produces bytecode.
 - **The interpreter tier earns its place for the CLI domain.** A CLI tool
   starts, does bounded work, and exits — most code paths run _once_. A
   JIT-everything design pays compile latency on first call with no steady state
@@ -260,8 +260,8 @@ else is saved — the frames _are_ the continuation.
 when the Rust stack is _just_ `run_loop`, not when a native has re-entered it
 (the structural-`debug`/virtual-dispatch path that pushes onto the same frame
 stack within one Rust call — see GC above). Blocking I/O is always called at
-Thera level, so this is the normal case; the rule is simply "a blocking native is
-never invoked from inside a nested interpreter re-entry." (If that ever needs
+Thera level, so this is the normal case; the rule is simply "a blocking native
+is never invoked from inside a nested interpreter re-entry." (If that ever needs
 lifting, the nested path can be reworked to loop instead of recurse.)
 
 **Yield points.** Cooperative — a fiber holds the thread until it parks:
@@ -326,16 +326,16 @@ constant pool.
 
 `bin/thera` exposes the toolchain as subcommands:
 
-| command                         | what it does                                                                              |
-| ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `thera run <file> [args…]`       | compile `<file>` to bytecode and run it; trailing args pass to the program                |
-| `thera check [target]`           | type-check a `.thera` file or directory (default: cwd); diagnostics + summary              |
-| `thera emit <file> <out.thera-bc>` | compile `<file>` to a `.thera-bc` bytecode file                                             |
-| `thera test [file\|dir]`         | run the `@test` functions in a file, or in `*_test.thera` under a directory (default: cwd) |
-| `thera fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing)              |
-| `thera lint [file\|dir]`         | report non-idiomatic code shapes with a known rewrite (read-only; default: cwd)           |
-| `thera lint --fix <file\|dir>`   | apply the safe lint rewrites in place (explicit target required)                          |
-| `thera lsp`                      | start the language server (LSP over stdin/stdout)                                         |
+| command                            | what it does                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| `thera run <file> [args…]`         | compile `<file>` to bytecode and run it; trailing args pass to the program                 |
+| `thera check [target]`             | type-check a `.thera` file or directory (default: cwd); diagnostics + summary              |
+| `thera emit <file> <out.thera-bc>` | compile `<file>` to a `.thera-bc` bytecode file                                            |
+| `thera test [file\|dir]`           | run the `@test` functions in a file, or in `*_test.thera` under a directory (default: cwd) |
+| `thera fmt <file\|dir>…`           | format source in place (`--check` reports unformatted files, writes nothing)               |
+| `thera lint [file\|dir]`           | report non-idiomatic code shapes with a known rewrite (read-only; default: cwd)            |
+| `thera lint --fix <file\|dir>`     | apply the safe lint rewrites in place (explicit target required)                           |
+| `thera lsp`                        | start the language server (LSP over stdin/stdout)                                          |
 
 **stdout vs. stderr.** The rule: stdout carries a command's _expected output_;
 stderr carries the _unexpected_ (progress, operational failures, crashes). Which
@@ -384,10 +384,10 @@ _also_ on the exit code (above).
 
 ### The formatter (`thera fmt`)
 
-`thera fmt` canonicalizes source layout, and the expectation is that **most Thera
-projects run it** (in an editor on save, and as a CI `fmt --check` gate). It has
-**no configuration options, by design**: there is one canonical layout, so a
-project never spends effort choosing or arguing a style. The goal is to
+`thera fmt` canonicalizes source layout, and the expectation is that **most
+Thera projects run it** (in an editor on save, and as a CI `fmt --check` gate).
+It has **no configuration options, by design**: there is one canonical layout,
+so a project never spends effort choosing or arguing a style. The goal is to
 **eliminate essentially all formatting discussion from code review** — layout is
 the formatter's output, not a thing humans diff over.
 
