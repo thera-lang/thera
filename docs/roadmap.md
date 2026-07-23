@@ -508,7 +508,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     `//! xfail:`) per-file, reusing the markers the conformance harness already
     reads — so the clean fixtures come under analysis and a _surprise_ error
     still surfaces, with no `thera.exclude` glob to maintain.
-- **Parser error recovery for the LSP — core landed; two tails open.** The LSP's
+- **Parser error recovery for the LSP — core + Stage 2b landed.** The LSP's
   normal input is _syntactically broken_ code mid-edit; the parser synthesizes a
   best-effort tree (recover past the error) so semantic resolution still runs
   and can offer completions/hover. **The core mechanism shipped** (Stages 0–3;
@@ -517,15 +517,17 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   placeholder + empty-name convention give the resolver/checker/inference a
   lenient, no-cascade arm, `brace_depth`-driven statement resync contains the
   lost case, and signature-past-body recovery keeps a broken decl's signature.
-  Remaining:
-  - **Stage 2b — recovery inside expression blocks** (`parse_expr_block`:
-    match-arm `{…}` bodies and block-expressions). A broken statement there
-    unwinds to the enclosing _statement_ boundary — the whole
-    `let x = match … ;` collapses to an `Expr.Error`, losing the match tree the
-    cursor sits in (and a decl-level initializer still loses its declaration);
-    the interleaved tail-expression handling makes per-element recovery fiddlier
-    than the statement-block case. The completion oracle is the driver: a cursor
-    inside a broken arm should still complete.
+  - **Stage 2b — recovery inside expression blocks and match arms — _landed
+    (2026-07)._** `parse_expr_block` recovers a broken element in place
+    (parse*block's discipline: clear the panic, `sync_to_stmt` at the block's
+    own depth, `Expr.Error` placeholder — or an `Expr.Error` \_tail* when the
+    hole is the block's value, so it types Unknown rather than a cascading
+    Void), and the match-arm loop recovers a broken pattern/`=>`/body to the
+    next arm via `sync_to_arm` (a missing `,` resumes in place — the cursor
+    already sits at the next arm). So a broken statement inside an arm keeps the
+    enclosing `let`, the match tree, and the sibling arms — pinned structurally
+    in `recovery_test.thera` and behaviorally by the completion oracle (a cursor
+    inside a broken arm completes).
 
   (Keep in mind when touching the parser — the precedence-table refactor
   preserved the `panicking`/recovery structure.)

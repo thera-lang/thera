@@ -187,6 +187,27 @@ fn test_member_completion_on_computed_receiver() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// Completion inside a broken match arm: Stage 2b recovery keeps the arm block
+// and the match tree, so the receiver's record survives and completes — the
+// case that drove the expression-block recovery work.
+@test
+fn test_member_completion_inside_broken_match_arm() -> Result<Void, Error> {
+    let src = 'struct S { let count: Int; }\n'
+        + 'impl S { pub fn helper(self) -> Int { return self.count; } }\n'
+        + 'fn f(_ n: Int) -> Int {\n'
+        + '    let s = S { count: 1 };\n'
+        + '    let x = match n {\n'
+        + '        1 => { let y = ; s. },\n'
+        + '        _ => 0,\n'
+        + '    };\n'
+        + '    return x;\n'
+        + '}\n';
+    let ls = labels(src, at(src, 's. },', 2));
+    assert_has(ls, 'count')?;
+    assert_has(ls, 'helper')?;
+    return Result.Ok(void);
+}
+
 // --- cross-file surfaces (namespace / qualified type / bare surface) ---
 
 // A one-import closure with hand-rolled loader maps (the resolve_test
