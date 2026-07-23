@@ -51,13 +51,16 @@ phase_checks() {
   # The whole corpus must type-check. `thera check` exits non-zero on any error
   # (warnings only inform), so the exit code is the gate — this subsumes the old
   # bare-reference guard (bare cross-library refs are `check` errors). See
-  # docs/language.md.
+  # docs/language.md. We always echo check's output so warnings stay visible even
+  # when they don't gate; a `--fatal-warnings` flag is a planned fast-follow.
   chk_out="$("$THERA" check pkgs/cli sdk/std examples 2>/dev/null)"; chk_code=$?
+  if [ -n "$chk_out" ]; then
+    printf '%s\n' "$chk_out" | sed 's/^/       /'
+  fi
   if [ "$chk_code" -eq 0 ]; then
-    echo "  ok   corpus type-checks clean"
+    echo "  ok   corpus type-checks (exit 0)"
   else
-    echo "  FAIL corpus has diagnostics; run: thera check pkgs/cli sdk/std examples"
-    printf '%s\n' "$chk_out" | sed 's/^/         /'
+    echo "  FAIL corpus has errors; run: thera check pkgs/cli sdk/std examples"
     fail=1
   fi
 
