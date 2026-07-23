@@ -197,6 +197,21 @@ pub fn synthetic_span(_ anchor: SourceSpan) -> SourceSpan {
     };
 }
 
+// A zero-width span just *past* `anchor` — the hole a missing token leaves
+// (where the completion cursor sits, right after what was typed). The
+// line/column arithmetic is exact for the single-line tokens the lexer
+// produces (a string's escapes keep raw newlines out of source tokens).
+pub fn synthetic_span_after(_ anchor: SourceSpan) -> SourceSpan {
+    return SourceSpan {
+        source: anchor.source,
+        file: anchor.file,
+        offset: anchor.offset + anchor.length,
+        length: 0,
+        line: anchor.line,
+        column: anchor.column + anchor.length,
+    };
+}
+
 // A source comment, captured on a side channel the parser never sees (comments
 // are not tokens, so the compile path stays byte-identical). The formatter and
 // doc tooling re-associate comments with AST nodes by span (gofmt's model). The
