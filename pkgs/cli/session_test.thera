@@ -321,3 +321,85 @@ fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
     cleanup(dir);
     return Result.Ok(void);
 }
+
+// ---- the pipeline over recovered trees (the LSP's mid-edit input) ----
+
+// A primary that fails to parse reports its parse diagnostics *only*: the
+// checker runs over the recovered tree (records, below), but its secondary
+// errors are withheld — a statement recovery dropped (`let y = ;`) would
+// otherwise cascade into `undefined name: y` after the root cause.
+@test
+fn test_broken_primary_reports_parse_errors_without_cascade() -> Result<Void, Error> {
+    let dir = fixture_dir('brokenprim', [
+        'm.thera': 'fn main() -> Int { return 1; }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let p = '${dir}/m.thera';
+    let broken = 'fn main() -> Int {\n'
+        + '    let y = ;\n'
+        + '    return y;\n'
+        + '}\n';
+    sess.set_overlay(p, broken);
+    let diags = sess.check(broken, p);
+    testing.assert_eq(actual: diags.len(), expected: 1)?;
+    testing.assert(diags[0].message.find('unexpected token').is_some(),
+        message: 'the root cause is the parse error: ${diags[0].message}')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// The completion shape: a dangling `x.` is a parse error, but the checker
+// still walks the recovered tree, so `type_at` answers with the receiver's
+// type — what member completion resolves against mid-edit.
+@test
+fn test_type_at_answers_on_broken_source() -> Result<Void, Error> {
+    let dir = fixture_dir('brokentypes', [
+        'u.thera': 'pub fn num() -> Int { return 40; }\n',
+        'm.thera': 'import \'u\';\nfn main() -> Int { return u.num(); }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let p = '${dir}/m.thera';
+    let broken = 'import \'u\';\n'
+        + 'fn main() -> Int {\n'
+        + '    let x = u.num();\n'
+        + '    x.;\n'
+        + '    return x;\n'
+        + '}\n';
+    sess.set_overlay(p, broken);
+    // One parse diagnostic (the missing member name) — the empty-name hole
+    // itself must not cascade into a bogus member error.
+    testing.assert_eq(actual: sess.check(broken, p).len(), expected: 1)?;
+    // The receiver `x` in `x.;` still has a committed type.
+    let recv_off = broken.find('    x.;').unwrap_or(0) + 4;
+    testing.assert_eq(actual: render(sess.type_at(p, recv_off)), expected: 'Int')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// A dependency edit still re-exposes importers when the primary is broken: the
+// records for a broken overlay repopulate on demand through `records_for`.
+@test
+fn test_type_records_repopulate_for_broken_overlay() -> Result<Void, Error> {
+    let dir = fixture_dir('brokenevict', [
+        'u.thera': 'pub fn num() -> Int { return 40; }\n',
+        'm.thera': 'import \'u\';\nfn main() -> Int { return u.num(); }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let p = '${dir}/m.thera';
+    let broken = 'import \'u\';\n'
+        + 'fn main() -> Int {\n'
+        + '    let x = u.num();\n'
+        + '    let y = ;\n'
+        + '    return x;\n'
+        + '}\n';
+    sess.set_overlay(p, broken);
+    // No explicit check: `type_at` → `records_for` checks the overlay on
+    // demand, storing records despite the parse error.
+    let off = broken.find('u.num').unwrap_or(0) + 5;
+    testing.assert_eq(actual: render(sess.type_at(p, off)), expected: 'Int')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}

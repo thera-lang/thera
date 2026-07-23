@@ -384,9 +384,6 @@ impl Session {
         // request reuses the parse the position queries already made.
         let canon = loader.canonical_path(p);
         let pf = self.parsed_primary(canon, source);
-        if pf.diagnostics.len() > 0 {
-            return pf.diagnostics;
-        }
         let program = pf.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
@@ -407,6 +404,25 @@ impl Session {
             out.push(d);
         }
         self.store_records(result.records);
+        // A primary that failed to lex/parse still went through the full
+        // pipeline above: the parser's recovered tree keeps the committed-type
+        // records fresh, so the position queries (`type_at`, completion) answer
+        // mid-edit. Only its lex/parse diagnostics are *reported*, though — a
+        // statement recovery dropped would cascade into secondary errors
+        // (`undefined name`) after the root cause (roadmap: cascade
+        // suppression / cause-naming). Marking still sees the full set, so a
+        // clean import checks as clean and the broken primary never does.
+        if pf.diagnostics.len() > 0 {
+            let all: List<diagnostic.Diagnostic> = [];
+            for d in pf.diagnostics {
+                all.push(d);
+            }
+            for d in out {
+                all.push(d);
+            }
+            mark_checked_clean(self.checked, canon, loaded.programs, skip, all);
+            return pf.diagnostics;
+        }
         mark_checked_clean(self.checked, canon, loaded.programs, skip, out);
         return out;
     }
