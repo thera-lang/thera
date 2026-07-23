@@ -55,6 +55,9 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     names.push('check --fatal-warnings (warning gates only with the flag)');
     results.push(guard_fatal_warnings(thera, work));
 
+    names.push('test --verbose (per-test duration column + per-file total)');
+    results.push(guard_test_timing(thera, work));
+
     // Best-effort cleanup; a leftover temp dir is harmless.
     match fs.remove_dir_all(work) {
         Ok(_) => {},
@@ -312,6 +315,45 @@ fn guard_fatal_warnings(_ thera: String, _ work: String) -> Verdict {
     };
     if fatal.exit_code != 1 {
         return Verdict.Fail('a warning-only file should exit 1 under --fatal-warnings (got ${fatal.exit_code})');
+    }
+    return Verdict.Pass;
+}
+
+// `test --verbose` renders each test's wall-clock duration as a trailing column
+// and a `(N tests, T ms)` rollup per file — the view for spotting a slow test.
+fn guard_test_timing(_ thera: String, _ work: String) -> Verdict {
+    let dir = path.join(work, 'timing');
+    match fs.create_dir_all(dir) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('mkdir failed: ${e.message()}'); },
+    };
+    let file = path.join(dir, 'sample_test.thera');
+    let src = 'import std.testing;\n'
+        + '@test\nfn alpha() -> Result<Void, Error> { return testing.assert(true, message: \'a\'); }\n'
+        + '@test\nfn beta() -> Result<Void, Error> { return testing.assert(true, message: \'b\'); }\n';
+    match fs.write_text(file, src) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing fixture failed: ${e.message()}'); },
+    };
+    let r = match process.run(thera, args: ['test', '--verbose', file]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('test --verbose failed to run: ${e.message()}'); },
+    };
+    if r.exit_code != 0 {
+        return Verdict.Fail('expected the sample tests to pass (exit ${r.exit_code})\n${r.stdout}\n${r.stderr}');
+    }
+    // The per-test line must carry a duration column.
+    match line_containing(r.stdout, 'alpha') {
+        Some(line) => {
+            if !line.contains('ms') {
+                return Verdict.Fail('per-test line has no duration column:\n${line}');
+            }
+        },
+        None => { return Verdict.Fail('no per-test line for alpha\n${r.stdout}'); },
+    }
+    // ... and there must be a per-file rollup total.
+    if !r.stdout.contains('(2 tests,') {
+        return Verdict.Fail('missing per-file total line\n${r.stdout}');
     }
     return Verdict.Pass;
 }

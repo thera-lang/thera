@@ -68,13 +68,13 @@ Set THERA_PROFILE=1 to write a deterministic per-function profile to stderr at e
             .details(
 'Compiles and runs every @test function in the targets (a file, or *_test.thera under a directory). No target tests the current directory.
 
-The default output is quiet: a block per failing test (`<name>: failed` with the error indented under it), then a `Ran N tests for M test files; K failures.` summary. A green run prints only the summary. --verbose restores the full per-file, per-test report.
+The default output is quiet: a block per failing test (`<name>: failed` with the error indented under it), then a `Ran N tests for M test files; K failures.` summary. A green run prints only the summary. --verbose restores the full per-file, per-test report, adding each test\'s wall-clock duration (ms) as a trailing column and a `(N tests, T ms)` total per file — the view for spotting a slow test.
 
 - stdout: the report (see above)
 - stderr: compile diagnostics and operational errors
 - exit code: 0 if all tests pass, 1 if any fail or none are found')
             .flag('show-output', help: 'show captured stdout for passing tests too (failing tests always show it); implies --verbose')
-            .flag('verbose', help: 'print the full per-file, per-test report')
+            .flag('verbose', help: 'print the full per-file, per-test report, with per-test timing and a per-file total')
             .positional('file', help: 'the .thera file or directory to test (default: the current directory)'))
         .subcommand(cli.Command.new('fmt')
             .about('format source files in place')
