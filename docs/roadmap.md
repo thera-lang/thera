@@ -499,9 +499,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
     (Runtime).
-  - **Further renderers — signature help, semantic tokens.** Thin query-layer
-    renderers; signatureHelp additionally needs the parser recovery below.
-    (**Completion landed** — see the parser-recovery item.)
+  - **Further renderers — semantic tokens.** A thin query-layer renderer.
+    (**Completion and signature help landed** — see the parser-recovery item.)
   - **Segregate intentional-error test fixtures — done** (see _Changelog_). The
     server now drops a `tests/lang/` fixture's _declared_ diagnostics
     (`// expect error:` / `// expect warning:` on the line, or a wholesale
@@ -548,9 +547,19 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     Known gaps: primitive receivers (`'s'.` — the hover gap, needs primitive
     vtables), cursors inside comments/non-interpolated strings (tokens carry no
     trivia), and `${…}` interpolation contexts.
-  - **Dependent feature: `textDocument/signatureHelp`.** Surfaces parameter
-    names while inside a function call. Relies on the parser correctly framing
-    an unterminated call `foo(`, which current coarse recovery struggles with.
+  - **`textDocument/signatureHelp` — _landed (2026-07)._** The parser now frames
+    an unterminated call — a token that closes an enclosing construct
+    (`}`/`]`/`;`) can't start an argument, so the args loop stops there and the
+    synthesized `)` completes the call node with the arguments already written,
+    instead of a failed argument parse unwinding the whole statement.
+    `signature_help_at` (`pkgs/cli/lsp/signature_help.thera`) locates the
+    innermost enclosing call in the AST (snapping a cursor in trailing
+    whitespace back onto code — an unterminated call's span ends at its last
+    real token), resolves the callee through hover's `callee_fn_site` (free fns,
+    static and instance methods on the receiver's committed type), and reports
+    the active parameter by counting completed arguments (`self` dropped, so an
+    instance call's first argument is parameter 0). Registered with `(` and `,`
+    as trigger characters.
 
 ### Developer tooling
 

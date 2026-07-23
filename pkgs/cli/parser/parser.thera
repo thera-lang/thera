@@ -2140,6 +2140,15 @@ impl Parser {
         let args: List<CallArg> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+            // A token that closes an enclosing construct can never start an
+            // argument: the call is unterminated (`add(` before the body's
+            // `}`). Stop so the trailing `expect` fills the `)` and the call
+            // node survives — the frame signature help anchors on — instead
+            // of a failed argument parse unwinding the whole statement.
+            if self.check(TokenKind.RBrace) || self.check(TokenKind.RBracket)
+                || self.check(TokenKind.Semi) {
+                break;
+            }
             let mut label = Option.None;
             let mut label_span: Option<SourceSpan> = Option.None;
             if self.check(TokenKind.Identifier) && self.next_tok().kind == TokenKind.Colon {

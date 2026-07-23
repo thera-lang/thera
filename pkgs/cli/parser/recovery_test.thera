@@ -232,6 +232,23 @@ fn test_broken_arm_expression_body_keeps_siblings() -> Result<Void, Error> {
 }
 
 @test
+fn test_unterminated_call_keeps_its_frame() -> Result<Void, Error> {
+    // The signature-help shape: `add(1,` before the body's `}`. A closer token
+    // can't start an argument, so the args loop stops and the `expect` fills
+    // the `)` — the call node survives with the arguments already written
+    // (previously the failed argument parse unwound the whole statement).
+    // Two holes, two errors: the missing `)` and the missing `;`.
+    let src = 'fn f() -> Int { return add(1, }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert_eq(actual: r.errors.len(), expected: 2)?;
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    return add(1)';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_broken_stmt_in_block_expression_keeps_the_binding() -> Result<Void, Error> {
     // A block *expression* initializer with a broken statement recovers in
     // place: the `let x` binding and the trailing statement survive. The same
@@ -415,6 +432,9 @@ fn test_recovery_terminates_on_changed_constructs() -> Result<Void, Error> {
         'fn f(_ n: Int) -> Int { let x = match n { 1 => { let y = ; y }, _ => 0 }; return x; }',
         'fn f() -> Int { let x = { let y = ; 5 }; return x; }',
         'fn f(_ n: Int) -> Int { return match n { 1 => , _ => 0 }; }',
+        // Unterminated calls (the signature-help frame).
+        'fn f() -> Int { return add(1, }',
+        'fn f() -> Int { let x = add( ; return x; }',
         // EOF-truncated fragments (graceful-EOF, §3): each open construct must
         // recover to completion rather than hang.
         'fn a() -> Int { let x = foo(',

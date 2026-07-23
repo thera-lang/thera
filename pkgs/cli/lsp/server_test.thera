@@ -424,6 +424,26 @@ fn test_completion_on_dangling_self_dot() -> Result<Void, Error> {
 }
 
 @test
+fn test_signature_help_on_unterminated_call() -> Result<Void, Error> {
+    // Mid-keystroke `add(` before the body's `}`: the framed call resolves to
+    // the declaration with parameter 0 active.
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///sh.thera",'
+        + '"text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\\nfn f() -> Int {\\n    return add(\\n}"}}}');
+
+    // Line 2, character 15 sits just past the `(` of `return add(`.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":10,"method":"textDocument/signatureHelp","params":'
+        + '{"textDocument":{"uri":"file:///sh.thera"},"position":{"line":2,"character":15}}}');
+    let out = asked.into_string().unwrap_or('');
+    testing.assert(out.contains('fn add(a: Int, b: Int) -> Int'), message: 'shows the signature: ${out}')?;
+    testing.assert(out.contains('"activeParameter":0'), message: 'parameter 0 active: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_hover_on_a_keyword_is_null() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
