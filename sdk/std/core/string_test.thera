@@ -34,6 +34,14 @@ fn test_repeat() -> Result<Void, Error> {
     testing.assert_eq(actual: 'x'.repeat(0), expected: '')?;
     testing.assert_eq(actual: 'x'.repeat(-1), expected: '')?; // non-positive -> empty
     testing.assert_eq(actual: '-'.repeat(5), expected: '-----')?;
+    // An odd count exercises every set bit of the double-and-add loop.
+    testing.assert_eq(actual: 'xy'.repeat(7), expected: 'xyxyxyxyxyxyxy')?;
+    // A large count must stay fast: repeat is O(output) via doubling, not the
+    // quadratic append-one-at-a-time loop it replaced (which took ~a minute here).
+    let big = 'ab'.repeat(1000000);
+    testing.assert_eq(actual: big.len(), expected: 2000000)?;
+    testing.assert(big.starts_with('abab'), message: 'repeat head')?;
+    testing.assert(big.ends_with('abab'), message: 'repeat tail')?;
     return Result.Ok(void);
 }
 
