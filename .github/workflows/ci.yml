@@ -103,8 +103,10 @@ jobs:
         with:
           name: sdk
 
+      # The archive root is `sdk/`; extract under build/ so the tree is
+      # build/sdk/... to match THERA_LAUNCHER below (and the local layout).
       - name: unpack sdk
-        run: tar -xzf sdk.tgz
+        run: mkdir -p build && tar -xzf sdk.tgz -C build
 
       - name: bin/test.sh ${{ matrix.groups }}
         env:
