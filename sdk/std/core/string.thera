@@ -107,13 +107,26 @@ impl String {
     /// 'ab'.repeat(3)   // 'ababab'
     /// ```
     pub fn repeat(self, _ count: Int) -> String {
-        let mut s = '';
-        let mut i = 0;
-        while i < count {
-            s = s + self;
-            i = i + 1;
+        // Double-and-add (exponentiation by squaring), not a `count`-long append
+        // loop: appending `self` one at a time recopies the growing result each
+        // step, which is quadratic in the output length. Doubling keeps the total
+        // copying linear (a geometric series) with `O(log count)` allocations.
+        if count <= 0 {
+            return '';
         }
-        return s;
+        let mut result = '';
+        let mut chunk = self;
+        let mut n = count;
+        while n > 0 {
+            if n % 2 == 1 {
+                result = result + chunk;
+            }
+            n = n / 2;
+            if n > 0 {
+                chunk = chunk + chunk;
+            }
+        }
+        return result;
     }
 
     /// A copy with the code points in reverse order.

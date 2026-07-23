@@ -111,7 +111,12 @@ pub fn write_all(to dst: Writer, _ data: Bytes) -> Result<Void, Error> {
     let end = data.len();
     let mut sent = 0;
     while sent < end {
-        let n = dst.write(data.slice(sent, end))?;
+        // Offer a bounded window, never the whole remaining tail: a short write
+        // advances `sent` by only what the writer took, and re-slicing the full
+        // tail every call makes a large transfer quadratic (each `slice` copies
+        // the remainder). 64 KiB fills a socket send buffer in one syscall.
+        let stop = if end - sent > 65536 { sent + 65536 } else { end };
+        let n = dst.write(data.slice(sent, stop))?;
         if n <= 0 {
             // A writer that accepts nothing, without erroring, would spin here.
             return Result.Err(error('write accepted no bytes'));

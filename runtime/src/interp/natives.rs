@@ -679,11 +679,17 @@ fn native_bytes_slice(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     let (bv, sv, ev) = args3(args, "bytes_slice")?;
     let start = as_int(sv, "bytes_slice")?;
     let end = as_int(ev, "bytes_slice")?;
-    let b = bytes_contents(bv, "bytes_slice")?;
-    let len = b.len() as i64;
-    let s = start.clamp(0, len) as usize;
-    let e = (end.clamp(0, len) as usize).max(s);
-    Ok(Value::new_bytes(b[s..e].to_vec()))
+    // Copy only the requested window, not the whole buffer. Going through
+    // `bytes_contents` (which clones the entire backing buffer) made every slice
+    // O(total-len), so a front-to-back loop like `io.write_all`'s short-write
+    // retry — one `slice(sent, end)` per write — was quadratic in the payload.
+    let out = with_bytes(bv, "bytes_slice", |b| {
+        let len = b.len() as i64;
+        let s = start.clamp(0, len) as usize;
+        let e = (end.clamp(0, len) as usize).max(s);
+        b[s..e].to_vec()
+    })?;
+    Ok(Value::new_bytes(out))
 }
 
 /// `a.concat(b)` — the two buffers joined.
