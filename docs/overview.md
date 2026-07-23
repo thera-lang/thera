@@ -359,11 +359,12 @@ collector.
 
 ### Self-Hosting and the Native ABI
 
-The `thera` executable is a standalone binary. It contains the Thera compiler
-front-end pre-compiled to bytecode (`frontend.thera-bc`) and embedded directly
-into the Rust executable via `include_bytes!`.
+The `thera` executable is the Rust runtime. It runs the Thera compiler front-end,
+pre-compiled to bytecode (`frontend.thera-bc`) and shipped beside the binary as
+`bin/inc/frontend.thera-bc`, which the runtime loads on a front-end subcommand (a
+single-binary release can instead `include_bytes!` the blob).
 
-When running `thera run script.thera`, the VM runs the embedded front-end bytecode
+When running `thera run script.thera`, the VM runs that front-end bytecode
 on its interpreter to parse and compile the user script into an in-memory
 `Module`, which it then executes. This bootstrap path ensures that the front-end
 remains a regular Thera program, laying the groundwork for self-hosting.

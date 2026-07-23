@@ -2066,14 +2066,15 @@ discovery) needs to know about the difference.
 ### Two binaries: `thera-rt` and `thera`
 
 The Rust crate builds **`thera-rt`** — the _bare runtime_: it loads and runs a
-`.thera-bc` and nothing else. The SDK build takes that same binary, embeds the
-compiled front-end (`frontend.thera-bc`) into it, and ships it as **`thera`** — the
-full launcher. So `thera` is `thera-rt` + an embedded front-end: invoked on a
-`.thera-bc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
-(`run`, `check`, `test`, `emit`, `fmt`, `lint`, `fix`, `lsp`) it boots its
-embedded front-end. The distinction lets a `cargo build` (which yields `thera-rt`)
-be unambiguously the runtime, while `thera` is unambiguously the runtime +
-front-end.
+`.thera-bc` and nothing else. The SDK build ships that same binary as **`thera`**
+alongside the compiled front-end (`frontend.thera-bc`, in `bin/inc/`). So `thera`
+is `thera-rt` plus a front-end it loads at runtime: invoked on a `.thera-bc` (or
+`--entry`) it behaves as the bare runtime; invoked on a subcommand (`run`,
+`check`, `test`, `emit`, `fmt`, `lint`, `fix`, `lsp`) it loads and boots the
+front-end. The distinction lets a `cargo build` (which yields `thera-rt`) be
+unambiguously the runtime, while `thera` is unambiguously the runtime +
+front-end. (A single-binary release can `include_bytes!` the front-end instead of
+shipping it beside the binary; the runtime prefers a baked-in blob when present.)
 
 ### Distributed layout
 

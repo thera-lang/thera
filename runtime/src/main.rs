@@ -1,8 +1,11 @@
 //! The runtime CLI. In its bare form (`thera-rt`) it loads and runs a `.thera-bc`.
-//! The SDK build embeds the compiled front-end (`frontend.thera-bc`) into this same
-//! binary and ships it as `thera`: then a subcommand (`run`/`check`/…) boots the
-//! embedded front-end, while a `.thera-bc` path (or `--entry`) still runs directly.
+//! As the SDK's `thera`, a subcommand (`run`/`check`/…) boots the compiled
+//! front-end; a `.thera-bc` path (or `--entry`) still runs directly. The front-end
+//! bytes are either baked in (a single-binary release) or, when the baked blob is
+//! empty, loaded from a sibling `inc/frontend.thera-bc` at runtime — the shape the
+//! assembled SDK ships, so building it needs no second compile.
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use thera::builder::FnBuilder;
@@ -14,42 +17,81 @@ use thera::interp::{
 use thera::module::Module;
 use thera::value::{Obj, TAG_OK, TY_RESULT, Value};
 
-/// The compiled front-end, embedded by `build.rs`. Empty in a bare `cargo build`
-/// (this is `thera-rt`); the SDK build supplies the real bytes (this is `thera`).
+/// The front-end baked in by `build.rs`. Empty in a bare `cargo build` (this is
+/// `thera-rt`, and [`sibling_frontend`] supplies the bytes at runtime); non-empty
+/// when `THERA_FRONTEND_BC` embedded it (a self-contained single-binary release).
 const FRONTEND_BC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/frontend.thera-bc"));
-
-const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("THERA_BUILD_SHA"));
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("--version") | Some("-V") => {
-            println!("thera {VERSION}");
+            println!("thera {}", version_string());
             ExitCode::SUCCESS
         }
         // The dev helper to write a sample module.
         Some("emit-demo") => cmd_emit_demo(args.get(2)),
         // An explicit entry or a `.thera-bc` path runs directly on the bare runtime
-        // — this is also how the embedded front-end re-invokes us to execute a
-        // program it just compiled.
+        // — this is also how the front-end re-invokes us to execute a program it
+        // just compiled.
         Some("--entry") => cmd_run(&args[1..]),
         Some(p) if is_bytecode_path(p) => cmd_run(&args[1..]),
         // Any other first argument is a front-end subcommand (`run`, `check`,
-        // `test`, `emit`, `lsp`, `--help`). Boot the embedded front-end if we
-        // have one; otherwise this is the bare runtime and there's nothing to do.
-        Some(_) | None if !FRONTEND_BC.is_empty() => cmd_frontend(&args[1..]),
-        None => {
-            eprintln!("usage: thera-rt [--entry NAME] <file.thera-bc> [args]");
-            eprintln!("       thera-rt emit-demo <file.thera-bc>");
-            ExitCode::from(2)
-        }
-        Some(other) => {
-            eprintln!("thera-rt: '{other}' is not a bytecode file (.thera-bc)");
-            eprintln!("this is the bare runtime; build the SDK for the `thera` front-end");
-            eprintln!("usage: thera-rt [--entry NAME] <file.thera-bc> [args]");
-            ExitCode::from(2)
+        // `test`, `emit`, `lsp`, `--help`). Boot the front-end — baked in, or from
+        // the sibling `inc/frontend.thera-bc`. Without either, this is the bare
+        // runtime and there's nothing to do.
+        Some(_) | None => match load_frontend() {
+            Some(bytes) => cmd_frontend(&bytes, &args[1..]),
+            None => match args.get(1) {
+                None => {
+                    eprintln!("usage: thera-rt [--entry NAME] <file.thera-bc> [args]");
+                    eprintln!("       thera-rt emit-demo <file.thera-bc>");
+                    ExitCode::from(2)
+                }
+                Some(other) => {
+                    eprintln!("thera-rt: '{other}' is not a bytecode file (.thera-bc)");
+                    eprintln!("this is the bare runtime; build the SDK for the `thera` front-end");
+                    eprintln!("usage: thera-rt [--entry NAME] <file.thera-bc> [args]");
+                    ExitCode::from(2)
+                }
+            },
+        },
+    }
+}
+
+/// The directory of the running binary, with symlinks resolved — so resources
+/// found relative to it land next to the *real* executable, not a `PATH` symlink.
+fn exe_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    exe.parent().map(PathBuf::from)
+}
+
+/// The front-end bytes: the baked-in blob when present, else a sibling
+/// `inc/frontend.thera-bc` next to the binary (the shape the SDK ships). `None`
+/// means neither is available — a plain bare runtime.
+fn load_frontend() -> Option<Vec<u8>> {
+    if !FRONTEND_BC.is_empty() {
+        return Some(FRONTEND_BC.to_vec());
+    }
+    let path = exe_dir()?.join("inc").join("frontend.thera-bc");
+    std::fs::read(path).ok()
+}
+
+/// The version string for `--version`. The build revision isn't baked into the
+/// binary (that would force a relink per commit and defeat caching); the SDK's
+/// `version` file — written by `bin/build_sdk.sh` from git, one level up from the
+/// binary — is authoritative when present, falling back to the crate version.
+fn version_string() -> String {
+    if let Some(dir) = exe_dir()
+        && let Ok(v) = std::fs::read_to_string(dir.join("..").join("version"))
+    {
+        let v = v.trim();
+        if !v.is_empty() {
+            return v.to_string();
         }
     }
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 /// Whether an argument names a bytecode file (the bare-runtime fast path). A
@@ -59,13 +101,13 @@ fn is_bytecode_path(arg: &str) -> bool {
     arg.ends_with(".thera-bc")
 }
 
-/// Boot the embedded front-end: decode `frontend.thera-bc` and call its `main` with
-/// the CLI arguments (`run foo.thera`, `check .`, …) as a `List<String>`.
-fn cmd_frontend(args: &[String]) -> ExitCode {
-    let module = match decode_module(FRONTEND_BC) {
+/// Boot the front-end: decode `frontend.thera-bc` and call its `main` with the CLI
+/// arguments (`run foo.thera`, `check .`, …) as a `List<String>`.
+fn cmd_frontend(blob: &[u8], args: &[String]) -> ExitCode {
+    let module = match decode_module(blob) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("thera: the embedded front-end is corrupt: {e:?}");
+            eprintln!("thera: the front-end is corrupt: {e:?}");
             return ExitCode::FAILURE;
         }
     };

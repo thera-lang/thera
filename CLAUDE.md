@@ -66,13 +66,16 @@ external toolchain.
 `bin/test.sh` runs everything: cargo tests, the `pkgs/cli` and `sdk/std` @test
 suites, and the examples.
 
-`bin/build_sdk.sh` assembles the binary SDK in `build/sdk/`: `bin/thera` (the
-runtime with the compiled front-end embedded) + `std/` + a `version` stamp. So
-`thera-rt` = bare runtime (from `cargo build`); `thera` = runtime + embedded
-front-end (the SDK launcher). The build bootstraps from
-`bootstrap/frontend.thera-bc` and ends with a fixpoint check (the SDK re-emits its
-own front-end and the bytes must match). Refresh the snapshot after front-end
-changes (see `bootstrap/README.md`).
+`bin/build_sdk.sh` assembles the SDK in `build/sdk/`: `bin/thera` (the runtime) +
+`bin/inc/frontend.thera-bc` (the compiled front-end, loaded from there at runtime)
++ `std/` + a `version` stamp. So `thera-rt` = bare runtime (`cargo build`);
+`thera` = that same runtime, which on a front-end subcommand loads the sibling
+`inc/frontend.thera-bc`. Loading (not embedding) means one compile, and the binary
+stays a pure function of `runtime/` source — so CI caches it. The build bootstraps
+from `bootstrap/frontend.thera-bc` and ends with a fixpoint check (the SDK re-emits
+its own front-end and the bytes must match). Refresh the snapshot after front-end
+changes (see `bootstrap/README.md`). (A single-binary release that bakes the
+front-end in is still possible via `THERA_FRONTEND_BC=<blob> cargo build`.)
 
 ## Working conventions
 

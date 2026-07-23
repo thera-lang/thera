@@ -17,6 +17,7 @@
       "Bash(bin/thera.sh lint *)",
       "Bash(bin/thera.sh run *)",
       "Bash(bin/thera.sh test *)",
+      "Bash(build/sdk/bin/thera --version)",
       "Bash(build/sdk/bin/thera test *)",
       "Bash(cargo build *)",
       "Bash(cargo clippy *)",

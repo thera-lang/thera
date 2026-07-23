@@ -308,11 +308,12 @@ is already in place.
 
 ## Persistence and the native ABI
 
-`bin/thera` is the Rust runtime with an **embedded `frontend.thera-bc`** (the
-front-end, compiled to bytecode, `include_bytes!`'d in). `thera run foo.thera`
-runs that embedded front-end _on our own interpreter_; it parses `foo.thera`,
-emits a `Module`, and runs it. The front-end is just another Thera program riding
-the runtime — the self-hosting endgame.
+`bin/thera` is the Rust runtime, which on a front-end subcommand loads the
+**compiled `frontend.thera-bc`** shipped beside it (`bin/inc/frontend.thera-bc`;
+a single-binary release can instead `include_bytes!` it). `thera run foo.thera`
+runs that front-end _on our own interpreter_; it parses `foo.thera`, emits a
+`Module`, and runs it. The front-end is just another Thera program riding the
+runtime — the self-hosting endgame.
 
 This makes the **native-function table an ABI**: every `native fn` in `sdk/std/`
 maps to a runtime native, and persisted bytecode references them. Natives are
