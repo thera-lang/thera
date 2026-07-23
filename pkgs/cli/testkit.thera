@@ -1,0 +1,31 @@
+// Shared helpers for the front-end's `*_test.thera` suites — the tokenize +
+// parse boilerplate every checker/resolver/inference/codegen/LSP test repeats.
+// Imported only by test files (never by `main`), so it is outside the
+// front-end's runtime closure and never touches the bootstrap; the corpus check
+// still type-checks it like any source.
+//
+// Deliberately thin: just the parse front door. Phase-specific harnesses
+// (`errors_of`, `typed_ctx`, `helper_surface`, …) stay in their own test files,
+// built over these — a test reads best when its *assertion* machinery sits
+// beside the assertions, while the shared parse/stamp logic lives in one place.
+
+import 'ast/ast' as _;       // Program
+import 'lexer/lexer' as _;   // tokenize
+import 'parser/parser' as _; // parse_tokens
+
+// Tokenize and parse `src`, returning its `Program` (dropping the token stream
+// and any lex/parse diagnostics — the hermetic harnesses assert on *checker*
+// output, and a malformed fixture surfaces as a downstream failure).
+pub fn parse(_ src: String) -> Program {
+    return parse_tokens(tokenize(src).tokens).program;
+}
+
+// `parse`, then stamp `path` as the program's `file_path` — the file identity the
+// resolver/loader key on (owner attribution, re-export-cycle detection). The
+// multi-file and owner-identity tests need distinct, realistic paths; a bare
+// `parse` leaves `file_path` unset (an `<anon>` identity).
+pub fn parse_at(_ src: String, _ path: String) -> Program {
+    let program = parse(src);
+    program.file_path = Option.Some(path);
+    return program;
+}

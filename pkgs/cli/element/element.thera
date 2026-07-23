@@ -292,7 +292,9 @@ pub fn file_owns(_ lib: LibraryElement, _ file: Option<String>, _ name: String) 
 
 // The owner file stamped on the hermetic built-in floor. When std.core is
 // linked, the real declarations (owned by their core files) shadow the floor
-// entries, so this sentinel only surfaces in hermetic contexts.
+// entries, so this sentinel only surfaces in hermetic contexts. The floor's
+// contract (what it provides, and its drift guard) is documented on
+// `resolver.builtin_type_defs`.
 pub const BUILTIN_OWNER: String = '<builtin>';
 
 // A `Map` key for an optional file path. A path-less (in-memory/anonymous)

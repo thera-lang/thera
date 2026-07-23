@@ -1,0 +1,92 @@
+// A drift guard between the two descriptions of the built-in types.
+//
+// The hermetic checker/resolver harnesses resolve `List`/`Map`/`Result`/… against
+// the **built-in floor** (`builtin_type_defs`) — bodyless generic type defs under
+// the synthetic `<builtin>` owner — instead of the real `sdk/std/core` sources.
+// The floor is not test-only: the production path registers it too and lets the
+// real `std.core` declarations *shadow* it (resolver.thera, element.thera). That
+// leaves two hand-maintained descriptions of the same types, which can silently
+// disagree — the floor could give `Result` the wrong number of type parameters,
+// and every hermetic test would keep passing against the wrong shape.
+//
+// This links the *real* `std.core` closure once and asserts, for each floor name,
+// that core declares a type of the same name whose generic arity matches the
+// floor's — and that the linked core def actually shadows the floor (its owner is
+// a real file, not `<builtin>`), so the floor is a faithful stand-in for what the
+// CLI compiles against. It is the single test that pays the cost of the real SDK
+// so the other ~180 hermetic tests don't have to.
+
+import std.testing;
+
+import '../loader' as _;   // find_sdk_root, load_imports
+import '../testkit' as _;  // parse
+import 'element' as _;     // BUILTIN_OWNER, TypeDefElement
+import 'resolver' as _;    // builtin_type_defs, build_library
+import 'scope' as _;       // file_scope
+
+// The real `std.core` type registry, resolved by linking the prelude closure the
+// same way the CLI does: parse a trivial (non-SDK) entry, load its imports —
+// which auto-includes `std.core` — and build the element model over the closure.
+// `resolve_type_def_by_name` then returns the core-owned def (which shadows the
+// floor), or the floor entry if the link somehow didn't happen.
+fn core_scope() -> Result<FileScope, Error> {
+    // The repo's own `sdk/std` is always discoverable from the test runtime; a
+    // None here means the guard can't run, which must fail loudly rather than
+    // pass vacuously.
+    let root = match find_sdk_root() {
+        Some(r) => r,
+        None => return Result.Err(error('no SDK found — cannot guard the floor against real std.core')),
+    };
+    let entry = '/thera_floor_guard/main.thera';  // not under `std/`, so std.core auto-imports
+    let prog = parse('fn _probe() -> Void { }\n');
+    let loaded = load_imports(entry, prog, Option.Some(root));
+    let lib = build_library(prog, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
+    return Result.Ok(file_scope(lib, Option.None));
+}
+
+// Which floor names to check for generic-arity agreement. The arities themselves
+// are read *from the floor* (not hardcoded here), so the assertion is a direct
+// floor-vs-core comparison — this list only selects the names.
+fn generic_floor_names() -> List<String> {
+    return ['List', 'Set', 'Map', 'Result', 'Option'];
+}
+
+@test
+fn test_floor_generics_match_real_core_arity() -> Result<Void, Error> {
+    let scope = core_scope()?;
+    let floor = builtin_type_defs();
+    for name in generic_floor_names() {
+        let floor_def = match floor.get(name) {
+            Some(d) => d,
+            None => return Result.Err(error('floor lacks ${name}')),
+        };
+        let core_def = match scope.resolve_type_def_by_name(name) {
+            Some(d) => d,
+            None => return Result.Err(error('real std.core lacks ${name}')),
+        };
+        // The linked core def must be the real one, not the floor falling through
+        // — proof the prelude closure actually shadowed the floor.
+        testing.assert(core_def.owner_file != BUILTIN_OWNER,
+            message: '${name} resolved to the <builtin> floor, not real std.core (prelude not linked?)')?;
+        // The drift check: floor and core must ascribe the same generic arity.
+        testing.assert_eq(actual: core_def.type_parameters.len(),
+            expected: floor_def.type_parameters.len())?;
+    }
+    return Result.Ok(void);
+}
+
+// The primitives and opaque runtime types the floor seeds must also exist in real
+// core (existence + shadowing), so a floor entry can't name a type core dropped.
+@test
+fn test_floor_scalars_exist_in_real_core() -> Result<Void, Error> {
+    let scope = core_scope()?;
+    for name in ['String', 'Int', 'Bool', 'Double', 'Bytes'] {
+        let def = match scope.resolve_type_def_by_name(name) {
+            Some(d) => d,
+            None => return Result.Err(error('real std.core lacks ${name}')),
+        };
+        testing.assert(def.owner_file != BUILTIN_OWNER,
+            message: '${name} did not resolve to real std.core')?;
+    }
+    return Result.Ok(void);
+}
