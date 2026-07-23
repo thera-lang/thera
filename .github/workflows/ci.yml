@@ -15,7 +15,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Rust runtime: format, lint, and unit tests. Fast, and gates the rest.
+  # Rust runtime: format, lint, and unit tests. Independent gate, runs in parallel
+  # with `build` — a runtime regression fails CI on its own.
   runtime:
     name: runtime (cargo)
     runs-on: ubuntu-latest
@@ -45,18 +46,48 @@ jobs:
       - name: cargo test
         run: cargo test
 
-  # Self-hosted suite, sharded across parallel jobs. Each shard builds the dev
-  # front-end once, then runs its bin/test.sh group(s). `cargo` is omitted — the
-  # runtime job above already runs the cargo tests.
-  #
-  # The `stdlib` group (thera test sdk/std) is the long pole (~3min) and can't be
-  # split further, so it gets its own shard; everything else consolidates into
-  # `rest` (~2min), which still finishes first. A third shard wouldn't lower the
-  # wall-clock floor — it would just add another redundant release build.
+  # Build the self-contained SDK ONCE (runtime + embedded front-end + stdlib), so
+  # the suite shards need no toolchain and no per-shard rebuild. This is also the
+  # only place the self-hosting fixpoint is checked — bin/build_sdk.sh re-emits the
+  # front-end from the built SDK and fails if the bytes don't match. NOTE: a PR
+  # that adds syntax consumed by pkgs/cli must refresh bootstrap/frontend.thera-bc
+  # or this job goes red at the fixpoint step (see bootstrap/README.md).
+  build:
+    name: build (sdk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime
+
+      - name: bin/build_sdk.sh (emit + embed + fixpoint check)
+        run: bin/build_sdk.sh
+
+      # tar the tree so the executable bit on build/sdk/bin/thera survives the
+      # upload/download round-trip (upload-artifact does not preserve modes).
+      - name: package sdk
+        run: tar -czf sdk.tgz -C build sdk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk
+          path: sdk.tgz
+          retention-days: 1
+
+  # Self-hosted suite, sharded across parallel jobs. Each shard downloads the
+  # prebuilt SDK and runs its bin/test.sh group(s) against it via THERA_LAUNCHER —
+  # no rustup, no cargo, no front-end rebuild. `cargo` is omitted (the runtime job
+  # runs it). The `stdlib` group is the current long pole and gets its own shard;
+  # everything else consolidates into `rest`.
   suite:
     name: suite (${{ matrix.name }})
     runs-on: ubuntu-latest
-    needs: runtime
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -68,12 +99,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
         with:
-          workspaces: runtime
+          name: sdk
+
+      # The archive root is `sdk/`; extract under build/ so the tree is
+      # build/sdk/... to match THERA_LAUNCHER below (and the local layout).
+      - name: unpack sdk
+        run: mkdir -p build && tar -xzf sdk.tgz -C build
 
       - name: bin/test.sh ${{ matrix.groups }}
+        env:
+          THERA_LAUNCHER: ${{ github.workspace }}/build/sdk/bin/thera
         run: bin/test.sh ${{ matrix.groups }}

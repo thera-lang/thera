@@ -1,0 +1,307 @@
+// Process-level integration guards for the `thera` CLI.
+//
+// These assert *observable process behavior* that the in-process @test suites
+// can't reach: the LSP stdout transport over a real pipe, profiler determinism
+// across two separate runs, the stdout/stderr stream split, `fmt --check`
+// semantics, and per-file diagnostic attribution. Each guard shells out to the
+// real launcher (the same one under test) via std.process, mirroring
+// tests/lang_runner.thera.
+//
+// Usage (from the repo root):
+//   thera run tests/integration_runner.thera <thera-cmd>
+// where <thera-cmd> is the launcher under test (bin/thera.sh in dev, or the
+// self-contained build/sdk/bin/thera in CI). bin/test.sh passes it through.
+
+import std.process;
+import std.fs;
+import std.io;
+import std.path;
+
+enum Verdict {
+    Pass,
+    Fail(String),     // reason
+}
+
+fn main(parameters: List<String>) -> Result<Int, Error> {
+    if parameters.len() < 1 {
+        eprintln('usage: thera run tests/integration_runner.thera <thera-cmd>');
+        return Result.Ok(2);
+    }
+    let thera = parameters[0];
+
+    // One unique scratch dir for every fixture, cleaned up at the end. Fixtures
+    // are generated here (never committed) so the corpus fmt/check guards — which
+    // scan the real tree — can't be tripped by a deliberately broken file.
+    let work = make_workdir()?;
+
+    let names: List<String> = [];
+    let results: List<Verdict> = [];
+
+    names.push('lsp transport (framed initialize over a pipe)');
+    results.push(guard_lsp(thera));
+
+    names.push('profiler determinism (THERA_PROFILE, byte-identical)');
+    results.push(guard_profiler(thera, work));
+
+    names.push('check diagnostics stream (stdout, not stderr)');
+    results.push(guard_check_stream(thera, work));
+
+    names.push('fmt --check semantics (clean=0, dirty=1, file untouched)');
+    results.push(guard_fmt_check(thera, work));
+
+    names.push('diagnostic attribution (imported-file error names the import)');
+    results.push(guard_attribution(thera, work));
+
+    // Best-effort cleanup; a leftover temp dir is harmless.
+    match fs.remove_dir_all(work) {
+        Ok(_) => {},
+        Err(_) => {},
+    };
+
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut i = 0;
+    while i < results.len() {
+        match results[i] {
+            Pass => {
+                passed = passed + 1;
+                println('  ok   ${names[i]}');
+            },
+            Fail(reason) => {
+                failed = failed + 1;
+                println('  FAIL ${names[i]}');
+                for line in reason.lines() {
+                    println('       ${line}');
+                }
+            },
+        }
+        i = i + 1;
+    }
+
+    println('');
+    println('${passed} passed, ${failed} failed (${results.len()} guards)');
+    if failed > 0 {
+        return Result.Ok(1);
+    }
+    return Result.Ok(0);
+}
+
+// --- guards ---
+
+// Drive the real `thera lsp` process over stdin/stdout the way an editor does: a
+// single Content-Length-framed `initialize`, then EOF (the server exits). This
+// exercises the actual stdout transport — the in-process server @tests use a
+// StringWriter and so can't catch a framing/flushing regression. The body
+// carries "capabilities", so finding it proves the full message arrived.
+fn guard_lsp(_ thera: String) -> Verdict {
+    let body = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}';
+    let frame = 'Content-Length: ${body.bytes().len()}\r\n\r\n${body}';
+
+    let child = match process.start(thera, args: ['lsp']) {
+        Ok(c) => c,
+        Err(e) => { return Verdict.Fail('could not start lsp: ${e.message()}'); },
+    };
+    match child.stdin().write(frame.bytes()) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing to lsp stdin failed: ${e.message()}'); },
+    };
+    match child.close_stdin() {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('closing lsp stdin failed: ${e.message()}'); },
+    };
+    let raw = match io.read_all(child.stdout()) {
+        Ok(b) => b,
+        Err(e) => { return Verdict.Fail('reading lsp stdout failed: ${e.message()}'); },
+    };
+    match child.wait() {
+        Ok(_) => {},
+        Err(_) => {},
+    };
+    let out = match raw.to_string() {
+        Ok(s) => s,
+        Err(_) => { return Verdict.Fail('lsp stdout was not valid UTF-8'); },
+    };
+    if out.contains('"capabilities"') {
+        return Verdict.Pass;
+    }
+    return Verdict.Fail('no framed response body received; stdout:\n${out}');
+}
+
+// The in-VM profiler (THERA_PROFILE) prints a per-function table to stderr at run
+// end. Its headline property for agents is *determinism* — instruction-budget
+// sampling, not wall-clock — so two runs of the same program must produce a
+// byte-identical profile.
+fn guard_profiler(_ thera: String, _ work: String) -> Verdict {
+    let prog = path.join(work, 'p.thera');
+    let src = 'fn main() -> Int { let mut s = 0; let mut i = 0; while i < 5000 { s = s + i; i = i + 1; } return s; }\n';
+    match fs.write_text(prog, src) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing program failed: ${e.message()}'); },
+    };
+
+    let env = [:];
+    env['THERA_PROFILE'] = '1';
+    let r1 = match process.run(thera, args: ['run', prog], env: Option.Some(env)) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('first run failed: ${e.message()}'); },
+    };
+    let r2 = match process.run(thera, args: ['run', prog], env: Option.Some(env)) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('second run failed: ${e.message()}'); },
+    };
+
+    if !r1.stderr.contains('thera profile') {
+        return Verdict.Fail('no profile emitted; stderr:\n${r1.stderr}');
+    }
+    if r1.stderr != r2.stderr {
+        return Verdict.Fail('profile not byte-identical across runs');
+    }
+    return Verdict.Pass;
+}
+
+// `thera check`'s product is its diagnostics (it emits no artifact), so they go to
+// stdout — like `thera test` and like linters (eslint/ruff/mypy). Assert that a
+// diagnostic lands on stdout and not stderr, so the convention can't regress.
+fn guard_check_stream(_ thera: String, _ work: String) -> Verdict {
+    let bad = path.join(work, 'bad.thera');
+    match fs.write_text(bad, 'fn f() -> Int { return missing; }\n') {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing fixture failed: ${e.message()}'); },
+    };
+    let r = match process.run(thera, args: ['check', bad]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check failed to run: ${e.message()}'); },
+    };
+    if r.stdout.contains('undefined name: missing') && !r.stderr.contains('undefined name: missing') {
+        return Verdict.Pass;
+    }
+    return Verdict.Fail('expected the diagnostic on stdout only\nstdout:\n${r.stdout}\nstderr:\n${r.stderr}');
+}
+
+// `thera fmt --check` must not modify files, list the ones needing formatting on
+// stdout, and exit 0 (all formatted) / 1 (some need formatting) — the CI /
+// pre-commit contract.
+fn guard_fmt_check(_ thera: String, _ work: String) -> Verdict {
+    let clean = path.join(work, 'clean.thera');
+    let dirty = path.join(work, 'dirty.thera');
+    let dirty_src = 'fn g() {\ny();\n}\n';
+    match fs.write_text(clean, 'fn f() {\n    x();\n}\n') {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing clean fixture failed: ${e.message()}'); },
+    };
+    match fs.write_text(dirty, dirty_src) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing dirty fixture failed: ${e.message()}'); },
+    };
+
+    let rc = match process.run(thera, args: ['fmt', '--check', clean]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('fmt --check (clean) failed to run: ${e.message()}'); },
+    };
+    if rc.exit_code != 0 {
+        return Verdict.Fail('clean file reported unformatted (exit ${rc.exit_code})');
+    }
+
+    let rd = match process.run(thera, args: ['fmt', '--check', dirty]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('fmt --check (dirty) failed to run: ${e.message()}'); },
+    };
+    if rd.exit_code != 1 {
+        return Verdict.Fail('dirty file did not exit 1 (exit ${rd.exit_code})');
+    }
+    if !rd.stdout.contains('dirty.thera') {
+        return Verdict.Fail('dirty file not listed on stdout\nstdout:\n${rd.stdout}');
+    }
+
+    // --check must not touch the file.
+    let after = match fs.read_text(dirty) {
+        Ok(s) => s,
+        Err(e) => { return Verdict.Fail('re-reading dirty fixture failed: ${e.message()}'); },
+    };
+    if after != dirty_src {
+        return Verdict.Fail('fmt --check modified the file');
+    }
+    return Verdict.Pass;
+}
+
+// An error in an imported file must be attributed to *that* file, not the
+// entrypoint that triggered the compile — a diagnostic span carries source text,
+// not a path, so the reporter resolves the owning file. Covers both a
+// name/method error and a parse error in the import.
+fn guard_attribution(_ thera: String, _ work: String) -> Verdict {
+    let helper = path.join(work, 'helper.thera');
+    let app = path.join(work, 'app.thera');
+    match fs.write_text(app, "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n") {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing app.thera failed: ${e.message()}'); },
+    };
+
+    // (1) A method error in the import: the diagnostic line naming `frobnicate`
+    // must point at helper.thera, not app.thera, and the run must fail.
+    match fs.write_text(helper, 'pub fn greet(_ n: String) -> String { return n.frobnicate(); }\n') {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing helper.thera failed: ${e.message()}'); },
+    };
+    let r1 = match process.run(thera, args: ['run', app]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('run failed to start: ${e.message()}'); },
+    };
+    if r1.exit_code == 0 {
+        return Verdict.Fail('expected a non-zero exit for the imported-file error');
+    }
+    let combined1 = '${r1.stdout}\n${r1.stderr}';
+    match line_containing(combined1, 'frobnicate') {
+        Some(line) => {
+            if !line.contains('helper.thera') {
+                return Verdict.Fail('frobnicate diagnostic not attributed to helper.thera:\n${line}');
+            }
+            if line.contains('app.thera') {
+                return Verdict.Fail('frobnicate diagnostic wrongly names app.thera:\n${line}');
+            }
+        },
+        None => { return Verdict.Fail('no diagnostic mentioned frobnicate\n${combined1}'); },
+    }
+
+    // (2) A parse error in the import must be surfaced (not dropped under exit 0)
+    // and attributed to helper.thera at the right line.
+    match fs.write_text(helper, 'pub fn greet(_ n: String) -> String {\n    let x = ;\n    return n;\n}\n') {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('rewriting helper.thera failed: ${e.message()}'); },
+    };
+    let r2 = match process.run(thera, args: ['check', app]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check failed to start: ${e.message()}'); },
+    };
+    if r2.exit_code == 0 {
+        return Verdict.Fail('expected a non-zero exit for the imported parse error');
+    }
+    let combined2 = '${r2.stdout}\n${r2.stderr}';
+    if !combined2.contains('helper.thera:2:') || !combined2.contains('unexpected token') {
+        return Verdict.Fail('imported parse error not surfaced + attributed\n${combined2}');
+    }
+    return Verdict.Pass;
+}
+
+// --- helpers ---
+
+// A unique, empty scratch directory under the system temp root. `temp_file` mints
+// a unique name atomically; we drop the file and use a sibling directory.
+fn make_workdir() -> Result<String, Error> {
+    let f = fs.temp_file(prefix: 'thera-itest-')?;
+    let base = f.path();
+    f.close()?;
+    fs.remove(base)?;
+    let dir = '${base}.d';
+    fs.create_dir_all(dir)?;
+    return Result.Ok(dir);
+}
+
+// The first line of `text` that contains `needle`, or None.
+fn line_containing(_ text: String, _ needle: String) -> Option<String> {
+    for line in text.lines() {
+        if line.contains(needle) {
+            return Option.Some(line);
+        }
+    }
+    return Option.None;
+}
