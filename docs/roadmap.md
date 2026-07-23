@@ -499,9 +499,9 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
     (Runtime).
-  - **Further renderers — completion, signature help, semantic tokens.** Thin
-    query-layer renderers; completion + signatureHelp additionally need the
-    parser recovery below.
+  - **Further renderers — signature help, semantic tokens.** Thin query-layer
+    renderers; signatureHelp additionally needs the parser recovery below.
+    (**Completion landed** — see the parser-recovery item.)
   - **Segregate intentional-error test fixtures — done** (see _Changelog_). The
     server now drops a `tests/lang/` fixture's _declared_ diagnostics
     (`// expect error:` / `// expect warning:` on the line, or a wholesale
@@ -520,19 +520,32 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   Remaining:
   - **Stage 2b — recovery inside expression blocks** (`parse_expr_block`:
     match-arm `{…}` bodies and block-expressions). A broken statement there
-    still discards the enclosing declaration; the interleaved tail-expression
-    handling makes per-element recovery fiddlier than the statement-block case.
-  - **The behavioral `complete_at(source, offset)` oracle** — asserts completion
-    items directly rather than via the structural dump; lands with the
-    `textDocument/completion` item below. Until then the structural dump
-    (`ast/dump.thera`) + span assertions are the oracle.
+    unwinds to the enclosing _statement_ boundary — the whole
+    `let x = match … ;` collapses to an `Expr.Error`, losing the match tree the
+    cursor sits in (and a decl-level initializer still loses its declaration);
+    the interleaved tail-expression handling makes per-element recovery fiddlier
+    than the statement-block case. The completion oracle is the driver: a cursor
+    inside a broken arm should still complete.
 
   (Keep in mind when touching the parser — the precedence-table refactor
   preserved the `panicking`/recovery structure.)
-  - **Dependent feature: `textDocument/completion`.** Autocomplete requires
-    navigating a mid-keystroke AST (e.g., `obj.`). Deferring until the parser
-    can reliably build an AST that doesn't drop the trailing, incomplete member
-    access.
+  - **`textDocument/completion` — _landed (2026-07)._** `complete_at` (the
+    behavioral oracle the recovery stages promised, in
+    `pkgs/cli/lsp/completion.thera` + `completion_test.thera`) classifies the
+    cursor over the token stream and enumerates from the same owner-correct
+    surfaces hover resolves against: member completion after `.` (a value
+    receiver's committed type — which works mid-edit because the session now
+    checks recovered trees — a namespace's public surface, a bare/qualified
+    type's static surface, `self`), and bare-name completion (locals via a
+    collect-all refactor of the binding walkers, the file's decls, its bare
+    surface, its namespaces). Registered with `.` as the trigger character.
+    Along the way, non-fatal `expect`'s synthetic token was re-anchored from the
+    _next_ token to **just past the previous token** (the hole the cursor sits
+    in — `S.make().` before a `return` on the next line anchored on the wrong
+    line; at EOF the two coincide, which is why the span tests never caught it).
+    Known gaps: primitive receivers (`'s'.` — the hover gap, needs primitive
+    vtables), cursors inside comments/non-interpolated strings (tokens carry no
+    trivia), and `${…}` interpolation contexts.
   - **Dependent feature: `textDocument/signatureHelp`.** Surfaces parameter
     names while inside a function call. Relies on the parser correctly framing
     an unterminated call `foo(`, which current coarse recovery struggles with.

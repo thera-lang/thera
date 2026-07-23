@@ -404,6 +404,26 @@ fn test_hover_shows_declaration_signature() -> Result<Void, Error> {
 }
 
 @test
+fn test_completion_on_dangling_self_dot() -> Result<Void, Error> {
+    // The document is mid-keystroke broken (`self.`): recovery + the session's
+    // recovered-tree records still produce the impl type's instance members.
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///c.thera",'
+        + '"text":"struct S { let count: Int; }\\nimpl S { fn go(self) -> Int { return self.; } }"}}}');
+
+    // Line 1, character 42 sits just past the `.` of `return self.`.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":9,"method":"textDocument/completion","params":'
+        + '{"textDocument":{"uri":"file:///c.thera"},"position":{"line":1,"character":42}}}');
+    let out = asked.into_string().unwrap_or('');
+    testing.assert(out.contains('"label":"count"'), message: 'offers the field: ${out}')?;
+    testing.assert(out.contains('"label":"go"'), message: 'offers the method: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_hover_on_a_keyword_is_null() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
@@ -746,10 +766,10 @@ fn test_unknown_request_gets_method_not_found() -> Result<Void, Error> {
     // An unhandled *request* (has an id) gets a MethodNotFound error, so the
     // client never hangs waiting (and never mistakes it for a null result);
     // a notification (no id) is silently dropped.
-    let out = handled('{"jsonrpc":"2.0","id":11,"method":"textDocument/completion","params":{}}');
+    let out = handled('{"jsonrpc":"2.0","id":11,"method":"textDocument/inlayHint","params":{}}');
     testing.assert(out.contains('"id":11') || out.contains('"id": 11'), message: 'echoes the id')?;
     testing.assert(out.contains('-32601'), message: 'replies with MethodNotFound')?;
-    testing.assert(out.contains('textDocument/completion'), message: 'names the method')?;
+    testing.assert(out.contains('textDocument/inlayHint'), message: 'names the method')?;
     let dropped = handled('{"jsonrpc":"2.0","method":"textDocument/somethingNew","params":{}}');
     testing.assert_eq(actual: dropped, expected: '')?;
     return Result.Ok(void);

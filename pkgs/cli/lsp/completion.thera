@@ -1,0 +1,288 @@
+// LSP completion (`textDocument/completion`) — the mid-keystroke feature the
+// parser's error recovery exists for. The cursor is classified over the token
+// stream (a member completion after a `.`, else a bare-name completion), then
+// candidates are enumerated from the same owner-correct surfaces hover
+// resolves against (`resolve.thera`): a receiver's committed type, a
+// namespace's public surface, the enclosing function's bindings, the file's
+// declarations, and its bare surface. `complete_at` is the behavioral oracle
+// (docs/frontend.md §Parser error recovery — Testing); `handle_completion`
+// renders its items as LSP JSON.
+//
+// Known limitations: a primitive receiver (`'s'.`) carries no `TypeId`, so it
+// completes nothing (the hover gap, roadmap: primitive-receiver member
+// resolution); a cursor inside a comment or a non-interpolated string is not
+// detected (the token stream carries no trivia) and falls back to bare-name
+// items.
+
+import std.json as _;
+
+import '../ast/ast' as _;      // Program, Decl, FnDecl
+import '../ast/describe';      // describe_type
+import '../element/element';   // file_key
+import '../element/types';     // Type (the receiver's committed type)
+import '../lexer/token' as _;  // Token, TokenKind, SourceSpan
+import 'resolve';
+
+// A completion candidate: its label, LSP `CompletionItemKind`, and a
+// hover-style signature/type detail.
+pub struct CompletionItem {
+    let label: String;
+    let kind: Int;
+    let detail: String;
+}
+
+// LSP `CompletionItemKind` codes (the protocol's numeric enum).
+const KIND_METHOD: Int = 2;
+const KIND_FUNCTION: Int = 3;
+const KIND_FIELD: Int = 5;
+const KIND_VARIABLE: Int = 6;
+const KIND_CLASS: Int = 7;
+const KIND_INTERFACE: Int = 8;
+const KIND_MODULE: Int = 9;
+const KIND_ENUM: Int = 13;
+const KIND_ENUM_MEMBER: Int = 20;
+const KIND_CONSTANT: Int = 21;
+
+// The completion items at `offset` in `text`, deduped by label (the highest-
+// priority source wins — locals shadow declarations shadow the bare surface)
+// and filtered by the partial identifier under the cursor. Deterministic:
+// items ride in source/derivation order, no client-specific ranking.
+pub fn complete_at(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> List<CompletionItem> {
+    let toks = resolve.primary_tokens(ctx, text);
+    let cur = classify(toks, text, offset);
+    let items = match cur.dot {
+        Some(d) => member_items(ctx, toks, d, offset),
+        None => scope_items(ctx, offset),
+    };
+    let seen: Set<String> = Set.new();
+    let out: List<CompletionItem> = [];
+    for it in items {
+        if it.label != '' && !seen.has(it.label)
+            && (cur.prefix == '' || it.label.starts_with(cur.prefix)) {
+            seen.add(it.label);
+            out.push(it);
+        }
+    }
+    return out;
+}
+
+// The LSP `CompletionItem[]` (as JSON) for `offset` in `text`.
+pub fn handle_completion(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Json {
+    return json.arr(complete_at(ctx, text, offset).map((it) => json.obj([
+        'label': json.str(it.label),
+        'kind': json.int(it.kind),
+        'detail': json.str(it.detail),
+    ])));
+}
+
+// --- cursor classification ---
+
+// Where the cursor sits: after the `.` at token index `dot` (a member
+// completion), else a bare-name position; `prefix` is the typed part of the
+// identifier being completed ('' right after the dot / at a fresh name).
+struct CursorCtx {
+    let dot: Option<Int>;
+    let prefix: String;
+}
+
+fn classify(_ toks: List<Token>, _ text: String, _ offset: Int) -> CursorCtx {
+    // Inside (or at the end of) an identifier: its text up to the cursor is
+    // the prefix, and an immediately preceding `.` makes it a member.
+    for p in toks.enumerate() {
+        let s = p.value.span;
+        if p.value.kind == TokenKind.Identifier
+            && offset > s.offset && offset <= s.offset + s.length {
+            let prefix = text.slice(s.offset, offset);
+            if p.index >= 1 && toks[p.index - 1].kind == TokenKind.Dot {
+                return CursorCtx { dot: Option.Some(p.index - 1), prefix: prefix };
+            }
+            return CursorCtx { dot: Option.None, prefix: prefix };
+        }
+    }
+    // No identifier at the cursor: the nearest token ending at or before it —
+    // a `.` there is the trigger-character shape (`obj.`), empty prefix.
+    let mut last = -1;
+    for p in toks.enumerate() {
+        let s = p.value.span;
+        if p.value.kind != TokenKind.Eof && s.offset + s.length <= offset {
+            last = p.index;
+        }
+    }
+    if last >= 0 && toks[last].kind == TokenKind.Dot {
+        return CursorCtx { dot: Option.Some(last), prefix: '' };
+    }
+    return CursorCtx { dot: Option.None, prefix: '' };
+}
+
+// --- member completion ---
+
+fn member_items(_ ctx: resolve.ResolveCtx, _ toks: List<Token>, _ dot_idx: Int,
+    _ offset: Int) -> List<CompletionItem> {
+    let entries: List<resolve.MemberEntry> = match resolve.receiver_of_dot(toks, dot_idx) {
+        NotMember => [],
+        // `self.` — the enclosing impl/interface's type, instance surface.
+        SelfRecv => match resolve.enclosing_self_type_name(ctx.program, offset) {
+            Some(tn) => match resolve.bare_owner_key(ctx, tn) {
+                Some(owner) => resolve.type_members(ctx, owner, tn, instance: true),
+                None => [],
+            },
+            None => [],
+        },
+        Named(recv, recv_span) => named_receiver_entries(ctx, recv, recv_span),
+        // `ns.Type.` — the type's static surface, owner-correct; a head that
+        // names no namespace is a value chain, resolved on the committed type.
+        Qualified(ns, tname) => match resolve.namespace_surface(ctx, ns) {
+            Some(surface) => match surface.origin.get(tname) {
+                Some(owner) => resolve.type_members(ctx, owner, tname, instance: false),
+                None => [],
+            },
+            None => computed_entries(ctx, offset),
+        },
+        Computed => computed_entries(ctx, offset),
+    };
+    return entries.map((e) => CompletionItem {
+        label: e.name,
+        kind: kind_code(e.kind),
+        detail: e.detail,
+    });
+}
+
+// A plain named receiver, in `named_receiver_member`'s order: an import
+// namespace (`fs.`), a value binding on its committed type (`xs.`), else a
+// bare type name's static surface (`Color.`).
+fn named_receiver_entries(_ ctx: resolve.ResolveCtx, _ recv: String,
+    _ recv_span: SourceSpan) -> List<resolve.MemberEntry> {
+    if let Some(surface) = resolve.namespace_surface(ctx, recv) {
+        return resolve.namespace_entries(ctx, surface);
+    }
+    if let Some(ty) = resolve.recorded_type_at(ctx, recv_span) {
+        return typed_entries(ctx, ty);
+    }
+    return match resolve.bare_owner_key(ctx, recv) {
+        Some(owner) => resolve.type_members(ctx, owner, recv, instance: false),
+        None => [],
+    };
+}
+
+// The instance surface of a committed type. A primitive/function receiver has
+// no `TypeId`, so it completes nothing (the primitive-receiver gap).
+fn typed_entries(_ ctx: resolve.ResolveCtx, _ ty: types.Type) -> List<resolve.MemberEntry> {
+    return match ty {
+        Interface(id, _) => resolve.type_members(ctx, id.owner, id.name, instance: true),
+        _ => [],
+    };
+}
+
+// A computed receiver (`f().`, `a.b.`): the AST locates the receiver
+// expression — the recovery hole's zero-width member span anchors exactly at
+// the cursor, so the mid-keystroke `f().` finds its `Field` node — and its
+// committed type carries the members.
+fn computed_entries(_ ctx: resolve.ResolveCtx, _ offset: Int) -> List<resolve.MemberEntry> {
+    return match resolve.member_receiver_span(ctx.program, offset) {
+        Some(rs) => match resolve.recorded_type_at(ctx, rs) {
+            Some(ty) => typed_entries(ctx, ty),
+            None => [],
+        },
+        None => [],
+    };
+}
+
+// --- bare-name (scope) completion ---
+
+// In priority order: the enclosing function's bindings (declared at or before
+// the cursor, nearest declaration winning per name), `self` when a method
+// encloses, the file's own declarations, its bare surface (prelude / `as _`
+// imports), and its bound import namespaces.
+fn scope_items(_ ctx: resolve.ResolveCtx, _ offset: Int) -> List<CompletionItem> {
+    let out: List<CompletionItem> = [];
+    if let Some(fd) = resolve.enclosing_fn_at(ctx.program, offset) {
+        for site in nearest_bindings(fd, offset) {
+            out.push(CompletionItem {
+                label: site.name,
+                kind: KIND_VARIABLE,
+                detail: binding_detail(ctx, site),
+            });
+        }
+    }
+    if let Some(tn) = resolve.enclosing_self_type_name(ctx.program, offset) {
+        out.push(CompletionItem { label: 'self', kind: KIND_VARIABLE, detail: 'self: ${tn}' });
+    }
+    for decl in ctx.program.decls {
+        if let Some(name) = resolve.decl_name(decl) {
+            out.push(CompletionItem {
+                label: name,
+                kind: kind_code(resolve.decl_symbol_kind(decl)),
+                detail: resolve.describe_decl(decl),
+            });
+        }
+    }
+    let key = element.file_key(ctx.program.file_path);
+    if let Some(surface) = ctx.file_bare_surface.get(key) {
+        for name in surface.keys() {
+            match resolve.find_decl_site(ctx, name) {
+                Some(site) => {
+                    out.push(CompletionItem {
+                        label: name,
+                        kind: kind_code(resolve.decl_symbol_kind(site.decl)),
+                        detail: resolve.describe_decl(site.decl),
+                    });
+                },
+                None => void,
+            }
+        }
+    }
+    if let Some(nss) = ctx.file_namespaces.get(key) {
+        for name in nss.keys() {
+            out.push(CompletionItem { label: name, kind: KIND_MODULE, detail: 'namespace' });
+        }
+    }
+    return out;
+}
+
+// The bindings in scope at `offset`, one per name: only those declared at or
+// before the cursor, the nearest declaration winning (the shadowing rule
+// `local_binding_at` applies to a single name).
+fn nearest_bindings(_ fd: FnDecl, _ offset: Int) -> List<resolve.BindingSite> {
+    let best: Map<String, resolve.BindingSite> = [:];
+    for site in resolve.local_bindings_at(fd, offset) {
+        if site.span.offset <= offset {
+            let keep = match best.get(site.name) {
+                Some(b) => site.span.offset >= b.span.offset,
+                None => true,
+            };
+            if keep {
+                best[site.name] = site;
+            }
+        }
+    }
+    return best.values();
+}
+
+// `name: T` from the written annotation, else the committed-type record at the
+// binding site, else the bare name.
+fn binding_detail(_ ctx: resolve.ResolveCtx, _ site: resolve.BindingSite) -> String {
+    return match site.type_ann {
+        Some(t) => '${site.name}: ${describe.describe_type(t)}',
+        None => match resolve.recorded_type_at(ctx, site.span) {
+            Some(ty) => '${site.name}: ${types.type_to_string(ty)}',
+            None => site.name,
+        },
+    };
+}
+
+fn kind_code(_ k: resolve.SymbolKind) -> Int {
+    return match k {
+        Function => KIND_FUNCTION,
+        Struct => KIND_CLASS,
+        Enum => KIND_ENUM,
+        Interface => KIND_INTERFACE,
+        Const => KIND_CONSTANT,
+        Global => KIND_VARIABLE,
+        Variant => KIND_ENUM_MEMBER,
+        Method => KIND_METHOD,
+        Field => KIND_FIELD,
+        Namespace => KIND_MODULE,
+        Local => KIND_VARIABLE,
+        TypeParam => KIND_VARIABLE,
+    };
+}

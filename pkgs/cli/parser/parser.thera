@@ -220,14 +220,23 @@ impl Parser {
         return self.synthetic_token(kind);
     }
 
-    // A zero-width token of `kind` at the cursor, standing in for an
-    // expected-but-missing token. Its text is empty (`lexeme()` == ''), so an
-    // `obj.` field or a missing type name reads as the empty-name recovery hole;
-    // its span is zero-length, so span-keyed consumers skip it (PA6).
+    // A zero-width token of `kind` standing in for an expected-but-missing
+    // token, anchored at the *hole* — just past the previous token, where the
+    // missing token would be typed. Anchoring at the next token instead would
+    // put a mid-line hole (`S.make().` before a `return` on the next line) on
+    // the wrong line and break the completion cursor; at EOF the two anchors
+    // coincide. Its text is empty (`lexeme()` == ''), so an `obj.` field or a
+    // missing type name reads as the empty-name recovery hole; its span is
+    // zero-length, so span-keyed consumers skip it (PA6).
     fn synthetic_token(self, _ kind: TokenKind) -> Token {
+        let anchor = if self.pos > 0 {
+            synthetic_span_after(self.prev_span())
+        } else {
+            synthetic_span(self.current().span)
+        };
         return Token {
             kind: kind,
-            span: synthetic_span(self.current().span),
+            span: anchor,
             value: Option.Some(''),
             interps: [],
         };

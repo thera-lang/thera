@@ -21,6 +21,7 @@ import 'outbox';           // the single serialized outbound message sink
 import 'paths';
 import 'symbols';
 import 'analysis' as _;
+import 'completion';
 import 'hover';
 import 'definition';
 import 'formatting';
@@ -429,6 +430,11 @@ impl Server {
                 self.hover(params.get('textDocument').get('uri').as_string(), params.get('position')));
             return true;
         }
+        if method == 'textDocument/completion' {
+            send_response(self.outbox, id,
+                self.completion(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            return true;
+        }
         if method == 'textDocument/definition' {
             send_response(self.outbox, id,
                 self.definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
@@ -551,6 +557,15 @@ impl Server {
         return match self.analysis.analyze_at(uri, position) {
             Some(a) => hover.handle_hover(a.ctx, a.text, a.offset),
             None => json.null(),
+        };
+    }
+
+    // Completion at a position: `CompletionItem[]`, empty when the document
+    // isn't open or nothing offers.
+    fn completion(self, _ uri: Option<String>, _ position: Json) -> Json {
+        return match self.analysis.analyze_at(uri, position) {
+            Some(a) => completion.handle_completion(a.ctx, a.text, a.offset),
+            None => json.arr([]),
         };
     }
 
@@ -779,6 +794,10 @@ fn initialize_result() -> Json {
             'documentSymbolProvider': json.bool(true),
             'hoverProvider': json.bool(true),
             'definitionProvider': json.bool(true),
+            // Member completion re-triggers on `.` (the `obj.` recovery hole).
+            'completionProvider': json.obj([
+                'triggerCharacters': json.arr([json.str('.')]),
+            ]),
             'documentFormattingProvider': json.bool(true),
             'codeActionProvider': json.bool(true),
             'workspaceSymbolProvider': json.bool(true),
