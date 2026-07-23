@@ -1,11 +1,11 @@
-// Parser error-recovery tests (docs/parser-recovery.md). These pin recovery
+// Parser error-recovery tests (docs/frontend.md §Parser error recovery). These pin recovery
 // *behavior*, not the language spec, so they live in the @test suite rather than
 // tests/lang. Every case asserts two directions: the broken input yields the
 // expected partial tree, AND the well-formed counterpart is unchanged — the
 // build's fixpoint guards the no-op-on-valid invariant globally, these lock it
 // locally and document intent.
 //
-// The stages these exercise (docs/parser-recovery.md):
+// The stages these exercise (docs/frontend.md §Parser error recovery):
 //   0  `Expr.Error` + the structural dumper (the suppression contract).
 //   1  non-fatal `expect`, so a *known hole* (a missing `)`, a field after `.`)
 //      survives in place instead of discarding the declaration.

@@ -26,11 +26,12 @@ this is"; read top-down for progressive detail.
   VM (interpreter → Cranelift JIT), execution pipeline, interface dispatch, GC
   strategy, the native-function ABI, the embedded front-end, and the CLI's
   commands & output-stream (stdout/stderr) convention.
+- [frontend.md](frontend.md) — the self-hosted **front-end** design: the
+  lexer→parser→resolver→checker→inference→codegen pipeline, and the parser's
+  error-recovery design (resilient parsing, AST preservation, the anti-cascade
+  suppression contract).
 - [roadmap.md](roadmap.md) — current **status**, the bootstrap arcs, deferred
   work, and remaining front-end work.
-- [parser-recovery.md](parser-recovery.md) — **parser error recovery**:
-  resilient parsing design, AST preservation, and incremental implementation
-  plan.
 - [http-tls.md](http-tls.md) — **TLS for `std.http`**: the plan to add `https`
   to the client — the `rustls` crate choice, the native ABI, how a TLS session
   rides the socket park/retry model, the `TlsStream` surface, and a hermetic

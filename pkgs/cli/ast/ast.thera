@@ -335,7 +335,7 @@ pub enum Expr {
     // span. The resolver/checker/inference treat it as `Unknown` and emit no
     // semantic diagnostic — the anti-cascade contract, so the user sees the
     // *syntax* error alone. Codegen traps defensively (unreachable after a clean
-    // `check`). See docs/parser-recovery.md.
+    // `check`). See docs/frontend.md §Parser error recovery.
     Error(SourceSpan),
 }
 
