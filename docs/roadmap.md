@@ -354,15 +354,24 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 - **Prelude-linked test harnesses.** The checker/resolver unit harnesses
   (`errors_of`, `typed_ctx`, …) build a _hermetic_ element model — no imports,
-  empty surfaces — so a test can't reference `std.core`: a closure whose
-  parameter type comes from a stdlib generic (`List.fold`) resolves its lambda
-  param to `Unknown`, and any test touching `Result`/`Option`/`List` methods
-  must stub them. Now that the prelude is mature and the loader is fast,
-  evaluate giving these harnesses an option to link the real `std.core` closure
-  (cached once), so tests exercise the same surfaces the CLI does. Scope the
-  decision: which harnesses opt in, the caching story, and whether the
-  fully-hermetic mode stays for the resolver/registry-floor tests that
-  deliberately assert no-prelude behavior.
+  empty surfaces — resolving built-ins against the `<builtin>` floor
+  (`builtin_type_defs`) rather than real `std.core`. So a test can't reference
+  core _methods_ or enum bodies: a closure whose parameter type comes from a
+  stdlib generic (`List.fold`) resolves its lambda param to `Unknown`, and a
+  test touching `Result`/`Option`/`List` methods must avoid them. The hermetic
+  mode is worth keeping as the default — speed, isolation, and bootstrapping
+  safety (the front-end's own unit suite shouldn't require a loadable SDK to
+  diagnose a broken one). **Health items landed** (see _Changelog_): a shared
+  `testkit` (parse/parse_at) retired the duplicated per-file harness helpers; a
+  `floor_test` drift guard links real `std.core` once and asserts the floor's
+  arities match core's; and the floor's contract is documented on
+  `builtin_type_defs`. **Remaining — deferred until needed:** the floor's
+  method/enum-body gap forces only ~2 minor test workarounds today and leaves no
+  coverage hole (core-method behavior is exercised by `tests/lang/`, the
+  `sdk/std` suites, and examples). So rather than a proactive sweep, add a
+  linked-real-`std.core` harness the first time a specific checker/inference test
+  genuinely needs core-method/enum-body resolution — the machinery is ~15 lines
+  (see `floor_test.thera`), and the fully-hermetic mode stays the default.
 
 - **Resolution — smaller open items.** (Qualified-only + `pub` visibility
   enforcement, the `FileScope` refactor, and owner-correct value _and type_
@@ -493,16 +502,12 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - **Further renderers — completion, signature help, semantic tokens.** Thin
     query-layer renderers; completion + signatureHelp additionally need the
     parser recovery below.
-  - **Segregate intentional-error test fixtures.** Workspace diagnostics surface
-    every file's errors — including the conformance fixtures under
-    `tests/lang/`, which are _deliberately_ broken (an `xfail` spec, an
-    `// expect:` error directive). A server-side `thera.exclude` now hides them
-    (see _Changelog_), but that's a blunt path filter the user has to configure,
-    and the server still analyzes the files. Better: split "should analyze
-    clean" fixtures from "carries intentional diagnostics" ones — by directory
-    or a per-file marker the harness already reads — so the workspace scan skips
-    the latter at the source, with no exclude glob to maintain and no wasted
-    analysis on files whose errors are the point.
+  - **Segregate intentional-error test fixtures — done** (see _Changelog_). The
+    server now drops a `tests/lang/` fixture's _declared_ diagnostics
+    (`// expect error:` / `// expect warning:` on the line, or a wholesale
+    `//! xfail:`) per-file, reusing the markers the conformance harness already
+    reads — so the clean fixtures come under analysis and a _surprise_ error
+    still surfaces, with no `thera.exclude` glob to maintain.
 - **Parser error recovery for the LSP — core landed; two tails open.** The LSP's
   normal input is _syntactically broken_ code mid-edit; the parser synthesizes a
   best-effort tree (recover past the error) so semantic resolution still runs and
@@ -1135,6 +1140,44 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Test health: shared parse `testkit` + a floor-vs-core drift guard**
+  (2026-07). The front-end's hermetic unit harnesses resolve built-ins against
+  the `<builtin>` floor (`builtin_type_defs`) rather than real `std.core` — kept
+  as the default for speed/isolation/bootstrapping, but shored up. A new
+  `pkgs/cli/testkit.thera` gives the `*_test` suites one home for the
+  tokenize+parse boilerplate (`parse`/`parse_at`), replacing the
+  `program_at`/`prog_of`/`program_of` helpers (defined 4×) and ~30 inline
+  `parse_tokens(tokenize(..))` sites across checker/resolver/loader/codegen/lsp
+  tests, and retiring their now-unused lexer/parser imports; it is imported only
+  by test files, so it stays outside the front-end runtime closure and doesn't
+  touch the bootstrap. A new `pkgs/cli/element/floor_test.thera` links the real
+  `std.core` closure once and asserts each floor name's generic arity matches
+  core's (and that the linked def shadows the floor) — one test pays the real-SDK
+  cost so the ~180 hermetic tests don't have to. This is the accurate form of the
+  mooted "canonical stub": the inline `enum Result {..}` stubs proved to be
+  identity fixtures (bodies deliberately arbitrary), so the real drift risk is
+  the floor-vs-core pair, guarded directly. The floor's contract is now
+  documented on `builtin_type_defs`.
+
+- **LSP: intentional-error conformance fixtures analyze themselves** (2026-07).
+  The `tests/lang/` fixtures are _deliberately_ broken — they pin how the
+  compiler rejects bad code — and were hidden from the editor wholesale by a
+  `thera.exclude: tests/lang/**` glob, which also dropped the ~130 _clean_
+  fixtures from analysis and left the errors that _are_ the point unanalyzed.
+  Now the server drops each fixture's **declared** diagnostics per-file
+  (`lsp/fixtures.thera`): a diagnostic is withheld only when the source line it
+  sits on carries a matching `// expect error:` / `// expect warning:` marker —
+  the same match the harness (`tests/lang_runner.thera`) makes, keyed on LSP
+  severity rather than a rendered `warning:` prefix — or when the file is
+  `//! xfail:` (expected to fail wholesale). A **surprise** error — one on an
+  unmarked line, or whose message drifted from its marker — still surfaces, so a
+  fixture that breaks unintentionally stays visible. Scoped to `tests/lang/`
+  paths (`is_fixture_rel`), so the marker convention can't silence diagnostics in
+  an ordinary project; the `tests/lang/**` glob is retired from
+  `.vscode/settings.json` (the `runtime/target/**` scan prune stays). Wired in at
+  the two report paths — `document_items` and the workspace scan's `scan_by_file`
+  — and unit-tested in `lsp/fixtures_test.thera`.
 
 - **Parser error recovery — the resilient-parsing core (Stages 0–3)** (2026-07).
   The parser now produces a structurally useful AST from broken, mid-edit source

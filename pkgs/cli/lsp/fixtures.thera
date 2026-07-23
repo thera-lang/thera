@@ -1,0 +1,102 @@
+// Language-conformance fixtures (`tests/lang/`) are deliberately broken: each
+// pins how the compiler *rejects* bad code, and its expected diagnostics are
+// declared inline with `// expect error:` / `// expect warning:` markers (or the
+// whole test is `//! xfail:`). The conformance harness (tests/lang_runner.thera)
+// reads those markers to grade the tests; in an editor the same diagnostics are
+// noise, because the file's whole point is to error.
+//
+// This module drops from a fixture's LSP report exactly the diagnostics it
+// declared — matched the way the harness matches: same line, message contains
+// the marker's text — and nothing else. A *surprise* diagnostic (one on a line
+// with no marker, or whose message no longer matches the marker) still surfaces,
+// so a fixture that breaks in an unintended way stays visible. That is what lets
+// the clean parts of every fixture — and every fixture with no intentional
+// errors at all — come under editor analysis, instead of a whole `tests/lang/`
+// subtree being hidden by a blunt `thera.exclude` path glob.
+//
+// Scope: callers gate on `is_fixture_rel` (a `tests/lang/` path) before applying
+// this, so it is not a general "ignore errors here" facility — the markers mean
+// something only to the conformance harness. See docs/roadmap.md (LSP §Segregate
+// intentional-error test fixtures).
+
+import std.json as _;
+
+// Whether `rel` (a workspace-root-relative path) names a language-conformance
+// fixture — the only files whose declared diagnostics this suppression drops.
+pub fn is_fixture_rel(_ rel: String) -> Bool {
+    return rel.starts_with('tests/lang/') || rel.contains('/tests/lang/');
+}
+
+// The rendered diagnostic `items` for a fixture, minus the ones it declared. An
+// `//! xfail:` fixture is expected to fail wholesale (the spec runs ahead of the
+// implementation), so all of its diagnostics are dropped; otherwise a diagnostic
+// is dropped only when the source line it sits on carries a matching
+// `// expect error:` / `// expect warning:` marker. `text` is the fixture's own
+// source; the caller has already established (via `is_fixture_rel`) that it is one.
+pub fn suppress_declared(_ items: List<Json>, _ text: String) -> List<Json> {
+    if text.contains('//! xfail:') {
+        return [];
+    }
+    let lines = text.split('\n');
+    let out: List<Json> = [];
+    for item in items {
+        if !declared(item, lines) {
+            out.push(item);
+        }
+    }
+    return out;
+}
+
+// One `// expect …:` expectation parsed from a source line.
+struct Marker {
+    // `// expect warning:` (the LSP severity must be Warning) vs `// expect error:`
+    // (any severity). Mirrors the harness, which tags a warning expectation so a
+    // same-text error can't satisfy it.
+    let warning: Bool;
+    // The substring the diagnostic message must contain.
+    let needle: String;
+}
+
+// Whether `item` is a diagnostic the fixture declared: a marker on its own
+// source line whose kind and text match. This mirrors the harness's match —
+// same line, `message.contains(needle)` — but keys the warning kind on the LSP
+// severity code (2 = Warning) rather than the harness's rendered `warning:`
+// message prefix, since an LSP diagnostic carries its severity out of band.
+fn declared(_ item: Json, _ lines: List<String>) -> Bool {
+    let line0 = item.get('range').get('start').get('line').as_int().unwrap_or(-1);
+    if line0 < 0 || line0 >= lines.len() {
+        return false;
+    }
+    return match marker(lines[line0]) {
+        Some(m) => {
+            let kind_ok = if m.warning {
+                item.get('severity').as_int().unwrap_or(0) == 2
+            } else {
+                true
+            };
+            let msg = item.get('message').as_string().unwrap_or('');
+            kind_ok && msg.contains(m.needle)
+        },
+        None => false,
+    };
+}
+
+// The `// expect error:` / `// expect warning:` expectation a source line
+// carries, if any. `// expect trap:` / `// expect:` and the other run-mode
+// markers are ignored — they predict runtime behavior, not check diagnostics.
+fn marker(_ src: String) -> Option<Marker> {
+    if src.contains('// expect error:') {
+        return Option.Some(Marker { warning: false, needle: after(src, '// expect error:') });
+    }
+    if src.contains('// expect warning:') {
+        return Option.Some(Marker { warning: true, needle: after(src, '// expect warning:') });
+    }
+    return Option.None;
+}
+
+// The trimmed text after the last occurrence of `mark` in `src` — parsed exactly
+// as the conformance harness's `after_marker` does.
+fn after(_ src: String, _ mark: String) -> String {
+    let parts = src.split(mark);
+    return parts[parts.len() - 1].trim();
+}

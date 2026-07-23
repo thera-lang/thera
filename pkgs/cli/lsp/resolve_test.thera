@@ -7,15 +7,12 @@ import std.testing;
 
 import '../ast/ast' as _; // Program
 import '../element/element' as _; // LibraryNamespace
-import '../lexer/lexer';
-import '../parser/parser';
+import '../testkit';
 import '../checker/checker';
 import 'resolve' as _;
 
 fn program_of(_ src: String) -> Program {
-    let p = parser.parse_tokens(lexer.tokenize(src).tokens).program;
-    p.file_path = Option.Some('t.thera');
-    return p;
+    return testkit.parse_at(src, 't.thera');
 }
 
 // A resolution context with the primary's committed-type record populated the
@@ -463,9 +460,7 @@ fn test_definition_of_impl_type_param() -> Result<Void, Error> {
 // --- owner-correct cross-file resolution (LS1/LS3/LS8) ---
 
 fn program_at(_ src: String, _ path: String) -> Program {
-    let p = parser.parse_tokens(lexer.tokenize(src).tokens).program;
-    p.file_path = Option.Some(path);
-    return p;
+    return testkit.parse_at(src, path);
 }
 
 // A two-library closure where BOTH imports declare `pub fn helper`, but the

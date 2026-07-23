@@ -11,17 +11,14 @@ import std.env;
 import std.process;
 
 import 'ast/ast' as _;
-import 'lexer/lexer' as _;
-import 'parser/parser' as _;
+import 'testkit';
 import 'loader' as _;
 
 // Parse `src`, stamping a distinct `path` as its `file_path` — the loader keys
 // re-export-cycle detection on `file_path` (Thera has no object identity), which
 // `parse_file_or_null` sets for every real file.
 fn prog_of(_ src: String, _ path: String) -> Program {
-    let prog = parse_tokens(tokenize(src).tokens).program;
-    prog.file_path = Option.Some(path);
-    return prog;
+    return testkit.parse_at(src, path);
 }
 
 @test
@@ -126,7 +123,7 @@ fn test_canonical_identity_across_root_spellings() -> Result<Void, Error> {
 fn load_root(_ path: String) -> Result<LoadedImports, Error> {
     return match fs.read_text(path) {
         Ok(src) => {
-            let prog = parse_tokens(tokenize(src).tokens).program;
+            let prog = testkit.parse(src);
             let loaded = load_imports(path, prog, Option.None);
             match prog.file_path {
                 Some(p) => {
@@ -207,7 +204,7 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
         Ok(s) => s,
         Err(e) => { return Result.Err(error('read main: ${e.message()}')); },
     };
-    let prog = parse_tokens(tokenize(src).tokens).program;
+    let prog = testkit.parse(src);
     let loaded = load_imports(dir + '/main.thera', prog, Option.None);
     match process.run('chmod', args: ['644', secret]) { Ok(_) => void, Err(_) => void }
 
@@ -256,7 +253,7 @@ fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
 
     let loaded = match fs.read_text(dir + '/main.thera') {
         Ok(src) => load_imports(dir + '/main.thera',
-            parse_tokens(tokenize(src).tokens).program, Option.None),
+            testkit.parse(src), Option.None),
         Err(e) => { return Result.Err(error('read main: ${e.message()}')); },
     };
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
@@ -300,14 +297,14 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
     };
 
     // No SDK (the hermetic mode): the diagnostic names the missing SDK.
-    let no_sdk = load_imports(main_path, parse_tokens(tokenize(src).tokens).program, Option.None);
+    let no_sdk = load_imports(main_path, testkit.parse(src), Option.None);
     testing.assert_eq(actual: no_sdk.diagnostics.len(), expected: 1)?;
     testing.assert(no_sdk.diagnostics[0].message.contains('no Thera SDK found'),
         message: 'missing SDK named: ${no_sdk.diagnostics[0].message}')?;
 
     // A real SDK: the module itself is the problem.
     if let Some(root) = find_sdk_root() {
-        let with_sdk = load_imports(main_path, parse_tokens(tokenize(src).tokens).program,
+        let with_sdk = load_imports(main_path, testkit.parse(src),
             Option.Some(root));
         testing.assert_eq(actual: with_sdk.diagnostics.len(), expected: 1)?;
         testing.assert(with_sdk.diagnostics[0].message.contains('not in the SDK'),
@@ -340,7 +337,7 @@ fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
     // itself inside `<dir>/std`, so per-file resolution finds greet next door. The
     // only diagnostic tolerated is a missing auto-imported `std.core` (this tree
     // has none); `std.greet` must NOT be among the failures.
-    let loaded = load_imports(app_path, parse_tokens(tokenize(app_src).tokens).program, Option.None);
+    let loaded = load_imports(app_path, testkit.parse(app_src), Option.None);
     for d in loaded.diagnostics {
         testing.assert(!d.message.contains('std.greet'),
             message: 'std.greet should resolve from the file\'s own SDK, but: ${d.message}')?;
@@ -406,7 +403,7 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
 
     let cache: Map<String, FileSurface> = [:];
     let first = load_imports(dir + '/main.thera',
-        parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
+        testkit.parse(main_src), Option.None, surface_cache: cache);
     testing.assert_eq(actual: first.diagnostics.len(), expected: 0)?;
     let main_key = canonical_path(dir + '/main.thera');
     testing.assert(cache.has(main_key), message: 'main surface cached')?;
@@ -418,7 +415,7 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
         entry.bare_surface['__marker'] = 'planted';
     }
     let second = load_imports(dir + '/main.thera',
-        parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
+        testkit.parse(main_src), Option.None, surface_cache: cache);
     let served = second.file_bare_surface.get(main_key)
         .map((m) => m.has('__marker')).unwrap_or(false);
     testing.assert(served, message: 'second load serves the cached entry')?;
@@ -441,9 +438,9 @@ fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
 
     let cache: Map<String, FileSurface> = [:];
     let cold = load_imports(dir + '/main.thera',
-        parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
+        testkit.parse(main_src), Option.None, surface_cache: cache);
     let warm = load_imports(dir + '/main.thera',
-        parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
+        testkit.parse(main_src), Option.None, surface_cache: cache);
     testing.assert(cold.diagnostics.len() > 0, message: 'cold load reports the collision')?;
     testing.assert_eq(actual: warm.diagnostics.len(), expected: cold.diagnostics.len())?;
     testing.assert(warm.diagnostics[0].message.contains('clash'),

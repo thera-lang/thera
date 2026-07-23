@@ -5,23 +5,20 @@
 import std.testing;
 
 import '../ast/ast' as _; // Program
-import '../lexer/lexer' as _;
-import '../parser/parser' as _;
+import '../testkit';
 import 'types' as _;
 import 'element' as _;
 import 'resolver' as _;
 import 'scope' as _;
 
 fn lib_of(_ src: String) -> LibraryElement {
-    return build_library(parse_tokens(tokenize(src).tokens).program, [], [:], [:]);
+    return build_library(testkit.parse(src), [], [:], [:]);
 }
 
 // Parse `src` stamped with `path` — for the multi-file / layered-build tests,
 // which need real per-file identities.
 fn prog_of(_ src: String, _ path: String) -> Program {
-    let prog = parse_tokens(tokenize(src).tokens).program;
-    prog.file_path = Option.Some(path);
-    return prog;
+    return testkit.parse_at(src, path);
 }
 
 @test
@@ -194,10 +191,8 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
     // registration (EL8): a later — illegal, but possibly *unchecked* (an open
     // LSP buffer) — declaration must not steal core identity. `is_core_id`
     // therefore keeps pointing at the first owner.
-    let core = parse_tokens(tokenize('pub enum Result { Good, Bad }').tokens).program;
-    core.file_path = Option.Some('/core/result.thera');
-    let user = parse_tokens(tokenize('struct Result { let x: Int; }').tokens).program;
-    user.file_path = Option.Some('/app/main.thera');
+    let core = testkit.parse_at('pub enum Result { Good, Bad }', '/core/result.thera');
+    let user = testkit.parse_at('struct Result { let x: Int; }', '/app/main.thera');
     let lib = build_library(user, [core], [:], [:]);
     match lib.type_defs.get('Result') {
         Some(d) => {
@@ -219,10 +214,8 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
         None => { testing.assert(false, message: 'no /app/main.thera table')?; },
     }
     // A non-reserved name keeps last-wins in the flat table.
-    let a = parse_tokens(tokenize('pub struct Config { let x: Int; }').tokens).program;
-    a.file_path = Option.Some('/a.thera');
-    let b = parse_tokens(tokenize('pub struct Config { let y: Int; }').tokens).program;
-    b.file_path = Option.Some('/b.thera');
+    let a = testkit.parse_at('pub struct Config { let x: Int; }', '/a.thera');
+    let b = testkit.parse_at('pub struct Config { let y: Int; }', '/b.thera');
     let lib2 = build_library(b, [a], [:], [:]);
     match lib2.type_defs.get('Config') {
         Some(d) => { testing.assert_eq(actual: d.owner_file, expected: '/b.thera')?; },
@@ -236,8 +229,8 @@ fn test_pathless_programs_get_distinct_keys() -> Result<Void, Error> {
     // `build_library` stamps path-less programs distinct identities (LD8): the
     // primary keeps `<anon>`, imports mint `<anon:2>`… — two in-memory
     // programs must never merge into one per-file table.
-    let dep = parse_tokens(tokenize('fn helper() -> Int { return 1; }').tokens).program;
-    let main = parse_tokens(tokenize('fn helper() -> Int { return 2; }').tokens).program;
+    let dep = testkit.parse('fn helper() -> Int { return 1; }');
+    let main = testkit.parse('fn helper() -> Int { return 2; }');
     let lib = build_library(main, [dep], [:], [:]);
     testing.assert_eq(actual: main.file_path, expected: Option.Some('<anon>'))?;
     testing.assert_eq(actual: dep.file_path, expected: Option.Some('<anon:2>'))?;
@@ -260,10 +253,8 @@ fn test_reserved_pin_allows_same_owner_reregistration() -> Result<Void, Error> {
     // latest element object, the one pass 2 fills — or its methods vanish
     // program-wide. Probe object identity through reference semantics: a
     // mutation via the per-file table must be visible through the flat entry.
-    let first = parse_tokens(tokenize('pub enum Result { Good, Bad }').tokens).program;
-    first.file_path = Option.Some('/core/result.thera');
-    let again = parse_tokens(tokenize('pub enum Result { Good, Bad }').tokens).program;
-    again.file_path = Option.Some('/core/result.thera');
+    let first = testkit.parse_at('pub enum Result { Good, Bad }', '/core/result.thera');
+    let again = testkit.parse_at('pub enum Result { Good, Bad }', '/core/result.thera');
     let lib = build_library(again, [first], [:], [:]);
     match lib.file_type_defs.get('/core/result.thera') {
         Some(m) => match m.get('Result') {

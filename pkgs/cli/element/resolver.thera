@@ -13,8 +13,29 @@ import 'inference'; // pass 4: module-global type inference (no cycle — see sc
 // that inference can resolve type references while the resolver, in turn, calls
 // inference for module-global type inference (pass 4) without an import cycle.
 
-// The built-in type-definition elements, by name. These back an InterfaceType
-// (the generics) and are the attachment point for `impl` blocks / static methods.
+// The built-in type-definition elements, by name — the **hermetic floor**. These
+// back an InterfaceType (the generics) and are the attachment point for `impl`
+// blocks / static methods.
+//
+// The floor's contract, and its limits:
+//   - It supplies each built-in's *identity and generic arity* (`List<T>`,
+//     `Map<K, V>`, `Result<T, E>`, …) plus the core interfaces and the
+//     primitives' `Display` conformance — enough for a *bare* program (no import
+//     closure) to type-check references, bounds, and construction.
+//   - It carries **no method bodies and no enum payloads**: the 63 `native fn`s
+//     and the real `Result`/`Option` variants live in `sdk/std/core`, not here.
+//     So `List.fold`/`Option.map` and a variant's payload type don't resolve
+//     against the floor alone — a hermetic test either avoids them or the real
+//     `std.core` closure must be linked (session/loader path).
+//   - It is a **seed, not a fiction**: the production path registers it too, and
+//     the real `std.core` declarations *shadow* it (`register_type` pins a
+//     reserved name to its first real registration; `BUILTIN_OWNER` marks a
+//     floor-only entry). Testing against the floor therefore tests a real code
+//     path — the same one the CLI takes before the prelude loads.
+//
+// Because the floor and `sdk/std/core` are two hand-maintained descriptions of
+// the same types, they can drift. `element/floor_test.thera` is the guard: it
+// links the real prelude once and asserts each floor name's arity matches core's.
 pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     let m: Map<String, TypeDefElement> = [:];
     // Primitives — the attachment point for impl/static methods. They implement

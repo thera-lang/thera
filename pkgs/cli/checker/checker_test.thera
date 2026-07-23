@@ -6,8 +6,7 @@
 import std.testing;
 
 import '../ast/ast' as _;
-import '../lexer/lexer' as _;
-import '../parser/parser' as _;
+import '../testkit';
 import '../element/element' as _;
 import '../element/inference' as _;
 import '../element/types' as _;
@@ -15,7 +14,7 @@ import '../diagnostic' as _; // Diagnostic
 import 'checker' as _;
 
 fn errors_of(_ src: String) -> List<Diagnostic> {
-    return check(parse_tokens(tokenize(src).tokens).program, [], [:], [:]).errors;
+    return check(testkit.parse(src), [], [:], [:]).errors;
 }
 
 fn first_message(_ errs: List<Diagnostic>) -> String {
@@ -609,9 +608,7 @@ fn test_index_assignment_target_pins_generic() -> Result<Void, Error> {
 // --- duplicate top-level definitions ---
 
 fn program_at(_ src: String, _ path: String) -> Program {
-    let p = parse_tokens(tokenize(src).tokens).program;
-    p.file_path = Option.Some(path);
-    return p;
+    return testkit.parse_at(src, path);
 }
 
 // Whether any diagnostic mentions `needle`.
@@ -646,9 +643,9 @@ fn test_pathless_programs_do_not_alias() -> Result<Void, Error> {
     // (LD8), merging their name spaces — a same-named private helper in each
     // read as a same-file duplicate. Distinct stamped identities keep them the
     // ordinary cross-file case (same-file-first, no collision).
-    let dep = parse_tokens(tokenize('fn helper() -> Int { return 1; }').tokens).program;
-    let main = parse_tokens(tokenize('fn helper() -> Int { return 2; }\n'
-        + 'fn run() -> Int { return helper(); }').tokens).program;
+    let dep = testkit.parse('fn helper() -> Int { return 1; }');
+    let main = testkit.parse('fn helper() -> Int { return 2; }\n'
+        + 'fn run() -> Int { return helper(); }');
     let errs = check(main, [dep], [:], [:]).errors;
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
@@ -706,7 +703,7 @@ fn test_redefinition_in_same_file_is_flagged() -> Result<Void, Error> {
 // ---- the committed-type record (CH19) ----
 
 fn records_of(_ src: String) -> List<TypeRecord> {
-    return check(parse_tokens(tokenize(src).tokens).program, [], [:], [:]).records;
+    return check(testkit.parse(src), [], [:], [:]).records;
 }
 
 // The rendered committed type of the first occurrence of `text` in `src`.
@@ -1294,7 +1291,7 @@ fn helper_surface(_ names: List<String>) -> Map<String, Map<String, LibraryNames
 }
 
 fn bare_errors_of(_ src: String, _ names: List<String>) -> List<Diagnostic> {
-    return check(parse_tokens(tokenize(src).tokens).program, [], helper_surface(names), [:]).errors;
+    return check(testkit.parse(src), [], helper_surface(names), [:]).errors;
 }
 
 @test

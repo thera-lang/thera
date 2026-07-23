@@ -8,20 +8,19 @@
 import std.testing;
 
 import '../ast/ast' as _;
-import '../lexer/lexer' as _;
-import '../parser/parser' as _;
+import '../testkit';
 import '../bytecode/instr' as _;
 import '../bytecode/module' as _;
 import '../bytecode/encoder' as _;
 import 'codegen' as _;
 
 fn emit_bytes(_ src: String) -> List<Int> {
-    let result = compile_program(parse_tokens(tokenize(src).tokens).program, [], [:], [:]);
+    let result = compile_program(testkit.parse(src), [], [:], [:]);
     return encode_module(result.module).to_list();
 }
 
 fn errors_of(_ src: String) -> Int {
-    return compile_program(parse_tokens(tokenize(src).tokens).program, [], [:], [:]).errors.len();
+    return compile_program(testkit.parse(src), [], [:], [:]).errors.len();
 }
 
 // --- instruction-level lowering inspection ---
@@ -32,7 +31,7 @@ fn errors_of(_ src: String) -> Int {
 // with a located, readable assertion instead of only as a fixpoint/example break.
 
 fn module_of(_ src: String) -> Module {
-    return compile_program(parse_tokens(tokenize(src).tokens).program, [], [:], [:]).module;
+    return compile_program(testkit.parse(src), [], [:], [:]).module;
 }
 
 // The instruction stream of the unit named `fn_name` (a free function's bare
@@ -169,7 +168,7 @@ fn test_list_and_for_loop_byte_identical() -> Result<Void, Error> {
 }
 
 fn program_of(_ src: String, _ path: String) -> Program {
-    let prog = parse_tokens(tokenize(src).tokens).program;
+    let prog = testkit.parse(src);
     prog.file_path = Option.Some(path);
     return prog;
 }
