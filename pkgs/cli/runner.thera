@@ -285,6 +285,19 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
     s = '${s}native fn __thera_capture_begin() -> Void\n';
     s = '${s}@extern(\'test_capture_end\')\n';
     s = '${s}native fn __thera_capture_end() -> String\n';
+    // Verbose mode times each test and prints a duration column, so the clock and
+    // the name-padding helper are defined only there — quiet mode's driver is
+    // otherwise byte-for-byte unchanged.
+    if verbose {
+        s = '${s}@extern(\'time_now_millis\')\n';
+        s = '${s}native fn __thera_now() -> Int\n';
+        // Right-pad a test name to the duration column (long names just overflow).
+        s = '${s}fn __thera_pad(_ text: String, _ width: Int) -> String {\n';
+        s = '${s}    let mut __thera_p = text;\n';
+        s = '${s}    while __thera_p.len() < width { __thera_p = __thera_p + \' \'; }\n';
+        s = '${s}    return __thera_p;\n';
+        s = '${s}}\n';
+    }
     // Print `text` with every line indented under the report column — so a
     // multi-line assertion message (or captured output) stays aligned, not just
     // its first line.
@@ -301,19 +314,24 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
     s = '${s}}\n';
     // Report one test's outcome; return 1 on failure, 0 on success. `e` is
     // typed as the `Error` interface (not itself `Display`); render it through
-    // its `message()`. A failing test always shows its captured output.
-    s = '${s}fn __thera_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool) -> Int {\n';
+    // its `message()`. A failing test always shows its captured output. Verbose
+    // mode takes the test's duration (ms) and renders it as a trailing column.
+    if verbose {
+        s = '${s}fn __thera_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool, _ ms: Int) -> Int {\n';
+    } else {
+        s = '${s}fn __thera_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool) -> Int {\n';
+    }
     s = '${s}    return match r {\n';
     s = '${s}        Ok(_) => {\n';
     if verbose {
-        s = '${s}            println(\'  ok    \' + name);\n';
+        s = '${s}            println(\'  ok    \${__thera_pad(name, 40)}  \${ms}ms\');\n';
         s = '${s}            if show { __thera_show(captured); }\n';
     }
     s = '${s}            0\n';
     s = '${s}        },\n';
     s = '${s}        Err(e) => {\n';
     if verbose {
-        s = '${s}            println(\'  FAIL  \' + name);\n';
+        s = '${s}            println(\'  FAIL  \${__thera_pad(name, 40)}  \${ms}ms\');\n';
     } else {
         s = '${s}            println(name + \': failed\');\n';
     }
@@ -325,12 +343,31 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
     s = '${s}}\n';
     s = '${s}fn __thera_test_main() -> Int {\n';
     s = '${s}    let mut __thera_failures = 0;\n';
+    if verbose {
+        s = '${s}    let mut __thera_total = 0;\n';
+    }
     for t in tests {
         // Capture brackets only the test call; the report itself stays live.
         s = '${s}    __thera_capture_begin();\n';
-        s = '${s}    let __thera_r_${t} = ${t}();\n';
-        s = '${s}    let __thera_out_${t} = __thera_capture_end();\n';
-        s = '${s}    __thera_failures = __thera_failures + __thera_report(\'${t}\', __thera_r_${t}, __thera_out_${t}, ${show});\n';
+        if verbose {
+            // Time only the test call, between the capture brackets.
+            s = '${s}    let __thera_t0_${t} = __thera_now();\n';
+            s = '${s}    let __thera_r_${t} = ${t}();\n';
+            s = '${s}    let __thera_ms_${t} = __thera_now() - __thera_t0_${t};\n';
+            s = '${s}    let __thera_out_${t} = __thera_capture_end();\n';
+            s = '${s}    __thera_total = __thera_total + __thera_ms_${t};\n';
+            s = '${s}    __thera_failures = __thera_failures + __thera_report(\'${t}\', __thera_r_${t}, __thera_out_${t}, ${show}, __thera_ms_${t});\n';
+        } else {
+            s = '${s}    let __thera_r_${t} = ${t}();\n';
+            s = '${s}    let __thera_out_${t} = __thera_capture_end();\n';
+            s = '${s}    __thera_failures = __thera_failures + __thera_report(\'${t}\', __thera_r_${t}, __thera_out_${t}, ${show});\n';
+        }
+    }
+    if verbose {
+        // A per-file rollup line, after the per-test lines: `  (N tests, T ms)`.
+        let n = tests.len();
+        let word = plural(n, 'test');
+        s = '${s}    println(\'  (${n} ${word}, \${__thera_total}ms)\');\n';
     }
     s = '${s}    println(\'__thera_failed \${__thera_failures}\');\n';
     s = '${s}    return if __thera_failures > 0 { 1 } else { 0 };\n';
