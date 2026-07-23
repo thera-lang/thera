@@ -50,7 +50,8 @@ Set THERA_PROFILE=1 to write a deterministic per-function profile to stderr at e
 
 - stdout: one diagnostic per line, `path:line:col: message`, then a `Checked N source files; M issues found.` summary
 - stderr: operational errors (a missing or unreadable target)
-- exit code: 0 clean, 1 if any diagnostics, 2 if a target is missing or a file is unreadable')
+- exit code: 0 clean, 1 if any errors (or, with --fatal-warnings, any warnings), 2 if a target is missing or a file is unreadable')
+            .flag('fatal-warnings', help: 'treat warnings as errors: exit 1 if any warning is reported (for CI)')
             .positional('target', help: 'a .thera file or directory to check (default: the current directory)'))
         .subcommand(cli.Command.new('emit')
             .about('compile a Thera program to a .thera-bc file')
@@ -172,7 +173,8 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             show_output: sub.flag('show-output'), verbose: sub.flag('verbose'));
     }
     if name == 'check' {
-        return do_check(default_cwd(positionals), sdk_root_or_warn());
+        return do_check(default_cwd(positionals), sdk_root_or_warn(),
+            fatal_warnings: sub.flag('fatal-warnings'));
     }
     if name == 'fmt' {
         if positionals.len() == 0 {
@@ -238,10 +240,12 @@ fn default_cwd(_ positionals: List<String>) -> List<String> {
 // `file:line:col: message` for every diagnostic and a closing summary line
 // (proof of work even when clean). A directory is searched recursively for
 // `*.thera`; a file is checked directly; no target means the current directory.
-// Exit 0 when clean, 1 when any diagnostics, 2 when a target is missing or a
-// file is unreadable (operational trumps diagnostics — LD12: an unreadable
-// file used to count as a diagnostic and exit 1).
-fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+// Exit 0 when clean, 1 when any errors (or, with `fatal_warnings`, any
+// warnings), 2 when a target is missing or a file is unreadable (operational
+// trumps diagnostics — LD12: an unreadable file used to count as a diagnostic
+// and exit 1).
+fn do_check(_ targets: List<String>, _ sdk_root: Option<String>,
+    fatal_warnings: Bool = false) -> Result<Int, Error> {
     // Resolve targets to a sorted, de-duplicated list of files (dirs recurse for
     // `*.thera`); a missing target is a usage error.
     let files: List<String> = [];
@@ -322,7 +326,9 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
         summary = '${summary}; ${warnings} ${runner.plural(warnings, 'warning')}';
     }
     println('${summary}.');
-    if total > 0 {
+    // Errors always gate. `--fatal-warnings` additionally promotes any warning
+    // to a failing exit (the CI knob for a warning-free tree).
+    if total > 0 || (fatal_warnings && warnings > 0) {
         return Result.Ok(1);
     }
     return Result.Ok(0);
