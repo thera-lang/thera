@@ -61,12 +61,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Cache the bare runtime at a path OUTSIDE runtime/target — Swatinem/rust-cache's
+      # post-cleanup prunes the workspace binary from target/ before this action's
+      # post-save runs, so caching it in place would never save.
       - name: cache the bare runtime
         id: rtcache
         uses: actions/cache@v4
         with:
-          path: runtime/target/release/thera-rt
+          path: bin-cache/thera-rt
           key: thera-rt-${{ runner.os }}-${{ hashFiles('runtime/src/**', 'runtime/build.rs', 'runtime/Cargo.toml', 'runtime/Cargo.lock') }}
+
+      # On a hit, drop the cached binary where build_sdk.sh expects it so it skips
+      # the compile (and the toolchain) entirely.
+      - name: place cached runtime
+        if: steps.rtcache.outputs.cache-hit == 'true'
+        run: mkdir -p runtime/target/release && cp bin-cache/thera-rt runtime/target/release/thera-rt
 
       # Only needed to compile the runtime on a cache miss (runtime/ changed).
       - uses: Swatinem/rust-cache@v2
@@ -76,6 +85,12 @@ jobs:
 
       - name: bin/build_sdk.sh (emit + assemble + fixpoint check)
         run: bin/build_sdk.sh
+
+      # Stage the freshly built binary for the cache — a normal step, so it runs
+      # before rust-cache's post-cleanup would strip it from target/.
+      - name: stage runtime for cache
+        if: steps.rtcache.outputs.cache-hit != 'true'
+        run: mkdir -p bin-cache && cp runtime/target/release/thera-rt bin-cache/thera-rt
 
       # tar the tree so the executable bit on build/sdk/bin/thera survives the
       # upload/download round-trip (upload-artifact does not preserve modes).
