@@ -73,7 +73,7 @@ jobs:
       - name: package sdk
         run: tar -czf sdk.tgz -C build sdk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdk
           path: sdk.tgz
@@ -82,8 +82,9 @@ jobs:
   # Self-hosted suite, sharded across parallel jobs. Each shard downloads the
   # prebuilt SDK and runs its bin/test.sh group(s) against it via THERA_LAUNCHER —
   # no rustup, no cargo, no front-end rebuild. `cargo` is omitted (the runtime job
-  # runs it). The `stdlib` group is the current long pole and gets its own shard;
-  # everything else consolidates into `rest`.
+  # runs it). The groups are split three ways to keep the shards roughly balanced
+  # (~equal wall-clock, no quick-vs-long outlier); `checks` is the largest single
+  # group, so it anchors its own shard. Re-measure and re-bucket if a group grows.
   suite:
     name: suite (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -92,14 +93,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: stdlib
-            groups: stdlib
-          - name: rest
-            groups: frontend checks conformance examples
+          - name: suites
+            groups: frontend stdlib
+          - name: spec
+            groups: conformance examples
+          - name: guards
+            groups: checks
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: sdk
 
