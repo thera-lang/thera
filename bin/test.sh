@@ -6,7 +6,10 @@
 #   - the standard library's @test suite (sdk/std)
 #   - CLI/diagnostic behavior guards, language conformance, and examples
 #
-# Each `thera` invocation uses the dev front-end via bin/thera.sh.
+# Each `thera` invocation uses the launcher in $THERA_LAUNCHER, defaulting to the
+# dev front-end via bin/thera.sh (recompiled from the current pkgs/cli). CI sets
+# THERA_LAUNCHER to the prebuilt, self-contained build/sdk/bin/thera so the shards
+# need no toolchain and no per-shard rebuild.
 #
 # Usage: test.sh [group...]
 #   With no args, runs every group (the full local suite). Named groups run
@@ -16,7 +19,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-THERA="$ROOT/bin/thera.sh"
+THERA="${THERA_LAUNCHER:-$ROOT/bin/thera.sh}"
 fail=0
 
 phase_cargo() {
@@ -34,137 +37,39 @@ phase_stdlib() {
   "$THERA" test sdk/std || fail=1
 }
 
-# CLI, diagnostic, and corpus-invariant guards (fast checks, one dev front-end).
+# CLI/diagnostic behavior guards + whole-corpus invariants.
+#
+# The process-level guards (LSP transport, profiler determinism, stream split,
+# fmt --check semantics, diagnostic attribution) live in a self-hosted Thera
+# program that shells out to the launcher — see tests/integration_runner.thera.
+# The corpus invariants below stay here so they read as named CI steps.
 phase_checks() {
-  echo "==> lsp transport (end-to-end over a pipe)"
-  # Drive the real `thera lsp` process through stdin/stdout the way an editor does:
-  # a single Content-Length-framed `initialize`, then EOF (the server exits). This
-  # exercises the actual stdout transport — the in-process server @tests use a
-  # StringWriter and so can't catch a framing/flushing regression (e.g. the
-  # line-buffered-stdout bug where only the header reached the client). The body
-  # carries "capabilities", so finding it proves the full message arrived.
-  lsp_body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}'
-  lsp_out="$(printf 'Content-Length: %d\r\n\r\n%s' "${#lsp_body}" "$lsp_body" | "$THERA" lsp 2>/dev/null)"
-  if printf '%s' "$lsp_out" | grep -q '"capabilities"'; then
-    echo "  ok   initialize handshake returns capabilities"
-  else
-    echo "  FAIL lsp initialize: no framed response body received"; fail=1
-  fi
+  echo "==> integration guards (tests/integration_runner.thera)"
+  "$THERA" run "$ROOT/tests/integration_runner.thera" "$THERA" || fail=1
 
-  echo "==> profiler (THERA_PROFILE: deterministic, present)"
-  # The in-VM profiler is an always-shipping runtime feature, gated by the
-  # THERA_PROFILE env var, that prints a per-function table to stderr at run end.
-  # Its headline property for agents is *determinism* — instruction-budget
-  # sampling, not wall-clock — so two runs of the same program must produce a
-  # byte-identical profile. (See docs/roadmap.md, "Profiling Thera code".)
-  prof_dir="$(mktemp -d)"
-  printf 'fn main() -> Int { let mut s = 0; let mut i = 0; while i < 5000 { s = s + i; i = i + 1; } return s; }\n' > "$prof_dir/p.thera"
-  prof1="$(THERA_PROFILE=1 "$THERA" run "$prof_dir/p.thera" 2>&1 1>/dev/null)"
-  prof2="$(THERA_PROFILE=1 "$THERA" run "$prof_dir/p.thera" 2>&1 1>/dev/null)"
-  if printf '%s' "$prof1" | grep -q 'thera profile' && [ "$prof1" = "$prof2" ]; then
-    echo "  ok   profile emitted and byte-identical across runs"
+  echo "==> check (corpus type-checks; any error fails the build)"
+  # The whole corpus must type-check. `thera check` exits non-zero on any error
+  # (warnings only inform), so the exit code is the gate — this subsumes the old
+  # bare-reference guard (bare cross-library refs are `check` errors). See
+  # docs/language.md.
+  chk_out="$("$THERA" check pkgs/cli sdk/std examples 2>/dev/null)"; chk_code=$?
+  if [ "$chk_code" -eq 0 ]; then
+    echo "  ok   corpus type-checks clean"
   else
-    echo "  FAIL profiler (present=$(printf '%s' "$prof1" | grep -c 'thera profile'), deterministic=$([ "$prof1" = "$prof2" ] && echo y || echo n))"; fail=1
-  fi
-  rm -rf "$prof_dir"
-
-  echo "==> check diagnostics stream (stdout, not stderr)"
-  # `thera check`'s product is its diagnostics (it emits no artifact), so they go to
-  # stdout — like `thera test` and like linters (eslint/ruff/mypy). Assert that a
-  # diagnostic lands on stdout and not stderr, so the convention can't regress.
-  # (See docs/architecture.md, "The CLI: commands and output streams".)
-  chk_dir="$(mktemp -d)"
-  printf 'fn f() -> Int { return missing; }\n' > "$chk_dir/bad.thera"
-  chk_out="$("$THERA" check "$chk_dir/bad.thera" 2>/dev/null)"
-  chk_err="$("$THERA" check "$chk_dir/bad.thera" 2>&1 1>/dev/null)"
-  if printf '%s' "$chk_out" | grep -q 'undefined name: missing' \
-     && ! printf '%s' "$chk_err" | grep -q 'undefined name: missing'; then
-    echo "  ok   diagnostics on stdout, not stderr"
-  else
-    echo "  FAIL check diagnostics stream (stdout='$chk_out')"; fail=1
-  fi
-  rm -rf "$chk_dir"
-
-  echo "==> fmt --check (read-only; lists unformatted files, exit 1)"
-  # `thera fmt --check` must not modify files, list the ones needing formatting on
-  # stdout, and exit 0 (all formatted) / 1 (some need formatting) — the CI /
-  # pre-commit contract. (See docs/roadmap.md, "Formatter (thera fmt)".)
-  fmt_dir="$(mktemp -d)"
-  printf 'fn f() {\n    x();\n}\n' > "$fmt_dir/clean.thera"
-  printf 'fn g() {\ny();\n}\n' > "$fmt_dir/dirty.thera"
-  cp "$fmt_dir/dirty.thera" "$fmt_dir/dirty.orig"
-  "$THERA" fmt --check "$fmt_dir/clean.thera" >/dev/null 2>&1; clean_code=$?
-  dirty_out="$("$THERA" fmt --check "$fmt_dir/dirty.thera" 2>/dev/null)"; dirty_code=$?
-  if [ "$clean_code" -eq 0 ] && [ "$dirty_code" -eq 1 ] \
-     && printf '%s' "$dirty_out" | grep -q 'dirty.thera' \
-     && diff -q "$fmt_dir/dirty.thera" "$fmt_dir/dirty.orig" >/dev/null; then
-    echo "  ok   fmt --check: clean=0, dirty=1 (listed), file untouched"
-  else
-    echo "  FAIL fmt --check (clean=$clean_code dirty=$dirty_code out='$dirty_out')"; fail=1
-  fi
-  rm -rf "$fmt_dir"
-
-  # The tree itself must stay a fmt fixpoint — `fmt --check` over the whole corpus
-  # must report nothing. Guards against unformatted code landing (the CI gate).
-  tree_out="$("$THERA" fmt --check pkgs/cli sdk/std examples bench 2>/dev/null)"; tree_code=$?
-  if [ "$tree_code" -eq 0 ] && [ -z "$tree_out" ]; then
-    echo "  ok   fmt --check: corpus is a fixpoint"
-  else
-    echo "  FAIL fmt --check: unformatted files:"; printf '%s\n' "$tree_out"; fail=1
-  fi
-
-  echo "==> diagnostic attribution (imported-file error names the import)"
-  # An error in an imported file must be attributed to *that* file, not the
-  # entrypoint that triggered the compile — a diagnostic span carries source text,
-  # not a path, so the reporter resolves the owning file. (See docs/roadmap.md,
-  # "Whole-closure diagnostics with per-file origin".)
-  att_dir="$(mktemp -d)"
-  printf 'pub fn greet(_ n: String) -> String { return n.frobnicate(); }\n' > "$att_dir/helper.thera"
-  printf "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n" > "$att_dir/app.thera"
-  att_out="$("$THERA" run "$att_dir/app.thera" 2>&1)"; att_code=$?
-  if printf '%s' "$att_out" | grep -q 'helper.thera:.*frobnicate' \
-     && ! printf '%s' "$att_out" | grep -q 'app.thera:.*frobnicate' \
-     && [ "$att_code" -ne 0 ]; then
-    echo "  ok   imported-file error attributed to the import (exit $att_code)"
-  else
-    echo "  FAIL diagnostic attribution (out='$att_out', code=$att_code)"; fail=1
-  fi
-  # A *parse* error in an imported file must be surfaced (not dropped into a
-  # misleading downstream error under exit 0) and attributed to the import.
-  printf 'pub fn greet(_ n: String) -> String {\n    let x = ;\n    return n;\n}\n' > "$att_dir/helper.thera"
-  pe_out="$("$THERA" check "$att_dir/app.thera" 2>&1)"; pe_code=$?
-  if printf '%s' "$pe_out" | grep -q 'helper.thera:2:.*unexpected token' && [ "$pe_code" -ne 0 ]; then
-    echo "  ok   imported-file parse error surfaced + attributed (exit $pe_code)"
-  else
-    echo "  FAIL imported parse error (out='$pe_out', code=$pe_code)"; fail=1
-  fi
-  rm -rf "$att_dir"
-
-  echo "==> qualified-reference guard (corpus stays at 0 bare cross-library refs)"
-  # The whole corpus is qualified-only: every reference to another library's public
-  # name goes through `ns.name` (or an explicit `import '…' as _;`). This is now
-  # enforced — `check` reports a "bare reference to …" error for each violation —
-  # so a regression fails the build outright; this guard keeps the count explicit
-  # (and the message clear). See docs/language.md.
-  bare_refs="$("$THERA" check pkgs/cli sdk/std examples 2>/dev/null \
-    | grep -c 'bare reference to')"
-  if [ "$bare_refs" -eq 0 ]; then
-    echo "  ok   0 bare cross-library references"
-  else
-    echo "  FAIL $bare_refs bare cross-library reference(s); run: thera check pkgs/cli sdk/std examples"
+    echo "  FAIL corpus has diagnostics; run: thera check pkgs/cli sdk/std examples"
+    printf '%s\n' "$chk_out" | sed 's/^/         /'
     fail=1
   fi
 
-  echo "==> fmt guard (corpus stays canonically formatted)"
-  # The whole corpus is kept formatted; `thera fmt --check` lists any file that would
-  # change and exits non-zero. A drift fails the build with the fix command. See
-  # docs/roadmap.md, "Formatter (thera fmt)".
-  unformatted="$("$THERA" fmt --check pkgs/cli sdk/std examples 2>/dev/null)"; fmt_code=$?
-  if [ "$fmt_code" -eq 0 ]; then
-    echo "  ok   corpus is formatted"
+  echo "==> fmt --check (corpus stays canonically formatted)"
+  # The whole corpus is kept formatted; `fmt --check` lists any file that would
+  # change and exits non-zero. A drift fails the build with the fix command.
+  fmt_out="$("$THERA" fmt --check pkgs/cli sdk/std examples bench 2>/dev/null)"; fmt_code=$?
+  if [ "$fmt_code" -eq 0 ] && [ -z "$fmt_out" ]; then
+    echo "  ok   corpus is a fmt fixpoint"
   else
-    echo "  FAIL these files need formatting; run: thera fmt pkgs/cli sdk/std examples"
-    printf '%s\n' "$unformatted" | sed 's/^/         /'
+    echo "  FAIL these files need formatting; run: thera fmt pkgs/cli sdk/std examples bench"
+    printf '%s\n' "$fmt_out" | sed 's/^/         /'
     fail=1
   fi
 
