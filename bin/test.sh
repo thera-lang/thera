@@ -47,20 +47,20 @@ phase_checks() {
   echo "==> integration guards (tests/integration_runner.thera)"
   "$THERA" run "$ROOT/tests/integration_runner.thera" "$THERA" || fail=1
 
-  echo "==> check (corpus type-checks; any error fails the build)"
-  # The whole corpus must type-check. `thera check` exits non-zero on any error
-  # (warnings only inform), so the exit code is the gate — this subsumes the old
-  # bare-reference guard (bare cross-library refs are `check` errors). See
-  # docs/language.md. We always echo check's output so warnings stay visible even
-  # when they don't gate; a `--fatal-warnings` flag is a planned fast-follow.
-  chk_out="$("$THERA" check pkgs/cli sdk/std examples 2>/dev/null)"; chk_code=$?
+  echo "==> check (corpus type-checks; --fatal-warnings, so warnings gate too)"
+  # The whole corpus must type-check with zero errors AND zero warnings:
+  # `--fatal-warnings` promotes any warning to a failing exit, keeping the tree
+  # clean. This also subsumes the old bare-reference guard (bare cross-library
+  # refs are `check` errors). We echo check's output so the offending diagnostics
+  # are visible. See docs/language.md.
+  chk_out="$("$THERA" check --fatal-warnings pkgs/cli sdk/std examples 2>/dev/null)"; chk_code=$?
   if [ -n "$chk_out" ]; then
     printf '%s\n' "$chk_out" | sed 's/^/       /'
   fi
   if [ "$chk_code" -eq 0 ]; then
-    echo "  ok   corpus type-checks (exit 0)"
+    echo "  ok   corpus type-checks clean (no errors or warnings)"
   else
-    echo "  FAIL corpus has errors; run: thera check pkgs/cli sdk/std examples"
+    echo "  FAIL corpus has errors or warnings; run: thera check --fatal-warnings pkgs/cli sdk/std examples"
     fail=1
   fi
 

@@ -52,6 +52,9 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     names.push('diagnostic attribution (imported-file error names the import)');
     results.push(guard_attribution(thera, work));
 
+    names.push('check --fatal-warnings (warning gates only with the flag)');
+    results.push(guard_fatal_warnings(thera, work));
+
     // Best-effort cleanup; a leftover temp dir is harmless.
     match fs.remove_dir_all(work) {
         Ok(_) => {},
@@ -278,6 +281,37 @@ fn guard_attribution(_ thera: String, _ work: String) -> Verdict {
     let combined2 = '${r2.stdout}\n${r2.stderr}';
     if !combined2.contains('helper.thera:2:') || !combined2.contains('unexpected token') {
         return Verdict.Fail('imported parse error not surfaced + attributed\n${combined2}');
+    }
+    return Verdict.Pass;
+}
+
+// A warning-only file (an unused import) must exit 0 by default — warnings
+// inform — but exit 1 under `--fatal-warnings`, the CI knob for a warning-free
+// tree. A clean file must exit 0 either way.
+fn guard_fatal_warnings(_ thera: String, _ work: String) -> Verdict {
+    let warn = path.join(work, 'warn.thera');
+    match fs.write_text(warn, 'import std.fs;\nfn main() -> Int { return 0; }\n') {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing fixture failed: ${e.message()}'); },
+    };
+
+    let plain = match process.run(thera, args: ['check', warn]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check failed to run: ${e.message()}'); },
+    };
+    if plain.exit_code != 0 {
+        return Verdict.Fail('a warning-only file should exit 0 without --fatal-warnings (got ${plain.exit_code})');
+    }
+    if !plain.stdout.contains('unused-import') {
+        return Verdict.Fail('expected an unused-import warning\nstdout:\n${plain.stdout}');
+    }
+
+    let fatal = match process.run(thera, args: ['check', '--fatal-warnings', warn]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check --fatal-warnings failed to run: ${e.message()}'); },
+    };
+    if fatal.exit_code != 1 {
+        return Verdict.Fail('a warning-only file should exit 1 under --fatal-warnings (got ${fatal.exit_code})');
     }
     return Verdict.Pass;
 }

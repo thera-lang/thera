@@ -22,7 +22,6 @@
 import std.testing;
 
 import '../lexer/lexer' as _;
-import '../ast/ast' as _; // Expr/Identifier destructuring in the span-fidelity tests
 import '../ast/describe' as _;
 import '../ast/dump' as _;
 import 'parser' as _;
