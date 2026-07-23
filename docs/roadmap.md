@@ -354,15 +354,21 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 - **Prelude-linked test harnesses.** The checker/resolver unit harnesses
   (`errors_of`, `typed_ctx`, …) build a _hermetic_ element model — no imports,
-  empty surfaces — so a test can't reference `std.core`: a closure whose
-  parameter type comes from a stdlib generic (`List.fold`) resolves its lambda
-  param to `Unknown`, and any test touching `Result`/`Option`/`List` methods
-  must stub them. Now that the prelude is mature and the loader is fast,
-  evaluate giving these harnesses an option to link the real `std.core` closure
-  (cached once), so tests exercise the same surfaces the CLI does. Scope the
-  decision: which harnesses opt in, the caching story, and whether the
-  fully-hermetic mode stays for the resolver/registry-floor tests that
-  deliberately assert no-prelude behavior.
+  empty surfaces — resolving built-ins against the `<builtin>` floor
+  (`builtin_type_defs`) rather than real `std.core`. So a test can't reference
+  core _methods_ or enum bodies: a closure whose parameter type comes from a
+  stdlib generic (`List.fold`) resolves its lambda param to `Unknown`, and a
+  test touching `Result`/`Option`/`List` methods must avoid them. The hermetic
+  mode is worth keeping as the default — speed, isolation, and bootstrapping
+  safety (the front-end's own unit suite shouldn't require a loadable SDK to
+  diagnose a broken one). **Health items landed** (see _Changelog_): a shared
+  `testkit` (parse/parse_at) retired the duplicated per-file harness helpers; a
+  `floor_test` drift guard links real `std.core` once and asserts the floor's
+  arities match core's; and the floor's contract is documented on
+  `builtin_type_defs`. **Remaining (opt-in):** give the specific harnesses that
+  need method/enum-body coverage an option to link the real `std.core` closure
+  (cached once), while the fully-hermetic mode stays for the
+  resolver/registry-floor tests that deliberately assert no-prelude behavior.
 
 - **Resolution — smaller open items.** (Qualified-only + `pub` visibility
   enforcement, the `FileScope` refactor, and owner-correct value _and type_
@@ -1131,6 +1137,25 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Test health: shared parse `testkit` + a floor-vs-core drift guard**
+  (2026-07). The front-end's hermetic unit harnesses resolve built-ins against
+  the `<builtin>` floor (`builtin_type_defs`) rather than real `std.core` — kept
+  as the default for speed/isolation/bootstrapping, but shored up. A new
+  `pkgs/cli/testkit.thera` gives the `*_test` suites one home for the
+  tokenize+parse boilerplate (`parse`/`parse_at`), replacing the
+  `program_at`/`prog_of`/`program_of` helpers (defined 4×) and ~30 inline
+  `parse_tokens(tokenize(..))` sites across checker/resolver/loader/codegen/lsp
+  tests, and retiring their now-unused lexer/parser imports; it is imported only
+  by test files, so it stays outside the front-end runtime closure and doesn't
+  touch the bootstrap. A new `pkgs/cli/element/floor_test.thera` links the real
+  `std.core` closure once and asserts each floor name's generic arity matches
+  core's (and that the linked def shadows the floor) — one test pays the real-SDK
+  cost so the ~180 hermetic tests don't have to. This is the accurate form of the
+  mooted "canonical stub": the inline `enum Result {..}` stubs proved to be
+  identity fixtures (bodies deliberately arbitrary), so the real drift risk is
+  the floor-vs-core pair, guarded directly. The floor's contract is now
+  documented on `builtin_type_defs`.
 
 - **LSP: intentional-error conformance fixtures analyze themselves** (2026-07).
   The `tests/lang/` fixtures are _deliberately_ broken — they pin how the
