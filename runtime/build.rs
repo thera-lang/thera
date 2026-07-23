@@ -1,18 +1,20 @@
 //! Build script for the runtime.
 //!
-//! Two jobs, both feeding `main.rs`:
+//! One job: **optionally embed the front-end.** If `THERA_FRONTEND_BC` points at a
+//! `.thera-bc` file, copy it to `$OUT_DIR/frontend.thera-bc`; otherwise write a
+//! 0-byte stub. The binary `include_bytes!`s that path: a non-empty blob means
+//! "the front-end is baked in" (a self-contained single-binary release), an empty
+//! blob means "bare runtime — load the front-end from a sibling file at runtime"
+//! (the default `cargo build`, and how the assembled SDK ships it).
 //!
-//! 1. **Embed the front-end.** If `THERA_FRONTEND_BC` points at a `.thera-bc` file,
-//!    copy it to `$OUT_DIR/frontend.thera-bc`; otherwise write a 0-byte stub. The
-//!    binary `include_bytes!`s that path: a non-empty blob means "this is the
-//!    full `thera` launcher (runtime + embedded front-end)", an empty blob means
-//!    "this is the bare `thera-rt` runtime" (a plain `cargo build`).
-//! 2. **Stamp the build.** Capture the short git SHA into `THERA_BUILD_SHA` so
-//!    `--version` can report which revision the binary was built from.
+//! Deliberately **not** stamped with the git SHA: the binary is a pure function of
+//! its source (+ any embedded blob), so a rebuild is only needed when that source
+//! changes — which lets CI cache it across commits. The build revision instead
+//! lives in the SDK's `version` file (written by `bin/build_sdk.sh` from git) and
+//! is read back by `--version`.
 
 use std::env;
 use std::path::PathBuf;
-use std::process::Command;
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -32,16 +34,4 @@ fn main() {
             std::fs::write(&dest, []).unwrap();
         }
     }
-
-    // The short git SHA (best-effort; "unknown" outside a checkout).
-    let sha = Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
-    println!("cargo:rustc-env=THERA_BUILD_SHA={sha}");
-    println!("cargo:rerun-if-changed=.git/HEAD");
 }

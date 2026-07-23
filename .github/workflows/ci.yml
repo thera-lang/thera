@@ -16,7 +16,9 @@ env:
 
 jobs:
   # Rust runtime: format, lint, and unit tests. Independent gate, runs in parallel
-  # with `build` — a runtime regression fails CI on its own.
+  # with `build` — a runtime regression fails CI on its own. Uses the runner's
+  # preinstalled toolchain (rustup default profile: cargo + rustfmt + clippy),
+  # which tracks a recent stable — no explicit `rustup install` step.
   runtime:
     name: runtime (cargo)
     runs-on: ubuntu-latest
@@ -26,12 +28,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # edition 2024 needs a recent stable toolchain; the repo's rust-toolchain
-      # (if any) is honored, otherwise this pins the components we need.
-      - name: Install Rust
-        run:
-          rustup toolchain install stable --profile minimal --component
-          rustfmt,clippy
+      - name: toolchain
+        run: rustc --version && cargo --version
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -46,26 +44,37 @@ jobs:
       - name: cargo test
         run: cargo test
 
-  # Build the self-contained SDK ONCE (runtime + embedded front-end + stdlib), so
-  # the suite shards need no toolchain and no per-shard rebuild. This is also the
-  # only place the self-hosting fixpoint is checked — bin/build_sdk.sh re-emits the
-  # front-end from the built SDK and fails if the bytes don't match. NOTE: a PR
-  # that adds syntax consumed by pkgs/cli must refresh bootstrap/frontend.thera-bc
-  # or this job goes red at the fixpoint step (see bootstrap/README.md).
+  # Build the SDK ONCE (runtime + front-end + stdlib), so the suite shards need no
+  # toolchain and no per-shard rebuild. This is also the only place the
+  # self-hosting fixpoint is checked — bin/build_sdk.sh re-emits the front-end from
+  # the built SDK and fails if the bytes don't match. NOTE: a PR that adds syntax
+  # consumed by pkgs/cli must refresh bootstrap/frontend.thera-bc or this job goes
+  # red at the fixpoint step (see bootstrap/README.md).
+  #
+  # The bare runtime is a pure function of runtime/ source, so it's cached: a PR
+  # that doesn't touch runtime/ (the common case) restores the binary and skips
+  # both the compile and the toolchain — build_sdk.sh reuses an already-present
+  # binary and just re-emits + assembles + fixpoint-checks (~seconds).
   build:
     name: build (sdk)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal
+      - name: cache the bare runtime
+        id: rtcache
+        uses: actions/cache@v4
+        with:
+          path: runtime/target/release/thera-rt
+          key: thera-rt-${{ runner.os }}-${{ hashFiles('runtime/src/**', 'runtime/build.rs', 'runtime/Cargo.toml', 'runtime/Cargo.lock') }}
 
+      # Only needed to compile the runtime on a cache miss (runtime/ changed).
       - uses: Swatinem/rust-cache@v2
+        if: steps.rtcache.outputs.cache-hit != 'true'
         with:
           workspaces: runtime
 
-      - name: bin/build_sdk.sh (emit + embed + fixpoint check)
+      - name: bin/build_sdk.sh (emit + assemble + fixpoint check)
         run: bin/build_sdk.sh
 
       # tar the tree so the executable bit on build/sdk/bin/thera survives the
