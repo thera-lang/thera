@@ -1,0 +1,96 @@
+// Tests for conformance-fixture diagnostic suppression (fixtures.thera): a
+// `tests/lang/` fixture's *declared* `// expect error:` / `// expect warning:`
+// diagnostics are dropped from its editor report, while a surprise error — one
+// on a line with no marker, or whose message no longer matches — survives.
+
+import std.testing;
+import std.json as _;
+
+import 'fixtures';
+
+// A single LSP `Diagnostic` item on `line0` (0-based) with `severity` and `message`.
+fn diag(_ line0: Int, _ severity: Int, _ message: String) -> Json {
+    return json.obj([
+        'range': json.obj([
+            'start': json.obj(['line': json.int(line0), 'character': json.int(0)]),
+            'end': json.obj(['line': json.int(line0), 'character': json.int(1)]),
+        ]),
+        'severity': json.int(severity),
+        'source': json.str('thera'),
+        'message': json.str(message),
+    ]);
+}
+
+@test
+fn test_is_fixture_rel_scopes_to_tests_lang() -> Result<Void, Error> {
+    testing.assert(fixtures.is_fixture_rel('tests/lang/types/assign_type.thera'),
+        message: 'a file directly under tests/lang is a fixture')?;
+    testing.assert(fixtures.is_fixture_rel('sub/tests/lang/x.thera'),
+        message: 'tests/lang nested under the root still counts')?;
+    testing.assert(!fixtures.is_fixture_rel('pkgs/cli/lsp/analysis.thera'),
+        message: 'an ordinary source file is not a fixture')?;
+    testing.assert(!fixtures.is_fixture_rel('tests/langx/foo.thera'),
+        message: 'a sibling prefix does not count')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_declared_error_is_dropped() -> Result<Void, Error> {
+    // Line 1 (0-based) carries the marker; the diagnostic on it matches its text.
+    let text = 'fn main() -> Void {\n    let x = 1 + true;  // expect error: type mismatch\n}\n';
+    let items = [diag(1, 1, 'type mismatch: Int vs Bool')];
+    let kept = fixtures.suppress_declared(items, text);
+    testing.assert_eq(actual: kept.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_surprise_error_on_unmarked_line_survives() -> Result<Void, Error> {
+    // The marker is on line 1, but the diagnostic lands on line 2 — a surprise.
+    let text = 'fn main() -> Void {\n    let x = 1 + true;  // expect error: type mismatch\n    undefined_call();\n}\n';
+    let items = [diag(2, 1, 'undefined name: undefined_call')];
+    let kept = fixtures.suppress_declared(items, text);
+    testing.assert_eq(actual: kept.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_message_drift_on_marked_line_survives() -> Result<Void, Error> {
+    // The line has a marker, but the diagnostic's message no longer contains it —
+    // the fixture broke in an unintended way, so it must still surface.
+    let text = 'let x = 1 + true;  // expect error: type mismatch\n';
+    let items = [diag(0, 1, 'some completely different error')];
+    let kept = fixtures.suppress_declared(items, text);
+    testing.assert_eq(actual: kept.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_expect_warning_matches_only_warning_severity() -> Result<Void, Error> {
+    let text = 'import std.fs;  // expect warning: unused import\n';
+    // A Warning (severity 2) with matching text is declared → dropped.
+    let warn = fixtures.suppress_declared([diag(0, 2, 'unused import: std.fs')], text);
+    testing.assert_eq(actual: warn.len(), expected: 0)?;
+    // An Error (severity 1) with the same text is *not* what the marker predicted
+    // — a warning expectation can't hide an error, as in the harness.
+    let err = fixtures.suppress_declared([diag(0, 1, 'unused import: std.fs')], text);
+    testing.assert_eq(actual: err.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_xfail_drops_all_diagnostics() -> Result<Void, Error> {
+    let text = '//! xfail: feature not implemented yet\nfn main() -> Void {\n    broken;\n}\n';
+    let items = [diag(2, 1, 'undefined name: broken'), diag(1, 1, 'another error')];
+    let kept = fixtures.suppress_declared(items, text);
+    testing.assert_eq(actual: kept.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+@test
+fn test_clean_fixture_reports_nothing_extra() -> Result<Void, Error> {
+    // A fixture with no markers and no diagnostics keeps its (empty) report.
+    let text = 'fn main() -> Void {\n    println("ok");\n}\n';
+    let kept = fixtures.suppress_declared([], text);
+    testing.assert_eq(actual: kept.len(), expected: 0)?;
+    return Result.Ok(void);
+}

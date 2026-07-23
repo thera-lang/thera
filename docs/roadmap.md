@@ -493,16 +493,12 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - **Further renderers — completion, signature help, semantic tokens.** Thin
     query-layer renderers; completion + signatureHelp additionally need the
     parser recovery below.
-  - **Segregate intentional-error test fixtures.** Workspace diagnostics surface
-    every file's errors — including the conformance fixtures under
-    `tests/lang/`, which are _deliberately_ broken (an `xfail` spec, an
-    `// expect:` error directive). A server-side `thera.exclude` now hides them
-    (see _Changelog_), but that's a blunt path filter the user has to configure,
-    and the server still analyzes the files. Better: split "should analyze
-    clean" fixtures from "carries intentional diagnostics" ones — by directory
-    or a per-file marker the harness already reads — so the workspace scan skips
-    the latter at the source, with no exclude glob to maintain and no wasted
-    analysis on files whose errors are the point.
+  - **Segregate intentional-error test fixtures — done** (see _Changelog_). The
+    server now drops a `tests/lang/` fixture's _declared_ diagnostics
+    (`// expect error:` / `// expect warning:` on the line, or a wholesale
+    `//! xfail:`) per-file, reusing the markers the conformance harness already
+    reads — so the clean fixtures come under analysis and a _surprise_ error
+    still surfaces, with no `thera.exclude` glob to maintain.
 - **Parser error recovery for the LSP — core landed; two tails open.** The LSP's
   normal input is _syntactically broken_ code mid-edit; the parser synthesizes a
   best-effort tree (recover past the error) so semantic resolution still runs and
@@ -1135,6 +1131,25 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **LSP: intentional-error conformance fixtures analyze themselves** (2026-07).
+  The `tests/lang/` fixtures are _deliberately_ broken — they pin how the
+  compiler rejects bad code — and were hidden from the editor wholesale by a
+  `thera.exclude: tests/lang/**` glob, which also dropped the ~130 _clean_
+  fixtures from analysis and left the errors that _are_ the point unanalyzed.
+  Now the server drops each fixture's **declared** diagnostics per-file
+  (`lsp/fixtures.thera`): a diagnostic is withheld only when the source line it
+  sits on carries a matching `// expect error:` / `// expect warning:` marker —
+  the same match the harness (`tests/lang_runner.thera`) makes, keyed on LSP
+  severity rather than a rendered `warning:` prefix — or when the file is
+  `//! xfail:` (expected to fail wholesale). A **surprise** error — one on an
+  unmarked line, or whose message drifted from its marker — still surfaces, so a
+  fixture that breaks unintentionally stays visible. Scoped to `tests/lang/`
+  paths (`is_fixture_rel`), so the marker convention can't silence diagnostics in
+  an ordinary project; the `tests/lang/**` glob is retired from
+  `.vscode/settings.json` (the `runtime/target/**` scan prune stays). Wired in at
+  the two report paths — `document_items` and the workspace scan's `scan_by_file`
+  — and unit-tested in `lsp/fixtures_test.thera`.
 
 - **Parser error recovery — the resilient-parsing core (Stages 0–3)** (2026-07).
   The parser now produces a structurally useful AST from broken, mid-edit source

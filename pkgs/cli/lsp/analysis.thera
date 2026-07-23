@@ -18,6 +18,7 @@ import 'workspace';       // thera_files (on-disk project scan)
 import 'diagnostics';     // render_diagnostics
 import 'surface';         // surface_signature (cross-file-change detection)
 import 'glob';             // exclude-pattern matching
+import 'fixtures';         // conformance-fixture diagnostic suppression
 import 'paths';             // uri_to_path
 import 'positions';       // position_to_offset
 
@@ -43,10 +44,12 @@ pub struct Analysis {
     let mut roots: List<String>;
     // Workspace-relative `thera.exclude` globs (from `initialize`'s
     // `initializationOptions`, updated by `workspace/didChangeConfiguration`). A
-    // file matching one has its diagnostics withheld — used to hide the
-    // intentionally-broken conformance fixtures under `tests/lang/`. The file is
-    // still analyzed (imports of it resolve); only its *reported* diagnostics are
-    // dropped. Empty = nothing excluded.
+    // file matching one has *all* its diagnostics withheld. The file is still
+    // analyzed (imports of it resolve); only its reported diagnostics are dropped.
+    // Empty = nothing excluded. (The conformance fixtures under `tests/lang/` no
+    // longer need a glob here — their *declared* errors are dropped automatically,
+    // per-diagnostic, by `fixtures.suppress_declared`; a surprise error still
+    // surfaces. This stays for anything a user wants hidden wholesale.)
     let mut exclude: List<String>;
     // Canonical path -> its last public-surface signature (surface.thera). Compared
     // on each edit: a difference means the change could alter *importers'*
@@ -441,6 +444,15 @@ impl Analysis {
         return false;
     }
 
+    // Whether `path` is a language-conformance fixture (under `tests/lang/`) —
+    // the scope in which a declared `// expect error:` diagnostic is dropped from
+    // the editor report (`fixtures.suppress_declared`). Keyed on the
+    // workspace-relative path, so the marker convention can't leak into an
+    // arbitrary user project.
+    fn is_fixture(self, _ path: String) -> Bool {
+        return fixtures.is_fixture_rel(self.workspace_relative(loader.canonical_path(path)));
+    }
+
     // `canon` (canonical) relative to the first root that contains it, `/`-joined;
     // the path unchanged when it's under no root (a loose file).
     fn workspace_relative(self, _ canon: String) -> String {
@@ -729,19 +741,25 @@ impl Analysis {
 
     // The rendered diagnostic items for `uri` (a JSON array). An excluded file
     // reports clean — the editor shows nothing for it, though it's still analyzed
-    // for its importers (this only withholds its own report).
+    // for its importers (this only withholds its own report). A `tests/lang/`
+    // fixture keeps its report, minus the errors it declared (`suppress_declared`).
     fn document_items(self, _ uri: String) -> Json {
-        if self.is_excluded(paths.uri_to_path(uri)) {
+        let path = paths.uri_to_path(uri);
+        if self.is_excluded(path) {
             return arr([]);
         }
         let text = match self.docs.get(uri) {
             Some(t) => t,
-            None => match fs.read_text(paths.uri_to_path(uri)) {
+            None => match fs.read_text(path) {
                 Ok(t) => t,
                 Err(_) => '',
             },
         };
-        return self.diagnostics(uri, text);
+        let items = self.diagnostics(uri, text);
+        if self.is_fixture(path) {
+            return arr(fixtures.suppress_declared(items.as_array().unwrap_or([]), text));
+        }
+        return items;
     }
 
     // A `WorkspaceDiagnosticReport` (LSP pull model) — one full report per
@@ -927,6 +945,20 @@ impl Analysis {
             i = i + 1;
             if i % 8 == 0 {
                 fiber.yield();
+            }
+        }
+        // Drop each `tests/lang/` fixture's *declared* errors from its own report.
+        // Done after grouping (so a fixture's diagnostics, folded under it as
+        // owner, are filtered against its own source) and before caching (so the
+        // reused result is already suppressed). A fixture with only declared errors
+        // becomes an empty report — reported clean, not omitted, so the client
+        // releases any prior squiggles; a surprise error survives and surfaces.
+        for f in files {
+            if self.is_fixture(f.path) {
+                let canon = loader.canonical_path(f.path);
+                if let Some(list) = by_file.get(canon) {
+                    by_file[canon] = fixtures.suppress_declared(list, f.text);
+                }
             }
         }
         let contents: Map<String, String> = [:];
