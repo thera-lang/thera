@@ -1174,6 +1174,185 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
     };
 }
 
+// --- enclosing-call location (signature help) ---
+
+// The innermost call whose *argument region* covers `offset` — the cursor
+// sits past the callee, inside the parens. Innermost-first (`f(g(|` answers
+// `g`), searched across every expression-bearing declaration like the
+// computed-receiver walk. The parser frames an unterminated call (the args
+// loop stops at a closer token and the synthesized `)` anchors just past the
+// last real token), so the mid-keystroke `add(` has a node to find.
+pub fn enclosing_call_at(_ program: Program, _ offset: Int) -> Option<CallExpr> {
+    for decl in program.decls {
+        let found = match decl {
+            Fn(f) => call_in_fn(f, offset),
+            Impl(i) => {
+                let mut hit: Option<CallExpr> = Option.None;
+                for m in i.methods {
+                    if hit.is_none() { hit = call_in_fn(m, offset); }
+                }
+                hit
+            },
+            Interface(it) => {
+                let mut hit: Option<CallExpr> = Option.None;
+                for m in it.methods {
+                    if hit.is_none() { hit = call_in_fn(m, offset); }
+                }
+                hit
+            },
+            Const(c) => call_in_expr(c.value, offset),
+            Let(l) => call_in_expr(l.value, offset),
+            _ => Option.None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    return Option.None;
+}
+
+fn call_in_fn(_ f: FnDecl, _ offset: Int) -> Option<CallExpr> {
+    if !span_covers(f.span, offset) {
+        return Option.None;
+    }
+    return match f.body {
+        Some(body) => call_in_block(body, offset),
+        None => Option.None,
+    };
+}
+
+fn call_in_block(_ b: Block, _ offset: Int) -> Option<CallExpr> {
+    for st in b.stmts {
+        if let Some(c) = call_in_stmt(st, offset) {
+            return Option.Some(c);
+        }
+    }
+    return match b.tail {
+        Some(t) => call_in_expr(t, offset),
+        None => Option.None,
+    };
+}
+
+fn call_in_stmt(_ st: Stmt, _ offset: Int) -> Option<CallExpr> {
+    return match st {
+        Let(x) => call_in_expr(x.value, offset),
+        Assign(_, target, _, value) => {
+            if let Some(c) = call_in_expr(target, offset) { return Option.Some(c); }
+            call_in_expr(value, offset)
+        },
+        Expr(_, e) => call_in_expr(e, offset),
+        Return(_, value) => match value {
+            Some(v) => call_in_expr(v, offset),
+            None => Option.None,
+        },
+        Throw(_, value) => call_in_expr(value, offset),
+        If(x) => {
+            if let Some(c) = call_in_expr(x.condition, offset) { return Option.Some(c); }
+            if let Some(c) = call_in_block(x.then_block, offset) { return Option.Some(c); }
+            match x.else_block {
+                Some(eb) => call_in_block(eb, offset),
+                None => Option.None,
+            }
+        },
+        While(x) => {
+            if let Some(c) = call_in_expr(x.condition, offset) { return Option.Some(c); }
+            call_in_block(x.body, offset)
+        },
+        For(x) => {
+            if let Some(c) = call_in_expr(x.iterable, offset) { return Option.Some(c); }
+            call_in_block(x.body, offset)
+        },
+        Break(_) => Option.None,
+        Continue(_) => Option.None,
+    };
+}
+
+fn call_in_expr(_ e: Expr, _ offset: Int) -> Option<CallExpr> {
+    if !span_covers(expr_span(e), offset) {
+        return Option.None;
+    }
+    return match e {
+        Call(x) => {
+            // Innermost wins: a call deeper in an argument (or the callee
+            // chain) beats this one.
+            for a in x.args {
+                if let Some(c) = call_in_expr(a.value, offset) { return Option.Some(c); }
+            }
+            if let Some(c) = call_in_expr(x.callee, offset) { return Option.Some(c); }
+            let callee_end = expr_span(x.callee);
+            if offset > callee_end.offset + callee_end.length {
+                return Option.Some(x);
+            }
+            Option.None
+        },
+        Field(_, obj, _) => call_in_expr(obj, offset),
+        Index(_, obj, idx) => {
+            if let Some(c) = call_in_expr(obj, offset) { return Option.Some(c); }
+            call_in_expr(idx, offset)
+        },
+        Binary(_, l, _, r) => {
+            if let Some(c) = call_in_expr(l, offset) { return Option.Some(c); }
+            call_in_expr(r, offset)
+        },
+        Unary(_, _, operand) => call_in_expr(operand, offset),
+        Propagate(_, inner) => call_in_expr(inner, offset),
+        Range(_, a, b2) => {
+            if let Some(c) = call_in_expr(a, offset) { return Option.Some(c); }
+            call_in_expr(b2, offset)
+        },
+        Block(_, b) => call_in_block(b, offset),
+        If(x) => {
+            if let Some(c) = call_in_expr(x.condition, offset) { return Option.Some(c); }
+            if let Some(c) = call_in_block(x.then_block, offset) { return Option.Some(c); }
+            match x.else_block {
+                Some(eb) => call_in_block(eb, offset),
+                None => Option.None,
+            }
+        },
+        Match(x) => {
+            if let Some(c) = call_in_expr(x.subject, offset) { return Option.Some(c); }
+            for arm in x.arms {
+                if let Some(c) = call_in_expr(arm.body, offset) { return Option.Some(c); }
+            }
+            Option.None
+        },
+        Lambda(x) => call_in_expr(x.body, offset),
+        Struct(x) => {
+            for f in x.fields {
+                if let Some(c) = call_in_expr(f.value, offset) { return Option.Some(c); }
+            }
+            Option.None
+        },
+        ListLit(_, items) => {
+            for it in items {
+                if let Some(c) = call_in_expr(it, offset) { return Option.Some(c); }
+            }
+            Option.None
+        },
+        MapLit(_, entries) => {
+            for en in entries {
+                if let Some(c) = call_in_expr(en.key, offset) { return Option.Some(c); }
+                if let Some(c) = call_in_expr(en.value, offset) { return Option.Some(c); }
+            }
+            Option.None
+        },
+        Str(_, parts) => {
+            for part in parts {
+                if let Interp(_, ie) = part {
+                    if let Some(c) = call_in_expr(ie, offset) { return Option.Some(c); }
+                }
+            }
+            Option.None
+        },
+        Return(_, value) => match value {
+            Some(v) => call_in_expr(v, offset),
+            None => Option.None,
+        },
+        Throw(_, value) => call_in_expr(value, offset),
+        _ => Option.None,
+    };
+}
+
 // --- structural names: field declarations, struct-literal fields, call labels ---
 
 // A name the AST places precisely as a declaration or a label, not a lexical
@@ -1288,7 +1467,7 @@ fn match_variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ subject_span: Sou
 
 // The function/method a call targets, with its file: a free function (`f(...)`),
 // a static method (`Type.m(...)`), or an instance method (`value.m(...)`).
-fn callee_fn_site(_ ctx: ResolveCtx, _ callee: Expr) -> Option<MethodSite> {
+pub fn callee_fn_site(_ ctx: ResolveCtx, _ callee: Expr) -> Option<MethodSite> {
     return match callee {
         Ident(_, name) => match find_decl_site(ctx, name) {
             Some(ds) => match ds.decl {
@@ -1633,7 +1812,7 @@ fn type_param_of(_ tps: List<TypeParam>, _ name: String) -> Option<TypeParam> {
 
 // --- member / variant / field lookup (file-aware, for navigation) ---
 
-struct MethodSite {
+pub struct MethodSite {
     let fn_decl: FnDecl;
     let file: String;
 }
@@ -1969,7 +2148,7 @@ pub fn describe_decl(_ decl: Decl) -> String {
     };
 }
 
-fn describe_fn(_ d: FnDecl) -> String {
+pub fn describe_fn(_ d: FnDecl) -> String {
     let params = d.params.map((p) => describe_param(p)).join(', ');
     let ret = match d.return_type {
         Some(t) => ' -> ${describe.describe_type(t)}',
@@ -1978,7 +2157,7 @@ fn describe_fn(_ d: FnDecl) -> String {
     return 'fn ${d.name}(${params})${ret}';
 }
 
-fn describe_param(_ p: Param) -> String {
+pub fn describe_param(_ p: Param) -> String {
     if p.is_self {
         return 'self';
     }

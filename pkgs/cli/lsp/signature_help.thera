@@ -1,0 +1,92 @@
+// LSP signature help (`textDocument/signatureHelp`) — while the cursor sits
+// in a call's argument list (`add(1, `), show the callee's signature with the
+// active parameter highlighted. The enclosing call comes from the AST: the
+// parser frames an unterminated call (the args loop stops at a token that
+// closes an enclosing construct, and the synthesized `)` anchors just past
+// the last real token), and the callee resolves through the same
+// owner-correct machinery hover uses (`callee_fn_site`: free functions,
+// static methods, and instance methods on the receiver's committed type).
+
+import std.json as _;
+
+import '../lexer/token' as _; // Token
+import 'resolve';
+
+// A resolved signature at the cursor: its render, the per-parameter renders
+// (each a substring of `label`, as the protocol's highlighting requires), and
+// the active parameter index.
+pub struct SignatureInfo {
+    let label: String;
+    let params: List<String>;
+    let active_param: Int;
+}
+
+// The signature at `offset`, or None when the cursor is in no call's argument
+// list (or the callee doesn't resolve). `self` is dropped from the parameter
+// list, so an instance call's first argument is parameter 0.
+pub fn signature_help_at(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Option<SignatureInfo> {
+    // An unterminated call's span ends at its last real token, so a cursor in
+    // the trailing whitespace (`add(1, `) sits past every AST span — snap it
+    // back onto code before the lookup.
+    let anchor = snap_to_code(resolve.primary_tokens(ctx, text), offset);
+    let call = resolve.enclosing_call_at(ctx.program, anchor)?;
+    let site = resolve.callee_fn_site(ctx, call.callee)?;
+    let params: List<String> = [];
+    for p in site.fn_decl.params {
+        if !p.is_self {
+            params.push(resolve.describe_param(p));
+        }
+    }
+    // The active parameter: one past the arguments already written — each
+    // argument whose span ends before the cursor is complete (`add(1, ` → 1).
+    // Clamped so a surplus argument still highlights the last parameter.
+    let mut active = 0;
+    for a in call.args {
+        if a.span.offset + a.span.length < anchor {
+            active = active + 1;
+        }
+    }
+    if params.len() > 0 && active >= params.len() {
+        active = params.len() - 1;
+    }
+    return Option.Some(SignatureInfo {
+        label: resolve.describe_fn(site.fn_decl),
+        params: params,
+        active_param: active,
+    });
+}
+
+// The cursor snapped back onto code: in trailing whitespace it anchors at the
+// previous token's end; inside (or at the end of) a token it keeps its own
+// offset.
+fn snap_to_code(_ toks: List<Token>, _ offset: Int) -> Int {
+    let mut anchor = 0;
+    for t in toks {
+        let s = t.span;
+        if s.offset + s.length <= offset {
+            if s.offset + s.length > anchor {
+                anchor = s.offset + s.length;
+            }
+        } else if s.offset < offset {
+            anchor = offset;
+        }
+    }
+    return anchor;
+}
+
+// The LSP `SignatureHelp` (as JSON) for `offset` in `text`, or JSON null.
+pub fn handle_signature_help(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Json {
+    return match signature_help_at(ctx, text, offset) {
+        Some(info) => json.obj([
+            'signatures': json.arr([json.obj([
+                'label': json.str(info.label),
+                'parameters': json.arr(info.params.map((p) => json.obj([
+                    'label': json.str(p),
+                ]))),
+            ])]),
+            'activeSignature': json.int(0),
+            'activeParameter': json.int(info.active_param),
+        ]),
+        None => json.null(),
+    };
+}

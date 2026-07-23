@@ -1,0 +1,133 @@
+// Tests for signature help (signature_help.thera): the `signature_help_at`
+// oracle over mid-keystroke calls — the unterminated-call framing the parser's
+// recovery now provides (`add(` before the body's `}` keeps its call node).
+
+import std.testing;
+
+import '../checker/checker';
+import '../lexer/lexer';
+import '../parser/parser';
+import 'resolve' as _;
+import 'signature_help' as _;
+
+// A hermetic ResolveCtx over `src` alone, with committed-type records from a
+// hermetic check of the recovered tree (instance-method callees resolve on
+// the receiver's committed type).
+fn ctx_of(_ src: String) -> ResolveCtx {
+    let toks = lexer.tokenize(src).tokens;
+    let program = parser.parse_tokens(toks).program;
+    let checked = checker.check(program, [], [:], [:]);
+    return ResolveCtx {
+        program: program,
+        tokens: toks,
+        imports: [],
+        file_namespaces: [:],
+        file_bare_surface: [:],
+        primary_types: checked.records,
+    };
+}
+
+fn help_at(_ src: String, _ offset: Int) -> Option<SignatureInfo> {
+    return signature_help_at(ctx_of(src), src, offset);
+}
+
+// The offset `delta` code points past the first occurrence of `marker`.
+fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
+    return src.find(marker).unwrap_or(0) + delta;
+}
+
+const ADD_SRC: String = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
+    + 'fn f() -> Int {\n'
+    + '    return add(\n'
+    + '}\n';
+
+// The mid-keystroke shape: `add(` before the body's `}`. The framed call node
+// resolves to the declaration; nothing typed yet, so parameter 0 is active.
+@test
+fn test_signature_help_on_unterminated_call() -> Result<Void, Error> {
+    match help_at(ADD_SRC, at(ADD_SRC, 'return add(', 11)) {
+        Some(info) => {
+            testing.assert_eq(actual: info.label, expected: 'fn add(a: Int, b: Int) -> Int')?;
+            testing.assert_eq(actual: info.params.join('; '), expected: 'a: Int; b: Int')?;
+            testing.assert_eq(actual: info.active_param, expected: 0)?;
+        },
+        None => { testing.assert(false, message: 'expected signature help')?; },
+    }
+    return Result.Ok(void);
+}
+
+// After `add(1, ` the first argument is complete: parameter 1 is active.
+@test
+fn test_signature_help_active_parameter_advances() -> Result<Void, Error> {
+    let src = ADD_SRC.replace('return add(\n', 'return add(1, \n');
+    match help_at(src, at(src, 'add(1, ', 7)) {
+        Some(info) => {
+            testing.assert_eq(actual: info.active_param, expected: 1)?;
+        },
+        None => { testing.assert(false, message: 'expected signature help')?; },
+    }
+    return Result.Ok(void);
+}
+
+// An instance-method call resolves on the receiver's committed type; `self`
+// is dropped, so the first written argument is parameter 0.
+@test
+fn test_signature_help_on_method_call() -> Result<Void, Error> {
+    let src = 'struct S { let count: Int; }\n'
+        + 'impl S { pub fn scale(self, _ k: Int) -> Int { return self.count * k; } }\n'
+        + 'fn f() -> Int {\n'
+        + '    let s = S { count: 2 };\n'
+        + '    return s.scale(\n'
+        + '}\n';
+    match help_at(src, at(src, 's.scale(', 8)) {
+        Some(info) => {
+            testing.assert_eq(actual: info.label, expected: 'fn scale(self, k: Int) -> Int')?;
+            testing.assert_eq(actual: info.params.join('; '), expected: 'k: Int')?;
+            testing.assert_eq(actual: info.active_param, expected: 0)?;
+        },
+        None => { testing.assert(false, message: 'expected signature help')?; },
+    }
+    return Result.Ok(void);
+}
+
+// Nested calls: the innermost enclosing call answers.
+@test
+fn test_signature_help_innermost_call_wins() -> Result<Void, Error> {
+    let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
+        + 'fn mul(_ x: Int, _ y: Int) -> Int { return x * y; }\n'
+        + 'fn f() -> Int {\n'
+        + '    return add(1, mul(2, \n'
+        + '}\n';
+    match help_at(src, at(src, 'mul(2, ', 7)) {
+        Some(info) => {
+            testing.assert_eq(actual: info.label, expected: 'fn mul(x: Int, y: Int) -> Int')?;
+            testing.assert_eq(actual: info.active_param, expected: 1)?;
+        },
+        None => { testing.assert(false, message: 'expected signature help')?; },
+    }
+    return Result.Ok(void);
+}
+
+// The cursor on the callee name (not yet inside the parens) offers nothing.
+@test
+fn test_no_signature_help_on_the_callee_name() -> Result<Void, Error> {
+    let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
+        + 'fn f() -> Int { return add(1, 2); }\n';
+    testing.assert(help_at(src, at(src, 'return add(1', 8)).is_none(),
+        message: 'no help on the callee name')?;
+    return Result.Ok(void);
+}
+
+// A closed call still helps while the cursor sits between its parens.
+@test
+fn test_signature_help_inside_closed_call() -> Result<Void, Error> {
+    let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
+        + 'fn f() -> Int { return add(1, 2); }\n';
+    match help_at(src, at(src, 'add(1, 2)', 7)) {
+        Some(info) => {
+            testing.assert_eq(actual: info.active_param, expected: 1)?;
+        },
+        None => { testing.assert(false, message: 'expected signature help')?; },
+    }
+    return Result.Ok(void);
+}
