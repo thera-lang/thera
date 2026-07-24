@@ -761,3 +761,47 @@ fn test_hover_method_on_bounded_type_param() -> Result<Void, Error> {
     testing.assert_eq(actual: def_offset_of(cr), expected: method_decl)?;
     return Result.Ok(void);
 }
+
+// --- primitive receivers (the core-declaration bridge, `member_target`) ---
+
+// A stand-in core: `String` is a bodyless native type whose methods live in an
+// impl block, attributed through the primary's bare surface — the shape the
+// prelude provides in a real session.
+fn prim_ctx(_ program: Program) -> ResolveCtx {
+    let core = testkit.parse_at('pub native type String\n'
+        + 'impl String {\n'
+        + '    pub native fn len(self) -> Int\n'
+        + '    pub native fn slice(self, _ start: Int, _ end: Int) -> String\n'
+        + '}\n', '/libs/core.thera');
+    let bare: Map<String, Map<String, String>> = [:];
+    bare['/app/main.thera'] = ['String': '/libs/core.thera'];
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    return ResolveCtx {
+        program: program,
+        tokens: [], // no cached tokens — resolve_at lexes the source on demand
+        imports: [core],
+        file_namespaces: nss,
+        file_bare_surface: bare,
+        primary_types: checker.check(program, [], [:], [:]).records,
+    };
+}
+
+@test
+fn test_string_receiver_member_resolves_to_core() -> Result<Void, Error> {
+    // `s.len` on an inferred String local: the committed `Primitive(Str)`
+    // looks through to the core `String` declaration — the render is the
+    // method signature and the definition lands in the core file.
+    let src = 'fn f() -> Int {\n'
+        + '    let s = \'abc\';\n'
+        + '    return s.len();\n'
+        + '}\n';
+    let program = testkit.parse_at(src, '/app/main.thera');
+    match resolve.resolve_at(prim_ctx(program), src, at(src, 's.len', 2)) {
+        Some(r) => {
+            testing.assert_eq(actual: r.render, expected: 'fn len(self) -> Int')?;
+            testing.assert_eq(actual: r.def_file().unwrap_or(''), expected: '/libs/core.thera')?;
+        },
+        None => { testing.assert(false, message: 's.len did not resolve')?; },
+    }
+    return Result.Ok(void);
+}

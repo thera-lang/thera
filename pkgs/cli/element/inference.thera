@@ -1440,7 +1440,10 @@ fn type_def_for(_ ty: Type, _ ctx: InferCtx) -> Option<TypeDefElement> {
     };
 }
 
-fn primitive_type_name(_ p: Primitive) -> Option<String> {
+// The core declaration a primitive's members live on (`Int`, `String`, …) —
+// `Unit` hosts none. Shared with the LSP's resolve layer, which bridges a
+// `Primitive` receiver the same way `type_def_for` does.
+pub fn primitive_type_name(_ p: Primitive) -> Option<String> {
     return match p {
         Int => Option.Some('Int'),
         Double => Option.Some('Double'),

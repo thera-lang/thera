@@ -304,19 +304,39 @@ fn named_receiver_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv: String, _ re
 
 // A member of a value receiver whose type isn't written: resolve it on the
 // receiver expression's committed type (CH19's record at `recv_span`). A
-// user struct/enum or a built-in collection carries a `TypeId`, so its method
-// or field resolves owner-correct; primitives/functions have no navigable
-// member here yet.
+// user struct/enum or a built-in collection carries a `TypeId`, and a
+// primitive looks through to its core declaration (`member_target`), so the
+// method or field resolves owner-correct; function values have no members.
 fn inferred_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv_span: SourceSpan) -> Option<Resolved> {
     return match recorded_type_at(ctx, recv_span) {
         Some(ty) => match ty {
-            Interface(id, _) => member_on_owner(ctx, ref, id.owner, id.name),
             // A bounded generic parameter (`x: T`, `T: Weighted`): its members are
             // its bounds' — resolve `ref` against each bound interface.
             TypeParameter(tpname) => type_param_member(ctx, ref, tpname, recv_span),
-            _ => Option.None,
+            _ => match member_target(ctx, ty) {
+                Some(id) => member_on_owner(ctx, ref, id.owner, id.name),
+                None => Option.None,
+            },
         },
         None => Option.None,
+    };
+}
+
+// The type identity a committed receiver type resolves members against: a
+// named type's own `TypeId`, or a primitive looked through to its built-in
+// core declaration (`Int`, `String`, …) — the same bridge inference's
+// `type_def_for` uses to let primitives host methods. The owner comes from
+// the file's bare surface (the prelude attributes `String` to core), so a
+// hermetic caller with no surfaces degrades to None rather than guessing.
+pub fn member_target(_ ctx: ResolveCtx, _ ty: types.Type) -> Option<types.TypeId> {
+    return match ty {
+        Interface(id, _) => Option.Some(id),
+        Primitive(p) => match inference.primitive_type_name(p) {
+            Some(n) => bare_owner_key(ctx, n).map((owner) =>
+                types.TypeId { owner: owner, name: n }),
+            None => Option.None,
+        },
+        _ => Option.None,
     };
 }
 
@@ -1494,9 +1514,9 @@ fn method_callee_site(_ ctx: ResolveCtx, _ recv: Expr, _ method: String) -> Opti
         }
     }
     return match recorded_type_at(ctx, expr_span(recv)) {
-        Some(ty) => match ty {
-            Interface(id, _) => find_method_site(ctx, id.owner, id.name, method),
-            _ => Option.None,
+        Some(ty) => match member_target(ctx, ty) {
+            Some(id) => find_method_site(ctx, id.owner, id.name, method),
+            None => Option.None,
         },
         None => Option.None,
     };
