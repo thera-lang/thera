@@ -12,6 +12,7 @@
       "Bash(bin/test.sh checks *)",
       "Bash(bin/test.sh)",
       "Bash(bin/thera.sh check *)",
+      "Bash(bin/thera.sh emit *)",
       "Bash(bin/thera.sh fix *)",
       "Bash(bin/thera.sh fmt *)",
       "Bash(bin/thera.sh lint *)",
