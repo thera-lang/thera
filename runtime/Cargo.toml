@@ -34,6 +34,18 @@ terminal_size = "0.4"
 # needs `libc` for the syscalls either way, so mio costs one extra crate (`log`)
 # over two hand-written unsafe backends — and covers windows, which they wouldn't.
 mio = { version = "1", features = ["net", "os-poll"] }
+# std.http TLS — pure-Rust TLS on the default `aws-lc-rs` crypto provider
+# (funded security team, broadest deployment; the tree's first C-toolchain build
+# step, accepted as secondary to security posture) with the bundled Mozilla root
+# store (deterministic; CA distrust arrives via dep bump, so these two sit on a
+# fast patch track). The runtime's 5th deliberate dependency; see docs/http-tls.md.
+rustls = "0.23"
+webpki-roots = "1"
+
+[dev-dependencies]
+# Test-time certificate generation for the hermetic TLS tests (never shipped);
+# see docs/http-tls.md §Testing.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "aws_lc_rs"] }
 
 [profile.dev]
 # This makes the debug interpreter loop closer to the performance of the release
