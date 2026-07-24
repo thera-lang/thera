@@ -25,6 +25,7 @@ import 'completion';
 import 'signature_help';
 import 'hover';
 import 'definition';
+import 'type_definition';
 import 'formatting';
 import 'code_action';
 import 'workspace_symbols';
@@ -446,6 +447,11 @@ impl Server {
                 self.definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
             return true;
         }
+        if method == 'textDocument/typeDefinition' {
+            send_response(self.outbox, id,
+                self.type_definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            return true;
+        }
         if method == 'textDocument/formatting' {
             send_response(self.outbox, id, self.formatting(params.get('textDocument').get('uri').as_string()));
             return true;
@@ -588,6 +594,15 @@ impl Server {
     fn definition(self, _ uri: Option<String>, _ position: Json) -> Json {
         return match self.analysis.analyze_at(uri, position) {
             Some(a) => definition.handle_definition(a.ctx, a.text, a.offset),
+            None => json.null(),
+        };
+    }
+
+    // Go-to-type-definition at a position: the `Location` of the declaration of
+    // the value's *type*, or JSON null.
+    fn type_definition(self, _ uri: Option<String>, _ position: Json) -> Json {
+        return match self.analysis.analyze_at(uri, position) {
+            Some(a) => type_definition.handle_type_definition(a.ctx, a.text, a.offset),
             None => json.null(),
         };
     }
@@ -809,6 +824,7 @@ fn initialize_result() -> Json {
             'documentSymbolProvider': json.bool(true),
             'hoverProvider': json.bool(true),
             'definitionProvider': json.bool(true),
+            'typeDefinitionProvider': json.bool(true),
             // Member completion re-triggers on `.` (the `obj.` recovery hole).
             'completionProvider': json.obj([
                 'triggerCharacters': json.arr([json.str('.')]),

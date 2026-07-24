@@ -497,6 +497,42 @@ fn test_definition_on_unknown_is_null() -> Result<Void, Error> {
 }
 
 @test
+fn test_type_definition_jumps_to_the_type() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///td.thera",'
+        + '"text":"struct Point { let x: Int; }\\nfn make() -> Point { let p = Point { x: 1 }; return p; }"}}}');
+
+    // Type definition on the `p` of `return p` (line 1, char 52) lands on
+    // `struct Point` up on line 0 — the value's *type*, not its `let` site.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":50,"method":"textDocument/typeDefinition","params":'
+        + '{"textDocument":{"uri":"file:///td.thera"},"position":{"line":1,"character":52}}}');
+    let out = asked.into_string().unwrap_or('');
+    testing.assert(out.contains('file:///td.thera'), message: 'returns a location in the file: ${out}')?;
+    testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
+        message: 'points at the type declaration on line 0: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_type_definition_on_a_function_is_null() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///td.thera","text":"fn make() -> Int { return 1; }"}}}');
+    // On the function's own name — a function value has no nominal type decl.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":51,"method":"textDocument/typeDefinition","params":'
+        + '{"textDocument":{"uri":"file:///td.thera"},"position":{"line":0,"character":3}}}');
+    let out = asked.into_string().unwrap_or('');
+    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
+        message: 'no type definition for a function name: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_references_are_semantic() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
