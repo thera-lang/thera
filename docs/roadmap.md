@@ -856,28 +856,49 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
   what turns those into ordinary Thera methods; revisit the exact shape then
   (the `[]` half is the _Index operator_ item).
-- **Primitive vtables — scope it (runtime / generics / soundness).** A primitive
-  reached through _virtual_ dispatch — `call.virtual('display'|'eq'|'debug')`
-  from a generic `<T: Display>` / interface-typed context where the runtime
-  value is an `Int`/`Double`/`Bool`/`String` — does not resolve to that
-  primitive's method via a vtable; it hits a **hardcoded fallback** in the
-  interpreter (`virtual_fallback` in `mod.rs`: `display` → `display_string`,
-  `eq` → `==`, `debug` → `debug_value`). That fallback is why `display_string`
-  can't be fully retired even after the `Display` work above (it also backs
-  `list.join`), and it's a small soundness gap: the dispatch is correct only
-  because every primitive interface bound is one of the three built-ins, not
-  because the type actually carries the method. The task: **determine the
-  scope** of giving primitives real vtable entries (a type-id → selector → impl
-  table for the built-in primitive types), so virtual dispatch resolves
-  `Int.display → int_to_string` etc. uniformly — letting the `virtual_fallback`
-  hardcodes and the primitive arms of `display_string` retire, and removing the
-  "primitives are special in dispatch" axiom. Open questions to answer first:
-  how primitives get a stable type-id keyed into the vtable (they're unboxed
-  `Value` variants, not heap objects); whether this composes with — or should
-  wait for — the bounded/conditional-impl and operators-as-interfaces generics
-  work (it's the same "dispatch a built-in interface on a concrete type"
-  machinery); and the cost/benefit vs. keeping a single well-documented
-  fallback. Surfaced while scoping the `Display` Option B follow-up.
+- **Primitive vtables — scoped (2026-07); enabling work deferred to the generics
+  arc.** A primitive reached through _virtual_ dispatch — `call.virtual` from a
+  bounded-generic context where the runtime value is an
+  `Int`/`Double`/`Bool`/`String` — has no vtable row (`dispatch_type_id` returns
+  None for unboxed values, and `build_dispatch` silently drops an
+  `impl I for Int` row); it resolves through a **hardcoded fallback** in the
+  interpreter (`virtual_fallback` in `interp/mod.rs`:
+  `display`/`debug`/`eq`/`compare`). The scoping pass answered the item's open
+  questions:
+  - **The soundness gap was real and user-reachable — now closed at the
+    checker.** `impl Doubler for Int` + `apply_bound<T: Doubler>(21)`
+    type-checked and then trapped at the `call.virtual`. `satisfies_bound` now
+    limits primitive bounds to the four core interfaces the fallback can
+    dispatch — `Eq`/`Debug` (intrinsic) and `Display`/`Ord` (declared core
+    impls) — with a diagnostic that names the limitation when a declared impl
+    exists. The blessed set is _precise_: each of the four declares exactly its
+    one fallback selector and no default methods. Static calls of a user impl on
+    a primitive (`n.doubled()`) remain fine — only the bound-reachable (virtual)
+    path is interdicted. (Interface-typed _values_ — `let x: Display = 7` — were
+    already rejected by assignability; widening that is a separate, deliberate
+    decision that would want the vtable work first.)
+  - **Member resolution never needed vtables.** Hover/completion on
+    `'s'.split()` was a front-end gap, fixed independently
+    (`resolve.member_target`, the LSP section).
+  - **The enabling work** (letting user interfaces on primitives dispatch, so
+    the checker guard can lift): reserve a dispatch-id range for the built-in
+    value shapes (`Value` variant → fixed id, partitioned alongside struct
+    type-table indexes and `ENUM_DISPATCH_BASE`), have `dispatch_type_id` return
+    them, and teach `build_dispatch` to resolve impl-on-native-type rows. Do
+    this **with the operators-as-interfaces / conditional-impl generics work** —
+    it's the same "dispatch a built-in interface on a concrete type" machinery,
+    and `<T: Add>` will force the same id scheme.
+  - **Perf constraint (measured context):** keep the fallback as the fast path
+    for the four built-in selectors. `dispatch_target` is a linear scan with
+    string selector compares, while the fallback's `eq`/`compare` on a primitive
+    is direct Rust reached with _no_ scan (`dispatch_type_id` short-circuits) —
+    and `eq` is the highest-volume operation in the interpreter profile. Vtable
+    rows should add dispatch for _user_ selectors; the built-in four stay
+    hardcoded as an optimization rather than a correctness crutch (the
+    "primitives are special" axiom retires even though the code path remains).
+  - **`virtual_fallback` never fully retires regardless:** its structural
+    `debug`/`eq` for impl-less structs/enums _is_ the auto-derive mechanism, and
+    the `display` → `debug` arm is what keeps rendering total.
 - **Index operator (`[]`) overloading.** `a[i]` / `a[i] = v` are hardcoded in
   codegen to the built-in `List`/`Map` natives by static type; any other
   receiver is a compile error (`pkgs/cli/codegen/codegen.thera`). Small–medium,

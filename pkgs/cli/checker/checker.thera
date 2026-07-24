@@ -2608,7 +2608,7 @@ fn check_bounds(_ errors: List<diagnostic.Diagnostic>, _ fn_el: FunctionElement,
                         // Point at the argument that bound `tp` (CH25).
                         add_error(
                             errors,
-                            'type argument `${type_to_string(arg)}` for `${tp}` does not implement `${bound.name}` (required by "${fn_el.name}")',
+                            'type argument `${type_to_string(arg)}` for `${tp}` does not implement `${bound.name}` (required by "${fn_el.name}")${bound_miss_note(arg, bound, ctx.library)}',
                             bound_at.get(tp).unwrap_or(span)
                         );
                     }
@@ -2709,13 +2709,39 @@ fn check_type_arg_bounds(_ errors: List<diagnostic.Diagnostic>, _ def: TypeDefEl
             for b in bounds {
                 if !satisfies_bound(args[i], b, library) {
                     add_error(errors,
-                        'type argument `${type_to_string(args[i])}` for `${params[i]}` does not implement `${b.name}` (required by `${def.name}`)',
+                        'type argument `${type_to_string(args[i])}` for `${params[i]}` does not implement `${b.name}` (required by `${def.name}`)${bound_miss_note(args[i], b, library)}',
                         span);
                 }
             }
         }
         i = i + 1;
     }
+}
+
+// Whether `t` is a primitive that *declares* `bound` (`impl Doubler for Int`)
+// and was still rejected by `satisfies_bound` — the dispatch limitation, not a
+// missing impl. The bound diagnostics use this to say *why* the declared impl
+// doesn't count, instead of a baffling "does not implement".
+fn primitive_bound_undispatchable(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
+    if let Primitive(_) = t {
+        let name = type_to_string(t);
+        return match def_by_id(lib, TypeId { owner: core_owner(lib, name), name: name }) {
+            Some(def) => implements_interface(def, bound),
+            None => false,
+        };
+    }
+    return false;
+}
+
+// The refinement appended to a bound-miss diagnostic when the miss is the
+// primitive dispatch limitation (see `primitive_bound_undispatchable`).
+fn bound_miss_note(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> String {
+    if primitive_bound_undispatchable(t, bound, lib) {
+        return ' — an impl on a primitive type cannot be reached through a bound yet;'
+            + ' primitive bounds are limited to the built-in Eq/Debug/Display/Ord'
+            + ' (see roadmap: primitive vtables)';
+    }
+    return '';
 }
 
 // Whether `t` satisfies interface `bound` — by *identity*: a conformance to one
@@ -2729,13 +2755,24 @@ fn satisfies_bound(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
         Unknown => { return true; },
         TypeParameter(_) => { return true; },
         Primitive(_) => {
-            // `Eq`/`Debug` are intrinsic to every primitive; any other bound
-            // (`Display`, …) must be a declared `impl` on the primitive's type def
+            // `Eq`/`Debug` are intrinsic to every primitive; `Display`/`Ord`
+            // must be a declared `impl` on the primitive's type def
             // (`impl Display for Int`, … in std.core; floor-seeded in
             // `builtin_type_defs` for hermetic contexts). The def is the core
             // registry entry, by identity (CH24: no display-string keying).
+            // Those four core interfaces are the *whole* dispatchable set: a
+            // primitive is an unboxed value with no vtable row, so a bounded
+            // call resolves only through the runtime's built-in fallback
+            // selectors (display/debug/eq/compare). Any other interface —
+            // even one with a declared `impl X for Int` — would type-check
+            // its bound and then trap at the `call.virtual`, so it is
+            // rejected here until primitive vtables land (roadmap: Primitive
+            // vtables; `primitive_bound_undispatchable` refines the message).
             if is_core_id(lib, bound, 'Eq') || is_core_id(lib, bound, 'Debug') {
                 return true;
+            }
+            if !is_core_id(lib, bound, 'Display') && !is_core_id(lib, bound, 'Ord') {
+                return false;
             }
             let name = type_to_string(t);
             return match def_by_id(lib, TypeId { owner: core_owner(lib, name), name: name }) {

@@ -65,6 +65,7 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     m['Display'] = new_interface(BUILTIN_OWNER, 'Display', []);
     m['Eq'] = new_interface(BUILTIN_OWNER, 'Eq', []);
     m['Debug'] = new_interface(BUILTIN_OWNER, 'Debug', []);
+    m['Ord'] = new_interface(BUILTIN_OWNER, 'Ord', []);
     return m;
 }
 
@@ -88,13 +89,15 @@ pub fn is_reserved_type_name(_ name: String) -> Bool {
         || name == 'Eq' || name == 'Ord' || name == 'Display' || name == 'Debug';
 }
 
-// A built-in type def that declares it implements `Display` — the hermetic-floor
-// stand-in for a primitive's `impl Display for …` in std.core. The conformance
-// carries the floor `Display`'s identity; the real core impls carry the core
-// file's.
+// A built-in type def that declares it implements `Display` and `Ord` — the
+// hermetic-floor stand-in for a primitive's `impl Display for …` /
+// `impl Ord for …` in std.core (all four primitives declare both). The
+// conformances carry the floor interfaces' identities; the real core impls
+// carry the core file's.
 fn builtin_displayable(_ name: String) -> TypeDefElement {
     let def = new_builtin(BUILTIN_OWNER, name, []);
     def.interfaces.push(TypeId { owner: BUILTIN_OWNER, name: 'Display' });
+    def.interfaces.push(TypeId { owner: BUILTIN_OWNER, name: 'Ord' });
     return def;
 }
 
