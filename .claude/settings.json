@@ -33,6 +33,7 @@
       "Bash(dart test *)",
       "Bash(echo *)",
       "Bash(echo *)",
+      "Bash(echo \"exit: $?\")",
       "Bash(echo \"exit=$?\")",
       "Bash(echo \"fmt exit=$?\")",
       "Bash(gh run *)",

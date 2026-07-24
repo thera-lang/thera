@@ -292,6 +292,59 @@ fn test_generic_bound_violation() -> Result<Void, Error> {
 }
 
 @test
+fn test_primitive_bound_rejects_user_interface() -> Result<Void, Error> {
+    // A user interface implemented *on a primitive* cannot be reached through
+    // a bound: primitives carry no dispatch vtable rows, so the bounded call
+    // would trap at the `call.virtual`. The diagnostic names the limitation
+    // rather than a baffling "does not implement" (the impl is right there —
+    // and stays usable for static calls).
+    let errs = errors_of('interface Doubler { fn doubled(self) -> Int; }\n'
+        + 'impl Doubler for Int { pub fn doubled(self) -> Int { return self * 2; } }\n'
+        + 'fn need<T: Doubler>(_ x: T) -> Int { return x.doubled(); }\n'
+        + 'fn f() -> Int { return need(21); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'type argument `Int` for `T` does not implement `Doubler` '
+        + '(required by "need") — an impl on a primitive type cannot be reached '
+        + 'through a bound yet; primitive bounds are limited to the built-in '
+        + 'Eq/Debug/Display/Ord (see roadmap: primitive vtables)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_primitive_bounds_allow_the_core_interfaces() -> Result<Void, Error> {
+    // The four dispatchable core interfaces stay satisfiable by primitives —
+    // `Eq`/`Debug` intrinsically, `Display`/`Ord` via the (floor-seeded)
+    // declared core impls.
+    let errs = errors_of('fn need_eq<T: Eq>(_ x: T) { }\n'
+        + 'fn need_debug<T: Debug>(_ x: T) { }\n'
+        + 'fn need_display<T: Display>(_ x: T) { }\n'
+        + 'fn need_ord<T: Ord>(_ x: T) { }\n'
+        + 'fn f() {\n'
+        + '    need_eq(1);\n'
+        + '    need_debug(true);\n'
+        + '    need_display(2.5);\n'
+        + '    need_ord(\'s\');\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_primitive_bound_rejected_on_generic_type_too() -> Result<Void, Error> {
+    // The same limitation at a generic *type's* parameter bound
+    // (`struct Box<T: Doubler>` used as `Box<Int>`).
+    let errs = errors_of('interface Doubler { fn doubled(self) -> Int; }\n'
+        + 'impl Doubler for Int { pub fn doubled(self) -> Int { return self * 2; } }\n'
+        + 'struct Box<T: Doubler> { let v: T; }\n'
+        + 'fn f() -> Int { let b = Box { v: 1 }; return b.v; }');
+    testing.assert(errs.len() > 0, message: 'expected a bound error')?;
+    testing.assert(first_message(errs).contains('primitive bounds are limited'),
+        message: 'names the limitation: ${first_message(errs)}')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_rich_generic_program_is_clean() -> Result<Void, Error> {
     // A false-positive guard: generic enum + struct, an impl method, and a
     // generic function whose lambda argument is typed bidirectionally from the
