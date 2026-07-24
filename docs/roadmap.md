@@ -893,13 +893,17 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     it's the same "dispatch a built-in interface on a concrete type" machinery,
     and `<T: Add>` will force the same id scheme.
   - **Perf constraint (measured context):** keep the fallback as the fast path
-    for the four built-in selectors. `dispatch_target` is a linear scan with
-    string selector compares, while the fallback's `eq`/`compare` on a primitive
-    is direct Rust reached with _no_ scan (`dispatch_type_id` short-circuits) —
-    and `eq` is the highest-volume operation in the interpreter profile. Vtable
-    rows should add dispatch for _user_ selectors; the built-in four stay
-    hardcoded as an optimization rather than a correctness crutch (the
-    "primitives are special" axiom retires even though the code path remains).
+    for the four built-in selectors. The fallback's `eq`/`compare` on a
+    primitive is direct Rust reached with _no_ lookup at all (`dispatch_type_id`
+    short-circuits) — and `eq` is the highest-volume operation in the
+    interpreter profile — while a vtable hit still pays the lookup plus an
+    interpreter frame. Vtable rows should add dispatch for _user_ selectors; the
+    built-in four stay hardcoded as an optimization rather than a correctness
+    crutch (the "primitives are special" axiom retires even though the code path
+    remains). (`dispatch_target` itself was a flat scan over every impl-method
+    row — O(program size) per virtual call, measured at +50% on an iterator loop
+    from 150 unrelated impls — and is now a per-type index: one fast u32 hash,
+    then the receiver's own handful of selectors. See `Module::set_dispatch`.)
   - **`virtual_fallback` never fully retires regardless:** its structural
     `debug`/`eq` for impl-less structs/enums _is_ the auto-derive mechanism, and
     the `display` → `debug` arm is what keeps rendering total.

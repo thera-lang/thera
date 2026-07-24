@@ -217,7 +217,7 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
             }
         }
     }
-    for e in &m.dispatch {
+    for e in m.dispatch_rows() {
         pool.intern(&e.selector);
     }
 
@@ -281,8 +281,8 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
 
     // Dispatch section: (type id, selector pool index, function index) per row.
     let mut dispatch = Writer::new();
-    dispatch.write_uvarint(m.dispatch.len() as u64);
-    for e in &m.dispatch {
+    dispatch.write_uvarint(m.dispatch_rows().len() as u64);
+    for e in m.dispatch_rows() {
         dispatch.write_uvarint(u64::from(e.ty));
         dispatch.write_uvarint(u64::from(pool.index[e.selector.as_str()]));
         dispatch.write_uvarint(u64::from(e.func));
@@ -298,7 +298,7 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
     }
     write_section(&mut w, section::FUNCTIONS, &funcs.into_bytes());
     write_section(&mut w, section::SYMBOLS, &symbols.into_bytes());
-    if !m.dispatch.is_empty() {
+    if !m.dispatch_rows().is_empty() {
         write_section(&mut w, section::DISPATCH, &dispatch.into_bytes());
     }
     if m.global_count > 0 {
@@ -389,7 +389,7 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
         module.enums = decode_enums(p, &pool)?;
     }
     if let Some(p) = dispatch_payload {
-        module.dispatch = decode_dispatch(p, &pool)?;
+        module.set_dispatch(decode_dispatch(p, &pool)?);
     }
     if let Some(p) = globals_payload {
         module.global_count = Reader::new(p).read_uvarint()? as u32;
@@ -1117,7 +1117,7 @@ mod tests {
             ],
         );
         let mut m = Module::with_types(vec![describe], vec![TypeDef::new("Dog", 0)]);
-        m.dispatch = vec![DispatchEntry::new(0, "display", 0)];
+        m.set_dispatch(vec![DispatchEntry::new(0, "display", 0)]);
         assert_eq!(decode_module(&encode_module(&m)), Ok(m));
     }
 
