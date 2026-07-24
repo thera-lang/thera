@@ -1,0 +1,40 @@
+name: audit
+
+# Security-advisory scan of runtime/Cargo.lock (`cargo deny check advisories`,
+# configured by runtime/deny.toml). Distinct from the CI workflow because its
+# trigger is different in kind: advisories arrive without any code change, so
+# this runs on a daily schedule — a red run on main is the signal to ship the
+# patch-release the fast patch track commits to (docs/http-tls.md) — and on
+# changes to the dependency set itself.
+
+on:
+  schedule:
+    # at 06:00 every day
+    - cron: "0 6 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "runtime/Cargo.toml"
+      - "runtime/Cargo.lock"
+      - "runtime/deny.toml"
+      - ".github/workflows/audit.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "runtime/Cargo.toml"
+      - "runtime/Cargo.lock"
+      - "runtime/deny.toml"
+      - ".github/workflows/audit.yml"
+  workflow_dispatch:
+
+jobs:
+  advisories:
+    name: cargo deny (advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: runtime/Cargo.toml
+          command: check advisories
