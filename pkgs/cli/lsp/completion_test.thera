@@ -208,6 +208,61 @@ fn test_member_completion_inside_broken_match_arm() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// --- primitive receivers (the core-declaration bridge) ---
+
+// A stand-in core for `String` (see resolve_test's prim_ctx): methods on a
+// bodyless native type, attributed through the primary's bare surface.
+fn prim_ctx(_ src: String) -> ResolveCtx {
+    let core = testkit.parse_at('pub native type String\n'
+        + 'impl String {\n'
+        + '    pub native fn len(self) -> Int\n'
+        + '    pub native fn slice(self, _ start: Int, _ end: Int) -> String\n'
+        + '    pub native fn split(self, _ sep: String) -> List<String>\n'
+        + '}\n', '/libs/core.thera');
+    let bare: Map<String, Map<String, String>> = [:];
+    bare['/app/main.thera'] = ['String': '/libs/core.thera'];
+    let program = testkit.parse_at(src, '/app/main.thera');
+    return ResolveCtx {
+        program: program,
+        tokens: lexer.tokenize(src).tokens,
+        imports: [core],
+        file_namespaces: [:],
+        file_bare_surface: bare,
+        primary_types: checker.check(program, [], [:], [:]).records,
+    };
+}
+
+// A dangling `s.` on an inferred String local completes the core String
+// surface — the committed `Primitive(Str)` looks through to its declaration.
+@test
+fn test_member_completion_on_string_local() -> Result<Void, Error> {
+    let src = 'fn f() -> Int {\n'
+        + '    let s = \'abc\';\n'
+        + '    s.\n'
+        + '    return 0;\n'
+        + '}\n';
+    let ls = complete_at(prim_ctx(src), src, at(src, '    s.\n', 6)).map((it) => it.label);
+    assert_has(ls, 'len')?;
+    assert_has(ls, 'slice')?;
+    assert_has(ls, 'split')?;
+    return Result.Ok(void);
+}
+
+// A string *literal* receiver (`'abc'.`) is a computed receiver: the recovery
+// hole anchors the Field node at the cursor and the literal's committed type
+// completes the same surface.
+@test
+fn test_member_completion_on_string_literal() -> Result<Void, Error> {
+    let src = 'fn f() -> Int {\n'
+        + '    \'abc\'.\n'
+        + '    return 0;\n'
+        + '}\n';
+    let ls = complete_at(prim_ctx(src), src, at(src, '\'abc\'.\n', 6)).map((it) => it.label);
+    assert_has(ls, 'len')?;
+    assert_has(ls, 'split')?;
+    return Result.Ok(void);
+}
+
 // --- cross-file surfaces (namespace / qualified type / bare surface) ---
 
 // A one-import closure with hand-rolled loader maps (the resolve_test

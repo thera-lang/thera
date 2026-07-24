@@ -7,6 +7,7 @@ import std.testing;
 import '../checker/checker';
 import '../lexer/lexer';
 import '../parser/parser';
+import '../testkit';
 import 'resolve' as _;
 import 'signature_help' as _;
 
@@ -101,6 +102,42 @@ fn test_signature_help_innermost_call_wins() -> Result<Void, Error> {
     match help_at(src, at(src, 'mul(2, ', 7)) {
         Some(info) => {
             testing.assert_eq(actual: info.label, expected: 'fn mul(x: Int, y: Int) -> Int')?;
+            testing.assert_eq(actual: info.active_param, expected: 1)?;
+        },
+        None => { testing.assert(false, message: 'expected signature help')?; },
+    }
+    return Result.Ok(void);
+}
+
+// A method call on a primitive receiver resolves through the core
+// declaration (`member_target`): the String stand-in's `slice` signature,
+// with parameter 1 active after the first argument.
+@test
+fn test_signature_help_on_string_receiver() -> Result<Void, Error> {
+    let core_src = 'pub native type String\n'
+        + 'impl String {\n'
+        + '    pub native fn slice(self, _ start: Int, _ end: Int) -> String\n'
+        + '}\n';
+    let src = 'fn f() -> String {\n'
+        + '    let s = \'abc\';\n'
+        + '    return s.slice(0, \n'
+        + '}\n';
+    let core = testkit.parse_at(core_src, '/libs/core.thera');
+    let bare: Map<String, Map<String, String>> = [:];
+    bare['/app/main.thera'] = ['String': '/libs/core.thera'];
+    let program = testkit.parse_at(src, '/app/main.thera');
+    let ctx = ResolveCtx {
+        program: program,
+        tokens: lexer.tokenize(src).tokens,
+        imports: [core],
+        file_namespaces: [:],
+        file_bare_surface: bare,
+        primary_types: checker.check(program, [], [:], [:]).records,
+    };
+    match signature_help_at(ctx, src, at(src, 's.slice(0, ', 11)) {
+        Some(info) => {
+            testing.assert_eq(actual: info.label, expected: 'fn slice(self, start: Int, end: Int) -> String')?;
+            testing.assert_eq(actual: info.params.join('; '), expected: 'start: Int; end: Int')?;
             testing.assert_eq(actual: info.active_param, expected: 1)?;
         },
         None => { testing.assert(false, message: 'expected signature help')?; },

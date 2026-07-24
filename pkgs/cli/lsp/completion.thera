@@ -8,11 +8,9 @@
 // (docs/frontend.md §Parser error recovery — Testing); `handle_completion`
 // renders its items as LSP JSON.
 //
-// Known limitations: a primitive receiver (`'s'.`) carries no `TypeId`, so it
-// completes nothing (the hover gap, roadmap: primitive-receiver member
-// resolution); a cursor inside a comment or a non-interpolated string is not
-// detected (the token stream carries no trivia) and falls back to bare-name
-// items.
+// Known limitation: a cursor inside a comment or a non-interpolated string is
+// not detected (the token stream carries no trivia) and falls back to
+// bare-name items.
 
 import std.json as _;
 
@@ -164,12 +162,13 @@ fn named_receiver_entries(_ ctx: resolve.ResolveCtx, _ recv: String,
     };
 }
 
-// The instance surface of a committed type. A primitive/function receiver has
-// no `TypeId`, so it completes nothing (the primitive-receiver gap).
+// The instance surface of a committed type: a named type's own members, or a
+// primitive's via its core declaration (`'s'.` lists the String surface —
+// `resolve.member_target`). A function receiver has no members.
 fn typed_entries(_ ctx: resolve.ResolveCtx, _ ty: types.Type) -> List<resolve.MemberEntry> {
-    return match ty {
-        Interface(id, _) => resolve.type_members(ctx, id.owner, id.name, instance: true),
-        _ => [],
+    return match resolve.member_target(ctx, ty) {
+        Some(id) => resolve.type_members(ctx, id.owner, id.name, instance: true),
+        None => [],
     };
 }
 

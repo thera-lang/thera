@@ -495,10 +495,14 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     subtrees we never scan. Low priority: the default `files.watcherExclude`
     covers `node_modules` and `.git/objects`, neither of which holds Thera
     sources.
-  - **Primitive-receiver member resolution.** Hover / definition / member
-    resolution on a primitive receiver (`"s".split()`) don't resolve — a
-    `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
-    (Runtime).
+  - **Primitive-receiver member resolution — _landed (2026-07)._** Hover /
+    definition / completion / signature help on a primitive receiver
+    (`'s'.split()`) resolve through `resolve.member_target`: a `Primitive`
+    committed type looks through to its core declaration (`Int`, `String`, …) by
+    name via the file's bare surface — the same bridge inference's
+    `type_def_for` has always used to let primitives host methods. Front-end
+    only; independent of the _Primitive vtables_ runtime item (which is about
+    `call.virtual` dispatch, not member resolution — see Runtime).
   - **Further renderers — semantic tokens.** A thin query-layer renderer.
     (**Completion and signature help landed** — see the parser-recovery item.)
   - **Segregate intentional-error test fixtures — done** (see _Changelog_). The
