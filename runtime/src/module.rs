@@ -4,6 +4,8 @@
 //! a table of [`TypeDef`]s. See the container format in docs/bytecode.md.
 
 use crate::instr::Instr;
+use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
 /// A single function: its arity, frame size, and instruction stream.
 #[derive(Clone, Debug, PartialEq)]
@@ -92,6 +94,30 @@ impl EnumDef {
     }
 }
 
+/// A multiplicative (Fibonacci) hasher for the dispatch index's `u32` type-id
+/// keys. The default SipHash costs more per lookup than the short flat scan it
+/// replaced (~13ns vs ~4ns per `call.virtual`, measured on the iterator
+/// benchmark); a single multiply hashes a trusted, well-distributed small key
+/// in ~1ns. Only `write_u32` is ever fed (the key type is `u32`).
+#[derive(Default)]
+pub struct TypeIdHasher(u64);
+
+impl Hasher for TypeIdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        unreachable!("dispatch index keys hash via write_u32");
+    }
+
+    fn write_u32(&mut self, v: u32) {
+        self.0 = u64::from(v).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+type TypeIdMap<V> = HashMap<u32, V, BuildHasherDefault<TypeIdHasher>>;
+
 /// Struct and enum type ids occupy separate numeric spaces (struct ids index
 /// `Module::types`; enum ids are the reserved Result/Option 0/1 plus sequential
 /// user ids), so enum ids are offset by this bit in the dispatch table to keep
@@ -130,8 +156,15 @@ pub struct Module {
     /// `Debug` rendering. Empty until the front-end emits the Enums section.
     pub enums: Vec<EnumDef>,
     /// The virtual-dispatch table consulted by `call.virtual` (empty until the
-    /// front-end emits interface dispatch).
-    pub dispatch: Vec<DispatchEntry>,
+    /// front-end emits interface dispatch). Private so every write goes through
+    /// [`Self::set_dispatch`], which keeps `dispatch_index` in sync.
+    dispatch: Vec<DispatchEntry>,
+    /// Type id → indices into `dispatch` for that type's rows, in table order.
+    /// `call.virtual` scans only the receiver's own handful of selectors
+    /// instead of every impl-method row in the module — the flat scan made a
+    /// virtual call cost O(program size): 150 unrelated impls ahead of an
+    /// iterator's `next` row slowed its loop by ~50% (measured 2026-07).
+    dispatch_index: TypeIdMap<Vec<u32>>,
     /// Number of module-global slots (top-level `let` bindings). The runtime
     /// allocates a vector this size before running the program-init thunk; both
     /// `global.get`/`global.set` index into it. See docs/bytecode.md.
@@ -153,6 +186,7 @@ impl Module {
             types: Vec::new(),
             enums: Vec::new(),
             dispatch: Vec::new(),
+            dispatch_index: TypeIdMap::default(),
             global_count: 0,
             entry: None,
             init: None,
@@ -165,10 +199,26 @@ impl Module {
             types,
             enums: Vec::new(),
             dispatch: Vec::new(),
+            dispatch_index: TypeIdMap::default(),
             global_count: 0,
             entry: None,
             init: None,
         }
+    }
+
+    /// Install the dispatch table, (re)building the per-type index.
+    pub fn set_dispatch(&mut self, rows: Vec<DispatchEntry>) {
+        let mut index: TypeIdMap<Vec<u32>> = TypeIdMap::default();
+        for (i, e) in rows.iter().enumerate() {
+            index.entry(e.ty).or_default().push(i as u32);
+        }
+        self.dispatch_index = index;
+        self.dispatch = rows;
+    }
+
+    /// The dispatch rows in table order (the serialized form).
+    pub fn dispatch_rows(&self) -> &[DispatchEntry] {
+        &self.dispatch
     }
 
     /// The enum name table for type id `ty`, if the module carries one.
@@ -200,11 +250,12 @@ impl Module {
     }
 
     /// The function implementing `selector` for type id `ty`, if any — the
-    /// `call.virtual` lookup.
+    /// `call.virtual` lookup. One hash on the type id, then a scan of that
+    /// type's own rows only (first match wins, as in the table itself).
     pub fn dispatch_target(&self, ty: u32, selector: &str) -> Option<u32> {
-        self.dispatch
-            .iter()
-            .find(|e| e.ty == ty && e.selector == selector)
-            .map(|e| e.func)
+        self.dispatch_index.get(&ty)?.iter().find_map(|&i| {
+            let e = &self.dispatch[i as usize];
+            (e.selector == selector).then_some(e.func)
+        })
     }
 }

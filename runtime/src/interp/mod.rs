@@ -3741,10 +3741,10 @@ mod tests {
             vec![dog_display, cat_display, describe],
             vec![TypeDef::new("Dog", 0), TypeDef::new("Cat", 0)],
         );
-        m.dispatch = vec![
+        m.set_dispatch(vec![
             DispatchEntry::new(0, "display", 0),
             DispatchEntry::new(1, "display", 1),
-        ];
+        ]);
         m
     }
 
@@ -3764,7 +3764,7 @@ mod tests {
         // impl row renders via its auto-derived `Debug` (Debug-fallback), not a
         // trap — so `${x}` works for any value.
         let mut m = dispatch_module();
-        m.dispatch.clear(); // no display rows → fall back to structural Debug
+        m.set_dispatch(vec![]); // no display rows → fall back to structural Debug
         let dog = Value::new_struct(0, vec![]);
         assert_eq!(super::run(&m, 2, &[dog]), Ok(Value::new_str("Dog {}")));
     }
@@ -3810,10 +3810,10 @@ mod tests {
             vec![struct_display, enum_display, describe],
             vec![TypeDef::new("S", 0)],
         );
-        m.dispatch = vec![
+        m.set_dispatch(vec![
             DispatchEntry::new(0, "display", 0),
             DispatchEntry::new(ENUM_DISPATCH_BASE, "display", 1),
-        ];
+        ]);
         let s = Value::new_struct(0, vec![]);
         let e = Value::new_enum(0, 0, vec![]);
         assert_eq!(super::run(&m, 2, &[s]), Ok(Value::new_str("struct")));
@@ -3935,7 +3935,7 @@ mod tests {
             1,
             vec![Instr::ConstStr("custom".into()), Instr::Return],
         ));
-        m.dispatch = vec![DispatchEntry::new(0, "debug", 1)];
+        m.set_dispatch(vec![DispatchEntry::new(0, "debug", 1)]);
         let dog = Value::new_struct(0, vec![Value::new_str("Rex"), Value::Int(3)]);
         // Direct receiver and nested (inside a list) both use the impl.
         assert_eq!(super::run(&m, 0, &[dog]), Ok(Value::new_str("custom")));
