@@ -379,9 +379,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
       References approximates incoming calls but includes non-call mentions and
       gives nothing for outgoing; a resolver-backed answer also sees through
       method dispatch.
-    - **`textDocument/typeDefinition`.** Cheap on the existing `type_at` /
-      committed-type machinery: jump from a _value_ to its type's declaration in
-      one hop, instead of hover-then-workspace-symbol.
     - **Inlay hints** (`textDocument/inlayHint`). The one display renderer that
       _is_ agent-useful: one request over a range returns the inferred type of
       every `let` binding and parameter names at call sites — batch `type_at`,
@@ -826,6 +823,19 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **LSP go-to-type-definition** (2026-07). `textDocument/typeDefinition`
+  (`pkgs/cli/lsp/type_definition.thera`) — jump from a _value_ to the
+  declaration of its _type_ — as a thin renderer over the shared cursor resolver
+  and the committed-type record, the first of the agent-facing renderers. The
+  ladder: `self` → the enclosing impl/interface's type; a value ident → its
+  committed (inferred) type at the cursor's own span, navigated owner-correct by
+  `TypeId` (a primitive looks through to its core declaration via
+  `member_target`); a local without a use-site record → its binding site's
+  record, else the written annotation's named head; a _type_ name → itself (like
+  plain definition). Known v1 gaps: a member-access / enum-variant token carries
+  no committed record of its own, and a bare `T`-typed value names no nominal
+  declaration.
 
 - **Primitive-bound soundness gap closed; dispatch-table index** (2026-07). The
   scoping pass on _Primitive vtables_ (still open under _Language_).
