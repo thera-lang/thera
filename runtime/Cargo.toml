@@ -22,18 +22,22 @@ sha2 = "0.11"       # SHA-256 (RustCrypto)
 sha1 = "0.11"       # SHA-1 (RustCrypto)
 md-5 = "0.11"       # MD5 (RustCrypto)
 crc32fast = "1.4"   # CRC-32 (IEEE 802.3)
+
 # std.regex — RE2-derived, linear-time engine, the Rust team's reference crate
 # (the runtime's 2nd deliberate dependency; see docs/stdlib.md §std.regex).
 regex = "1"
+
 # std.term — terminal dimensions across unix + windows (the runtime's 3rd
 # deliberate dependency; see docs/stdlib.md §std.term). `is_tty` is std alone.
 terminal_size = "0.4"
+
 # std.net — the readiness poller (kqueue/epoll/IOCP) the socket natives park on;
 # the scheduler's phase-4 event loop (the runtime's 4th deliberate dependency;
 # see docs/stdlib.md §std.http and docs/roadmap.md §Concurrency). Hand-rolling it
 # needs `libc` for the syscalls either way, so mio costs one extra crate (`log`)
 # over two hand-written unsafe backends — and covers windows, which they wouldn't.
 mio = { version = "1", features = ["net", "os-poll"] }
+
 # std.http TLS — pure-Rust TLS on the default `aws-lc-rs` crypto provider
 # (funded security team, broadest deployment; the tree's first C-toolchain build
 # step, accepted as secondary to security posture) with the bundled Mozilla root

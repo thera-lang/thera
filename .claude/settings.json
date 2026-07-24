@@ -25,6 +25,7 @@
       "Bash(cargo fmt *)",
       "Bash(cargo run *)",
       "Bash(cargo test *)",
+      "Bash(cargo tree *)",
       "Bash(cat *)",
       "Bash(cat > *)",
       "Bash(cat)",
