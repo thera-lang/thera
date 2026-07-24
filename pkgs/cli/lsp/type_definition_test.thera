@@ -1,0 +1,115 @@
+// Tests for go-to-type-definition (type_definition.thera): the *type* of the
+// value at the cursor resolves to that type's declaration. Mirrors
+// resolve_test's hermetic harness — a single parsed file, the committed-type
+// record populated straight from the hermetic checker — asserting the target
+// offset each case lands on.
+
+import std.testing;
+
+import '../ast/ast' as _; // Program
+import '../element/element' as _; // LibraryNamespace
+import '../testkit';
+import '../checker/checker';
+import 'resolve' as _;
+import 'type_definition';
+
+// A resolution context with the primary's committed-type record populated the
+// way `analyze_at` does (straight from the hermetic checker).
+fn typed_ctx(_ program: Program) -> ResolveCtx {
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    let bare: Map<String, Map<String, String>> = [:];
+    return ResolveCtx {
+        program: program,
+        tokens: [], // no cached tokens — the handler lexes the source on demand
+        imports: [],
+        file_namespaces: nss,
+        file_bare_surface: bare,
+        primary_types: checker.check(program, [], [:], [:]).records,
+    };
+}
+
+// The type-definition target offset resolved at `use_offset`, or -1 when
+// nothing navigable.
+fn target_offset(_ src: String, _ use_offset: Int) -> Int {
+    let program = testkit.parse_at(src, 't.thera');
+    return type_definition.type_target_offset(typed_ctx(program), src, use_offset)
+        .unwrap_or(-1);
+}
+
+// The offset `delta` code points past the first occurrence of `marker`.
+fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
+    return src.find(marker).unwrap_or(0) + delta;
+}
+
+const SRC: String = 'struct Point { let x: Int; }\n'
+    + 'fn make() -> Point { let p = Point { x: 1 }; return p; }\n'
+    + 'fn id(_ pt: Point) -> Point { return pt; }\n';
+
+// Where `struct Point`'s name is declared — where every case below must land.
+fn point_decl() -> Int {
+    return at(SRC, 'struct Point', 7);
+}
+
+@test
+fn test_inferred_local_at_a_use_site() -> Result<Void, Error> {
+    // `return p` — the use-site ident's committed (inferred) type is `Point`.
+    testing.assert_eq(actual: target_offset(SRC, at(SRC, 'return p; }', 7)),
+        expected: point_decl())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_inferred_local_at_its_let_name() -> Result<Void, Error> {
+    // The `p` of `let p = …` — the checker stamps the `let` name.
+    testing.assert_eq(actual: target_offset(SRC, at(SRC, 'let p =', 4)),
+        expected: point_decl())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_annotated_param_at_its_declaration() -> Result<Void, Error> {
+    // The `pt` of `_ pt: Point` — no use-site record at a parameter's own
+    // name, so the written annotation's named head answers.
+    testing.assert_eq(actual: target_offset(SRC, at(SRC, '_ pt: Point', 2)),
+        expected: point_decl())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_annotated_param_at_a_use_site() -> Result<Void, Error> {
+    testing.assert_eq(actual: target_offset(SRC, at(SRC, 'return pt;', 7)),
+        expected: point_decl())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_type_name_is_its_own_type() -> Result<Void, Error> {
+    // The `Point` of `-> Point {` — an annotation's type name behaves like
+    // go-to-definition, so the request is also useful on annotations.
+    testing.assert_eq(actual: target_offset(SRC, at(SRC, '-> Point {', 3)),
+        expected: point_decl())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_self_resolves_to_the_impl_type() -> Result<Void, Error> {
+    let src = 'struct S { let n: Int; }\n'
+        + 'impl S { fn get(self) -> Int { return self.n; } }\n';
+    testing.assert_eq(actual: target_offset(src, at(src, 'return self', 7)),
+        expected: at(src, 'struct S', 7))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_function_name_has_no_type_definition() -> Result<Void, Error> {
+    // A function value names no nominal type declaration.
+    testing.assert_eq(actual: target_offset(SRC, at(SRC, 'make', 0)), expected: -1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_keyword_has_no_type_definition() -> Result<Void, Error> {
+    // `struct` — no identifier under the cursor at all.
+    testing.assert_eq(actual: target_offset(SRC, 0), expected: -1)?;
+    return Result.Ok(void);
+}

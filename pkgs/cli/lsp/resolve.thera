@@ -488,6 +488,13 @@ pub fn name_at(_ text: String, _ offset: Int) -> Option<NameRef> {
     return name_at_in(lexer.tokenize(text).tokens, text, offset);
 }
 
+// `name_at` through the ctx's cached tokenization (LS-D1) — for feature
+// handlers outside this module that need the cursor's name token without
+// re-lexing the document.
+pub fn name_ref_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<NameRef> {
+    return name_at_in(primary_tokens(ctx, text), text, offset);
+}
+
 // `name_at` over an already-tokenized `text` (so hover tokenizes once). Descends
 // into a `${...}` interpolation covering `offset` — its identifiers are not
 // standalone tokens in the outer stream (PA2 records their spans on the string
@@ -804,8 +811,10 @@ pub fn local_bindings_at(_ fn_decl: FnDecl, _ offset: Int) -> List<BindingSite> 
 
 // The local binding `ref` resolves to inside `fn_decl`, or None. The *nearest
 // declaration at or before* the cursor wins, so a shadowing `let` beats the
-// parameter it shadows (LS4) and an earlier same-named binding.
-fn local_binding_at(_ fn_decl: FnDecl, _ ref: NameRef) -> Option<BindingSite> {
+// parameter it shadows (LS4) and an earlier same-named binding. Public for the
+// feature handlers that need the binding *site* (its annotation/span), not just
+// the `Resolved` render — type definition reads the annotation from it.
+pub fn local_binding_at(_ fn_decl: FnDecl, _ ref: NameRef) -> Option<BindingSite> {
     let mut best: Option<BindingSite> = Option.None;
     for site in local_bindings_at(fn_decl, ref.span.offset) {
         if site.name == ref.name && site.span.offset <= ref.span.offset {
@@ -2047,6 +2056,21 @@ fn find_decl_in(_ program: Program, _ name: String) -> Option<Decl> {
         }
     }
     return Option.None;
+}
+
+// The declaration site of top-level `name` in the closure file keyed `owner` —
+// how a resolved `TypeId {owner, name}` (a committed type's identity) navigates
+// to its declaration. Unlike `find_decl_site` this starts from a known owner
+// rather than the primary file's bare view, so it lands on the right decl even
+// when the primary file can't see the name bare.
+pub fn decl_site_of_key(_ ctx: ResolveCtx, _ owner: String, _ name: String) -> Option<DeclSite> {
+    return match program_of_key(ctx, owner) {
+        Some(p) => match find_decl_in(p, name) {
+            Some(d) => Option.Some(DeclSite { decl: d, file: paths.program_path(p) }),
+            None => Option.None,
+        },
+        None => Option.None,
+    };
 }
 
 // The declared name of a top-level decl (None for impls/imports, which name no

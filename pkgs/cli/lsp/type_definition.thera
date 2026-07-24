@@ -1,0 +1,150 @@
+// LSP go-to-type-definition — a thin renderer over the shared cursor resolver
+// (`resolve.thera`) and the committed-type record: the *type* of the value at
+// the cursor, resolved to that type's declaration `Location` (file + name
+// range), or null when the value's type names no navigable declaration (a
+// function value, an unbound generic parameter, Unknown).
+//
+// Resolution mirrors hover's inferred-type ladder:
+//
+//   - `self`             -> the enclosing impl/interface's type declaration
+//   - a value identifier -> its committed (inferred) type at the cursor's own
+//                           span (a use-site ident, or a `let` name the checker
+//                           stamps), navigated by `TypeId` — owner-correct,
+//                           with a primitive looking through to its core
+//                           declaration (`Int`, `String`, …)
+//   - a local without a use-site record -> its binding site's record, else its
+//                           written annotation's named head
+//   - a *type* name      -> itself (like go-to-definition), so the request is
+//                           also useful on annotations
+//
+// Known gaps (deliberate): a member access / enum variant resolves no type
+// (the member token carries no committed record of its own), and a `T`-typed
+// value names no declaration (an unbound parameter is not a nominal type).
+
+import std.json as _;
+
+import '../ast/ast' as _;     // TypeRef
+import '../lexer/token' as _; // SourceSpan
+import 'resolve';        // ResolveCtx, NameRef, recorded_type_at, member_target
+import 'positions';    // span_to_range
+import 'paths';            // path_to_uri
+
+// The LSP `Location` (as JSON) for the type of the value at `offset`, or JSON
+// null when nothing resolves to a navigable type declaration.
+pub fn handle_type_definition(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Json {
+    return match type_target(ctx, text, offset) {
+        Some(t) => location(t.file, t.span),
+        None => json.null(),
+    };
+}
+
+// A navigable answer: the declaring file and the declaration's name span.
+struct Target {
+    let file: String;
+    let span: SourceSpan;
+}
+
+// The type-declaration target for the name at `offset`, or None.
+pub fn type_target_offset(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Option<Int> {
+    return type_target(ctx, text, offset).map((t) => t.span.offset);
+}
+
+fn type_target(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Option<Target> {
+    let ref = match resolve.name_ref_at(ctx, text, offset) {
+        Some(r) => r,
+        None => return Option.None,
+    };
+    // `self`: the enclosing impl/interface's type declaration.
+    if ref.name == 'self' {
+        return match resolve.enclosing_self_type_name(ctx.program, offset) {
+            Some(n) => site_target(resolve.find_decl_site(ctx, n)),
+            None => Option.None,
+        };
+    }
+    // The committed type at the cursor's own span (a use-site ident, or a
+    // `let` name the checker stamps).
+    if let Some(t) = recorded_target(ctx, ref.span) {
+        return Option.Some(t);
+    }
+    // A local binding without a use-site record — the cursor on a parameter or
+    // pattern name: its binding site's record, else its written annotation.
+    if let Some(fd) = resolve.enclosing_fn_at(ctx.program, offset) {
+        if let Some(site) = resolve.local_binding_at(fd, ref) {
+            if let Some(t) = recorded_target(ctx, site.span) {
+                return Option.Some(t);
+            }
+            return match site.type_ann {
+                Some(ann) => annotation_target(ctx, ann),
+                None => Option.None,
+            };
+        }
+    }
+    // The resolver's view of the name: a *type* name (an annotation's `Point`,
+    // a struct-literal head, an impl target) is its own type definition.
+    return match resolve.resolve_at(ctx, text, offset) {
+        Some(r) => match r.symbol() {
+            Some(sym) => match sym.kind() {
+                Struct => symbol_target(sym),
+                Enum => symbol_target(sym),
+                Interface => symbol_target(sym),
+                _ => Option.None,
+            },
+            None => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+// The declaration of the committed type recorded at exactly `span`: a named
+// type navigates by its `TypeId`, and a primitive looks through to its core
+// declaration (`member_target` — the same bridge member resolution uses).
+// Function values and type parameters name no declaration.
+fn recorded_target(_ ctx: resolve.ResolveCtx, _ span: SourceSpan) -> Option<Target> {
+    return match resolve.recorded_type_at(ctx, span) {
+        Some(ty) => match resolve.member_target(ctx, ty) {
+            Some(id) => match resolve.decl_site_of_key(ctx, id.owner, id.name) {
+                Some(s) => site_target(Option.Some(s)),
+                // No program under that key (a hermetic checker stamps no
+                // owner): degrade to the primary file's bare view.
+                None => site_target(resolve.find_decl_site(ctx, id.name)),
+            },
+            None => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+// The named head of a written annotation (`Point`; `List` of `List<Int>`) — a
+// function type names no declaration.
+fn annotation_target(_ ctx: resolve.ResolveCtx, _ ann: TypeRef) -> Option<Target> {
+    return match ann {
+        Named(nt) => site_target(resolve.find_decl_site(ctx, nt.name)),
+        Function(_) => Option.None,
+    };
+}
+
+// The target for a resolved declaration site: its name span in its file.
+fn site_target(_ site: Option<resolve.DeclSite>) -> Option<Target> {
+    return match site {
+        Some(s) => match resolve.decl_name_span(s.decl) {
+            Some(span) => Option.Some(Target { file: s.file, span: span }),
+            None => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+// The target for a symbol that *is* a type declaration: its own name span.
+fn symbol_target(_ sym: resolve.SymbolId) -> Option<Target> {
+    return match sym.name_span() {
+        Some(span) => Option.Some(Target { file: sym.file(), span: span }),
+        None => Option.None,
+    };
+}
+
+fn location(_ file: String, _ span: SourceSpan) -> Json {
+    return json.obj([
+        'uri': json.str(paths.path_to_uri(file)),
+        'range': positions.span_to_range(span),
+    ]);
+}
