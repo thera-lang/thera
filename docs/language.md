@@ -1734,10 +1734,16 @@ fn show_all<T: Display>(_ xs: List<T>) -> Void {
 ```
 
 Passing a `List<Plain>` where `Plain` has no `Display` impl is a check error at
-the call site ("type argument does not implement `Display`"). Primitives satisfy
-the built-in `Eq`/`Display`/`Debug`; structs and enums satisfy `Eq`/`Debug` via
-the structural derives; anything else needs an explicit `impl` (see
-[Interfaces](#interfaces)).
+the call site ("type argument does not implement `Display`"). Structs and enums
+satisfy `Eq`/`Debug` via the structural derives; anything else needs an explicit
+`impl` (see [Interfaces](#interfaces)).
+
+**Primitives** satisfy exactly the four built-in interfaces — `Eq`/`Debug`
+(intrinsic) and `Display`/`Ord` (their core impls) — and no others. An interface
+you implement on a primitive (`impl Doubler for Int`) is legal and callable
+directly (`n.doubled()`), but cannot yet satisfy a bound: dispatching it
+generically needs the primitive-vtables work (roadmap.md), so the checker
+reports the limitation rather than letting the bounded call trap.
 
 Inside the generic body, a **bounded** parameter exposes exactly its bounds'
 methods, dispatched dynamically (see [Dispatch](#dispatch)); calling a method no

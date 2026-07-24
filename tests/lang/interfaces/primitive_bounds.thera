@@ -1,0 +1,45 @@
+//! spec: generic-primitive-bounds
+//! mode: check
+
+// A primitive satisfies exactly the four built-in interfaces — `Eq`/`Debug`
+// (intrinsic) and `Display`/`Ord` (their core impls). An interface implemented
+// *on* a primitive is legal and callable directly, but cannot yet satisfy a
+// bound: primitives carry no dispatch vtable rows, so a bounded (virtual) call
+// would trap at runtime — the checker reports the limitation instead
+// (roadmap.md: primitive vtables).
+
+interface Doubler {
+    fn doubled(self) -> Int;
+}
+
+impl Doubler for Int {
+    pub fn doubled(self) -> Int {
+        return self * 2;
+    }
+}
+
+fn apply_bound<T: Doubler>(_ d: T) -> Int {
+    return d.doubled();
+}
+
+// The impl itself is fine — a static call resolves directly, no dispatch.
+fn double_directly(_ n: Int) -> Int {
+    return n.doubled();
+}
+
+// The four built-in interfaces stay satisfiable by every primitive.
+fn need_eq<T: Eq>(_ x: T) { }
+fn need_debug<T: Debug>(_ x: T) { }
+fn need_display<T: Display>(_ x: T) { }
+fn need_ord<T: Ord>(_ x: T) { }
+
+fn fine() {
+    need_eq(1);
+    need_debug(true);
+    need_display(2.5);
+    need_ord('s');
+}
+
+fn f() -> Int {
+    return apply_bound(21);   // expect error: primitive bounds are limited to the built-in Eq/Debug/Display/Ord
+}
