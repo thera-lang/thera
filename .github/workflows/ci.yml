@@ -66,7 +66,7 @@ jobs:
       # post-save runs, so caching it in place would never save.
       - name: cache the bare runtime
         id: rtcache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bin-cache/thera-rt
           key: thera-rt-${{ runner.os }}-${{ hashFiles('runtime/src/**', 'runtime/build.rs', 'runtime/Cargo.toml', 'runtime/Cargo.lock') }}
