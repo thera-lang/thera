@@ -1,16 +1,29 @@
 version: 2
 
 updates:
-  # Rust runtime dependencies (runtime/Cargo.toml).
+  # Rust runtime dependencies (runtime/Cargo.toml). Daily, because the TLS/
+  # crypto stack sits on a fast patch track (docs/http-tls.md §Runtime crate):
+  # its bumps land as their own immediately-mergeable PR, never batched with
+  # feature-dep noise. (True 0-day response comes from Dependabot *security
+  # updates* — a repo setting, schedule-independent, per-dependency PRs.)
   - package-ecosystem: cargo
     directory: /runtime
     schedule:
-      interval: weekly
+      interval: daily
     open-pull-requests-limit: 5
     groups:
+      tls-crypto:
+        patterns:
+          - "rustls*"
+          - "webpki-roots"
+          - "aws-lc-*"
       cargo:
         patterns:
           - "*"
+        exclude-patterns:
+          - "rustls*"
+          - "webpki-roots"
+          - "aws-lc-*"
 
   # GitHub Actions used in .github/workflows/.
   - package-ecosystem: github-actions
