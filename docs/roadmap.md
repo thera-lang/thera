@@ -53,40 +53,15 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Stdlib
 
-- **Stdlib breadth.** `String.*`/`List.*`/`Map.*`/`Option.*` (native + Thera),
-  and
-  `std.cli`/`std.fs`/`std.process`/`std.random`/`std.time`/`std.json`/`std.io`
-  exist; `List.map`/`filter`/`fold` are written in Thera over closures. The
-  collection/string/bytes staples are now in (pure Thera over the existing
-  primitives, except the two `trim_*` natives): `List.first`/`last`/`is_empty`/
-  `contains`/`index_of`/`reverse`/`sort` (comparator-based — a no-arg `sort()`
-  waits on an `Ord` interface); `String.replace`/`repeat`/`reverse`/`find`/
-  `pad_start`/`pad_end`/`trim_start`/`trim_end`; `Map.get_or`; `Bytes.is_empty`
-  and a `BytesReader` (the reader counterpart to `BytesBuilder`:
-  `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
-  pure Thera, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
-  already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are
-  now in — see _Changelog_. `std.encoding` (base64/hex/url, pure Thera),
-  `std.hash` (native digests), and `std.regex` (the `regex` crate) are in too.
-  The **lazy iteration arc** has landed: `Iterator<T>` with
-  `map`/`filter`/`take`/`enumerate`
-  - `collect`/`count` as **interface default methods**, the `std.iter` sources,
-    and its first consumers — `io.lines`/`BufReader`, `fs.walk`, and streaming
-    `fs.open`/`create` → `File` (`Reader`/`Writer`/`Seek`/`Closer`); `List.pop`
-    also landed. `std.log` (named, per-source logging) is now in — see
-    _Changelog_. `std.term` and `std.http` (client + simple server + wire codec,
-    over the provisional `std.net`) have since landed too. Remaining of the
-    "batteries included" goal: **TLS for `std.http`** (the client is
-    `http://`-only — an `https://` URL parses then fails at `connect`; tracked
-    under _Networking punchlist_ as the last thing between `std.http` and
-    complete), and sorted/`Ord`-keyed `Set`/`Map` variants.
-  - **`List.enumerate()` — _landed._** A lazy `Iterator<Indexed<T>>` right on
-    `List` (`for p in xs.enumerate() { … p.index … p.value … }`), the idiomatic
-    replacement for a `while i < xs.len()` index loop — no import, no new
-    syntax, reusing the blessed `Indexed<T>` struct (so it sidesteps the
-    `Pair`/`Tuple` decision below). Backed by a small `ListEnumerateIter` cursor
-    in `std.core`. This is the chosen answer to the indexed-loop ergonomics gap
-    the review found (see below).
+- **Stdlib breadth — remaining.** Of the "batteries included" goal, what's left:
+  **TLS for `std.http`** (the client is `http://`-only — an `https://` URL
+  parses then fails at `connect`; tracked under _Networking punchlist_ as the
+  last thing between `std.http` and complete) and sorted/`Ord`-keyed `Set`/`Map`
+  variants. Everything else in the staples arc — the collection/string/bytes
+  staples, `std.encoding`/`std.hash`/`std.regex`/`std.log`/`std.term`/`std.http`
+  (over the provisional `std.net`), and the lazy iteration arc (`Iterator<T>` +
+  adapters, `io.lines`/`BufReader`, `fs.walk`, streaming `File`s,
+  `List.enumerate()`) — has landed; see _Changelog_.
   - **`zip` iterator adapter** (and `flat_map`/`chain`, the other wrapped
     adapters the `enumerate` parser extension opened). `zip(a, b)` pairs two
     iterators; the **design dependency** is what it yields — Thera has no tuple,
@@ -97,84 +72,15 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     `signatures_match`'s `i_params[i]` vs `o_params[i]`. Deferred with that
     migration (no consumer until then); decide `Pair` vs `Tuple` first.
 
-- **`String.slice` cost — _done._** `String.slice` was
-  `String.from_chars(self.chars().slice(start, end))` — `chars()` materialized
-  the _whole_ string as a `List<Int>` on every call, so a slice was O(string
-  length) regardless of the slice's size, and `SourceSpan.text()` (a
-  `source.slice`) inherited it. `slice` is now a native (`str_slice`) that walks
-  `char_indices` to the range's end in a single pass — O(end), and it allocates
-  only the result rather than a code-point list the size of the whole string.
-  This still walks from the front (a byte/code-point offset can't be found in
-  O(1) over UTF-8), so slicing at ever-increasing offsets over one large string
-  stays superlinear in aggregate — the earlier call-site fixes (the lexer and
-  formatter reading from a single materialized `chars` list by index; see
-  _Changelog_) remain the right pattern for hot per-token loops — but the common
-  case (a short slice, or one near the front) and the per-call allocation are
-  fixed, so per-call slicing is no longer a latent O(n²) trap for future
-  callers.
-
 ### Runtime (Rust)
 
-- **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
-  `spawn`/`join`/`yield` with GC roots across every fiber; buffered
-  `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
-  Next:
-  - **Phase 3 — park on real I/O.** _Done._ Two park kinds, both on the
-    deliver-on-resume model (the native's result is delivered when the fiber
-    resumes, not recomputed): a `Timer(deadline)` request for `time.sleep`
-    (parks on a scheduler timer, so other fibers run during a sleep; the driver
-    sleeps the thread until the earliest deadline when nothing else is
-    runnable), and an `Await{job, finish}` request that offloads a blocking
-    syscall to a **worker-thread pool** (4 threads, lazily created) — the worker
-    returns owned Rust data and the `Value` is built back on the Thera thread
-    (the heap is thread-local), keeping the single Thera thread. A program left
-    with only timer- or I/O-blocked fibers is no longer a deadlock. Parked: `fs`
-    path ops, `stdin` read, `fs.open`/`create` + `File` read/write/seek, and
-    `std.process` `run`/`exec`/`wait` + pipe I/O. Handle resources (open files,
-    process pipes) use a **take-out/return** discipline — the resource leaves
-    the registry for the op's duration so no lock is held across the blocking
-    call — which lets one fiber feed a child's stdin while another drains its
-    stdout (validated by a >pipe-buffer cross-fiber round-trip through `cat`).
-    Left thread-blocking on purpose (fast, non-blocking syscalls): `fs.exists`,
-    `process.start`/`kill`/`close_stdin`.
-  - **Phase 4 — readiness poller.** _Done_ (`mio`, so `kqueue`/`epoll`/IOCP; the
-    hand-rolled alternative needs `libc` for the syscalls anyway, making the
-    real cost one extra crate versus two unsafe backends and no windows).
-    Sockets are **non-blocking**, so unlike every other blocking family their
-    syscalls run inline on the Thera thread and never reach the worker pool — a
-    blocking `accept` would pin one of its four threads indefinitely, and four
-    such ops would stall every other fiber's I/O. Instead `EWOULDBLOCK` parks
-    the fiber (`ParkRequest::Ready`) and the `call.native` re-runs when the
-    kernel reports readiness — `BlockRetry`'s discipline, woken by the poller.
-    The driver's idle loop keeps **one** wait point (`poll()` bounded by the
-    earliest timer), with worker completions interrupting it through a `Waker`,
-    so there is no poller thread and the runtime stays single-threaded.
-
-    Two properties keep this small. Sockets carry **no readiness state** despite
-    mio being edge-triggered: a fiber only parks _after_ its syscall returned
-    `EWOULDBLOCK`, so any earlier edge was stale and the next transition fires a
-    fresh one — the syscall is the ground truth, and every socket native
-    therefore attempts its op _before_ parking (a correctness rule, not a fast
-    path). And because the ops never leave the Thera thread, sockets need none
-    of phase 3's take-out/return discipline, so concurrent read + write on one
-    socket from two fibers works (unlike a `File`, where it does not).
-
-    The retry means every socket native must be **idempotent**: `read`/`accept`
-    are naturally so; `write` is safe only because it returns a _count_ and lets
-    `io.write_all` loop (a write-all native would re-send bytes on retry); and
-    `connect` is split into `socket_connect` + `socket_connect_finish` because
-    re-issuing `connect(2)` on a pending fd reports `EALREADY`. DNS is the one
-    socket op still on the worker pool — it blocks with no fd to poll, but is
-    bounded, so it cannot pin a worker the way `accept` would.
-
-  - **Refinements:** per-channel waiter lists, true 0-capacity rendezvous
-    channels and exit semantics for surviving spawned fibers (`select` is done).
-    The poller wants the same waiter-list refinement, and for the same reason:
-    any readiness event currently wakes _every_ socket-parked fiber
-    (`wake_all_poll`, matching `wake_all`'s coarseness), so each retries its
-    syscall and the ones that aren't ready re-park. Correct, but O(parked) work
-    per event — it will want per-fd routing (the mio `Token` is already the
-    socket handle) before a server holds many idle connections open.
+- **Fibers — remaining refinements.** Phases 0–4 are done (scheduler-drivable
+  `run_loop`; `spawn`/`join`/`yield` with GC roots across every fiber; buffered
+  `Channel<T>`; park on real I/O via timers + the worker pool; the readiness
+  poller — see _Changelog_). Design in [architecture.md](architecture.md)
+  §Concurrency. Remaining: per-channel waiter lists (retire `wake_all`'s
+  thundering herd — see _Scheduler punchlist_), true 0-capacity rendezvous
+  channels, and exit semantics for surviving spawned fibers.
 
 - **Fiber synchronization primitives — the combinator layer.** The _core_ async
   values already exist: `Fiber<T>` + `join` **is** a Future (uncolored; and
@@ -182,30 +88,12 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   any fiber can await the same result repeatedly, giving a broadcast/shared
   future for free), and `channel<T>(1)` is a Completer. What's thin is the
   second-order layer built on them:
-  - **`select` / race.** _Done (2026-07)._ A `Selectable` interface plus an
-    index: `fiber.select(sources) -> Int`, with `Fiber`, `Channel`, `Timer`, and
-    `net.TcpStream` implementing it. Not Go's `select { case … }` syntax, and it
-    doesn't need to be — Go fuses the receive into the branch because another
-    thread could take the value between "ready" and "receive"; cooperative
-    scheduling means nothing runs between those steps, so ask-then-act is
-    exactly equivalent with no new grammar. Lowest ready index wins
-    (deterministic, unlike Go's random pick, matching the scheduler's stance) —
-    which does mean a hot source at index 0 can starve index 1.
-
-    The interface needs two methods, not one: `is_ready` (which must be
-    **non-destructive**, since it's asked speculatively about sources the caller
-    may never act on) and `source`, because `select` has to know _how_ to wait
-    as well as whether to. `TcpListener` is therefore not selectable — probing
-    it means `accept`, which consumes.
-
   - **Cancellation token** — a reusable `cancel()` / `is_cancelled()` /
     selectable `done` (the LSP hand-rolled a generation counter for exactly
-    this). The poll form works today; the wait-or-cancel form wants `select`.
-  - **Timeout.** _Done (2026-07)._ `fiber.with_timeout(work, dur)`, and it fell
-    out of `select` as predicted. Caveat that can't be fixed here: the timed-out
-    work **isn't cancelled** — a fiber can't be killed — so it bounds your wait,
-    not the work. For a socket read the idiom is to close the socket on timeout,
-    which wakes the parked reader (see the per-fd routing entry).
+    this). The poll form works today; `select` has landed (see _Changelog_), so
+    the wait-or-cancel form is now buildable. The honest limit stands: a fiber
+    can't be killed, so cancellation is cooperative — `with_timeout` bounds the
+    wait, not the work.
   - **Structured concurrency** — `join_all`, and a scope that joins-or-cancels
     its children when the parent returns so a worker can't leak (the LSP `serve`
     drain does this by hand); ties to "exit semantics for surviving spawned
@@ -316,25 +204,13 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   (cProfile/py-spy), Ruby (stackprof/rbspy), and Lua do. The primary audience is
   **coding agents**, which shifts the design toward _deterministic,
   function-level, flat text_ over flame-graph SVGs and line-level precision.
-  1. **In-VM profiler — done (v1).** Implemented as an always-shipping runtime
-     feature gated by the **`THERA_PROFILE`** env var (not a compile-time
-     feature like `native-stats`; `run_loop` reads it once into a local, so a
-     non-profiled run pays one predictable branch — `src/profile.rs`). Per Thera
-     function: exact **call counts**, **self + inclusive time** via
-     **instruction-budget sampling** (every `THERA_PROFILE_INTERVAL`=1000
-     instructions, sample the live frame stack at the loop top), and
-     **allocations** attributed via the single `heap::alloc` chokepoint. Output
-     is a flat table to stderr at run end, sorted by self-time;
-     **deterministic** (instruction-keyed, not wall-clock — two runs are
-     byte-identical, what an agent's before/after needs), guarded by a
-     presence + determinism smoke in `bin/test.sh`. Because the env var
-     propagates to the child runtime and the front-end is itself a Thera
-     program, it profiles both a user program
-     (`THERA_PROFILE=1 thera run x.thera`) and the front-end's own compilation
-     (`THERA_PROFILE=1 thera check pkgs/cli` — which already shows the lexer at
-     ~50% self-time and ~55M allocations, the data for the check-perf work). A
-     `thera run --profile` flag is thin sugar to add later; line/allocation
-     call-site precision is #2 below.
+  1. **In-VM profiler — done (v1)** (see _Changelog_). `THERA_PROFILE=1`
+     (`src/profile.rs`): per Thera function, exact call counts, self + inclusive
+     time via deterministic instruction-budget sampling, and allocation
+     attribution — a flat table on stderr, byte-identical across runs (what an
+     agent's before/after needs). Profiles both a user program and the
+     front-end's own compilation. A `thera run --profile` flag is thin sugar to
+     add later; line/allocation call-site precision is #2 below.
   2. **Line attribution — enhancement.** A bytecode→source-line table in
      `.thera-bc` (debug info) so a sample/counter resolves to a Thera line.
      Demoted from a v1 prerequisite once we accepted function-level is enough
@@ -387,10 +263,9 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     the root cause. The resolver should distinguish "undefined" from
     "unavailable because its source file errored" and either suppress the
     cascade or name the cause
-    (`helper.greet is unavailable: helper.thera failed to parse`). Rides partly
-    on **better parser recovery** (recover a decl's _signature_ past a body
-    error — see the LSP parser-recovery item) so fewer decls drop in the first
-    place.
+    (`helper.greet is unavailable: helper.thera failed to parse`). Parser
+    recovery (signature-past-body — landed; see _Changelog_) already means fewer
+    decls drop in the first place.
   - **Check-path closure scope.** `check app.thera` body-checks only the primary
     program, so an error _inside_ an imported body isn't reported by a
     single-file check (directory/project checking covers it, checking each
@@ -430,18 +305,12 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   bound by name at load. Add a test asserting every `@extern` name the front-end
   can emit is accepted by the runtime, and split the runtime table into
   per-module files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
-- **codegen unit-test coverage — in progress.** codegen + module_scope (~2.9k
-  lines) were covered mainly end-to-end (fixpoint + examples + every suite
-  running through them), so a regression surfaced as a fixpoint/example break,
-  not a located unit failure. **Instruction-level tests now exist** for the
-  trickier lowerings — the call-resolution branches (enum ctor / enum `name()` /
-  user static+instance / native instance+static / free native / field call /
-  virtual dispatch), match-dispatch bisection-vs-linear, and closure mut-capture
-  boxing — decoding the emitted `Module` and asserting which opcode each lowers
-  to (so a regression is a readable, located failure). Remaining: direct
-  coverage of `module_scope` internals (name mangling, same-file-first
-  resolution edge cases, dispatch-table building) still leans on the implicit
-  end-to-end suites.
+- **codegen unit-test coverage — `module_scope` internals.** Instruction-level
+  tests now cover the trickier lowerings (see _Changelog_); direct coverage of
+  `module_scope` internals (name mangling, same-file-first resolution edge
+  cases, dispatch-table building) still leans on the implicit end-to-end suites
+  (fixpoint + examples), where a regression surfaces as a break, not a located
+  unit failure.
 - **Owner-qualified `FuncDef` names (audit CG-D4) — needs a portable file-key
   scheme.** Two libraries' `Point.area` emit identical `FuncDef` names (stack-
   trace / `--entry` ambiguity). _On hold:_ `FuncDef.name` is the only
@@ -495,75 +364,43 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     subtrees we never scan. Low priority: the default `files.watcherExclude`
     covers `node_modules` and `.git/objects`, neither of which holds Thera
     sources.
-  - **Primitive-receiver member resolution — _landed (2026-07)._** Hover /
-    definition / completion / signature help on a primitive receiver
-    (`'s'.split()`) resolve through `resolve.member_target`: a `Primitive`
-    committed type looks through to its core declaration (`Int`, `String`, …) by
-    name via the file's bare surface — the same bridge inference's
-    `type_def_for` has always used to let primitives host methods. Front-end
-    only; independent of the _Primitive vtables_ runtime item (which is about
-    `call.virtual` dispatch, not member resolution — see Runtime).
-  - **Further renderers — semantic tokens.** A thin query-layer renderer.
-    (**Completion and signature help landed** — see the parser-recovery item.)
-  - **Segregate intentional-error test fixtures — done** (see _Changelog_). The
-    server now drops a `tests/lang/` fixture's _declared_ diagnostics
-    (`// expect error:` / `// expect warning:` on the line, or a wholesale
-    `//! xfail:`) per-file, reusing the markers the conformance harness already
-    reads — so the clean fixtures come under analysis and a _surprise_ error
-    still surfaces, with no `thera.exclude` glob to maintain.
-- **Parser error recovery for the LSP — core + Stage 2b landed.** The LSP's
-  normal input is _syntactically broken_ code mid-edit; the parser synthesizes a
-  best-effort tree (recover past the error) so semantic resolution still runs
-  and can offer completions/hover. **The core mechanism shipped** (Stages 0–3;
-  see the _Changelog_ and the design in [frontend.md](frontend.md) §Parser error
-  recovery): non-fatal `expect` fills known holes in place, an `Expr.Error`
-  placeholder + empty-name convention give the resolver/checker/inference a
-  lenient, no-cascade arm, `brace_depth`-driven statement resync contains the
-  lost case, and signature-past-body recovery keeps a broken decl's signature.
-  - **Stage 2b — recovery inside expression blocks and match arms — _landed
-    (2026-07)._** `parse_expr_block` recovers a broken element in place
-    (parse*block's discipline: clear the panic, `sync_to_stmt` at the block's
-    own depth, `Expr.Error` placeholder — or an `Expr.Error` \_tail* when the
-    hole is the block's value, so it types Unknown rather than a cascading
-    Void), and the match-arm loop recovers a broken pattern/`=>`/body to the
-    next arm via `sync_to_arm` (a missing `,` resumes in place — the cursor
-    already sits at the next arm). So a broken statement inside an arm keeps the
-    enclosing `let`, the match tree, and the sibling arms — pinned structurally
-    in `recovery_test.thera` and behaviorally by the completion oracle (a cursor
-    inside a broken arm completes).
+  - **Further renderers — agent-facing first.** Thin query-layer renderers.
+    (**Completion and signature help landed** — see _Changelog_.) Prioritized by
+    what an LLM/coding-agent client can't already get from the source text plus
+    the landed surfaces (hover / definition / references):
+    - **`textDocument/implementation` + type hierarchy**
+      (`typeHierarchy/supertypes`/`subtypes`). The biggest gap given the
+      language design: interfaces are checked contracts with dynamic dispatch,
+      so "what types implement `Display`?" / "what does this interface-typed
+      value dispatch to?" is a semantic question grep answers badly (impl
+      methods, structural `eq`/`debug` derives, primitive fallbacks). An agent
+      editing an interface needs exactly this for the blast radius.
+    - **Call hierarchy** (`callHierarchy/incomingCalls`/`outgoingCalls`).
+      References approximates incoming calls but includes non-call mentions and
+      gives nothing for outgoing; a resolver-backed answer also sees through
+      method dispatch.
+    - **`textDocument/typeDefinition`.** Cheap on the existing `type_at` /
+      committed-type machinery: jump from a _value_ to its type's declaration in
+      one hop, instead of hover-then-workspace-symbol.
+    - **Inlay hints** (`textDocument/inlayHint`). The one display renderer that
+      _is_ agent-useful: one request over a range returns the inferred type of
+      every `let` binding and parameter names at call sites — batch `type_at`,
+      so an agent annotates a whole function's inference in one round trip
+      rather than N hovers.
+    - **`workspace/willRenameFiles`** → a workspace edit fixing `import`s, so an
+      agent's file rename/move is atomic instead of rename-then-forget.
+    - **Semantic tokens — editor polish, not agent-facing.** Packed per-token
+      classifications exist so an editor can color beyond a TextMate grammar; an
+      LLM infers all of it from the text and agent harnesses don't request them.
+      Worth doing for human VS Code highlighting quality, ranked below
+      everything above. (Same bucket: document highlight, folding/selection
+      ranges, code lens, linked editing — interaction affordances with no
+      information an agent can't get from hover/references.)
 
-  (Keep in mind when touching the parser — the precedence-table refactor
-  preserved the `panicking`/recovery structure.)
-  - **`textDocument/completion` — _landed (2026-07)._** `complete_at` (the
-    behavioral oracle the recovery stages promised, in
-    `pkgs/cli/lsp/completion.thera` + `completion_test.thera`) classifies the
-    cursor over the token stream and enumerates from the same owner-correct
-    surfaces hover resolves against: member completion after `.` (a value
-    receiver's committed type — which works mid-edit because the session now
-    checks recovered trees — a namespace's public surface, a bare/qualified
-    type's static surface, `self`), and bare-name completion (locals via a
-    collect-all refactor of the binding walkers, the file's decls, its bare
-    surface, its namespaces). Registered with `.` as the trigger character.
-    Along the way, non-fatal `expect`'s synthetic token was re-anchored from the
-    _next_ token to **just past the previous token** (the hole the cursor sits
-    in — `S.make().` before a `return` on the next line anchored on the wrong
-    line; at EOF the two coincide, which is why the span tests never caught it).
-    Known gaps: primitive receivers (`'s'.` — the hover gap, needs primitive
-    vtables), cursors inside comments/non-interpolated strings (tokens carry no
-    trivia), and `${…}` interpolation contexts.
-  - **`textDocument/signatureHelp` — _landed (2026-07)._** The parser now frames
-    an unterminated call — a token that closes an enclosing construct
-    (`}`/`]`/`;`) can't start an argument, so the args loop stops there and the
-    synthesized `)` completes the call node with the arguments already written,
-    instead of a failed argument parse unwinding the whole statement.
-    `signature_help_at` (`pkgs/cli/lsp/signature_help.thera`) locates the
-    innermost enclosing call in the AST (snapping a cursor in trailing
-    whitespace back onto code — an unterminated call's span ends at its last
-    real token), resolves the callee through hover's `callee_fn_site` (free fns,
-    static and instance methods on the receiver's committed type), and reports
-    the active parameter by counting completed arguments (`self` dropped, so an
-    instance call's first argument is parameter 0). Registered with `(` and `,`
-    as trigger characters.
+  (The parser-recovery arc — Stages 0–3, Stage 2b, completion, and signature
+  help — has landed in full; see _Changelog_. When touching the parser, keep in
+  mind the precedence-table refactor preserved the `panicking`/recovery
+  structure.)
 
 ### Developer tooling
 
@@ -596,21 +433,14 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   higher-value half and the easier bar (they document code that exists); the
   `docs/*.md` design sketches are the half that needs the opt-out.
 
-- **Doc-comment tooling — convention specced, machinery pending.** The doc
-  conventions are defined ([language.md](language.md#documentation)): `///` item
-  docs, `//!` file/package docs, plain `//` never extracted; a summary-first
-  sentence; a small Markdown subset (fenced code only, no headers, bold-label
-  sections); prose params. **`sdk/std/` is migrated** to `///`/`//!` (all 61
-  files; a behavior-neutral source change — the lexer skips `///`/`//!` as
-  ordinary comments, so it stayed fixpoint-clean). The **trivia side-channel
-  prerequisite is now landed** — the lexer surfaces comments (incl. `///`/`//!`,
-  classified) on `LexResult.comments` as a source-ordered, parser-invisible list
-  (the gofmt positioned-comment model; compile path byte-identical), so they are
-  no longer discarded — but every downstream consumer remains **pending** (the
-  side channel is collected, then dropped: each `parse_tokens` call site passes
-  only `lex.tokens`). The remaining tooling: (1) **attach docs to AST nodes** —
-  a pass re-associating each `///`/`//!` comment to the decl it precedes by
-  span, threaded onto the AST (or a side table) — the one piece the side channel
+- **Doc-comment tooling — machinery pending.** The conventions
+  ([language.md](language.md#documentation)), the `sdk/std/` migration to
+  `///`/`//!`, and the lexer's comment side-channel are done (see _Changelog_) —
+  but every downstream consumer remains **pending** (the side channel is
+  collected, then dropped: each `parse_tokens` call site passes only
+  `lex.tokens`). The remaining tooling: (1) **attach docs to AST nodes** — a
+  pass re-associating each `///`/`//!` comment to the decl it precedes by span,
+  threaded onto the AST (or a side table) — the one piece the side channel
   directly unblocks; (2) **LSP hover** surfaces the item/file doc (today
   `hover.thera` shows the signature only); (3) a **doc generator** extracts a
   package's `pub` surface + barrel `//!` into an index for agent navigation (no
@@ -620,143 +450,26 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
   `examples/`, deliberately deferred — the public API surface was the priority.)
 
-- **Tools — refactorings (suggestion diagnostics + code actions).** Now that the
-  ergonomics features have landed (`if let`, `let … else`, `?` on `Option`, the
-  Option/Result combinators), the common verbose shapes they replace are
-  **mechanically detectable**, so the front-end can suggest (and a `thera fix` /
-  LSP code action can apply) the rewrite. These are tracked here but **decoupled
-  from the language work** — shipping `if let` does not require building its
-  suggester. The candidate refactorings, roughly highest-value first:
-  - **`match` → `if let`.** A two-arm `match` whose other arm is a `_ => {}` /
-    `None => {}` catch-all (`match X { Some(v) => { … }, None => {} }`) →
-    `if let Some(v) = X { … }`. The dominant cascade (~323 sites; ~279 noise
-    arms) — the highest-leverage cleanup.
-  - **`match` → `let … else`. _Rewriter landed._**
-    `let x = match opt { Some(v) => v, None => { …diverge… } };` →
-    `let Some(x) = opt else { …diverge… };`. Fires on a plain, unannotated `let`
-    whose diverging arm binds nothing (the `else` binds nothing).
-  - **`match` → `?`. _Rewriter landed._** A
-    `match r { Ok(v) => v, Err(e) => return Result.Err(e) }` (or the
-    `Some(v)`/`None => return Option.None` analogue) → `r?`. Parenthesizes a
-    low-precedence subject (`match a + b {…}` → `(a + b)?`), since `?` is
-    postfix. The corpus had 0 sites (already idiomatic) — but the rule's own
-    verbose extractors were the first dogfood:
-    `let x = match f() { Some(n) => n, None => return Option.None }` →
-    `let x = f()?`.
-  - **`match` → combinator. _Rewriter landed._**
-    `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` →
-    `opt.map((v) => f(v))`; `match opt { Some(v) => v, None => d }` →
-    `opt.unwrap_or(d)` / `.unwrap_or_else(…)` (already underused — e.g. json
-    `write_object` — so this rewrites existing code too).
-  - **`while i < xs.len()` → `for` / `enumerate`. _Lint landed; rewriter not
-    built (see below)._** A survey of the 65 flagged sites: **A** — `i` only
-    ever appears as `xs[i]` + the increment (15, ~23%) → `for x in xs`; **B** —
-    `i` never indexes `xs`, only passed on / used as a bound (6, ~9%) →
-    `for i in 0..xs.len()`; **C** — `i` used as _both_ `xs[i]` and for position
-    (bounds, first/last checks, parallel `ys[i]`) (44, ~68%) →
-    `for p in xs.enumerate() { … p.value … p.index … }`. The C majority was the
-    real blocker — it needs indexed iteration, now provided by
-    **`List.enumerate()`** (landed; see _Stdlib breadth_). The corpus has been
-    **hand-migrated** with it: 47 of the 65 sites converted to
-    `for p in xs.enumerate()` / `for x in xs` (a fixpoint-clean, suite-green
-    batch), leaving **18** that genuinely don't fit the shape — non-zero start
-    (`let mut i = start`), a stepped/conditional increment (`i = i + 2`, argv
-    parsers), a compound min-length bound (`while i < a.len() && i < b.len()`),
-    a sub-range bound (`… .len() - 1`), a plain count (`while i < 4`), a `Bytes`
-    receiver, or a list mutated mid-loop. An **auto-rewriter is still not
-    built** (unlike the `match` rules it needs a genuine loop-body rewrite —
-    substitute `xs[i]` → the binding and delete the pre-loop `let mut i = 0` +
-    the `i = i + 1`, both outside the loop span); the lint flags the shape and
-    the migration was done by hand. Deferred: a `zip` adapter for the
-    parallel-two-list sub-case (needs the `Pair`/`Tuple` decision below).
-  - **Shared machinery — _edit toolkit landed._** Edits are created by
-    **AST-guided source-slice reassembly**, not AST pretty-printing: the kept
-    sub-expressions (scrutinee/pattern/body) are sliced verbatim from source via
-    their spans (comments and all), only the connective scaffolding is
-    generated, and each replacement is formatted **as a fragment at the site's
-    own indentation** (`fmt.format_fragment(text, indent)` — format at base
-    level, then re-indent) so the edit is **localized**: only the rewritten span
-    changes, the rest of the file is byte-identical (fmt stays a separate,
-    whole-file concern). This avoids needing a faithful unparser — the kept
-    regions carry arbitrary code. Landed: `pkgs/cli/edit/edit.thera`
-    (`TextEdit` + `apply_edits` + `span_edit` + offset↔line/col +
-    `line_indent_at`), `fmt.format_fragment`, the `MatchExpr.origin` marker
-    (`Source`/`IfLet`/`LetElse`, retiring the `span.text()` heuristic — a
-    desugared node never re-fires), `lint.match_if_let` (structured site:
-    scrutinee/pattern/body), and `pkgs/cli/fix/fix.thera` — `if_let_edit` +
-    `fix_source` (parse → collect → per-edit format → apply), directly
-    unit-tested (incl. comment preservation, a reindent-the-spliced-region case,
-    and a minimal-edit-leaves-the-rest-untouched case). Each rule adds a
-    structured `lint.match_*` site + a `fix.*_edit`; a single `fix.fix_sites`
-    walk emits at most one rewrite per `match` (the rules partition) plus
-    `let … else` at the enclosing `let`. The transforms are vehicle-independent;
-    a `thera fix` CLI and an LSP code action both drive them.
-  - **`thera fix` CLI — _landed, since folded into `thera lint --fix` (2026-07:
-    one analysis command, the eslint/ruff/clippy shape; the provisional UX
-    resolved)._** Originally `thera fix <file|dir>…` (main.thera) drives the
-    machinery: the lint report is the preview, `--fix` applies (an explicit
-    target required — it writes). Historical detail (the LSP code action is the
-    primary per-site vehicle). `fix_source` loops non-overlapping edit batches
-    to a fixpoint so **nested** convertible matches converge (an inner match
-    becomes visible once its enclosing match is rewritten — a bug the dogfooding
-    surfaced). Rewrites are conservative (precision over recall — the `lint`
-    reporters flag a broader set than `fix` safely rewrites): a block-bodied arm
-    is left to a human, since moving it into a closure/`else` could drop
-    statements or `return` out of the enclosing fn. `unwrap_or` stays eager only
-    for a **cheap** fallback (literal/ident/field); a computed one becomes
-    `unwrap_or_else`, threading the `Err(e)` binding into `Result`'s closure.
-    **Dogfooded** on 8 front-end files (26 sites across
-    driver/runner/element/lsp/loader/inference), plus the rule set applied to
-    its own fresh `lint`/`fix` code (19 sites — the only `?` sites in the tree).
-    That self-dogfood surfaced a latent `if_let_body_text` bug: a bare
-    _diverging_ arm body (`Some(_) => return …`) was wrapped as `{ return … }`,
-    but a `return` can't be a block tail — now emitted as `{ return …; }`. The
-    front-end compiles itself from all the rewritten source with the SDK
-    fixpoint byte-identical and the suite green. Some of the corpus is
-    deliberately left for the **LSP code action** to dogfood.
-  - **LSP code action — _landed (`if let`, `?`, `unwrap_or`, `map`,
-    `let … else`)._** `textDocument/codeAction`
-    (`pkgs/cli/lsp/code_action.thera`, registered in the server capabilities)
-    offers a `refactor.rewrite` action for each rewrite site overlapping the
-    request range, driving the same `fix.fix_sites` (each site carries its
-    edit + title). The `WorkspaceEdit` is the localized, self-formatted
-    replacement (via `format_fragment`), so applying it touches only that span —
-    no document-wide reformat. Purely syntactic (parses the open buffer, no
-    import closure). Honors the request's **`context.only`**: every action is a
-    `refactor.rewrite`, so it is offered only when `only` is absent/empty or
-    lists a `.`-separated ancestor (`refactor` / `refactor.rewrite`) — a
-    `quickfix`- or `refactor.extract`-only request gets nothing (and skips the
-    tree walk). In-process JSON-RPC tests cover offer (`if let` + `unwrap_or`),
-    empty, and the `only` filter (ancestor / exact / unrelated / sibling). This
-    is the per-site vehicle for dogfooding the rest of the corpus. (Not yet: the
-    `while → for` rewriter, which needs a loop-body rewrite.)
-  - **First step — a read-only count — _landed._** `thera lint <file|dir>`
-    (`pkgs/cli/lint/lint.thera`) walks the parsed AST — purely syntactic, no
-    import closure — and reports + per-rule tallies convertible sites. Source
-    `match`es are told from desugared `if let`/`let … else` (an
-    indistinguishable `MatchExpr`) by the keyword the span starts at — no AST
-    marker yet. The rules partition (a `match` fires at most one): empty arm →
-    `if let`; error-propagating arm → `?`; diverging arm in a `let` initializer
-    → `let … else`; value-returning fallback → `unwrap_or`; both arms re-wrap →
-    `map`. Precision over recall, so each tally is a **floor**. **The count,
-    this corpus** (`pkgs/cli` / `sdk/std`; `examples` is 0 throughout):
-
-    | rule                  | pkgs/cli | sdk/std | note                                                                               |
-    | --------------------- | -------- | ------- | ---------------------------------------------------------------------------------- |
-    | `match → if let`      | 255      | 3       | the dominant cleanup, as predicted                                                 |
-    | `while i < len → for` | 43       | 21      | locates candidates; some need `enumerate`/`zip` or don't convert (index lookahead) |
-    | `match → unwrap_or`   | 38       | 11      | high precision; `unwrap_or` _or_ `unwrap_or_else`                                  |
-    | `match → let … else`  | 14       | 0       |                                                                                    |
-    | `match → map`         | 11       | 4       | textbook `Some(f(v))`/`None` re-wraps                                              |
-    | `match → ?`           | **0**    | **0**   | the codebase already uses `?` everywhere — **no payload**                          |
-
-    Takeaways: `match → if let` (258) decisively justifies a codemod;
-    `unwrap_or` (49) and `while i <` (64, with caveats) are worthwhile;
-    `let … else`/`map` are modest; **`match → ?` has zero sites, so skip it.**
-    Spot-checked for precision (true positives across all rules). Rules plug
-    into one rule-agnostic walker; the calling-convention lint (positional arg →
-    labeled param) is the next one but needs resolution, not just AST shape.
-
+- **Tools — refactorings (suggestion diagnostics + code actions).** The
+  machinery landed end to end (see _Changelog_): `thera lint` reports
+  convertible sites per rule, `thera lint --fix` applies the rewrites (`if let`,
+  `?`, `unwrap_or`/`unwrap_or_else`, `map`, `let … else`) via AST-guided
+  source-slice reassembly, and the LSP code action offers the same sites as
+  `refactor.rewrite` actions. Each future idiom adds a structured `lint` site +
+  a `fix` edit and rides the same pipeline. Remaining:
+  - **`while i < xs.len()` → `for` / `enumerate` auto-rewriter.** The lint flags
+    the shape and the corpus was hand-migrated with `List.enumerate()` (47 of 65
+    sites; the remaining 18 genuinely don't fit — a non-zero start, a
+    stepped/conditional increment, a compound or sub-range bound, a plain count,
+    a `Bytes` receiver, or a list mutated mid-loop). Unlike the `match` rules
+    the rewriter needs a genuine loop-body rewrite — substitute `xs[i]` → the
+    binding and delete the pre-loop `let mut i = 0` + the `i = i + 1`, both
+    outside the loop span. Deferred with it: a `zip` adapter for the
+    parallel-two-list sub-case (needs the `Pair`/`Tuple` decision — see
+    _Stdlib_).
+  - **Calling-convention lint** (positional argument → labeled parameter) — the
+    next rule; needs resolution, not just AST shape. Pairs with the enforcement
+    sweep under _Language → Calling convention_.
   - **Ecosystem payoff.** These aren't one-off cleanups: the same
     shape-matching + located-suggestion + auto-fix machinery is what a Thera
     `lint` / `thera fix` is built from, and what the LSP surfaces as code
@@ -860,50 +573,30 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
   what turns those into ordinary Thera methods; revisit the exact shape then
   (the `[]` half is the _Index operator_ item).
-- **Primitive vtables — scoped (2026-07); enabling work deferred to the generics
-  arc.** A primitive reached through _virtual_ dispatch — `call.virtual` from a
+- **Primitive vtables — enabling work, deferred to the generics arc.** A
+  primitive reached through _virtual_ dispatch — `call.virtual` from a
   bounded-generic context where the runtime value is an
-  `Int`/`Double`/`Bool`/`String` — has no vtable row (`dispatch_type_id` returns
-  None for unboxed values, and `build_dispatch` silently drops an
-  `impl I for Int` row); it resolves through a **hardcoded fallback** in the
-  interpreter (`virtual_fallback` in `interp/mod.rs`:
-  `display`/`debug`/`eq`/`compare`). The scoping pass answered the item's open
-  questions:
-  - **The soundness gap was real and user-reachable — now closed at the
-    checker.** `impl Doubler for Int` + `apply_bound<T: Doubler>(21)`
-    type-checked and then trapped at the `call.virtual`. `satisfies_bound` now
-    limits primitive bounds to the four core interfaces the fallback can
-    dispatch — `Eq`/`Debug` (intrinsic) and `Display`/`Ord` (declared core
-    impls) — with a diagnostic that names the limitation when a declared impl
-    exists. The blessed set is _precise_: each of the four declares exactly its
-    one fallback selector and no default methods. Static calls of a user impl on
-    a primitive (`n.doubled()`) remain fine — only the bound-reachable (virtual)
-    path is interdicted. (Interface-typed _values_ — `let x: Display = 7` — were
-    already rejected by assignability; widening that is a separate, deliberate
-    decision that would want the vtable work first.)
-  - **Member resolution never needed vtables.** Hover/completion on
-    `'s'.split()` was a front-end gap, fixed independently
-    (`resolve.member_target`, the LSP section).
-  - **The enabling work** (letting user interfaces on primitives dispatch, so
-    the checker guard can lift): reserve a dispatch-id range for the built-in
-    value shapes (`Value` variant → fixed id, partitioned alongside struct
-    type-table indexes and `ENUM_DISPATCH_BASE`), have `dispatch_type_id` return
-    them, and teach `build_dispatch` to resolve impl-on-native-type rows. Do
-    this **with the operators-as-interfaces / conditional-impl generics work** —
-    it's the same "dispatch a built-in interface on a concrete type" machinery,
-    and `<T: Add>` will force the same id scheme.
+  `Int`/`Double`/`Bool`/`String` — has no vtable row; it resolves through a
+  **hardcoded fallback** in the interpreter (`virtual_fallback` in
+  `interp/mod.rs`: `display`/`debug`/`eq`/`compare`). The 2026-07 scoping pass
+  closed the user-reachable soundness gap at the checker (primitive bounds are
+  limited to the four interfaces the fallback can dispatch) and indexed the
+  dispatch table per receiver type — see _Changelog_. What remains is the
+  enabling work, deliberately deferred:
+  - **Letting user interfaces on primitives dispatch** (so the checker guard can
+    lift): reserve a dispatch-id range for the built-in value shapes (`Value`
+    variant → fixed id, partitioned alongside struct type-table indexes and
+    `ENUM_DISPATCH_BASE`), have `dispatch_type_id` return them, and teach
+    `build_dispatch` to resolve impl-on-native-type rows. Do this **with the
+    operators-as-interfaces / conditional-impl generics work** — it's the same
+    "dispatch a built-in interface on a concrete type" machinery, and `<T: Add>`
+    will force the same id scheme.
   - **Perf constraint (measured context):** keep the fallback as the fast path
-    for the four built-in selectors. The fallback's `eq`/`compare` on a
-    primitive is direct Rust reached with _no_ lookup at all (`dispatch_type_id`
-    short-circuits) — and `eq` is the highest-volume operation in the
-    interpreter profile — while a vtable hit still pays the lookup plus an
-    interpreter frame. Vtable rows should add dispatch for _user_ selectors; the
-    built-in four stay hardcoded as an optimization rather than a correctness
-    crutch (the "primitives are special" axiom retires even though the code path
-    remains). (`dispatch_target` itself was a flat scan over every impl-method
-    row — O(program size) per virtual call, measured at +50% on an iterator loop
-    from 150 unrelated impls — and is now a per-type index: one fast u32 hash,
-    then the receiver's own handful of selectors. See `Module::set_dispatch`.)
+    for the four built-in selectors — direct Rust with _no_ lookup at all, and
+    `eq` is the highest-volume operation in the interpreter profile — while a
+    vtable hit pays the lookup plus an interpreter frame. Vtable rows should add
+    dispatch for _user_ selectors; the built-in four stay hardcoded as an
+    optimization rather than a correctness crutch.
   - **`virtual_fallback` never fully retires regardless:** its structural
     `debug`/`eq` for impl-less structs/enums _is_ the auto-derive mechanism, and
     the `display` → `debug` arm is what keeps rendering total.
@@ -1049,72 +742,12 @@ deferred bare-`TypeParameter` narrowing.
 
 ### Networking punchlist
 
-The agreed order is **(1) per-fd routing → (2) `select` → (3) TLS**. The first
-two are known gaps in the phase-4 poller that landed with the `std.http` arc
-(see the Changelog's **Readiness poller** entry), and both are things a real
-server hits rather than latent tidiness: the poller is correct, but not yet
-_scalable_ or _cancellable_. The third finishes the client. **(1) and (2) are
-done**; TLS is next.
-
-1. **Per-fd wakeup routing.** _Done (2026-07)._ Readiness events route by socket
-   handle — which already _is_ the `mio::Token` — so an event wakes only the
-   fibers parked on that socket instead of every socket-parked fiber. Measured
-   on the 20-connection `std.net` suite: spurious retries down ~27%
-   (`socket_accept` 67→48, `socket_connect_finish` 68→50). That understates it —
-   the win scales with connection count, which is the point: `wake_all_poll` was
-   O(parked) per event, exactly the shape a server holding many idle connections
-   hits.
-
-   **The catch, and it is the interesting part:** the coarse wake was an
-   accidental safety net. A fiber parked on a socket that _another fiber closes_
-   used to be rescued by an unrelated socket's event waking everyone. With
-   routing it would park forever, because a closed socket produces no more
-   events of its own — a hang, not an error. So `socket_close` now explicitly
-   wakes its waiters (`wake_poll_waiters`); they retry, find the handle gone,
-   and get a closed error. This was confirmed the hard way: the probe hung at
-   exactly that point when built without the wake. Pinned by
-   `closing_a_socket_wakes_a_fiber_parked_on_it`.
-
-   That also makes close-from-another-fiber the **only** cancellation mechanism
-   there is until (2) lands, so it is a supported pattern rather than an edge
-   case.
-
-   Left coarser on purpose: fibers sharing a handle (a reader and a writer) are
-   woken together, and the one whose direction didn't fire re-parks. Splitting
-   by direction as well as handle would remove that second-order waste; not
-   worth the state until a profile says so, since the first-order win is all in
-   the handle.
-
-2. **Socket timeouts.** _Done (2026-07)._ `select` landed and timeouts fell out
-   of it: `fiber.select([sock, fiber.after(d)])`, or
-   `fiber.with_timeout(work, d)`. A `TcpStream` is selectable on readability,
-   probed non-destructively with mio's `peek` so the `read` that follows still
-   sees the bytes.
-
-   The runtime piece is `ParkRequest::Multi`, which lists a fiber in `blocked` +
-   `timers` + `poll_blocked[h]` at once. Two safety properties hold it up, and
-   **both were verified by deliberately breaking them**, since a test that
-   passes either way is worthless here:
-   - **Idempotent waking** (a `queued` flag behind one `make_ready` choke
-     point). Without it, one fiber that sends on a channel _and_ closes a socket
-     wakes a selector twice before it is scheduled, and the scheduler traps —
-     `scheduled a running or finished fiber`. Reachable precisely because
-     `socket_close` wakes waiters during another fiber's run, unlike timers and
-     poll events, which only fire from the idle loop when nothing is queued.
-   - **Sweep-on-schedule** (`unlist`). Without it, a select's _losing_ deadline
-     stays live and fires at whatever the fiber parks on next: a later 80ms
-     sleep returned in 0ms. Worse in principle — a stale wake landing on an
-     `Await`-parked fiber would resume it before its syscall finished, handing
-     back the discarded placeholder as the result.
-
-   Still open, and the honest limit: **the timed-out work is not cancelled**,
-   because a fiber cannot be killed. `with_timeout` bounds the wait, not the
-   work. Releasing the resource is the caller's job — for a socket, close it.
-
-Ordering: (1) and (2) are done; **(3) TLS is next**, and is now the only thing
-between `std.http` and complete. Design + staged plan (crate choice, native ABI,
-the park/retry mapping, `TlsStream`, and a hermetic test strategy) in
-[http-tls.md](http-tls.md).
+The phase-4 poller's two known gaps — per-fd wakeup routing and `select`-based
+socket timeouts — are **done** (see _Changelog_). What remains is **TLS**, the
+last thing between `std.http` and complete: the client is `http://`-only — an
+`https://` URL parses then fails at `connect`. Design + staged plan (crate
+choice, native ABI, the park/retry mapping, `TlsStream`, and a hermetic test
+strategy) in [http-tls.md](http-tls.md).
 
 ### Scheduler punchlist
 
@@ -1131,7 +764,7 @@ arc is headed.
    `select([sock, fiber.after(d)])` — socket + timer, no channel or join
    anywhere in it — is woken by _every_ channel send/receive/close and fiber
    completion in the program, re-probes all its sources, and re-parks. That is
-   the per-fd-routing problem (item 1 above) reappearing one layer up: N
+   the per-fd-routing problem (see _Changelog_) reappearing one layer up: N
    connections each select-waiting with a timeout do O(N) spurious re-probes per
    channel operation. Cheap targeted fix when a profile asks: the Thera-side
    `select` already knows whether any source returned `SelectSource.Progress`,
@@ -1194,6 +827,160 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Primitive-bound soundness gap closed; dispatch-table index** (2026-07). The
+  scoping pass on _Primitive vtables_ (still open under _Language_).
+  `impl Doubler for Int` + `apply_bound<T: Doubler>(21)` type-checked and then
+  trapped at the `call.virtual`; `satisfies_bound` now limits primitive bounds
+  to the four core interfaces the runtime fallback can dispatch — `Eq`/`Debug`
+  (intrinsic) and `Display`/`Ord` (declared core impls) — with a diagnostic
+  naming the limitation. Static calls of a user impl on a primitive
+  (`n.doubled()`) stay fine; only the bound-reachable (virtual) path is
+  interdicted. Separately, `dispatch_target`'s flat scan over every impl-method
+  row — O(program size) per virtual call, measured at +50% on an iterator loop
+  from 150 unrelated impls — is now a per-receiver-type index
+  (`Module::set_dispatch`): one fast u32 hash, then the receiver's own handful
+  of selectors.
+
+- **LSP completion + signature help** (2026-07). `textDocument/completion`
+  (`pkgs/cli/lsp/completion.thera`): `complete_at` — the behavioral oracle the
+  recovery stages promised — classifies the cursor over the token stream and
+  enumerates from the same owner-correct surfaces hover resolves against: member
+  completion after `.` (the receiver's committed type, working mid-edit because
+  the session checks recovered trees; namespace and static surfaces; `self`) and
+  bare-name completion (locals, the file's decls, its bare surface, its
+  namespaces); `.` is the trigger character. Along the way, non-fatal `expect`'s
+  synthetic token was re-anchored **just past the previous token** (the hole the
+  cursor sits in). `textDocument/signatureHelp` (`lsp/signature_help.thera`):
+  the parser frames an unterminated call (a token that closes an enclosing
+  construct can't start an argument, so the synthesized `)` completes the call
+  node with the arguments already written); `signature_help_at` locates the
+  innermost enclosing call, resolves the callee through hover's
+  `callee_fn_site`, and reports the active parameter by counting completed
+  arguments; `(`/`,` trigger. Known completion gaps: cursors inside comments and
+  non-interpolated strings (tokens carry no trivia), and `${…}` interpolation
+  contexts.
+
+- **Parser error recovery — Stage 2b (expression blocks + match arms)**
+  (2026-07). `parse_expr_block` recovers a broken element in place
+  (`sync_to_stmt` at the block's own depth, an `Expr.Error` placeholder — or an
+  `Expr.Error` _tail_ when the hole is the block's value, so it types Unknown
+  rather than a cascading Void), and the match-arm loop recovers a broken
+  pattern/`=>`/body to the next arm via `sync_to_arm`. A broken statement inside
+  an arm keeps the enclosing `let`, the match tree, and the sibling arms —
+  pinned structurally in `recovery_test.thera` and behaviorally by the
+  completion oracle. With Stages 0–3 (entry below) this closes the
+  parser-recovery arc.
+
+- **Primitive-receiver member resolution (LSP)** (2026-07). Hover / definition /
+  completion / signature help on a primitive receiver (`'s'.split()`) resolve
+  through `resolve.member_target`: a `Primitive` committed type looks through to
+  its core declaration by name via the file's bare surface — the same bridge
+  inference's `type_def_for` has always used to let primitives host methods.
+  Front-end only; independent of the _Primitive vtables_ runtime item.
+
+- **`select` + `with_timeout`** (2026-07). `fiber.select(sources) -> Int` over a
+  `Selectable` interface — `is_ready` (non-destructive, since it's asked
+  speculatively about sources the caller may never act on) + `source` (how to
+  wait) — implemented by `Fiber`, `Channel`, `Timer`, and `net.TcpStream`
+  (readability probed with mio's `peek`, so the `read` that follows still sees
+  the bytes; `TcpListener` is deliberately not selectable — probing it means
+  `accept`, which consumes). Not Go's fused `select { case … }` syntax:
+  cooperative scheduling means nothing runs between "ready" and "act", so
+  ask-then-act is equivalent with no new grammar; lowest ready index wins,
+  deterministically. `fiber.with_timeout(work, dur)` and socket timeouts fell
+  out of it. The runtime piece is `ParkRequest::Multi` (one fiber listed in
+  `blocked` + `timers` + `poll_blocked` at once), held up by two mutation-tested
+  safety properties: **idempotent waking** (a `queued` flag behind the one
+  `make_ready` choke point) and **sweep-on-schedule** (`unlist`, so a select's
+  losing deadline can't fire at whatever the fiber parks on next). The honest
+  limit: the timed-out work is **not cancelled** — a fiber can't be killed — so
+  it bounds the wait, not the work; releasing the resource is the caller's job
+  (for a socket, close it).
+
+- **Per-fd wakeup routing (poller)** (2026-07). Readiness events route by socket
+  handle (which already _is_ the `mio::Token`), waking only the fibers parked on
+  that socket instead of every socket-parked fiber — spurious retries down ~27%
+  on the 20-connection suite, a win that scales with connection count
+  (`wake_all_poll` was O(parked) per event, exactly the shape a server holding
+  many idle connections hits). The catch: the coarse wake was an accidental
+  safety net — a fiber parked on a socket _another fiber closes_ used to be
+  rescued by unrelated events, and with routing it would park forever. So
+  `socket_close` now wakes its waiters explicitly (`wake_poll_waiters`; pinned
+  by `closing_a_socket_wakes_a_fiber_parked_on_it`), making
+  close-from-another-fiber the supported cancellation pattern. Left coarser on
+  purpose: fibers sharing a handle (a reader and a writer) wake together;
+  splitting by direction waits on a profile.
+
+- **Fibers phase 3 — park on real I/O** (2026-07). Two park kinds, both on the
+  deliver-on-resume model: a `Timer(deadline)` request for `time.sleep` (other
+  fibers run during a sleep), and an `Await{job, finish}` request offloading a
+  blocking syscall to a lazily-created 4-thread **worker pool** — the worker
+  returns owned Rust data and the `Value` is built back on the Thera thread (the
+  heap is thread-local), keeping the runtime single-threaded. Parked: `fs` path
+  ops, `stdin`, `File` read/write/seek, and `std.process` `run`/`exec`/`wait` +
+  pipe I/O. Handle resources use a **take-out/return** discipline — no lock held
+  across the blocking call — so one fiber can feed a child's stdin while another
+  drains its stdout. Fast, non-blocking syscalls (`fs.exists`,
+  `process.start`/`kill`) stay thread-blocking on purpose.
+
+- **Refactoring machinery — `thera lint`, `lint --fix`, LSP code action**
+  (2026-07). The shape-match → located-suggestion → mechanical-fix pipeline, end
+  to end. `thera lint` walks the AST (purely syntactic) and reports convertible
+  sites; the rules partition, so a `match` fires at most once: empty arm →
+  `if let`; error-propagating arm → `?`; diverging arm in a `let` initializer →
+  `let … else`; value fallback → `unwrap_or` (a computed fallback becomes
+  `unwrap_or_else`); both arms re-wrap → `map`. `--fix` applies via **AST-guided
+  source-slice reassembly** (`pkgs/cli/edit/`, `fix/`): kept sub-expressions are
+  sliced verbatim from source, only connective scaffolding is generated, and
+  each replacement is formatted as a fragment at the site's own indentation
+  (`fmt.format_fragment`) so the edit is localized; batches of non-overlapping
+  edits loop to a fixpoint so nested matches converge. The LSP
+  `textDocument/codeAction` offers the same sites as `refactor.rewrite` actions,
+  honoring `context.only`. Rewrites are conservative — precision over recall; a
+  block-bodied arm is left to a human. Corpus survey: `match → if let` 258 sites
+  (the dominant cleanup), `unwrap_or` 49, `while i <` 64, `let … else`/`map`
+  modest, `?` **zero** (already idiomatic). Dogfooded across ~45 front-end
+  sites, fixpoint byte-identical, suite green. The open tail (the `while → for`
+  rewriter, the calling-convention lint) stays in _Developer tooling_.
+
+- **Doc comments — convention, `sdk/std` migration, lexer trivia side-channel**
+  (2026-07). The conventions are spec'd
+  ([language.md](language.md#documentation)): `///` item docs, `//!`
+  file/package docs, plain `//` never extracted, a summary-first sentence, a
+  small Markdown subset. All 61 `sdk/std/` files migrated (behavior-neutral —
+  the lexer skips doc comments on the compile path, so it stayed
+  fixpoint-clean). And the lexer now surfaces comments, classified, on
+  `LexResult.comments` as a source-ordered, parser-invisible side channel (the
+  gofmt positioned-comment model; compile path byte-identical). Every consumer
+  (doc-to-AST attachment, hover docs, a doc generator, `[Symbol]` resolution) is
+  still pending — see _Developer tooling_.
+
+- **Collection/string/bytes staples; `std.term` + `std.http`** (2026-07). The
+  staples landed pure-Thera over the existing primitives (except the two
+  `trim_*` natives): `List.first`/`last`/`is_empty`/`contains`/`index_of`/
+  `reverse`/`sort` (comparator-based), `String.replace`/`repeat`/`reverse`/
+  `find`/`pad_start`/`pad_end`/`trim_start`/`trim_end`, `Map.get_or`,
+  `Bytes.is_empty`, and `BytesReader` (round-trips `BytesBuilder`). `std.term`
+  and `std.http` (client + simple server + wire codec, over the provisional
+  `std.net`) landed too.
+
+- **`List.enumerate()` — indexed iteration** (2026-07). A lazy
+  `Iterator<Indexed<T>>` right on `List`
+  (`for p in xs.enumerate() { … p.index … p.value … }`) — the idiomatic
+  replacement for a `while i < xs.len()` index loop, reusing the blessed
+  `Indexed<T>` struct (sidestepping the `Pair`/`Tuple` decision). 47 of the
+  corpus's 65 index loops migrated with it; now implemented as
+  `self.iter().enumerate()` (see the eager-`List` entry).
+
+- **codegen instruction-level unit tests** (2026-07). The trickier lowerings —
+  the call-resolution branches (enum ctor / enum `name()` / user static+instance
+  / native instance+static / free native / field call / virtual dispatch),
+  match-dispatch bisection-vs-linear, and closure mut-capture boxing — are now
+  pinned by decoding the emitted `Module` and asserting which opcode each lowers
+  to, so a regression is a readable, located failure instead of a
+  fixpoint/example break. `module_scope` internals remain end-to-end-covered
+  (see _Compiler & front-end_).
+
 - **Test health: shared parse `testkit` + a floor-vs-core drift guard**
   (2026-07). The front-end's hermetic unit harnesses resolve built-ins against
   the `<builtin>` floor (`builtin_type_defs`) rather than real `std.core` — kept
@@ -1249,8 +1036,8 @@ conformance specs. Newest first.
   survive and a broken body keeps its **signature** (signature-past-body);
   graceful EOF (open constructs recover with synthesized delimiters); and the
   structural AST dump (`ast/dump.thera`) + `parser/recovery_test.thera` as the
-  oracle. Remaining tails (Stage 2b expression-block recovery, the behavioral
-  `complete_at` oracle) are tracked under _LSP → Parser error recovery_.
+  oracle. The remaining tails — Stage 2b expression-block recovery and the
+  behavioral `complete_at` oracle — have since landed (see the entries above).
 
 - **LSP: the workspace pull is held open — an idle server does nothing at all**
   (2026-07). The tail of the idle-CPU arc (next entry): even with an unchanged
@@ -1727,8 +1514,10 @@ conformance specs. Newest first.
   code points once and index that list; and `String.slice` itself is now a
   native (`str_slice`) that walks to the range's end in one O(end) pass instead
   of building a whole-string code-point list. `thera fmt` on a 110 KB file
-  dropped from ~4 s to ~0.2 s (~20×) and now scales linearly. See _Stdlib_ →
-  `String.slice cost` for the residual O(end) note.
+  dropped from ~4 s to ~0.2 s (~20×) and now scales linearly. Residual: `slice`
+  still walks from the front (a byte offset can't be found in O(1) over UTF-8),
+  so slicing at ever-increasing offsets over one large string stays superlinear
+  in aggregate — hot per-token loops should keep materializing `chars` once.
 - **Map-literal migration follow-ups (checker diagnostic, rendering, legacy
   sites)** (2026-07). Three tails of the migration closed. (1) **`Void`-arm
   diagnostic**: `check_void_arms` splits the `unify_arm` value-less-arm
