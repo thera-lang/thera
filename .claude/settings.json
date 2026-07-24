@@ -46,6 +46,7 @@
       "Bash(grep *)",
       "Bash(ls *)",
       "Bash(npm run *)",
+      "Bash(npx --no-install prettier *)",
       "Bash(npx tsc *)",
       "Bash(prettier --write *)",
       "Bash(python3 -)",
