@@ -1,0 +1,11 @@
+# `cargo deny check advisories` configuration — the CI half of the TLS/crypto
+# fast-patch-track commitment (docs/http-tls.md §Runtime crate). Scans the full
+# Cargo.lock (transitives included, e.g. aws-lc-sys) against the RustSec
+# advisory database; vulnerability advisories are errors by default.
+# Run by .github/workflows/audit.yml: on dependency changes and daily, since
+# advisories arrive without code changes.
+
+[advisories]
+# A yanked crate in the lockfile is an error, not a warning: yanks are often
+# the first public signal of a security problem.
+yanked = "deny"
