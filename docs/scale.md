@@ -279,9 +279,46 @@ It also directly attacks convergent reimplementation: "search the index
 before writing a helper" is a cheap, enforceable habit — and the repo-root
 orientation that today lives in CLAUDE.md becomes mostly derivable.
 
-**Status:** open; details live in the roadmap entry. The scale ask beyond it:
-make the index a **build artifact** (checked or cached under `build/`), so
-agents and the LSP consume it without running a tool.
+**Direction — transport settled (2026-07).** The candidate transports (a
+`thera doc` CLI, committed artifacts + a CI freshness check, a custom LSP
+command, an MCP server) are not competing designs — they are transports over
+one function, so the core is built **once** (doc extraction + index
+formatting, in `pkgs/cli`, riding the loader/element data) and exposed in
+order of agent reach:
+
+- **Front door: `thera doc <lib>` to stdout** (plus `thera doc --index` for
+  the workspace map). The shell is the one transport every coding agent has,
+  and output consumed from a pipe **cannot be stale** — the exact
+  trustworthy-prose property this item exists for. Output is terse,
+  deterministic, stable-ordered text (the consumer is a context window):
+  one line per `pub` symbol — signature + summary sentence. `--json` later
+  if tooling needs it.
+- **LSP shares the core** — hover and workspace-symbol serve the same data
+  as the ambient editor surface (roadmap doc-comment tooling items 2–3). No
+  custom LSP command: worst discovery of the four, and the thing agents
+  drive least well.
+- **MCP deferred** — a thin shim over the same core, addable the week a
+  non-exec agent context needs it; until then it adds config burden without
+  capability.
+- **Committed artifacts rejected.** The staleness window is adversarial (an
+  agent consults the index precisely while a change is in flight — exactly
+  when a committed copy is wrong), and the regen/CI/merge-conflict tax is
+  permanent. The bootstrap-snapshot precedent doesn't transfer: it is
+  committed because it must be, and changes rarely; API docs change with
+  every edit. The one unique benefit — API-surface changes visible in PR
+  diffs — is item 2's job (interface digests), not checked-in docs.
+
+**Discovery** is a prompting-surface problem with an existing reliable
+channel: a best-practice line in each project's CLAUDE.md ("before reading a
+library's source, run `thera doc <lib>`"), and/or the agent rules-file /
+skill from the roadmap's _Idioms & best-practices guidance_ item — "navigate
+Thera this way" lives beside "write Thera this way". Escape valve if that
+proves insufficient: commit only the tiny, slow-changing root map, whose own
+header teaches the tool — but wait for evidence before paying even that.
+
+**Status:** transport settled; open — the index format itself, and
+implementation sequencing (needs doc-comment tooling item 1, attach docs to
+AST, first). Details in the roadmap entry.
 
 ### 6. Doctests — self-verifying examples
 
