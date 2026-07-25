@@ -242,6 +242,11 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("fiber_is_done", native_fiber_is_done),
     ("chan_is_ready", native_chan_is_ready),
     ("select_park", native_select_park),
+    ("tls_connect", native_tls_connect),
+    ("tls_handshake", native_tls_handshake),
+    ("tls_read", native_tls_read),
+    ("tls_write", native_tls_write),
+    ("tls_close", native_tls_close),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -2931,6 +2936,7 @@ fn native_regex_replace_all(_out: &mut dyn Write, args: &[Value]) -> Result<Valu
 // take-out/return discipline the `File` registry uses, and concurrent read + write
 // on one socket from two fibers works (unlike a `File`, where it does not).
 
+use super::tls::{Progress, TlsError, TlsSession};
 use mio::Interest;
 use mio::net::{TcpListener, TcpStream};
 use std::cell::{Cell, RefCell};
@@ -2941,6 +2947,17 @@ use std::net::{SocketAddr, ToSocketAddrs};
 enum Socket {
     Listener(TcpListener),
     Stream(TcpStream),
+    /// A stream with a TLS session layered over it (see the `tls_*` natives).
+    /// `tls_connect` replaces a `Stream` with this **in place, under the same
+    /// handle**, which is what lets TLS inherit the whole socket model unchanged:
+    /// the fd stays registered with the poller under that handle, so a park routes
+    /// and a close wakes exactly as before. It also means a stale `TcpStream`
+    /// naming the same handle can't smuggle plaintext past the session — the plain
+    /// `socket_read`/`socket_write` refuse this variant.
+    Tls {
+        stream: TcpStream,
+        session: Box<TlsSession>,
+    },
 }
 
 thread_local! {
@@ -2983,6 +3000,32 @@ fn socket_closed_err() -> Value {
     Value::err(Value::new_str("closed\u{1}socket is closed"))
 }
 
+/// The error a plain socket op gets when the handle has been wrapped in TLS (or a
+/// `tls_*` op when it has not). Not a pedantic type check: reading or writing the
+/// raw fd under a live TLS session would send plaintext in the clear and desync the
+/// record stream.
+fn wrong_socket_kind(want: &str) -> std::io::Error {
+    std::io::Error::other(format!("not {want}"))
+}
+
+/// Build an `Err` for a TLS failure, kind-tagged like [`socket_err`] — whose
+/// mapping the underlying-socket case reuses, so a broken connection reads as
+/// `reset` whether or not TLS was in the way. TLS's own refusals (a certificate
+/// that doesn't verify, a protocol violation, a truncated stream) get the `tls`
+/// kind: they are neither an I/O error nor recoverable by retrying.
+fn tls_err(e: TlsError) -> Value {
+    match e {
+        TlsError::Io(e) => socket_err(&e),
+        TlsError::Protocol(e) => Value::err(Value::new_str(format!("tls\u{1}{e}"))),
+        TlsError::Hostname(h) => Value::err(Value::new_str(format!(
+            "tls\u{1}not a valid host name for a TLS certificate: {h}"
+        ))),
+        TlsError::Truncated(where_) => Value::err(Value::new_str(format!(
+            "tls\u{1}the peer closed the connection {where_}"
+        ))),
+    }
+}
+
 /// An `Err` for a malformed address, tagged so the Thera side can report it as a
 /// distinct `NetError::Addr` rather than a generic I/O failure.
 fn socket_addr_err(addr: &str) -> Value {
@@ -3004,7 +3047,7 @@ fn register_socket(mut sock: Socket) -> Result<Value, Trap> {
     let interest = Interest::READABLE | Interest::WRITABLE;
     let registered = super::with_registry(|r| match &mut sock {
         Socket::Listener(l) => r.register(l, token, interest),
-        Socket::Stream(s) => r.register(s, token, interest),
+        Socket::Stream(s) | Socket::Tls { stream: s, .. } => r.register(s, token, interest),
     });
     if let Err(e) = registered {
         return Ok(socket_err(&e));
@@ -3038,7 +3081,7 @@ fn native_socket_accept(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
     let handle = as_int(expect_one(args, "socket_accept")?, "socket_accept")?;
     let accepted = with_socket(handle, |sock| match sock {
         Socket::Listener(l) => l.accept().map(|(stream, _peer)| stream),
-        Socket::Stream(_) => Err(std::io::Error::other("not a listener")),
+        Socket::Stream(_) | Socket::Tls { .. } => Err(wrong_socket_kind("a listener")),
     });
     match accepted {
         None => Ok(socket_closed_err()),
@@ -3087,7 +3130,9 @@ fn native_socket_connect_finish(_out: &mut dyn Write, args: &[Value]) -> Result<
             // in-flight until the handshake completes.
             s.peer_addr().map(|_| ())
         }
-        Socket::Listener(_) => Err(std::io::Error::other("not a stream")),
+        // A TLS wrap only happens *after* the connect has landed, so this handle
+        // cannot be one waiting on `connect(2)`.
+        Socket::Listener(_) | Socket::Tls { .. } => Err(wrong_socket_kind("a connecting stream")),
     });
     match state {
         None => Ok(socket_closed_err()),
@@ -3119,7 +3164,9 @@ fn native_socket_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
                 buf
             })
         }
-        Socket::Listener(_) => Err(std::io::Error::other("not a stream")),
+        // Reading the raw fd under a TLS session would hand back ciphertext and
+        // steal records from the session; `tls_read` is the way in.
+        Socket::Listener(_) | Socket::Tls { .. } => Err(wrong_socket_kind("a plain stream")),
     });
     match read {
         None => Ok(socket_closed_err()),
@@ -3145,7 +3192,9 @@ fn native_socket_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
     }
     let written = with_socket(handle, |sock| match sock {
         Socket::Stream(s) => s.write(&data),
-        Socket::Listener(_) => Err(std::io::Error::other("not a stream")),
+        // Writing the raw fd under a TLS session would put plaintext on the wire
+        // *and* desync the record stream; `tls_write` is the way in.
+        Socket::Listener(_) | Socket::Tls { .. } => Err(wrong_socket_kind("a plain stream")),
     });
     match written {
         None => Ok(socket_closed_err()),
@@ -3162,14 +3211,24 @@ fn native_socket_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
 /// `File`.
 fn native_socket_close(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let handle = as_int(expect_one(args, "socket_close")?, "socket_close")?;
-    let Some(mut sock) = SOCKETS.with(|s| s.borrow_mut().remove(&handle)) else {
+    if !close_socket_entry(handle) {
         return Ok(socket_closed_err());
+    }
+    Ok(Value::ok(Value::Unit))
+}
+
+/// Take `handle` out of service: deregister, drop the fd (and any TLS session with
+/// it), and wake its waiters. `false` if it was already closed. Shared with
+/// `tls_close`, which flushes a `close_notify` first.
+fn close_socket_entry(handle: i64) -> bool {
+    let Some(mut sock) = SOCKETS.with(|s| s.borrow_mut().remove(&handle)) else {
+        return false;
     };
     // Deregister before the fd closes; a dropped registration on a closed fd is a
     // resource leak in the poller on some platforms.
     let _ = super::with_registry(|r| match &mut sock {
         Socket::Listener(l) => r.deregister(l),
-        Socket::Stream(s) => r.deregister(s),
+        Socket::Stream(s) | Socket::Tls { stream: s, .. } => r.deregister(s),
     });
     drop(sock);
     // Wake anyone parked on this socket — this is load-bearing, not tidiness.
@@ -3182,7 +3241,7 @@ fn native_socket_close(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
     // read, until `select` gives us a real one (docs/roadmap.md § Networking
     // punchlist).
     super::wake_poll_waiters(handle);
-    Ok(Value::ok(Value::Unit))
+    true
 }
 
 /// `socket.local_addr()` — the bound `<ip>:<port>`. Useful for a listener bound to
@@ -3191,7 +3250,7 @@ fn native_socket_local_addr(_out: &mut dyn Write, args: &[Value]) -> Result<Valu
     let handle = as_int(expect_one(args, "socket_local_addr")?, "socket_local_addr")?;
     let addr = with_socket(handle, |sock| match sock {
         Socket::Listener(l) => l.local_addr(),
-        Socket::Stream(s) => s.local_addr(),
+        Socket::Stream(s) | Socket::Tls { stream: s, .. } => s.local_addr(),
     });
     match addr {
         None => Ok(socket_closed_err()),
@@ -3204,8 +3263,8 @@ fn native_socket_local_addr(_out: &mut dyn Write, args: &[Value]) -> Result<Valu
 fn native_socket_peer_addr(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let handle = as_int(expect_one(args, "socket_peer_addr")?, "socket_peer_addr")?;
     let addr = with_socket(handle, |sock| match sock {
-        Socket::Stream(s) => s.peer_addr(),
-        Socket::Listener(_) => Err(std::io::Error::other("not a stream")),
+        Socket::Stream(s) | Socket::Tls { stream: s, .. } => s.peer_addr(),
+        Socket::Listener(_) => Err(wrong_socket_kind("a stream")),
     });
     match addr {
         None => Ok(socket_closed_err()),
@@ -3226,18 +3285,26 @@ fn native_socket_peer_addr(_out: &mut dyn Write, args: &[Value]) -> Result<Value
 fn native_socket_is_ready(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let handle = as_int(expect_one(args, "socket_is_ready")?, "socket_is_ready")?;
     let ready = with_socket(handle, |sock| match sock {
-        Socket::Stream(s) => {
-            let mut probe = [0u8; 1];
-            match s.peek(&mut probe) {
-                Ok(_) => true,                               // data, or EOF
-                Err(e) => e.kind() != ErrorKind::WouldBlock, // a real error is "ready"
-            }
-        }
+        Socket::Stream(s) => peek_ready(s),
+        // A TLS stream is ready when *plaintext* is available, which the session
+        // may already hold with the fd quiet; failing that, unread ciphertext is
+        // what a `tls_read` needs to make progress.
+        Socket::Tls { stream, session } => session.has_plaintext() || peek_ready(stream),
         Socket::Listener(_) => false,
     });
     // A closed handle is "ready": the op re-run by `select`'s caller returns the
     // closed error at once, rather than parking on a socket that no longer exists.
     Ok(Value::Bool(ready.unwrap_or(true)))
+}
+
+/// Does this fd have something for a reader — bytes, EOF, or a pending error? Uses
+/// `peek`, so it consumes nothing (see [`native_socket_is_ready`]).
+fn peek_ready(stream: &TcpStream) -> bool {
+    let mut probe = [0u8; 1];
+    match stream.peek(&mut probe) {
+        Ok(_) => true,                               // data, or EOF
+        Err(e) => e.kind() != ErrorKind::WouldBlock, // a real error is "ready"
+    }
 }
 
 /// `net.resolve(host, port)` — DNS, as a U+0001-joined list of `<ip>:<port>`.
@@ -3272,6 +3339,176 @@ fn native_socket_resolve(_out: &mut dyn Write, args: &[Value]) -> Result<Value, 
         },
     );
     Ok(Value::Unit)
+}
+
+// --- TLS natives ---
+//
+// What lets `std.http` speak `https` (docs/http-tls.md). They sit *beside* the
+// socket natives and reuse everything about them: the same registry, the same
+// handle, the same poller registration, the same attempt-then-park discipline.
+// `tls_connect` converts a connected socket's registry entry **in place**, so from
+// the scheduler's point of view nothing changed — which is the whole trick, and why
+// TLS needed no new park kind: one registration covers both directions, so rustls
+// wanting to read and rustls wanting to write are both just "the fd isn't ready".
+//
+// The session (the rustls connection plus the pump that drives it) is interp/tls.rs;
+// these natives are the thin registry/park/`Value` shell around it. Two things to
+// hold on to when editing them:
+//
+//  1. **`tls_handshake`/`tls_read`/`tls_close` are idempotent for free.** All
+//     partial state lives in the `Connection`, which lives in the registry rather
+//     than on the stack, so the retry after a park resumes instead of restarting.
+//  2. **`tls_write` is the one that isn't free.** It returns a count and parks only
+//     *before* handing plaintext to rustls; a park after that hand-off would
+//     re-encrypt the same bytes on the retry and send them twice. See
+//     `TlsSession::write` and the tests under it.
+//
+// Nothing in Thera binds these yet: the `TlsStream` wrapper and the trust-injection
+// seam these tests want are stage 3 of docs/http-tls.md §Staged plan.
+
+/// Run `f` against the TLS session on `handle` and the socket beneath it, or give
+/// back the error `Value` the native should return: the handle is closed, or it
+/// names a socket with no session on it (a `tls_*` op without a `tls_connect`).
+fn with_tls<T>(
+    handle: i64,
+    f: impl FnOnce(&mut TcpStream, &mut TlsSession) -> T,
+) -> Result<T, Value> {
+    match with_socket(handle, |sock| match sock {
+        Socket::Tls { stream, session } => Ok(f(stream, session)),
+        Socket::Listener(_) | Socket::Stream(_) => Err(()),
+    }) {
+        None => Err(socket_closed_err()),
+        Some(Err(())) => Err(socket_err(&wrong_socket_kind("a TLS stream"))),
+        Some(Ok(v)) => Ok(v),
+    }
+}
+
+/// Turn a pump outcome into the native's result: park and re-run on `Blocked`, and
+/// map a failure to its kind-tagged `Err`.
+fn tls_outcome<T>(
+    handle: i64,
+    outcome: Result<Progress<T>, TlsError>,
+    done: impl FnOnce(T) -> Value,
+) -> Value {
+    match outcome {
+        Ok(Progress::Done(v)) => Value::ok(done(v)),
+        Ok(Progress::Blocked) => {
+            super::park_ready(handle);
+            Value::Unit // discarded: the native re-runs on wake
+        }
+        Err(e) => tls_err(e),
+    }
+}
+
+/// Layer a TLS client session over the **already connected** socket `handle`:
+/// `host` is both the SNI name sent and the name the server's certificate must be
+/// valid for. No I/O yet — `tls_handshake` runs it, and until then nothing has been
+/// verified.
+///
+/// Returns the *same* handle, now a TLS handle: the wrap happens in place, keeping
+/// the fd's poller registration and every socket op that doesn't care (`close`,
+/// `local_addr`, `peer_addr`, `is_ready`) working on it. The plain `socket_read` /
+/// `socket_write` deliberately stop working, so a stale plaintext handle can't
+/// bypass or desync the session.
+fn native_tls_connect(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, host_v) = args2(args, "tls_connect")?;
+    let handle = as_int(hv, "tls_connect")?;
+    let host = str_contents(host_v)?;
+    // Build the session first: a bad host name then leaves the socket untouched.
+    let session = match TlsSession::client(super::tls::default_client_config(), &host) {
+        Ok(s) => Box::new(s),
+        Err(e) => return Ok(tls_err(e)),
+    };
+    let taken = SOCKETS.with(|s| s.borrow_mut().remove(&handle));
+    match taken {
+        None => Ok(socket_closed_err()),
+        Some(Socket::Stream(stream)) => {
+            SOCKETS.with(|s| {
+                s.borrow_mut()
+                    .insert(handle, Socket::Tls { stream, session })
+            });
+            Ok(Value::ok(Value::Int(handle)))
+        }
+        // A listener, or a stream already wrapped: put it back as it was.
+        Some(other) => {
+            SOCKETS.with(|s| s.borrow_mut().insert(handle, other));
+            Ok(socket_err(&wrong_socket_kind("an unwrapped stream")))
+        }
+    }
+}
+
+/// Drive the handshake to completion, parking on the socket as needed. `Ok(void)`
+/// means the session is ready **and** the server's certificate chain and host name
+/// verified — a bad certificate arrives here as an `Err`, never as a usable stream.
+fn native_tls_handshake(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(expect_one(args, "tls_handshake")?, "tls_handshake")?;
+    match with_tls(handle, |stream, session| session.handshake(stream)) {
+        Err(err) => Ok(err),
+        Ok(outcome) => Ok(tls_outcome(handle, outcome, |()| Value::Unit)),
+    }
+}
+
+/// Up to `max` bytes of **plaintext**; an empty result means the peer closed the
+/// session cleanly (EOF). A socket that just ends, with no `close_notify`, is an
+/// error instead — see `TlsError::Truncated`.
+fn native_tls_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, maxv) = args2(args, "tls_read")?;
+    let handle = as_int(hv, "tls_read")?;
+    let max = as_int(maxv, "tls_read")?.max(0) as usize;
+    if max == 0 {
+        return Ok(Value::ok(Value::new_bytes(Vec::new())));
+    }
+    match with_tls(handle, |stream, session| {
+        session.read(stream, max.min(1 << 20))
+    }) {
+        Err(err) => Ok(err),
+        Ok(outcome) => Ok(tls_outcome(handle, outcome, Value::new_bytes)),
+    }
+}
+
+/// Encrypt and send plaintext, returning how much was **accepted** — which may be
+/// short, because the session's outgoing queue is capped (that cap is the
+/// backpressure a writer feels). The Thera side loops over the remainder, exactly
+/// as for `socket_write`, and for the same reason: a native that swallowed all of
+/// `data` and then parked would re-send it on the retry.
+fn native_tls_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, dv) = args2(args, "tls_write")?;
+    let handle = as_int(hv, "tls_write")?;
+    let data = bytes_contents(dv, "tls_write")?;
+    if data.is_empty() {
+        return Ok(Value::ok(Value::Int(0)));
+    }
+    match with_tls(handle, |stream, session| session.write(stream, &data)) {
+        Err(err) => Ok(err),
+        Ok(outcome) => Ok(tls_outcome(handle, outcome, |n| Value::Int(n as i64))),
+    }
+}
+
+/// Close the session gracefully: flush anything still queued, send `close_notify`
+/// so the peer can tell a finished stream from a truncated one, then take the
+/// socket out of service (the `socket_close` path, so poll waiters are woken and
+/// the fd is deregistered). The socket goes even if the alert couldn't be sent —
+/// leaking the descriptor would be the worse failure.
+fn native_tls_close(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(expect_one(args, "tls_close")?, "tls_close")?;
+    let outcome = match with_tls(handle, |stream, session| session.close(stream)) {
+        Err(err) => return Ok(err),
+        Ok(outcome) => outcome,
+    };
+    match outcome {
+        Ok(Progress::Blocked) => {
+            super::park_ready(handle);
+            Ok(Value::Unit) // discarded: the native re-runs on wake
+        }
+        Ok(Progress::Done(())) => {
+            close_socket_entry(handle);
+            Ok(Value::ok(Value::Unit))
+        }
+        Err(e) => {
+            close_socket_entry(handle);
+            Ok(tls_err(e))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3451,5 +3688,115 @@ mod tests {
             _ => false,
         };
         assert!(is_err, "an invalid pattern should compile to Err, not trap");
+    }
+
+    // --- the TLS/socket registry seam ---
+
+    /// The payload of a `Result` value, asserting which side it took.
+    fn payload(v: &Value, tag: u16) -> Value {
+        match v {
+            Value::Ref(h) => heap::with_obj(*h, |o| match o {
+                Obj::Enum(e) => {
+                    assert_eq!(e.variant, tag, "unexpected Result variant: {e:?}");
+                    e.fields[0]
+                }
+                other => panic!("not an enum: {other:?}"),
+            }),
+            other => panic!("not a ref: {other:?}"),
+        }
+    }
+
+    fn ok_text(v: &Value) -> String {
+        str_contents(&payload(v, crate::value::TAG_OK)).unwrap()
+    }
+
+    fn err_text(v: &Value) -> String {
+        str_contents(&payload(v, crate::value::TAG_ERR)).unwrap()
+    }
+
+    /// `tls_connect` wraps a connected socket **in place** — same handle, same
+    /// poller registration — and that wrap is one-way: the plaintext byte ops stop
+    /// working on the handle, so a stale `TcpStream` naming it can't put cleartext
+    /// on the wire, while the socket-level ops carry on.
+    ///
+    /// Loopback only, and no handshake: `tls_connect` performs no I/O, which is what
+    /// lets this pin the registry seam without a server or a certificate (the
+    /// session pump itself is tested in interp/tls.rs).
+    #[test]
+    fn tls_connect_wraps_a_socket_in_place_and_locks_out_the_plain_ops() {
+        let mut sink = std::io::sink();
+        let listen = native_socket_listen(&mut sink, &[Value::new_str("127.0.0.1:0")]).unwrap();
+        let listener = ok_int(&listen);
+        let addr = ok_text(&native_socket_local_addr(&mut sink, &[Value::Int(listener)]).unwrap());
+        let client =
+            ok_int(&native_socket_connect(&mut sink, &[Value::new_str(addr.clone())]).unwrap());
+        let client_addr =
+            ok_text(&native_socket_local_addr(&mut sink, &[Value::Int(client)]).unwrap());
+
+        let wrapped = native_tls_connect(
+            &mut sink,
+            &[Value::Int(client), Value::new_str("localhost")],
+        )
+        .unwrap();
+        assert_eq!(ok_int(&wrapped), client, "the wrap must keep the handle");
+
+        // The plaintext ops refuse the wrapped handle...
+        for op in [
+            native_socket_read(&mut sink, &[Value::Int(client), Value::Int(16)]).unwrap(),
+            native_socket_write(
+                &mut sink,
+                &[Value::Int(client), Value::new_bytes(b"GET /".to_vec())],
+            )
+            .unwrap(),
+        ] {
+            assert!(
+                err_text(&op).contains("not a plain stream"),
+                "{}",
+                err_text(&op)
+            );
+        }
+        // ...while the ops that don't touch bytes see the same socket as before, so
+        // the fd was moved, not replaced.
+        assert_eq!(
+            ok_text(&native_socket_local_addr(&mut sink, &[Value::Int(client)]).unwrap()),
+            client_addr
+        );
+        // Wrapping twice would drop the live session on the floor.
+        let again = native_tls_connect(
+            &mut sink,
+            &[Value::Int(client), Value::new_str("localhost")],
+        )
+        .unwrap();
+        assert!(err_text(&again).contains("not an unwrapped stream"));
+        // And a `tls_*` op on a socket with no session refuses the other way round.
+        let no_session =
+            native_tls_read(&mut sink, &[Value::Int(listener), Value::Int(16)]).unwrap();
+        assert!(err_text(&no_session).contains("not a TLS stream"));
+
+        // A host name that can't be verified against is caught before the socket is
+        // touched, so the socket survives to be wrapped properly.
+        let other = ok_int(&native_socket_connect(&mut sink, &[Value::new_str(addr)]).unwrap());
+        let bad_host = native_tls_connect(
+            &mut sink,
+            &[Value::Int(other), Value::new_str("not a host")],
+        )
+        .unwrap();
+        assert!(err_text(&bad_host).contains("host name"));
+        let retried =
+            native_tls_connect(&mut sink, &[Value::Int(other), Value::new_str("localhost")])
+                .unwrap();
+        assert_eq!(ok_int(&retried), other);
+
+        // `socket_close` disposes of a TLS handle too (the abrupt close; `tls_close`
+        // is the graceful one), and a closed handle reads as closed either way.
+        for h in [listener, client, other] {
+            assert!(matches!(
+                native_socket_close(&mut sink, &[Value::Int(h)]).unwrap(),
+                v if payload(&v, crate::value::TAG_OK) == Value::Unit
+            ));
+        }
+        let closed = native_tls_handshake(&mut sink, &[Value::Int(client)]).unwrap();
+        assert!(err_text(&closed).contains("socket is closed"));
+        super::reset_sockets();
     }
 }

@@ -165,6 +165,7 @@ pub(crate) fn type_error(expected: &str, found: &Value, module: &Module) -> Trap
 }
 
 mod natives;
+mod tls;
 pub use natives::{
     NATIVE_EQ, NATIVE_INT_TO_STRING, NATIVE_LIST_GET, NATIVE_LIST_INDEX, NATIVE_LIST_LEN,
     NATIVE_LIST_SET, NATIVE_MAP_GET, NATIVE_MAP_HAS, NATIVE_MAP_INDEX, NATIVE_MAP_LEN,
