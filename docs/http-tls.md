@@ -8,11 +8,13 @@ surface, and a test strategy that stays hermetic. See the roadmap's _Networking
 punchlist_ for where it sits (item 3, "the last thing between `std.http` and
 complete").
 
-**Progress against § Staged plan: stages 1–2 have landed** — the crate/provider
-spike ([runtime/tests/tls.rs](../runtime/tests/tls.rs)), and the runtime session
-plus `tls_*` natives ([interp/tls.rs](../runtime/src/interp/tls.rs) and the TLS
-natives in [natives.rs](../runtime/src/interp/natives.rs)). No Thera code reaches
-them yet — that is stage 3. What those stages settled is marked _(settled)_ below.
+**Progress against § Staged plan: stages 1–3 have landed** — the crate/provider
+spike ([runtime/tests/tls.rs](../runtime/tests/tls.rs)), the runtime session plus
+`tls_*` natives ([interp/tls.rs](../runtime/src/interp/tls.rs) and the TLS natives
+in [natives.rs](../runtime/src/interp/natives.rs)), and the Thera `TlsStream` +
+`connect_tls` in [std.net](../sdk/std/net/net.thera). So Thera can speak TLS
+today; what's left is `std.http` using it (stage 4) and the hermetic in-process
+loop (stage 5). What each stage settled is marked _(settled)_ below.
 
 ## Goals & non-goals
 
@@ -271,6 +273,21 @@ provisional surface with a TLS type — acceptable since it stays internal until
 `std.net` is committed, and `std.http` is the sole consumer. The client picks
 `TcpStream` vs `TlsStream` by scheme and passes either to the same codec.
 
+_(settled, stage 3)_ It lives in **`std.net`**, as sketched, plus a
+`net.connect_tls(host, port)` that packages resolve → connect → wrap so the
+client's `https` branch is one line. Two things the sketch didn't say, both worth
+knowing:
+
+- **`connect` takes ownership of the `TcpStream`.** On success the stream *becomes*
+  the `TlsStream` (the runtime wraps in place, so it is literally the same
+  descriptor); on failure it is closed rather than leaked. The spent `TcpStream`
+  value still exists — Thera has no moves — but reading or writing it is an error
+  from the runtime, which is what keeps plaintext from slipping past the session.
+- **`NetError` gained a `Tls(String)` variant**, fed by the natives' `tls` kind
+  tag, so a certificate rejection is matchable rather than a generic `Other`. It
+  covers verification, protocol violations, and truncation. (The `HttpError`
+  variant is stage 4.)
+
 `HttpError`: add a TLS variant (or fold into `Connect(String)`) so a
 cert/handshake failure is matchable and renders a clear message.
 
@@ -284,7 +301,10 @@ considered:
 1. **Live external endpoint** (`https://example.com`). Rejected as the suite's
    backbone — non-hermetic, network-dependent, flaky, and non-reproducible. Keep
    only as an **opt-in smoke** gated on an env var (`THERA_NET_TESTS`), off by
-   default, so a real end-to-end path _can_ be exercised on demand.
+   default, so a real end-to-end path _can_ be exercised on demand. _(Landed with
+   stage 3, at the `net.connect_tls` layer: it is the only test that exercises the
+   real root store against a real certificate, which is exactly what nothing
+   hermetic can cover. A `std.http`-level one can follow with stage 4.)_
 2. **Rust-level in-memory handshake test** — a rustls client and server over an
    in-memory duplex (no sockets), asserting the pump loop and the ABI's
    idempotency (including the deliberate-break write test). Cheap, fully
@@ -317,14 +337,21 @@ in-process loop.
    `{ socket, rustls Connection }`; the pump loop and the park/retry wiring, with
    the write- and close-idempotency invariants pinned by break-it tests against an
    in-memory transport that blocks on demand.
-3. **`TlsStream` Thera wrapper** (`Reader`/`Writer`/`Closer`) + the
-   trust-injection seam on `tls_connect` for tests.
+3. ~~**`TlsStream` Thera wrapper** (`Reader`/`Writer`/`Closer`) + the
+   trust-injection seam on `tls_connect` for tests.~~ _Done._ In `std.net`, with
+   `connect_tls(host, port)`, a `NetError.Tls` variant, and the seam as a
+   **file-private** `connect_trusting` (white-box to `net_test.thera`, so no
+   public API grows a way to say "trust this too"). Tested as far as a real
+   handshake allows without a server: a plaintext peer fails as `Tls`, an
+   unverifiable host name and unusable roots are refused up front, and a failed
+   handshake closes the socket it was handed.
 4. **Wire it into `std.http`.** Replace the `https` error branch in
    `client.thera` with resolve → connect → wrap; add the `HttpError` TLS
    variant.
-5. **Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3); the
-   env-gated live smoke (#1). Update the `https_reports_that_tls_is_missing`
-   test — its precondition is now gone.
+5. **Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3) — where the
+   trust-seam sub-question above gets answered. ~~The env-gated live smoke
+   (#1)~~ _landed with stage 3._ Update the `https_reports_that_tls_is_missing`
+   test — its precondition is gone once stage 4 lands.
 6. **Docs.** Flip [stdlib.md](stdlib.md) § std.http from "`http://` only" to
    "https supported"; move the roadmap _Networking punchlist_ item 3 to the
    Changelog; note the still-deferred redirects/pooling/streaming and the
@@ -363,7 +390,19 @@ in-process loop.
   updates, platform-variable).~~ _Settled in stage 1:_ bundled **`webpki-roots`**,
   which is what puts the patch track above on the trust path — a distrusted CA
   reaches us as a dep bump, so that bump has to be prompt.
-- **`TlsStream` placement**: `std.net` (natural, grows a provisional surface) vs
-  a private sibling under `std.http`.
-- **Trust-injection seam**: how the test-only "trust this cert" knob is passed
-  to `tls_connect` without leaking into the public `std.http` API.
+- ~~**`TlsStream` placement**: `std.net` (natural, grows a provisional surface) vs
+  a private sibling under `std.http`.~~ _Settled in stage 3:_ `std.net`, plus
+  `net.connect_tls` (§ Thera surface).
+- ~~**Trust-injection seam**: how the test-only "trust this cert" knob is passed
+  to `tls_connect` without leaking into the public `std.http` API.~~ _Settled in
+  stage 3:_ a third `roots_pem` parameter on the `tls_connect` native — empty is
+  the production path — reached only through a **file-private** `connect_trusting`
+  in `std.net`, which the white-box rule makes visible to `net_test.thera` and
+  nothing else. Roots are strictly *additional*, so even where it is reachable it
+  cannot turn verification off, and unusable roots are an error rather than a
+  silent "trusted nothing".
+  **The sub-question stage 5 has to answer:** a test in *another* file (the
+  `std.http` in-process loop) can't see a file-private seam. Either that loop
+  lives in `net_test.thera` at the `TlsStream` layer, or the seam becomes ambient
+  (an env var, à la `NODE_EXTRA_CA_CERTS`) — decide it with the harness, not
+  before.

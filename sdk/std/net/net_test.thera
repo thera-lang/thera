@@ -1,8 +1,11 @@
 //! Tests for std.net. These open real sockets, but only ever on loopback and only
 //! ever on an OS-assigned port (bind to `:0`, read the real port back with
 //! `local_addr`), so they need no network and can't collide with a parallel run.
+//! The one exception is the live TLS smoke at the bottom, which is off unless
+//! `THERA_NET_TESTS` is set.
 
 import std.testing;
+import std.env;
 import std.io;
 import std.fiber;
 
@@ -232,4 +235,99 @@ fn closing_a_socket_wakes_a_fiber_parked_on_it() -> Result<Void, Error> {
     conn.close()?;
     listener.close()?;
     return testing.assert(woke_with_error, message: 'expected the reader to wake with a closed error');
+}
+
+// --- TLS ---
+//
+// A real handshake needs a certificate and a TLS server, neither of which exists
+// yet (the in-process TLS loop arrives with `tls_accept` — docs/http-tls.md
+// §Testing). What is testable now is the whole client path *around* the handshake:
+// the wrap, the error mapping, ownership of the socket, and the trust seam.
+
+/// TLS against a server that isn't speaking TLS. The handshake must fail as a
+/// `NetError.Tls` — not hang, and not surface as a network error, which would send
+/// someone debugging their connection rather than their server.
+@test
+fn a_handshake_against_a_plaintext_server_fails_as_tls() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+
+    let server = fiber.spawn(() => {
+        let conn = listener.accept()?;
+        // Echo the ClientHello back. To the client that is a *server* record it
+        // cannot make sense of: a protocol violation, decided by TLS.
+        let got = conn.read(max: 4096)?;
+        let _ = io.write_all(to: conn, got); // the client may have hung up by now
+        let _ = conn.close();
+        return Result.Ok(void);
+    });
+
+    let sock = net.connect_addr(addr)?;
+    let outcome = match net.TlsStream.connect(sock, host: 'localhost') {
+        Ok(_) => 'the handshake unexpectedly succeeded',
+        Err(e) => match e {
+            Tls(_) => 'tls',
+            _ => 'wrong variant: ' + e.message(),
+        },
+    };
+    testing.assert_eq(outcome, 'tls')?;
+    // `connect` takes the socket over, so a failed handshake closes it rather than
+    // leaking the descriptor. (White-box: the handle and `_close` are private.)
+    testing.assert_err(_close(sock.handle))?;
+
+    server.join()?;
+    listener.close()?;
+    return Result.Ok(void);
+}
+
+/// A host name that can't be a certificate's subject is refused up front, before
+/// any bytes move — there would be nothing to verify against.
+@test
+fn a_host_name_that_cannot_be_verified_is_refused() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+    let sock = net.connect_addr(addr)?;
+
+    let msg = match net.TlsStream.connect(sock, host: 'not a host name') {
+        Ok(_) => '(unexpectedly connected)',
+        Err(e) => e.message(),
+    };
+    listener.close()?;
+    return testing.assert(msg.contains('host name'), message: 'got: ' + msg);
+}
+
+/// The test-only trust seam refuses roots it can't use, rather than quietly
+/// trusting nothing — which would leave a test "passing" against a certificate it
+/// never verified. White-box: `connect_trusting` is file-private, so this is the
+/// only place that can reach it.
+@test
+fn unusable_trust_roots_are_reported() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+    let sock = net.connect_addr(addr)?;
+
+    let msg = match connect_trusting(sock, host: 'localhost', roots_pem: 'not a PEM') {
+        Ok(_) => '(unexpectedly connected)',
+        Err(e) => e.message(),
+    };
+    listener.close()?;
+    return testing.assert(msg.contains('trusted roots'), message: 'got: ' + msg);
+}
+
+/// The one test that exercises the *production* trust path — a real certificate
+/// against the bundled Mozilla roots — which nothing hermetic can cover. Off unless
+/// `THERA_NET_TESTS` is set, because it needs the network and a third party's
+/// server: exactly the properties the rest of this file avoids
+/// (docs/http-tls.md §Testing).
+@test
+fn a_live_https_endpoint_verifies_against_the_bundled_roots() -> Result<Void, Error> {
+    if env.get('THERA_NET_TESTS').is_none() {
+        return Result.Ok(void);
+    }
+    let tls = net.connect_tls('example.com', 443)?;
+    io.write_all(to: tls, 'GET / HTTP/1.0\r\nhost: example.com\r\n\r\n'.bytes())?;
+    let reply = io.read_all(tls)?;
+    tls.close()?;
+    let status = reply.to_string()?.lines().get(0).unwrap_or('(empty)');
+    return testing.assert(status.contains('200'), message: 'got: ' + status);
 }
