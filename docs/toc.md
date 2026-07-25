@@ -36,5 +36,10 @@ this is"; read top-down for progressive detail.
   to the client — the `rustls` crate choice, the native ABI, how a TLS session
   rides the socket park/retry model, the `TlsStream` surface, and a hermetic
   test strategy.
+- [scale.md](scale.md) — **Thera at scale**: the plan for keeping large
+  codebases workable for agents — the four scaling failure modes (reading
+  radius, discoverability, feedback latency, trustworthy prose), and the work
+  items: acyclic imports, per-library checking, barrel-enforced boundaries,
+  manifests, generated API indexes, doctests, mechanical refactors.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)
