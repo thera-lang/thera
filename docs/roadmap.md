@@ -51,6 +51,10 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ## Open work
 
+(The coding-at-scale arc — acyclic imports, per-library incremental checking,
+barrel-enforced boundaries, manifests, and the rest — is planned in
+[scale.md](scale.md); items graduate from there into the sections below.)
+
 ### Stdlib
 
 - **Stdlib breadth — remaining.** Of the "batteries included" goal, what's left:
