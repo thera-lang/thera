@@ -1204,9 +1204,11 @@ So the boundary is explicit (and so an agent knows where to look):
   `std.http`.
 
   A **provisional** `std.net` does exist — TCP `listen`/`accept`/`connect` plus
-  a `TcpStream` that is a `Reader`+`Writer`+`Closer` — but only as the layer
-  `std.http` is built on, and only as much of it as HTTP needs (no UDP, no
-  deadlines, no half-close, no socket options, no TLS). It is documented in its
+  a `TcpStream` that is a `Reader`+`Writer`+`Closer`, and a `TlsStream` that is
+  the same thing over a verified TLS session (`connect_tls`; client-side only, no
+  `TlsListener`) — but only as the layer `std.http` is built on, and only as much
+  of it as HTTP needs (no UDP, no deadlines, no half-close, no socket
+  options). It is documented in its
   own module header as expected to change, and is **not** a committed surface:
   treat it as internal until this entry says otherwise. Promoting it is the
   natural pivot if the demand shows up — and the demand to watch for is

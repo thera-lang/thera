@@ -1,5 +1,6 @@
 //! std.net — TCP sockets: `listen`/`accept` for servers, `connect` for clients,
-//! and a `TcpStream` that is an ordinary `Reader` + `Writer` + `Closer`.
+//! and a `TcpStream` (or, over TLS, a `TlsStream`) that is an ordinary
+//! `Reader` + `Writer` + `Closer`.
 //!
 //! Import as: import std.net
 //!
@@ -9,6 +10,9 @@
 //! io.write_all(sock, 'GET / HTTP/1.0\r\n\r\n'.to_bytes())?;
 //! let reply = io.read_all(sock)?;
 //! sock.close()?;
+//!
+//! // the same, over TLS: certificate + host verified before `connect_tls` returns
+//! let tls = net.connect_tls('example.com', 443)?;
 //!
 //! // a server: one fiber per connection
 //! let listener = net.listen('127.0.0.1:8080')?;
@@ -24,9 +28,10 @@
 //! (docs/stdlib.md § "What is intentionally not in core"): they are here to be
 //! built on, not yet to be committed to. Notably absent, and all likely additions
 //! when this is revisited: **UDP**, **deadlines/timeouts** (which want the
-//! scheduler's `select`, docs/roadmap.md), **half-close** (`shutdown`), socket
-//! options (`nodelay`, `keepalive`), and **TLS**. Take a dependency on the shape
-//! of this module only if you are prepared to update it.
+//! scheduler's `select`, docs/roadmap.md), **half-close** (`shutdown`), and socket
+//! options (`nodelay`, `keepalive`). TLS is **client-side only** — there is no
+//! `TlsListener`, so a server terminates TLS upstream. Take a dependency on the
+//! shape of this module only if you are prepared to update it.
 //!
 //! Concurrency: every call parks the calling fiber rather than blocking the
 //! thread, so blocking-looking code stays concurrent (docs/stdlib.md
@@ -53,6 +58,10 @@ pub enum NetError {
     Addr(String),
     /// The socket is closed (a use-after-`close`).
     Closed(String),
+    /// TLS refused: a certificate that doesn't verify or isn't valid for the host,
+    /// a protocol violation, or a stream that ended without a `close_notify`. Its
+    /// own variant because it is not a network failure and retrying won't fix it.
+    Tls(String),
     /// The OS refused the operation (a privileged port, a sandbox).
     PermissionDenied(String),
     TimedOut(String),
@@ -69,6 +78,7 @@ impl Error for NetError {
             Dns(m) => m,
             Addr(m) => m,
             Closed(m) => m,
+            Tls(m) => m,
             PermissionDenied(m) => m,
             TimedOut(m) => m,
             Other(m) => m,
@@ -108,6 +118,9 @@ fn to_net_error(_ raw: String) -> NetError {
     }
     if kind == 'closed' {
         return NetError.Closed(msg);
+    }
+    if kind == 'tls' {
+        return NetError.Tls(msg);
     }
     if kind == 'permission_denied' {
         return NetError.PermissionDenied(msg);
@@ -152,6 +165,26 @@ native fn _resolve(_ host: String, _ port: Int) -> Result<String, String>
 
 @extern('socket_is_ready')
 native fn _is_ready(_ handle: Int) -> Bool
+
+// TLS. `_tls_connect` wraps an already-connected socket and hands back the *same*
+// handle — the session is layered onto the registry entry in place, so the poller
+// registration, `_close`, `_local_addr`/`_peer_addr` and `_is_ready` all keep
+// working on it while `_read`/`_write` stop (they would bypass the session).
+
+@extern('tls_connect')
+native fn _tls_connect(_ handle: Int, _ host: String, _ roots_pem: String) -> Result<Int, String>
+
+@extern('tls_handshake')
+native fn _tls_handshake(_ handle: Int) -> Result<Void, String>
+
+@extern('tls_read')
+native fn _tls_read(_ handle: Int, _ max: Int) -> Result<Bytes, String>
+
+@extern('tls_write')
+native fn _tls_write(_ handle: Int, _ data: Bytes) -> Result<Int, String>
+
+@extern('tls_close')
+native fn _tls_close(_ handle: Int) -> Result<Void, String>
 
 // --- streams ---
 
@@ -235,6 +268,137 @@ impl TcpStream {
     }
 }
 
+// --- TLS ---
+
+/// A TLS client connection: a `Reader` + `Writer` + `Closer` like `TcpStream`, so
+/// anything written against those interfaces (`io.copy`, the HTTP wire codec)
+/// works over it unchanged — that interchangeability is the point.
+///
+/// A `TlsStream` only exists once the handshake has completed, which means the
+/// server's certificate chain **and** its name have been verified against the
+/// bundled root store. A certificate that doesn't check out is a `NetError.Tls`
+/// from `connect`, never a stream you can accidentally use.
+///
+/// **Close it when done**, and prefer `close` over dropping it: it sends TLS's
+/// `close_notify`, which is what lets the peer tell a finished stream from a
+/// truncated one (this end applies the same rule — a stream that just stops is a
+/// `NetError.Tls`, not an EOF).
+pub struct TlsStream {
+    let handle: Int;
+}
+
+impl TlsStream {
+    /// Wrap a **connected** `stream` in TLS for `host`, and drive the handshake.
+    /// `host` is what the certificate must be valid for, so it must be the name
+    /// that was dialled — not an IP the name resolved to.
+    ///
+    /// Takes ownership of `stream`: on success it *becomes* the returned
+    /// `TlsStream` (same descriptor), and on failure it is closed. Either way the
+    /// original value is spent — reading or writing it afterwards is a
+    /// `NetError.Other`, deliberately, so plaintext can't slip past the session.
+    pub fn connect(_ stream: TcpStream, host: String) -> Result<TlsStream, NetError> {
+        return connect_trusting(stream, host: host, roots_pem: '');
+    }
+}
+
+/// `TlsStream.connect`, plus extra trusted roots as PEM — the seam the hermetic
+/// TLS tests connect through, so they can trust a certificate minted at test time
+/// (docs/http-tls.md §Testing).
+///
+/// Deliberately **file-private**: white-box visible to `net_test.thera` and to
+/// nothing else, so no public API — here or in `std.http` — grows a way to say
+/// "trust this too". The roots are additional, never a replacement, so it cannot
+/// turn verification off even where it is reachable.
+fn connect_trusting(
+    _ stream: TcpStream,
+    host: String,
+    roots_pem: String,
+) -> Result<TlsStream, NetError> {
+    let handle = match _tls_connect(stream.handle, host, roots_pem) {
+        Ok(h) => h,
+        // Nothing was wrapped, so this is still a plain socket — close it rather
+        // than leak the descriptor, since the caller has handed it over.
+        Err(e) => {
+            let _ = _close(stream.handle);
+            return Result.Err(to_net_error(e));
+        },
+    };
+    return match _tls_handshake(handle) {
+        Ok(_) => Result.Ok(TlsStream { handle: handle }),
+        Err(e) => {
+            let _ = _close(handle);
+            Result.Err(to_net_error(e))
+        },
+    };
+}
+
+impl io.Reader for TlsStream {
+    /// Up to `max` bytes of **plaintext**. An empty result is EOF — the peer's
+    /// `close_notify`. A connection that ends without one is a `NetError.Tls`
+    /// instead: silently accepting a truncated stream is how a response gets
+    /// trimmed by someone who is not the server.
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        return match _tls_read(self.handle, max) {
+            Ok(b) => Result.Ok(b),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+impl io.Writer for TlsStream {
+    /// Encrypts and sends what the session accepts now, returning that count —
+    /// **short writes are normal**, exactly as for a `TcpStream`. Use
+    /// `io.write_all` unless you are handling the remainder yourself.
+    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+        return match _tls_write(self.handle, data) {
+            Ok(n) => Result.Ok(n),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+impl io.Closer for TlsStream {
+    /// Flush anything pending, send `close_notify`, and close the socket. The
+    /// descriptor goes even if the alert can't be sent.
+    pub fn close(self) -> Result<Void, Error> {
+        return match _tls_close(self.handle) {
+            Ok(_) => Result.Ok(void),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+/// Selectable on readability like a `TcpStream`, but the question is asked of the
+/// *session*: buffered plaintext counts as ready even when the socket is quiet,
+/// because a whole record may already have been decrypted.
+impl fiber.Selectable for TlsStream {
+    pub fn is_ready(self) -> Bool {
+        return _is_ready(self.handle);
+    }
+
+    pub fn source(self) -> fiber.SelectSource {
+        return fiber.SelectSource.Socket(self.handle);
+    }
+}
+
+impl TlsStream {
+    /// This end's `<ip>:<port>`.
+    pub fn local_addr(self) -> Result<String, NetError> {
+        return match _local_addr(self.handle) {
+            Ok(a) => Result.Ok(a),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+
+    /// The remote end's `<ip>:<port>`.
+    pub fn peer_addr(self) -> Result<String, NetError> {
+        return match _peer_addr(self.handle) {
+            Ok(a) => Result.Ok(a),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
 // --- listeners ---
 
 /// A bound, listening TCP socket. `accept` it in a loop; **close it when done**.
@@ -300,6 +464,15 @@ pub fn connect(_ host: String, _ port: Int) -> Result<TcpStream, NetError> {
         }
     }
     return Result.Err(last);
+}
+
+/// Resolve `host`, connect, and wrap the connection in TLS, verifying the
+/// server's certificate against `host`. The `https` half of `connect`.
+///
+/// `host` must be the **name** to verify (`'example.com'`), which is also what is
+/// dialled; a literal IP works only if the certificate is issued for that IP.
+pub fn connect_tls(_ host: String, _ port: Int) -> Result<TlsStream, NetError> {
+    return TlsStream.connect(connect(host, port)?, host: host);
 }
 
 /// Connect to a single already-resolved `<ip>:<port>`. `connect` is the one to

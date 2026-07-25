@@ -3020,6 +3020,9 @@ fn tls_err(e: TlsError) -> Value {
         TlsError::Hostname(h) => Value::err(Value::new_str(format!(
             "tls\u{1}not a valid host name for a TLS certificate: {h}"
         ))),
+        TlsError::Roots(why) => Value::err(Value::new_str(format!(
+            "tls\u{1}unusable trusted roots: {why}"
+        ))),
         TlsError::Truncated(where_) => Value::err(Value::new_str(format!(
             "tls\u{1}the peer closed the connection {where_}"
         ))),
@@ -3405,17 +3408,29 @@ fn tls_outcome<T>(
 /// valid for. No I/O yet — `tls_handshake` runs it, and until then nothing has been
 /// verified.
 ///
+/// `roots_pem` is the trust-injection seam (docs/http-tls.md §Testing): empty is
+/// the production path (the bundled Mozilla store), and a PEM adds those
+/// certificates as *additional* roots for this connection alone, which is how a
+/// hermetic test trusts a certificate minted at test time. It cannot subtract
+/// trust, and `std.net` keeps it behind a file-private function.
+///
 /// Returns the *same* handle, now a TLS handle: the wrap happens in place, keeping
 /// the fd's poller registration and every socket op that doesn't care (`close`,
 /// `local_addr`, `peer_addr`, `is_ready`) working on it. The plain `socket_read` /
 /// `socket_write` deliberately stop working, so a stale plaintext handle can't
 /// bypass or desync the session.
 fn native_tls_connect(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let (hv, host_v) = args2(args, "tls_connect")?;
+    let (hv, host_v, roots_v) = args3(args, "tls_connect")?;
     let handle = as_int(hv, "tls_connect")?;
     let host = str_contents(host_v)?;
-    // Build the session first: a bad host name then leaves the socket untouched.
-    let session = match TlsSession::client(super::tls::default_client_config(), &host) {
+    let roots_pem = str_contents(roots_v)?;
+    // Build the session first: a bad host name or bad roots then leave the socket
+    // untouched, so the caller still has a usable plaintext stream.
+    let config = match super::tls::client_config(&roots_pem) {
+        Ok(c) => c,
+        Err(e) => return Ok(tls_err(e)),
+    };
+    let session = match TlsSession::client(config, &host) {
         Ok(s) => Box::new(s),
         Err(e) => return Ok(tls_err(e)),
     };
@@ -3735,7 +3750,11 @@ mod tests {
 
         let wrapped = native_tls_connect(
             &mut sink,
-            &[Value::Int(client), Value::new_str("localhost")],
+            &[
+                Value::Int(client),
+                Value::new_str("localhost"),
+                Value::new_str(""),
+            ],
         )
         .unwrap();
         assert_eq!(ok_int(&wrapped), client, "the wrap must keep the handle");
@@ -3764,7 +3783,11 @@ mod tests {
         // Wrapping twice would drop the live session on the floor.
         let again = native_tls_connect(
             &mut sink,
-            &[Value::Int(client), Value::new_str("localhost")],
+            &[
+                Value::Int(client),
+                Value::new_str("localhost"),
+                Value::new_str(""),
+            ],
         )
         .unwrap();
         assert!(err_text(&again).contains("not an unwrapped stream"));
@@ -3778,13 +3801,23 @@ mod tests {
         let other = ok_int(&native_socket_connect(&mut sink, &[Value::new_str(addr)]).unwrap());
         let bad_host = native_tls_connect(
             &mut sink,
-            &[Value::Int(other), Value::new_str("not a host")],
+            &[
+                Value::Int(other),
+                Value::new_str("not a host"),
+                Value::new_str(""),
+            ],
         )
         .unwrap();
         assert!(err_text(&bad_host).contains("host name"));
-        let retried =
-            native_tls_connect(&mut sink, &[Value::Int(other), Value::new_str("localhost")])
-                .unwrap();
+        let retried = native_tls_connect(
+            &mut sink,
+            &[
+                Value::Int(other),
+                Value::new_str("localhost"),
+                Value::new_str(""),
+            ],
+        )
+        .unwrap();
         assert_eq!(ok_int(&retried), other);
 
         // `socket_close` disposes of a TLS handle too (the abrupt close; `tls_close`

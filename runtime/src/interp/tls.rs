@@ -32,7 +32,8 @@ use std::cell::RefCell;
 use std::io::{self, ErrorKind, Read, Write};
 use std::sync::Arc;
 
-use rustls::pki_types::ServerName;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, Connection, RootCertStore};
 
 /// How far a pump got. `Blocked` is the caller's cue to park on socket readiness
@@ -55,6 +56,8 @@ pub(super) enum TlsError {
     /// The host name isn't usable as a TLS server name (so there is nothing to
     /// verify a certificate against).
     Hostname(String),
+    /// The caller-supplied trust roots couldn't be used (see [`client_config`]).
+    Roots(String),
     /// The peer closed the TCP connection where TLS requires more — mid-handshake,
     /// or before the `close_notify` that ends a stream cleanly. Reported rather
     /// than passed off as a plain EOF: a silently accepted truncation is an attack
@@ -279,22 +282,63 @@ thread_local! {
 
 /// The production client config: verify the chain and the host name against the
 /// bundled Mozilla root store, no client certificate (docs/http-tls.md §Runtime
-/// crate settles both choices; the test-only trust-injection seam is stage 3).
+/// crate settles both choices).
 pub(super) fn default_client_config() -> Arc<ClientConfig> {
     CLIENT_CONFIG.with(|c| {
         c.borrow_mut()
             .get_or_insert_with(|| {
-                let roots = RootCertStore {
-                    roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-                };
                 Arc::new(
                     ClientConfig::builder()
-                        .with_root_certificates(roots)
+                        .with_root_certificates(root_store("").expect("no extra roots cannot fail"))
                         .with_no_client_auth(),
                 )
             })
             .clone()
     })
+}
+
+/// The config for a connection that trusts `extra_roots_pem` **in addition to** the
+/// bundled store — the trust-injection seam (docs/http-tls.md §Testing), so a
+/// hermetic test can trust a certificate minted at test time. Empty is the
+/// production path and returns the shared config; anything else builds a config of
+/// its own, which is why this stays a test road: it re-clones the root bundle and
+/// forfeits the shared session cache.
+///
+/// Extra roots are *additional*, never a replacement: passing one cannot quietly
+/// turn off verification against the real store.
+pub(super) fn client_config(extra_roots_pem: &str) -> Result<Arc<ClientConfig>, TlsError> {
+    if extra_roots_pem.is_empty() {
+        return Ok(default_client_config());
+    }
+    Ok(Arc::new(
+        ClientConfig::builder()
+            .with_root_certificates(root_store(extra_roots_pem)?)
+            .with_no_client_auth(),
+    ))
+}
+
+/// The bundled Mozilla roots, plus every certificate in `extra_pem` (which may be
+/// empty). A PEM that parses to nothing is an error rather than a silent no-op:
+/// the caller asked for something to be trusted, and "trusted nothing" is the one
+/// answer they must not get back as success.
+fn root_store(extra_pem: &str) -> Result<RootCertStore, TlsError> {
+    let mut roots = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    if extra_pem.is_empty() {
+        return Ok(roots);
+    }
+    let bundled = roots.roots.len();
+    for cert in CertificateDer::pem_slice_iter(extra_pem.as_bytes()) {
+        let cert = cert.map_err(|e| TlsError::Roots(format!("could not read the PEM: {e}")))?;
+        roots.add(cert).map_err(TlsError::Protocol)?;
+    }
+    if roots.roots.len() == bundled {
+        return Err(TlsError::Roots(
+            "no CERTIFICATE block in the supplied roots".to_string(),
+        ));
+    }
+    Ok(roots)
 }
 
 #[cfg(test)]
@@ -368,7 +412,8 @@ mod tests {
     /// runtime/tests/tls.rs, kept separate because these are unit tests of the
     /// session pump (that file tests the rustls stack itself).
     struct Pki {
-        ca: rustls::pki_types::CertificateDer<'static>,
+        /// The CA as PEM — what the trust seam takes.
+        ca_pem: String,
         leaf: rustls::pki_types::CertificateDer<'static>,
         key: PrivateKeyDer<'static>,
     }
@@ -377,7 +422,7 @@ mod tests {
         let ca_key = rcgen::KeyPair::generate().unwrap();
         let mut ca_params = rcgen::CertificateParams::new(Vec::new()).unwrap();
         ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-        let ca = ca_params.self_signed(&ca_key).unwrap().der().clone();
+        let ca_pem = ca_params.self_signed(&ca_key).unwrap().pem();
         let issuer = rcgen::Issuer::new(ca_params, ca_key);
 
         let leaf_key = rcgen::KeyPair::generate().unwrap();
@@ -386,7 +431,7 @@ mod tests {
             .signed_by(&leaf_key, &issuer)
             .unwrap();
         Pki {
-            ca,
+            ca_pem,
             leaf: leaf.der().clone(),
             key: PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(leaf_key.serialize_der())),
         }
@@ -437,20 +482,13 @@ mod tests {
         }
     }
 
-    /// A client session trusting only the test CA, and the matching server.
+    /// A client session that trusts the test CA, and the matching server. The
+    /// client goes through the **trust seam** rather than assembling a root store
+    /// by hand, so every handshake below doubles as proof that a PEM root reaches
+    /// the config the production path builds (docs/http-tls.md §Testing).
     fn pair() -> (TlsSession, Peer) {
         let pki = pki();
-        let mut roots = RootCertStore::empty();
-        roots.add(pki.ca.clone()).unwrap();
-        let client = TlsSession::client(
-            Arc::new(
-                ClientConfig::builder()
-                    .with_root_certificates(roots)
-                    .with_no_client_auth(),
-            ),
-            "localhost",
-        )
-        .unwrap();
+        let client = TlsSession::client(client_config(&pki.ca_pem).unwrap(), "localhost").unwrap();
         let conn = ServerConnection::new(Arc::new(
             ServerConfig::builder()
                 .with_no_client_auth()
@@ -716,6 +754,36 @@ mod tests {
         assert!(Arc::ptr_eq(
             &default_client_config(),
             &default_client_config()
+        ));
+        // The production path — no extra roots — is that same shared config.
+        assert!(Arc::ptr_eq(
+            &client_config("").unwrap(),
+            &default_client_config()
+        ));
+    }
+
+    #[test]
+    fn extra_roots_are_added_to_the_bundle_rather_than_replacing_it() {
+        // The seam can only ever *add* trust. If it swapped the store out, a test
+        // config would stop verifying real certificates — and, worse, the same
+        // parameter would become a way to turn verification off.
+        let pki = pki();
+        let bundled = root_store("").unwrap().roots.len();
+        let extended = root_store(&pki.ca_pem).unwrap().roots.len();
+        assert_eq!(extended, bundled + 1);
+    }
+
+    #[test]
+    fn unusable_trust_roots_are_rejected_rather_than_ignored() {
+        // Both failures matter: silently trusting nothing would leave a test
+        // "passing" against a certificate it never actually verified.
+        assert!(matches!(
+            client_config("-----BEGIN CERTIFICATE-----\nnot base64\n"),
+            Err(TlsError::Roots(_))
+        ));
+        assert!(matches!(
+            client_config("# a comment, and no PEM block at all\n"),
+            Err(TlsError::Roots(_))
         ));
     }
 }

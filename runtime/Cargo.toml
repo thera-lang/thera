@@ -49,7 +49,12 @@ webpki-roots = "1"
 [dev-dependencies]
 # Test-time certificate generation for the hermetic TLS tests (never shipped);
 # see docs/http-tls.md §Testing.
-rcgen = { version = "0.14", default-features = false, features = ["crypto", "aws_lc_rs"] }
+# `pem` because the trust-injection seam takes PEM text, so the tests mint it.
+rcgen = { version = "0.14", default-features = false, features = [
+    "crypto",
+    "aws_lc_rs",
+    "pem",
+] }
 
 [profile.dev]
 # This makes the debug interpreter loop closer to the performance of the release
