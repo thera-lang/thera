@@ -744,7 +744,10 @@ socket timeouts — are **done** (see _Changelog_). What remains is **TLS**, the
 last thing between `std.http` and complete: the client is `http://`-only — an
 `https://` URL parses then fails at `connect`. Design + staged plan (crate
 choice, native ABI, the park/retry mapping, `TlsStream`, and a hermetic test
-strategy) in [http-tls.md](http-tls.md).
+strategy) in [http-tls.md](http-tls.md). **Stages 1–2 of that plan have landed**
+(`rustls`/`aws-lc-rs`/`webpki-roots`, and the runtime's TLS session + `tls_*`
+natives riding the existing park/retry model); next is the Thera `TlsStream`
+wrapper, then the `https` branch in the client.
 
 ### Scheduler punchlist
 

@@ -4,9 +4,15 @@
 stack, so `std.http` can fetch `https://` URLs. It covers the runtime crate
 choice (and what it buys beyond TLS), the native ABI, how a TLS session rides
 the existing non-blocking-socket park/retry model, the Thera-side `TlsStream`
-surface, and a test strategy that stays hermetic. This is a plan, not yet
-executed — see the roadmap's _Networking punchlist_ for where it sits (item 3,
-"the last thing between `std.http` and complete").
+surface, and a test strategy that stays hermetic. See the roadmap's _Networking
+punchlist_ for where it sits (item 3, "the last thing between `std.http` and
+complete").
+
+**Progress against § Staged plan: stages 1–2 have landed** — the crate/provider
+spike ([runtime/tests/tls.rs](../runtime/tests/tls.rs)), and the runtime session
+plus `tls_*` natives ([interp/tls.rs](../runtime/src/interp/tls.rs) and the TLS
+natives in [natives.rs](../runtime/src/interp/natives.rs)). No Thera code reaches
+them yet — that is stage 3. What those stages settled is marked _(settled)_ below.
 
 ## Goals & non-goals
 
@@ -147,7 +153,7 @@ _alongside_ the raw socket; Thera holds an opaque `Int` handle inside a
 `TlsStream`, the same pattern as `TcpStream` / `Regex` / `File`.
 
 ```
-tls_connect(socket_handle, hostname)  -> Result<tls_handle, Error>   // start handshake
+tls_connect(socket_handle, hostname)  -> Result<tls_handle, Error>   // wrap; no I/O
 tls_handshake(tls_handle)             -> Result<Void, Error>         // drive to completion (parks)
 tls_read(tls_handle, max)             -> Result<Bytes, Error>        // plaintext; empty = EOF
 tls_write(tls_handle, data)           -> Result<Int, Error>          // plaintext; returns count
@@ -161,6 +167,17 @@ variant that owns `{ raw TcpStream, rustls Connection }`. `hostname` is passed
 to `tls_connect` for SNI + certificate-name verification. The raw socket stays
 registered for `READABLE | WRITABLE` exactly as now — the TLS layer changes
 _what the native does with readiness_, not _how it parks_.
+
+_(settled, stage 2)_ The `Socket` enum grew a `Tls { stream, session }` variant and
+`tls_connect` swaps the entry **in place, under the same handle** — the returned
+"tls_handle" _is_ the socket handle. That was the choice that made TLS free of
+scheduler changes: the fd keeps its registration, so park routing, `wake_poll_waiters`,
+`socket_close`, `local_addr`/`peer_addr` and `select` all work untouched. It also
+mistake-proofs the layering in the other direction — plain `socket_read`/`socket_write`
+reject the wrapped variant, so a stale plaintext handle can't put cleartext on the
+wire or steal records from the session. `socket_is_ready` learned one thing (a TLS
+stream is ready when the _session_ holds plaintext, even with the fd quiet), which
+keeps `TlsStream` selectable.
 
 ## Park/retry mechanics — the load-bearing part
 
@@ -208,6 +225,20 @@ reduce to "the underlying socket wasn't ready":
     everything else is mechanical. Flag it, pick it deliberately, and pin it
     with a mutation-style test (break idempotency, prove a test catches a
     double-write) the way the poller invariants were pinned.
+
+  _(settled, stage 2)_ **Neither, quite — feed-and-count, ordered so the park can
+  only happen before the feed.** `tls_write` drains pending ciphertext first (pure
+  socket flushing, so repeating it on a retry is free), _then_ hands plaintext to
+  rustls exactly once and returns what rustls took, then best-effort flushes. The
+  first option's unbounded-buffering risk goes away for free: rustls's outgoing
+  queue is size-capped (64 KiB), so it reports a **short count** when full — which
+  is precisely the backpressure a `write` should apply, and the Thera side already
+  loops over short writes. The only park is the "took 0 bytes, queue full" case,
+  which is reached _before_ any plaintext is consumed, so the retry re-feeds
+  nothing. That made the extra flush native unnecessary: every op drains the queue
+  on entry, and `tls_close` must anyway. The invariant is pinned as asked —
+  `a_blocked_write_retried_with_the_same_plaintext_sends_it_once`, and moving the
+  park to after the feed makes it fail with exactly double the payload.
 - **`tls_close`** sends rustls's `close_notify` (a graceful-shutdown record that
   must be flushed to the socket) _then_ closes the underlying socket via the
   existing `socket_close` path — which already wakes poll waiters, so
@@ -278,13 +309,14 @@ in-process loop.
 
 ## Staged plan
 
-1. **Crate + provider spike.** Add `rustls` with the chosen provider and root
-   store; a Rust-only in-memory client↔server handshake over a duplex buffer.
-   Settles the provider/build-cost decision (§ crate) before any Thera surface.
-2. **Client TLS natives + registry.** `tls_connect` / `tls_handshake` /
-   `tls_read` / `tls_write` / `tls_close`; the registry variant owning
-   `{ socket, rustls Connection }`; the pump loop and the park/retry wiring. Pin
-   the write-idempotency invariant (§ Park/retry) with a break-it test.
+1. ~~**Crate + provider spike.**~~ _Done._ `rustls` on `aws-lc-rs` with
+   `webpki-roots`, plus a Rust-only in-memory client↔server handshake (and the
+   cert/hostname rejection cases) over a duplex buffer.
+2. ~~**Client TLS natives + registry.**~~ _Done._ `tls_connect` / `tls_handshake` /
+   `tls_read` / `tls_write` / `tls_close`; the `Socket::Tls` variant owning
+   `{ socket, rustls Connection }`; the pump loop and the park/retry wiring, with
+   the write- and close-idempotency invariants pinned by break-it tests against an
+   in-memory transport that blocks on demand.
 3. **`TlsStream` Thera wrapper** (`Reader`/`Writer`/`Closer`) + the
    trust-injection seam on `tls_connect` for tests.
 4. **Wire it into `std.http`.** Replace the `https` error branch in
@@ -300,21 +332,37 @@ in-process loop.
 
 ## Open questions to settle
 
-- **Crypto provider**: RustCrypto-backed (pure Rust, consolidates with `sha2`)
+- ~~**Crypto provider**: RustCrypto-backed (pure Rust, consolidates with `sha2`)
   vs `aws-lc-rs`/`ring` (hardened, largest deployment base, first C-toolchain
-  build in the tree). The crux is **security posture and patch cadence** (§
-  Runtime crate) — audit history, funded maintenance, response speed — with
-  build cost and dep tidiness as secondary tie-breakers.
-- **Patch-track commitment**: `cargo audit`/`cargo deny` in CI, Dependabot on,
+  build in the tree).~~ _Settled in stage 1:_ **`aws-lc-rs`** (rustls's default),
+  the security-posture answer, accepting the C-toolchain build step as the
+  secondary cost the weighting says it is — see runtime/Cargo.toml's note.
+- ~~**Patch-track commitment**: `cargo audit`/`cargo deny` in CI, Dependabot on,
   and a standing intent to ship a prompt runtime patch on a TLS/crypto advisory
-  rather than batching it. An operational decision to make alongside the crate
-  pick, not after.
-- **`tls_write` idempotency shape**: buffer-all-and-count vs split buffer/flush
-  natives (§ Park/retry). The one genuinely non-mechanical ABI call.
-- **Root store**: bundled `webpki-roots` (deterministic, but distrusting a CA
+  rather than batching it.~~ _Done alongside stage 1:_ a `cargo-deny`
+  advisory scan in CI, and the TLS/crypto deps split into their own
+  daily-checked Dependabot group.
+- ~~**`tls_write` idempotency shape**: buffer-all-and-count vs split buffer/flush
+  natives (§ Park/retry). The one genuinely non-mechanical ABI call.~~
+  _Settled in stage 2:_ feed-and-count with the park ordered before the feed, no
+  flush native, backpressure from rustls's capped queue (§ Park/retry).
+- **ALPN**: the natives currently offer none, so a server sees no
+  `application_layer_protocol_negotiation` extension and HTTP/1.1 is implied.
+  Offering `http/1.1` explicitly is more correct (it stops a server picking `h2`,
+  which the codec can't speak) but fails the handshake against an
+  HTTP/2-only host instead of failing at the first response — and it is an
+  `std.http` policy decision sitting in an `std.net`-layer native. Decide when
+  stage 4 wires the client, since that is where the policy belongs.
+- **Truncation strictness**: a socket that ends with no `close_notify` is an error
+  (`TlsError::Truncated`), not an EOF — the secure reading, and invisible to
+  length- or chunk-framed HTTP responses, which stop before EOF. Revisit only if
+  a real server forces it, and then narrowly (`std.http` tolerating it for a
+  fully-framed body), never by weakening the native.
+- ~~**Root store**: bundled `webpki-roots` (deterministic, but distrusting a CA
   needs a dep bump) vs `rustls-native-certs` (automatic OS-managed trust
-  updates, platform-variable). Reproducibility vs automatic trust updates — the
-  security weighting arbitrates.
+  updates, platform-variable).~~ _Settled in stage 1:_ bundled **`webpki-roots`**,
+  which is what puts the patch track above on the trust path — a distrusted CA
+  reaches us as a dep bump, so that bump has to be prompt.
 - **`TlsStream` placement**: `std.net` (natural, grows a provisional surface) vs
   a private sibling under `std.http`.
 - **Trust-injection seam**: how the test-only "trust this cert" knob is passed
