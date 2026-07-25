@@ -78,6 +78,25 @@ Already tracked in the roadmap and part of this story: **verify doc snippets**
 file**, and the remaining **lint rules** — see _§ Work items_ for how each
 slots in.
 
+## Nomenclature
+
+The units this doc's items hang off, smallest to largest. The first two are
+already defined in [language.md § Visibility](language.md#visibility); only
+**package** is new:
+
+| Term            | Unit of                                                          | Status                |
+| --------------- | ---------------------------------------------------------------- | --------------------- |
+| **source file** | privacy (`pub` vs. file-private)                                 | exists                |
+| **library**     | import/API surface — a single file, or a directory + its barrel; proposed here as the unit of **acyclicity** (item 1) and **separate checking** (item 2) | exists                |
+| **package**     | manifest — a set of libraries with declared dependencies (item 4) | proposed              |
+
+With these terms the cycle rule states itself: _imports between libraries must
+be acyclic; files within a directory library may import each other freely._
+Test files (`foo_test.thera`) are **consumers** of the library they sit
+beside, not members of it — they get white-box visibility, but their imports
+do not count toward the library's dependency graph (see item 1's survey for
+why this matters).
+
 ## Work items
 
 Each item: the problem, today's state, a direction, and the open questions a
@@ -97,21 +116,55 @@ crates, Go packages).
 **Today.** [language.md § Import resolution](language.md#import-resolution):
 direct self-import is a check error; **longer cycles remain legal**.
 
-**Direction.** Enforce acyclicity, staged per the governing loop: a lint
-first (survey how many cycles exist in `pkgs/cli` + `sdk/std` today), then a
-`check` error. The key design question is **granularity**: forbidding cycles
-between *files* is strictest and simplest to state; forbidding them between
-*libraries* (directory + barrel) while allowing them among sibling files
-inside one library is more permissive and may match how tightly-coupled code
-naturally clusters. Leaning file-level unless the survey shows real sibling
-cycles.
+**The survey (2026-07).** The full import graph of `pkgs/cli` + `sdk/std`:
+167 files, 541 edges. Production code (excluding `*_test.thera`) contains
+**exactly one file-level cycle** — `element/element.thera ↔
+element/types.thera`, the mutually recursive symbol-model/type-model pair,
+and they are **siblings in the same directory**. At directory granularity
+there is one SCC — `diagnostic.thera ↔ lexer/` — and it is an artifact of
+contraction, not a real tangle: at file level it is a clean DAG
+(`lexer.thera → diagnostic.thera → lexer/token.thera`); the directory only
+cycles because `SourceSpan` lives inside `lexer/`. The fix is hoisting
+`SourceSpan` into a leaf library — which the deep-import stats independently
+demand (`lexer/token.thera` is imported from outside its directory 27×; see
+item 3). Two more findings: **test files manufacture false cycles** (with
+tests included there are three additional directory SCCs, every back-edge a
+`*_test.thera` — hence the consumer rule in _§ Nomenclature_), and the
+**prelude is safe** (`std.core` imports only its own siblings, so the
+implicit edge into every file cannot cycle).
 
-**Open questions.** (a) How many cycles exist in the current corpus, and what
-shape are they? (b) File-level or library-level? (c) Does the front-end's
-resolver already have the import DAG in a form that makes the lint cheap?
+**Direction — settled by the survey.** Granularity is **library-level**:
+cycles forbidden between libraries, free among sibling files within a
+directory library (the Go model — packages acyclic, files within free).
+File-level would tax the natural mutually-recursive-siblings case
+(`element ↔ types`) for no architectural gain; library-level makes the
+entire current corpus conform once `SourceSpan` is hoisted. A small program
+pays nothing: one directory is one library, where all cycles are legal — the
+constraint comes into existence exactly when a second directory (a declared
+boundary) does. Staging per the governing loop: lint first, then `check`
+error.
 
-**Status:** open. Graduates to language.md § Import resolution + a roadmap
-_Language_ item.
+**Diagnostics.** A cycle is a property of a set of edges — there is no
+principled single culprit — so the deterministic choice is to flag **every
+import statement participating in a cycle**, each carrying the full path
+(`import cycle: diagnostic → lexer/token → … → diagnostic`). A local edit
+can therefore surface diagnostics in the cycle's other files; this is
+acceptable because the blast radius is exactly the fix radius (the flagged
+files are precisely those where an edit could break the cycle), the author
+of the closing edge sees the error at the import they just wrote, and the
+full path in the message makes it actionable from any end. The check is an
+imports-only graph pass — no resolution, no types — so it runs first,
+instantly, and never flickers with checker state.
+
+**Open questions.** ~~(a) how many cycles / what shape~~ and ~~(b) file- or
+library-level~~ — settled by the survey, above. Remaining: (c) does the
+front-end's resolver already hold the import DAG in a form that makes the
+lint cheap? (The loader builds the import closure — see
+`pkgs/cli/loader.thera` — so likely yes.)
+
+**Status:** direction settled; remaining work — hoist `SourceSpan` to a leaf
+library, land the cycle lint, then promote to a `check` error. Graduates to
+language.md § Import resolution + a roadmap _Language_ item.
 
 ### 2. Per-library separate checking
 
@@ -159,18 +212,25 @@ to ban deep imports.)
 
 **Today.** Nothing distinguishes an outsider importing `util/strings` from a
 sibling doing so. Barrels re-export via `pub import`, but consumers are not
-required to come through them.
+required to come through them. The 2026-07 survey (item 1) counted **80 deep
+imports** in `pkgs/cli` + `sdk/std`, heavily concentrated: 27 alone target
+`lexer/token.thera` — a de-facto shared vocabulary library (`SourceSpan`,
+`Token`) trapped inside `lexer/`, whose hoisting item 1 already requires.
+(The survey also found 139 imports using `..` traversal — legal, and now
+documented as such in language.md § Import resolution, which previously said
+otherwise.)
 
 **Direction.** Files inside a directory library are importable only by
 siblings (same directory); outsiders go through the barrel. Then the barrel
 really is the API, and its `pub import` list is the one place the surface is
 defined. Staged: lint (survey violations in the corpus), then check error.
 
-**Open questions.** (a) Does the current corpus (`pkgs/cli`, `sdk/std`,
-examples) deep-import today, and how much migration does enforcement imply?
-(b) Is "same directory" the right sibling rule, or "same library subtree"
-(nested dirs)? (c) Interaction with test white-box access (`foo_test.thera`
-convention — presumably unaffected, tests are siblings).
+**Open questions.** ~~(a) does the corpus deep-import today~~ — yes, 80
+sites (above); migration is real but concentrated, and the biggest offender
+is fixed by item 1's `SourceSpan` hoist. Remaining: (b) is "same directory"
+the right sibling rule, or "same library subtree" (nested dirs)? (c)
+Interaction with test white-box access (`foo_test.thera` convention —
+presumably unaffected, tests are siblings).
 
 **Status:** open. Graduates to language.md § Visibility / § Import
 resolution.
@@ -311,7 +371,8 @@ column, and this doc's items are that loop applied to scale.
 
 1. **Items 1 + 2 together** — acyclicity + separate checking are one design,
    and the architecture decision that is cheap now and brutal to retrofit.
-   Start with the cycle survey; it is a day and informs everything.
+   The cycle survey is done (see item 1) and settled item 1's direction;
+   next up: the `SourceSpan` hoist and the cycle lint.
 2. **Item 5** (API index) — highest orientation payoff, machinery already
    half-planned.
 3. **Item 3** (deep-import ban) — small, survey-first, sharpens the unit

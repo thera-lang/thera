@@ -1088,7 +1088,10 @@ import 'util/strings'     // → <same dir>/util/strings.thera
 ```
 
 The `.thera` extension is always implied and must not be written in the import
-path. Absolute paths and `..` traversals are not supported.
+path. A path may climb out of the importing file's directory with `..` segments
+(`import '../diagnostic'`) — paths are lexically normalized (`.`/`..`
+collapsed), so every file has one identity however it is reached. Absolute
+paths are not supported.
 
 **A path may resolve to a file or to a directory.** For a path `P` (after
 anchoring as above): if `P.thera` exists it is the library; otherwise, if `P/`
