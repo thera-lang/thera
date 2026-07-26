@@ -3,7 +3,7 @@
 
 // The back edge is deliberately unused — the cycle itself is the subject.
 // ignore: unused-import
-import 'import_cycle_reject';
+import 'import_cycle_reject'; // expect error: import cycle between libraries
 
 pub fn back() -> Int {
     return 7;
