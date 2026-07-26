@@ -1,0 +1,13 @@
+//! spec: mod-import-cycle
+//! mode: check
+
+// Imports between libraries must be acyclic. This file and `cyclib_back` are
+// two single-file libraries importing each other; every import participating
+// in the cycle is diagnosed at its own decl, carrying one full cycle path.
+// (The partner's mirror diagnostic is attributed to that file.)
+
+import 'cyclib_back';   // expect error: import cycle between libraries
+
+fn main() -> Void {
+    let _n = cyclib_back.back();
+}

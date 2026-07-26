@@ -102,72 +102,28 @@ why this matters).
 Each item: the problem, today's state, a direction, and the open questions a
 digging session should settle. Status lines track graduation.
 
-### 1. Acyclic library imports
+### 1. Acyclic library imports — **done, graduated**
 
-_Attacks: reading radius, and enables item 2. **The enabling decision — dig
-first, together with item 2.**_
+_Attacked: reading radius; enables item 2._
 
-**Problem.** A cycle means no file in it can be understood in isolation — the
-reading radius of every member is the whole cycle. Cycles also block
-per-library incremental checking (no topological order to check in) and
-per-library caching. Every ecosystem that scaled made its units acyclic (Rust
-crates, Go packages).
+The rule is now language: **imports between libraries must be acyclic** —
+spec'd in [language.md § Import resolution](language.md#import-resolution)
+(the normative statement), pinned by conformance IDs `mod-import-cycle` /
+`mod-import-cycle-sibling`, enforced in the loader as an error-level `check`
+diagnostic on every participating import (each carrying one full cycle path).
+The unit is the library (directory libraries' sibling files may cycle
+freely); test files are consumers, per _§ Nomenclature_.
 
-**Today.** [language.md § Import resolution](language.md#import-resolution):
-direct self-import is a check error; **longer cycles remain legal**.
-
-**The survey (2026-07).** The full import graph of `pkgs/cli` + `sdk/std`:
-167 files, 541 edges. Production code (excluding `*_test.thera`) contains
-**exactly one file-level cycle** — `element/element.thera ↔
-element/types.thera`, the mutually recursive symbol-model/type-model pair,
-and they are **siblings in the same directory**. At directory granularity
-there is one SCC — `diagnostic.thera ↔ lexer/` — and it is an artifact of
-contraction, not a real tangle: at file level it is a clean DAG
-(`lexer.thera → diagnostic.thera → lexer/token.thera`); the directory only
-cycles because `SourceSpan` lives inside `lexer/`. The fix is hoisting
-`SourceSpan` into a leaf library — which the deep-import stats independently
-demand (`lexer/token.thera` is imported from outside its directory 27×; see
-item 3). Two more findings: **test files manufacture false cycles** (with
-tests included there are three additional directory SCCs, every back-edge a
-`*_test.thera` — hence the consumer rule in _§ Nomenclature_), and the
-**prelude is safe** (`std.core` imports only its own siblings, so the
-implicit edge into every file cannot cycle).
-
-**Direction — settled by the survey.** Granularity is **library-level**:
-cycles forbidden between libraries, free among sibling files within a
-directory library (the Go model — packages acyclic, files within free).
-File-level would tax the natural mutually-recursive-siblings case
-(`element ↔ types`) for no architectural gain; library-level makes the
-entire current corpus conform once `SourceSpan` is hoisted. A small program
-pays nothing: one directory is one library, where all cycles are legal — the
-constraint comes into existence exactly when a second directory (a declared
-boundary) does. Staging per the governing loop: lint first, then `check`
-error.
-
-**Diagnostics.** A cycle is a property of a set of edges — there is no
-principled single culprit — so the deterministic choice is to flag **every
-import statement participating in a cycle**, each carrying the full path
-(`import cycle: diagnostic → lexer/token → … → diagnostic`). A local edit
-can therefore surface diagnostics in the cycle's other files; this is
-acceptable because the blast radius is exactly the fix radius (the flagged
-files are precisely those where an edit could break the cycle), the author
-of the closing edge sees the error at the import they just wrote, and the
-full path in the message makes it actionable from any end. The check is an
-imports-only graph pass — no resolution, no types — so it runs first,
-instantly, and never flickers with checker state.
-
-**Open questions.** ~~(a) how many cycles / what shape~~ and ~~(b) file- or
-library-level~~ — settled by the survey, above. Remaining: (c) does the
-front-end's resolver already hold the import DAG in a form that makes the
-lint cheap? (The loader builds the import closure — see
-`pkgs/cli/loader.thera` — so likely yes.)
-
-**Status:** direction settled; the `SourceSpan` hoist is **done** —
-`pkgs/cli/source.thera` (the source model: `SourceSpan` + the comment side
-channel) is the leaf library, and the corpus is cycle-free at library
-granularity. Remaining — land the cycle lint, then promote to a `check`
-error. Graduates to language.md § Import resolution + a roadmap _Language_
-item.
+How it got here, briefly: the 2026-07 survey (167 files, 541 edges) found one
+real file-level cycle (`element ↔ types` — same-directory siblings, legal
+under the library rule) and one directory-level artifact (`diagnostic ↔
+lexer/`), dissolved by hoisting `SourceSpan` + the comment side channel into
+`pkgs/cli/source.thera` (the source-model leaf library). The survey also
+produced the consumer rule (test files manufactured every false cycle) and
+settled library granularity over file granularity. Enforcement skipped the
+planned lint stage and landed directly as an error: the corpus was already
+clean (nothing to migrate), and item 2's separate checking will *rely* on the
+DAG — an invariant the toolchain depends on can't be ignorable.
 
 ### 2. Per-library separate checking
 
@@ -472,8 +428,8 @@ column, and this doc's items are that loop applied to scale.
 
 1. **Items 1 + 2 together** — acyclicity + separate checking are one design,
    and the architecture decision that is cheap now and brutal to retrofit.
-   The cycle survey is done (see item 1) and settled item 1's direction;
-   next up: the `SourceSpan` hoist and the cycle lint.
+   **Item 1 is done** (rule spec'd, enforced, conformance-pinned); item 2 now
+   has its acyclic order and is the open half.
 2. **Item 5** (API index) — highest orientation payoff, machinery already
    half-planned.
 3. **Item 3** (deep-import ban) — small, survey-first, sharpens the unit

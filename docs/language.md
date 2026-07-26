@@ -1066,7 +1066,21 @@ quoted path).
 
 A direct **self-import** — a file whose import path resolves back to that same
 file — is a check error (`a file cannot import itself`): its own names are
-already in scope. Longer cycles through other files remain legal.
+already in scope.
+
+**Imports between libraries must be acyclic.** The unit of acyclicity is the
+library: a directory library (the directory fronted by its barrel) is one
+unit — its files, barrel and siblings alike, may import each other freely,
+mutual recursion included — and every other file is a unit of its own. An
+import that crosses libraries inside a cycle is a check error at that import,
+carrying one full cycle path at library granularity (`import cycle between
+libraries: a.thera → b/ → a.thera`); **every** participating import is
+flagged — exactly the set of places an edit can break the cycle. A test file
+(`foo_test.thera`) is a *consumer* of the libraries it imports, not a member:
+its imports don't participate in the graph (`std.testing` importing `std.env`
+while `env_test.thera` imports `std.testing` closes no cycle). Loading still
+links a cyclic closure best-effort — names resolve, downstream diagnostics
+stay real — but the error gates compile/run like any other.
 
 **Stdlib imports** resolve against the SDK's standard library directory. Its
 exact location differs between the in-repo and distributed layouts (see

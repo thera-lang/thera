@@ -1,0 +1,10 @@
+// Support library: the back edge of `import_cycle_reject`'s two-file cycle.
+// (No `//!` block, so the harness treats this as a support file.)
+
+// The back edge is deliberately unused — the cycle itself is the subject.
+// ignore: unused-import
+import 'import_cycle_reject';
+
+pub fn back() -> Int {
+    return 7;
+}
