@@ -322,19 +322,80 @@ AST, first). Details in the roadmap entry.
 
 ### 6. Doctests — self-verifying examples
 
-_Attacks: trustworthiness. **Already tracked:** roadmap _Developer tooling →
-Verify the code snippets in docs_ (with design notes: fragment wrappers,
-opt-in/out markers, rustdoc/Go prior art, the `tests/lang/` harness shape)._
+_Attacks: trustworthiness. **Also tracked:** roadmap _Developer tooling →
+Verify the code snippets in docs_ (the motivating bugs and harness notes)._
 
 **The scaling frame.** Code examples are the highest-value doc content for an
 LLM — they are the thing it imitates — and also the doc content that rots
-fastest. Compiling (and where possible running) fenced examples makes the
-docs self-verifying, which is precisely the property that matters when the
-primary reader trusts documents uncritically. The roadmap entry's own
-motivating bugs (a doc teaching `loop { … }`, which is not Thera) are this
-failure mode live.
+fastest. Verifying them makes the docs self-verifying, which is precisely the
+property that matters when the primary reader trusts documents uncritically.
+The roadmap entry's motivating bugs (a doc teaching `loop { … }`, a sketch
+calling an API that never compiled) were both **statically** wrong — so the
+static bar alone catches the rot class that prompted this item.
 
-**Status:** open; design and sequencing live in the roadmap entry.
+**Direction — settled (2026-07).** Examples come in three sizes, and size
+decides where they live. The principle: **minimize code that lives as
+strings** — only the smallest examples sit in comments; anything bigger is
+real code that participates in checking and refactors with no special
+tooling.
+
+1. **One-liners in doc comments** — fenced blocks in `///`/`//!`, REPL style
+   (~99 blocks across 33 `sdk/std` files today). Locality is the point: they
+   surface in hover and `thera doc` at the API they illustrate.
+   **The fence tag is the contract**: a `thera`-tagged fence claims to be
+   real Thera and is verified; attributes make exceptions (`thera sketch` —
+   rendered, never checked, self-labels aspirational API; `thera no_run` —
+   compile only). An **untagged fence is ignored** — legitimately: design
+   fiction is fine when lexically marked, and the corpus already conforms
+   (language.md's 64 blocks are all tagged and should verify; stdlib.md's 52
+   sketch blocks are all untagged). Same rule for fences in `docs/*.md`.
+2. **Workflow examples in test files** — an `@example`-decorated fn in the
+   existing `foo_test.thera` (consistent with `@test`; compiled and run by
+   the test runner). Ordinary code: renames, checking, and find-references
+   work with zero special handling. A doc site pulls one in by an explicit
+   reference on its own doc line — `/// @foo_test.thera#example_name` — the
+   `file#fragment` shape agents already know, and a breadcrumb an agent can
+   follow even with no tooling at all. Tooling (`thera doc`, hover) inlines
+   the referenced body. **Explicit references, no name magic**: Go-style
+   `example_<symbol>` name-matching detaches silently on rename, while a
+   reference is validated resolve-or-error by the same machinery as item 7's
+   `[Symbol]` references. An unreferenced `@example` fn is a natural lint.
+3. **Whole programs in `examples/`** — already exists, already run by
+   `bin/test.sh`. Done.
+
+**Static vs. run.** Compile-check (parse, resolve, type-check) is the
+universal bar for every tagged block — it is deterministic, needs no
+sandbox, and catches the observed rot class (fictional syntax, fictional
+APIs, stale names after renames). **Running is opt-in by shape**: a block
+runs iff it contains a `// => value` oracle (the harness debug-formats the
+expression and compares — the marker is both the assertion and the run-me
+signal; Go's `// Output:` design) or `// error:` expectations (check mode,
+per the `tests/lang` harness). The transform is also what makes REPL-style
+lines legal — bare expression statements and discarded `Result`s are errors,
+so oracle lines compile *as assertions*, not verbatim. Blocks with neither
+marker are compile-only. Wrapper synthesis: implicit `fn main` + prelude +
+the documented library auto-imported under its own namespace (existing
+examples already assume this — `path.components(...)`).
+
+**Phasing.** Spec the whole surface now (fence attributes, `// =>`,
+`@example`, `@file#fragment` references) so examples get written in the
+final shape; implement in stages: (1) extraction + **compile-check** of
+tagged fences — the high-order bit; (2) `@example` + references + `thera
+doc`/hover inlining (lands with item 5's doc generator — the reference
+convention is only as good as its rendering); (3) `// =>` oracles and
+check-mode blocks; (4) the `lint --fix` sweep converting the ~99 stdlib
+blocks' trailing comments to `// =>` where they parse as values.
+
+**Open questions.** (a) Do `// =>` runs get the `std.testing` deterministic
+doubles (fixed clock/env) ambiently, so `no_run` stays rare? (b) Doctest
+identity/reporting (`file:line` as the test name?). (c) Whether language.md's
+error-demonstrating blocks adopt `// expect error:` verbatim from
+`tests/lang` or keep the lighter `// error:` spelling.
+
+**Status:** direction settled; graduates to language.md § Documentation
+(fence tags, `// =>`, `@example`, references) as each phase lands. Sequencing:
+`sdk/std` doc comments first, language.md second, stdlib.md sketches stay
+untagged (or gain `thera sketch`) as their APIs land.
 
 ### 7. Doc-reference integrity, promoted to errors
 
