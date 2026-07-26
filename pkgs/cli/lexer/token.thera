@@ -1,10 +1,11 @@
 // The token model — the Thera mirror of the Dart toolchain's token.dart:
-// the token kinds, the keyword table, source spans, and the Token itself.
+// the token kinds, the keyword table, and the Token itself. `SourceSpan` and
+// the comment side channel live in the source model (`../source`).
 //
 // Variants are listed in the same order as the Dart `TokenKind` enum so the two
-// stay easy to diff. Spans are code-point based (Thera strings index by code
-// point), which matches the Dart code-unit spans for ASCII source — the common
-// case for Thera programs.
+// stay easy to diff.
+
+import '../source' as _;
 
 pub enum TokenKind {
     // Literals
@@ -129,116 +130,6 @@ pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
         'while' => Option.Some(TokenKind.KwWhile),
         _ => Option.None,
     };
-}
-
-// A region of source: the originating text plus the code-point offset, length,
-// and the 1-based (line, column) of its start.
-pub struct SourceSpan {
-    let source: String;
-    // The canonical key of the file this span lies in (LD7/LD17), or `''`
-    // when the producer had no file (a hermetic/text-only tokenize). This is
-    // what attributes a diagnostic to its owning file — never the source
-    // *text* (identical file contents would collide).
-    let file: String;
-    let offset: Int;
-    let length: Int;
-    let line: Int;
-    let column: Int;
-}
-
-impl SourceSpan {
-    // The slice of `source` this span covers.
-    pub fn text(self) -> String {
-        return self.source.slice(self.offset, self.offset + self.length);
-    }
-
-    // A span from the start of `self` to the end of `other` (used to widen a
-    // node's span to enclose its children). An empty-source span is treated as
-    // absent, so covering with one returns the other — mirroring the Dart
-    // `SourceSpan.cover` factory.
-    pub fn cover(self, _ other: SourceSpan) -> SourceSpan {
-        if self.source == '' {
-            return other;
-        }
-        if other.source == '' {
-            return self;
-        }
-        return SourceSpan {
-            file: self.file,
-            source: self.source,
-            offset: self.offset,
-            length: other.offset + other.length - self.offset,
-            line: self.line,
-            column: self.column,
-        };
-    }
-}
-
-impl Display for SourceSpan {
-    pub fn display(self) -> String {
-        return '${self.line}:${self.column}';
-    }
-}
-
-// A zero-length span at the start of `anchor` — the span for a *synthesized*
-// node (a desugar's fabricated wildcard pattern, binding reference, or empty
-// block). It keeps the anchor's file/position, so a diagnostic on the node
-// still points somewhere sensible, but it covers no source: offset/range
-// consumers (reference collection, span-keyed records) can skip synthesized
-// nodes by their zero length, which no real token produces (PA6).
-pub fn synthetic_span(_ anchor: SourceSpan) -> SourceSpan {
-    return SourceSpan {
-        source: anchor.source,
-        file: anchor.file,
-        offset: anchor.offset,
-        length: 0,
-        line: anchor.line,
-        column: anchor.column,
-    };
-}
-
-// A zero-width span just *past* `anchor` — the hole a missing token leaves
-// (where the completion cursor sits, right after what was typed). The
-// line/column arithmetic is exact for the single-line tokens the lexer
-// produces (a string's escapes keep raw newlines out of source tokens).
-pub fn synthetic_span_after(_ anchor: SourceSpan) -> SourceSpan {
-    return SourceSpan {
-        source: anchor.source,
-        file: anchor.file,
-        offset: anchor.offset + anchor.length,
-        length: 0,
-        line: anchor.line,
-        column: anchor.column + anchor.length,
-    };
-}
-
-// A source comment, captured on a side channel the parser never sees (comments
-// are not tokens, so the compile path stays byte-identical). The formatter and
-// doc tooling re-associate comments with AST nodes by span (gofmt's model). The
-// span covers the `//` through the end of the line, not the trailing newline; its
-// `.text()` is the comment verbatim.
-pub enum CommentKind {
-    Line,      // `//` — an ordinary comment, never extracted
-    Doc,       // `///` — an item doc comment
-    ModuleDoc, // `//!` — a file/package doc comment
-}
-
-pub struct Comment {
-    let kind: CommentKind;
-    let span: SourceSpan;
-}
-
-// Classify a line comment by its marker. `text` is the comment verbatim (starting
-// at `//`). `////`+ is an ordinary comment, not a doc (matching Rust) — a run of
-// slashes is a common divider.
-pub fn classify_comment(_ text: String) -> CommentKind {
-    if text.starts_with('//!') {
-        return CommentKind.ModuleDoc;
-    }
-    if text.starts_with('///') && !text.starts_with('////') {
-        return CommentKind.Doc;
-    }
-    return CommentKind.Line;
 }
 
 // A lexical token: its kind, its source span, and (for string literals and

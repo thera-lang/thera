@@ -6,7 +6,7 @@
 import std.testing;
 import std.json as _;
 
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 import 'positions' as _;
 
 // A span over `source[offset..offset+length)`; line/column derived by walking

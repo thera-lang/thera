@@ -13,7 +13,7 @@
 // checker split between a `TypeRef?` scope and the inferred annotations.
 
 import '../ast/ast' as _;
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 import '../element/types' as _;
 import '../element/element' as _;
 import '../element/scope' as _;

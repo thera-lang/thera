@@ -11,7 +11,7 @@
 // and an LSP code action both drive.
 
 import '../ast/ast' as _; // Program/Decl/Stmt/Expr + span accessors
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 import '../lexer/lexer';
 import '../parser/parser';
 import '../edit/edit';

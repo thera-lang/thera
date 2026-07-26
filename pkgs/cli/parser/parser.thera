@@ -20,6 +20,7 @@
 import std.char;
 
 import '../lexer/token' as _;
+import '../source' as _; // SourceSpan, synthetic spans
 import '../lexer/lexer';
 import '../ast/ast' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error

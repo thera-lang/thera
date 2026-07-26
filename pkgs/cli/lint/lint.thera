@@ -14,7 +14,7 @@
 // The one per-arm style rule — `=> {}` → `=> void` — defers to `if let` (whose
 // rewrite removes the empty arm entirely).
 
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 import '../ast/ast' as _;
 
 // One located suggestion: which rule fired, where, and a human-readable message.

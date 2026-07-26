@@ -7,7 +7,7 @@
 import std.json as _;
 
 import '../ast/ast' as _;      // Program, Decl, the per-decl payloads, EnumVariant
-import '../lexer/token' as _;  // SourceSpan
+import '../source' as _;  // SourceSpan
 import 'positions';     // span_to_range
 
 // LSP `SymbolKind` values (the subset we emit):

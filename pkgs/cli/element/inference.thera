@@ -16,7 +16,7 @@
 // statement's sub-expressions itself when it visits them.
 
 import '../ast/ast' as _;
-import '../lexer/token' as _;
+import '../source' as _;
 import 'types' as _;
 import 'element' as _;
 import 'scope' as _;

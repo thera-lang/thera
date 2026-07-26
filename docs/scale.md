@@ -162,9 +162,12 @@ front-end's resolver already hold the import DAG in a form that makes the
 lint cheap? (The loader builds the import closure — see
 `pkgs/cli/loader.thera` — so likely yes.)
 
-**Status:** direction settled; remaining work — hoist `SourceSpan` to a leaf
-library, land the cycle lint, then promote to a `check` error. Graduates to
-language.md § Import resolution + a roadmap _Language_ item.
+**Status:** direction settled; the `SourceSpan` hoist is **done** —
+`pkgs/cli/source.thera` (the source model: `SourceSpan` + the comment side
+channel) is the leaf library, and the corpus is cycle-free at library
+granularity. Remaining — land the cycle lint, then promote to a `check`
+error. Graduates to language.md § Import resolution + a roadmap _Language_
+item.
 
 ### 2. Per-library separate checking
 

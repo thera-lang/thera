@@ -10,6 +10,7 @@
 import std.json;
 
 import '../lexer/token' as _;
+import '../source' as _; // SourceSpan
 import 'positions';
 import 'resolve';
 import 'paths';

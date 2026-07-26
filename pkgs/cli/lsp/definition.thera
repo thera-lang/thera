@@ -7,7 +7,7 @@
 
 import std.json as _;
 
-import '../lexer/token' as _;  // SourceSpan
+import '../source' as _;  // SourceSpan
 import 'resolve';         // resolve_at
 import 'positions';     // span_to_range
 import 'paths';             // path_to_uri

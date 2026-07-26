@@ -11,6 +11,7 @@ import std.json;
 
 import '../lexer/lexer';
 import '../lexer/token' as _;
+import '../source' as _; // SourceSpan
 import 'positions';
 import 'resolve';
 
