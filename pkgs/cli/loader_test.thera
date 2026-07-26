@@ -141,8 +141,16 @@ fn load_root(_ path: String) -> Result<LoadedImports, Error> {
 
 // The fixture closure, loaded under any root spelling: exactly one imported
 // program (the child — the cycle back to the root must hit the cache, not load
-// a duplicate root unit), and both files' namespaces resolved.
+// a duplicate root unit), both files' namespaces resolved, and — the two files
+// being distinct libraries — the cycle diagnosed on both participating imports
+// (loading still links best-effort; the error gates).
 fn check_root_closure(_ loaded: LoadedImports) -> Result<Void, Error> {
+    testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
+    for d in loaded.diagnostics {
+        testing.assert(d.message.contains('import cycle between libraries'),
+            message: 'cycle diagnosed: ${d.message}')?;
+        testing.assert_eq(actual: d.span.line, expected: 1)?;
+    }
     testing.assert_eq(actual: loaded.programs.len(), expected: 1)?;
     let child_path = loaded.programs[0].file_path.unwrap_or('');
     testing.assert(child_path.starts_with('/') && child_path.ends_with('/sub/child.thera'),
@@ -445,6 +453,90 @@ fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
     testing.assert_eq(actual: warm.diagnostics.len(), expected: cold.diagnostics.len())?;
     testing.assert(warm.diagnostics[0].message.contains('clash'),
         message: 'replayed diagnostic names the colliding fn')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+// The library-level acyclicity rule (language.md § Import resolution), at its
+// three boundaries: sibling files inside a directory library may cycle freely;
+// two directory libraries may not (every participating import is diagnosed,
+// with the cycle path at library granularity in the message); and a cycle
+// closed only through a `foo_test.thera` is no cycle — test files are
+// consumers of the libraries they import, not members.
+@test
+fn test_cycle_within_directory_library_is_legal() -> Result<Void, Error> {
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_sibling_cycle_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
+    fs_ok(fs.create_dir_all(dir + '/liba'), 'create fixture dir')?;
+    fs_ok(fs.write_text(dir + '/liba/liba.thera',
+        'pub import \'x\';\npub import \'y\';\n'), 'write barrel')?;
+    fs_ok(fs.write_text(dir + '/liba/x.thera',
+        'import \'y\';\npub fn fx() -> Int { return 1; }\n'), 'write x')?;
+    fs_ok(fs.write_text(dir + '/liba/y.thera',
+        'import \'x\';\npub fn fy() -> Int { return x.fx(); }\n'), 'write y')?;
+    fs_ok(fs.write_text(dir + '/main.thera',
+        'import \'liba\';\nfn main() -> Void { }\n'), 'write main')?;
+
+    let loaded = match fs.read_text(dir + '/main.thera') {
+        Ok(src) => load_imports(dir + '/main.thera', testkit.parse(src), Option.None),
+        Err(e) => { return Result.Err(error('read main: ${e.message()}')); },
+    };
+    testing.assert_eq(actual: loaded.diagnostics.len(), expected: 0)?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+@test
+fn test_cycle_between_directory_libraries_is_diagnosed() -> Result<Void, Error> {
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_library_cycle_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
+    fs_ok(fs.create_dir_all(dir + '/libp'), 'create libp')?;
+    fs_ok(fs.create_dir_all(dir + '/libq'), 'create libq')?;
+    fs_ok(fs.write_text(dir + '/libp/libp.thera',
+        'import \'../libq\';\npub fn fp() -> Int { return libq.fq(); }\n'), 'write libp')?;
+    fs_ok(fs.write_text(dir + '/libq/libq.thera',
+        'import \'../libp\';\npub fn fq() -> Int { return 2; }\n'), 'write libq')?;
+
+    let loaded = match fs.read_text(dir + '/libp/libp.thera') {
+        Ok(src) => load_imports(dir + '/libp/libp.thera', testkit.parse(src), Option.None),
+        Err(e) => { return Result.Err(error('read libp: ${e.message()}')); },
+    };
+    testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
+    for d in loaded.diagnostics {
+        testing.assert(d.message.contains('import cycle between libraries'),
+            message: 'cycle diagnosed: ${d.message}')?;
+        // The path is at library granularity: directory libraries, marked '/'.
+        testing.assert(d.message.contains('libp/') && d.message.contains('libq/'),
+            message: 'path names both libraries: ${d.message}')?;
+        testing.assert_eq(actual: d.span.line, expected: 1)?;
+    }
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+@test
+fn test_cycle_through_test_file_is_ignored() -> Result<Void, Error> {
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_test_consumer_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
+    fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
+    fs_ok(fs.write_text(dir + '/foo.thera',
+        'import \'util\';\npub fn ff() -> Int { return util.fu(); }\n'), 'write foo')?;
+    fs_ok(fs.write_text(dir + '/util.thera',
+        'pub fn fu() -> Int { return 3; }\n'), 'write util')?;
+    // `util_test` imports `foo`, closing foo → util → (util_test) → foo only
+    // through the test file — which is a consumer, not a member: no cycle.
+    fs_ok(fs.write_text(dir + '/util_test.thera',
+        'import \'util\';\nimport \'foo\';\nfn probe() -> Int { return foo.ff() + util.fu(); }\n'),
+        'write util_test')?;
+
+    let loaded = match fs.read_text(dir + '/util_test.thera') {
+        Ok(src) => load_imports(dir + '/util_test.thera', testkit.parse(src), Option.None),
+        Err(e) => { return Result.Err(error('read util_test: ${e.message()}')); },
+    };
+    testing.assert_eq(actual: loaded.diagnostics.len(), expected: 0)?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);

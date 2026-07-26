@@ -1,0 +1,14 @@
+//! spec: mod-import-cycle-sibling
+//! mode: run
+
+// The acyclicity unit is the library, not the file: sibling files inside one
+// directory library may import each other freely (mutual recursion across a
+// library's files is the author's own concern), so importing `cyclib` — whose
+// `even_side`/`odd_side` siblings cycle — checks and runs clean.
+
+import 'cyclib';
+
+fn main() -> Void {
+    println(cyclib.describe(3));   // expect: odd:3
+    println(cyclib.describe(4));   // expect: even:4
+}

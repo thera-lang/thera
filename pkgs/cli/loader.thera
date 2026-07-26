@@ -536,6 +536,9 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
             loader.diagnostics.push(d);
         }
     }
+    // Library-level import cycles are check errors (language.md § Import
+    // resolution): report every cross-unit import that participates in one.
+    detect_import_cycles(loader.cache, file_imports, loader.diagnostics);
     return LoadedImports {
         programs: loader.order,
         diagnostics: loader.diagnostics,
@@ -869,6 +872,235 @@ fn public_name(_ decl: Decl) -> Option<String> {
         Impl(_) => Option.None,
         Import(_) => Option.None,
     };
+}
+
+// --- import-cycle detection (language.md § Import resolution) ---
+//
+// Imports between libraries must be acyclic. The unit of acyclicity is the
+// library: a directory library (a directory fronted by its `<dir>/<name>.thera`
+// barrel) is one unit — its files may import each other freely, cycles included
+// — and every other file is a unit of its own. Test files (`foo_test.thera`)
+// are consumers of the libraries they import, not members: their imports don't
+// participate. Every cross-unit import inside a cycle is diagnosed — the
+// flagged imports are exactly the edges an edit could break — each carrying
+// one full cycle path at unit granularity.
+
+// The acyclicity unit for a canonical file key: its directory when that
+// directory is a library (its barrel exists on disk), else the file itself.
+// `dir_cache` memoizes the barrel probe per directory for the call.
+fn unit_of(_ key: String, _ dir_cache: Map<String, Bool>) -> String {
+    let dir = path.dirname(key);
+    let is_lib = match dir_cache.get(dir) {
+        Some(b) => b,
+        None => {
+            let b = is_file(path.join(dir, path.basename(dir) + source_exts()[0]));
+            dir_cache[dir] = b;
+            b
+        },
+    };
+    return if is_lib { dir } else { key };
+}
+
+// A unit rendered for the cycle message: a directory library with a trailing
+// '/', a single-file unit as its display path.
+fn unit_display(_ unit: String) -> String {
+    if unit.ends_with(source_exts()[0]) {
+        return display_path(unit);
+    }
+    return display_path(unit) + '/';
+}
+
+// Append `to` to `from`'s adjacency list, creating the list on first use.
+fn push_edge(_ adj: Map<String, List<String>>, _ from: String, _ to: String) -> Void {
+    match adj.get(from) {
+        Some(xs) => { xs.push(to); },
+        None => { adj[from] = [to]; },
+    }
+    return;
+}
+
+// Record `u` once, preserving first-seen order (the deterministic DFS order).
+fn add_unit(_ u: String, _ units: List<String>, _ seen: Set<String>) -> Void {
+    if !seen.has(u) {
+        seen.add(u);
+        units.push(u);
+    }
+    return;
+}
+
+// Strongly connected components of the unit graph — Kosaraju's two-pass sweep
+// with explicit stacks (no recursion, so a deep import chain can't overflow).
+// Returns unit -> component id; two units share an id exactly when each can
+// reach the other (a cycle: same-unit edges are excluded upstream, so a
+// single-unit component is acyclic).
+fn scc_ids(_ units: List<String>, _ adj: Map<String, List<String>>) -> Map<String, Int> {
+    // Pass 1: DFS post-order ("finish order") over the forward graph.
+    let finished: List<String> = [];
+    let visited: Set<String> = Set.new();
+    for start in units {
+        if visited.has(start) {
+            continue;
+        }
+        visited.add(start);
+        let nodes: List<String> = [start];
+        let cursor: List<Int> = [0];
+        while nodes.len() > 0 {
+            let n = nodes[nodes.len() - 1];
+            let i = cursor[cursor.len() - 1];
+            let succs = adj.get(n).unwrap_or([]);
+            if i < succs.len() {
+                cursor[cursor.len() - 1] = i + 1;
+                let s = succs[i];
+                if !visited.has(s) {
+                    visited.add(s);
+                    nodes.push(s);
+                    cursor.push(0);
+                }
+            } else {
+                finished.push(n);
+                let _ = nodes.pop();
+                let _ = cursor.pop();
+            }
+        }
+    }
+    // Pass 2: sweep the reversed graph in reverse finish order; each sweep's
+    // reachable set is one component.
+    let radj: Map<String, List<String>> = [:];
+    for u in units {
+        for v in adj.get(u).unwrap_or([]) {
+            push_edge(radj, v, u);
+        }
+    }
+    let comp: Map<String, Int> = [:];
+    let mut next_id = 0;
+    let mut k = finished.len() - 1;
+    while k >= 0 {
+        let root = finished[k];
+        k = k - 1;
+        if let Some(_) = comp.get(root) {
+            continue;
+        }
+        comp[root] = next_id;
+        let stack: List<String> = [root];
+        while stack.len() > 0 {
+            let n = stack[stack.len() - 1];
+            let _ = stack.pop();
+            for s in radj.get(n).unwrap_or([]) {
+                if let Some(_) = comp.get(s) {
+                    continue;
+                }
+                comp[s] = next_id;
+                stack.push(s);
+            }
+        }
+        next_id = next_id + 1;
+    }
+    return comp;
+}
+
+// The cycle message for a participating edge `from → to`: the edge itself,
+// then a shortest path from `to` back to `from` inside their shared component
+// (BFS restricted to it) — `a → b/ → a`. Same component ⇒ the path exists.
+fn cycle_path(_ from: String, _ to: String, _ adj: Map<String, List<String>>,
+    _ comp: Map<String, Int>) -> String {
+    let cid = comp.get(from).unwrap_or(-1);
+    let parent: Map<String, String> = [:];
+    let queue: List<String> = [to];
+    let seen: Set<String> = Set.new();
+    seen.add(to);
+    let mut qi = 0;
+    let mut found = from == to;
+    while qi < queue.len() && !found {
+        let n = queue[qi];
+        qi = qi + 1;
+        for s in adj.get(n).unwrap_or([]) {
+            if comp.get(s).unwrap_or(-2) == cid && !seen.has(s) {
+                seen.add(s);
+                parent[s] = n;
+                queue.push(s);
+                if s == from {
+                    found = true;
+                }
+            }
+        }
+    }
+    // Walk the parent links `from` -> … -> `to` (the reversed path), then emit
+    // the cycle: from -> to -> … -> from.
+    let walk: List<String> = [];
+    let mut cur = from;
+    while cur != to {
+        walk.push(cur);
+        let Some(p) = parent.get(cur) else {
+            // Unreachable when the ends share a component; degrade to the edge.
+            return '${unit_display(from)} → ${unit_display(to)} → ${unit_display(from)}';
+        };
+        cur = p;
+    }
+    walk.push(to);
+    let parts: List<String> = [unit_display(from)];
+    let mut j = walk.len() - 1;
+    while j >= 0 {
+        parts.push(unit_display(walk[j]));
+        j = j - 1;
+    }
+    return parts.join(' → ');
+}
+
+// Detect library-level import cycles across the loaded closure and report every
+// participating cross-unit import at its own span. Runs per closure load — the
+// graph pass is linear in the closure's edges; `thera check`'s printed-line
+// dedupe collapses the repeats across a multi-file run.
+fn detect_import_cycles(_ cache: Map<String, LibrarySource>,
+    _ file_imports: Map<String, List<String>>, _ diags: List<diagnostic.Diagnostic>) -> Void {
+    // The unit graph: cross-unit edges from non-test files, deduped.
+    let dir_cache: Map<String, Bool> = [:];
+    let adj: Map<String, List<String>> = [:];
+    let units: List<String> = [];
+    let seen_units: Set<String> = Set.new();
+    let seen_edges: Set<String> = Set.new();
+    for file in file_imports.keys() {
+        if let Some(_) = test_base_name(Option.Some(file)) {
+            continue;
+        }
+        let uf = unit_of(file, dir_cache);
+        add_unit(uf, units, seen_units);
+        for target in file_imports[file] {
+            let ut = unit_of(target, dir_cache);
+            add_unit(ut, units, seen_units);
+            if uf != ut {
+                let ek = uf + '\n' + ut;
+                if !seen_edges.has(ek) {
+                    seen_edges.add(ek);
+                    push_edge(adj, uf, ut);
+                }
+            }
+        }
+    }
+    let comp = scc_ids(units, adj);
+    // Flag each import whose edge stays inside one component — those imports
+    // are exactly the places an edit can break the cycle.
+    for file in file_imports.keys() {
+        if let Some(_) = test_base_name(Option.Some(file)) {
+            continue;
+        }
+        if let Some(src) = cache.get(file) {
+            let uf = unit_of(file, dir_cache);
+            for decl in src.program.decls {
+                if let Import(x) = decl {
+                    if let Some(child) = src.imports.get(x.path) {
+                        let ut = unit_of(element.file_key(child.program.file_path), dir_cache);
+                        if uf != ut
+                            && comp.get(uf).unwrap_or(-1) == comp.get(ut).unwrap_or(-2) {
+                            diags.push(diagnostic.in_file(
+                                'import cycle between libraries: ${cycle_path(uf, ut, adj, comp)}',
+                                x.span, file));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return;
 }
 
 // --- path / fs helpers ---

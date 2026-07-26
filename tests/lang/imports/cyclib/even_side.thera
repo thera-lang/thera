@@ -1,0 +1,8 @@
+import 'odd_side';
+
+pub fn is_even(_ n: Int) -> Bool {
+    if n == 0 {
+        return true;
+    }
+    return odd_side.is_odd(n - 1);
+}

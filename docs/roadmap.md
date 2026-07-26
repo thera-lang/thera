@@ -831,6 +831,23 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Acyclic library imports** (2026-07). Imports between libraries are now
+  required to be acyclic — the first scale.md item landed end to end
+  (language.md § Import resolution; conformance `mod-import-cycle` /
+  `mod-import-cycle-sibling`). The unit is the **library**: a directory
+  library's files (barrel + siblings) may cycle freely; every other file is
+  its own unit; a test file's imports don't participate (a consumer, not a
+  member). Detection lives in the loader (`detect_import_cycles`, a
+  Kosaraju pass over `file_imports` contracted to units) and reports an
+  error-level diagnostic on **every** participating import, each carrying one
+  full cycle path (`import cycle between libraries: a.thera → b/ → a.thera`)
+  — the flagged set is exactly the edits that can break the cycle. Landed
+  directly as an error (no lint stage): the corpus was already clean after
+  the `SourceSpan` hoist into `pkgs/cli/source.thera`, and per-library
+  incremental checking (scale.md item 2) will rely on the DAG. Loading still
+  links a cyclic closure best-effort, so downstream diagnostics stay real;
+  `thera check`'s printed-line dedupe collapses the per-closure repeats.
+
 - **LSP go-to-type-definition** (2026-07). `textDocument/typeDefinition`
   (`pkgs/cli/lsp/type_definition.thera`) — jump from a _value_ to the
   declaration of its _type_ — as a thin renderer over the shared cursor resolver

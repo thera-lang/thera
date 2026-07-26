@@ -2,8 +2,8 @@
 //! mode: check
 
 // A direct self-import is meaningless (a file's own names are already in
-// scope) and is rejected at the import declaration. Longer cycles through
-// other files remain legal.
+// scope) and is rejected at the import declaration. (Cycles through *other*
+// libraries are their own error — see `mod-import-cycle`.)
 
 // The import is the fixture's subject, not a usage example.
 // ignore: unused-import
