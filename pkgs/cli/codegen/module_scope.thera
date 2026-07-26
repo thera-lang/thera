@@ -9,7 +9,7 @@
 // and `self.list.push(…)` both persist), mirroring the Dart class's mutation.
 
 import '../ast/ast' as _;
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 import '../bytecode/module' as _;
 import '../element/types' as _;
 import '../element/element';

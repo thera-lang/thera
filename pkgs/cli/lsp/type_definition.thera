@@ -24,7 +24,7 @@
 import std.json as _;
 
 import '../ast/ast' as _;     // TypeRef
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 import 'resolve';        // ResolveCtx, NameRef, recorded_type_at, member_target
 import 'positions';    // span_to_range
 import 'paths';            // path_to_uri

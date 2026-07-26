@@ -8,6 +8,7 @@
 import std.testing;
 
 import 'token' as _;
+import '../source' as _;
 import 'lexer' as _;
 
 // The token kinds for `src` (including the trailing Eof).

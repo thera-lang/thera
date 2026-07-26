@@ -10,6 +10,7 @@
 import std.char;
 
 import 'token' as _; // lexer produces tokens — token's types are used throughout
+import '../source' as _; // SourceSpan, the comment side channel
 import '../diagnostic'; // Diagnostic — the uniform phase error
 
 // The result of tokenizing: the tokens (always ending in `Eof`), the comments

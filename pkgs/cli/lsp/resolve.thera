@@ -25,7 +25,8 @@
 
 import '../ast/ast' as _;       // Program, Decl, the per-decl payloads
 import '../ast/describe';  // describe_type
-import '../lexer/token' as _;   // SourceSpan, Token, TokenKind
+import '../lexer/token' as _;   // Token, TokenKind
+import '../source' as _;   // SourceSpan
 import '../lexer/lexer';   // tokenize
 import '../element/element';    // file_key, LibraryNamespace
 import '../element/inference';  // TypeRecord

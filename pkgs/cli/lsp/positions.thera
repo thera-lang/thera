@@ -9,7 +9,7 @@
 
 import std.json as _;
 
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 
 // The UTF-16 length of `s`: one unit per code point, two for astral ones.
 pub fn utf16_len(_ s: String) -> Int {

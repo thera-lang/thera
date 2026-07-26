@@ -18,7 +18,8 @@ import '../ast/ast' as _;      // Program, Decl, FnDecl
 import '../ast/describe';      // describe_type
 import '../element/element';   // file_key
 import '../element/types';     // Type (the receiver's committed type)
-import '../lexer/token' as _;  // Token, TokenKind, SourceSpan
+import '../lexer/token' as _;  // Token, TokenKind
+import '../source' as _;  // SourceSpan
 import 'resolve';
 
 // A completion candidate: its label, LSP `CompletionItemKind`, and a

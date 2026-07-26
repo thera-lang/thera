@@ -6,7 +6,7 @@
 // compose directly with the AST's `SourceSpan`s; line/column conversion is
 // provided separately for the LSP protocol boundary.
 
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 import std.char;
 
 // Replace `source[start, end)` (code-point offsets, `end` exclusive) with

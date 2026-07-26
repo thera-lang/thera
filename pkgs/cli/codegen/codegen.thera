@@ -15,7 +15,7 @@
 // record a `Diagnostic` if reached.
 
 import '../ast/ast' as _;
-import '../lexer/token' as _; // SourceSpan
+import '../source' as _; // SourceSpan
 import '../bytecode/instr' as _;
 import '../bytecode/module' as _;
 import '../element/types' as _;

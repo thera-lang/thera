@@ -7,7 +7,7 @@
 // file-less span, e.g. the hermetic pipeline's) falls back to the path the CLI
 // prints against.
 
-import 'lexer/token'; // SourceSpan
+import 'source'; // SourceSpan
 
 // How loud a diagnostic is. An `Error` is invalid code and blocks
 // compile/run; a `Warning` is legal-but-probably-a-bug — reported by `thera
@@ -23,7 +23,7 @@ pub enum Severity {
 // message + a span; this is the common currency the front-end reports).
 pub struct Diagnostic {
     let message: String;
-    let span: token.SourceSpan;
+    let span: source.SourceSpan;
     let file: Option<String>;
     let severity: Severity;
     // The kebab-case rule name, for suppressable diagnostics (warnings): the
@@ -40,7 +40,7 @@ impl Display for Diagnostic {
 
 // An `Error` diagnostic whose owning file is derived from the span (the span
 // knows its file; a file-less hermetic span yields None).
-pub fn at(_ message: String, _ span: token.SourceSpan) -> Diagnostic {
+pub fn at(_ message: String, _ span: source.SourceSpan) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
     return Diagnostic { message: message, span: span, file: file, severity: Severity.Error, rule: Option.None };
 }
@@ -48,13 +48,13 @@ pub fn at(_ message: String, _ span: token.SourceSpan) -> Diagnostic {
 // An `Error` diagnostic attributed to an explicit owning file — used by the
 // loader, which stamps each import-closure error with the file it came from
 // regardless of the span's own key.
-pub fn in_file(_ message: String, _ span: token.SourceSpan, _ file: String) -> Diagnostic {
+pub fn in_file(_ message: String, _ span: source.SourceSpan, _ file: String) -> Diagnostic {
     return Diagnostic { message: message, span: span, file: Option.Some(file), severity: Severity.Error, rule: Option.None };
 }
 
 // A `Warning` diagnostic: a named, suppressable rule (`// ignore: <rule>` on
 // the offending line, or the line above, silences it at that site).
-pub fn warning(_ message: String, _ span: token.SourceSpan, _ rule: String) -> Diagnostic {
+pub fn warning(_ message: String, _ span: source.SourceSpan, _ rule: String) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
     return Diagnostic { message: message, span: span, file: file, severity: Severity.Warning, rule: Option.Some(rule) };
 }
