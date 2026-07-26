@@ -419,20 +419,19 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   first-class-functions fix, and that did not compile when it was written. Both
   were caught by hand, which is exactly the thing that doesn't scale.
 
-  Design notes. The hard part is that a snippet is a **fragment**, not a
-  program: most need a wrapper (`fn main`), some need imports, some are
-  deliberately partial (`pub struct Router { let /* method+path table */; }`),
-  and some — the sketches in `stdlib.md` — describe an API that does **not exist
-  yet**, so "it must compile" is the wrong bar for them. So the mechanism needs
-  an opt-in/opt-out marker per block, and the interesting question is which way
-  the default points. Prior art worth copying: Rust's `rustdoc --test` (hidden
-  `#` lines for the boilerplate; ` ```ignore `/` ```no_run ` for the exceptions)
-  and Go's `Example_*` functions (real compiled code, with `// Output:`
-  checked). Note `tests/lang/` already has most of the harness shape — directive
-  comments, expect lines, an xfail escape hatch — so this may be less new
-  machinery than it looks. Sequencing thought: doc comments in `sdk/std` are the
-  higher-value half and the easier bar (they document code that exists); the
-  `docs/*.md` design sketches are the half that needs the opt-out.
+  **Design settled (2026-07) — see [scale.md](scale.md) § item 6** for the
+  full treatment. The shape: three example tiers by size (fenced one-liners in
+  doc comments; `@example` fns in `foo_test.thera`, pulled into doc sites by
+  explicit `/// @file#fragment` references; whole programs in `examples/`);
+  **the fence tag is the contract** — `thera`-tagged blocks are verified
+  (attributes `sketch`/`no_run` for exceptions), untagged blocks are ignored,
+  which the existing corpus already conforms to (language.md's blocks all
+  tagged, stdlib.md's sketches all untagged); **compile-check is the
+  universal bar**, running is opt-in by shape (a `// => value` oracle or
+  `// error:` expectations — the `tests/lang` harness has the machinery).
+  Implementation phased: extraction + compile-check first (catches the rot
+  class above), `@example`/references with the doc generator, oracles and the
+  `// =>` migration sweep after.
 
 - **Doc-comment tooling — machinery pending.** The conventions
   ([language.md](language.md#documentation)), the `sdk/std/` migration to

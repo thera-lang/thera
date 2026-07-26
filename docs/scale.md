@@ -78,6 +78,25 @@ Already tracked in the roadmap and part of this story: **verify doc snippets**
 file**, and the remaining **lint rules** — see _§ Work items_ for how each
 slots in.
 
+## Nomenclature
+
+The units this doc's items hang off, smallest to largest. The first two are
+already defined in [language.md § Visibility](language.md#visibility); only
+**package** is new:
+
+| Term            | Unit of                                                          | Status                |
+| --------------- | ---------------------------------------------------------------- | --------------------- |
+| **source file** | privacy (`pub` vs. file-private)                                 | exists                |
+| **library**     | import/API surface — a single file, or a directory + its barrel; proposed here as the unit of **acyclicity** (item 1) and **separate checking** (item 2) | exists                |
+| **package**     | manifest — a set of libraries with declared dependencies (item 4) | proposed              |
+
+With these terms the cycle rule states itself: _imports between libraries must
+be acyclic; files within a directory library may import each other freely._
+Test files (`foo_test.thera`) are **consumers** of the library they sit
+beside, not members of it — they get white-box visibility, but their imports
+do not count toward the library's dependency graph (see item 1's survey for
+why this matters).
+
 ## Work items
 
 Each item: the problem, today's state, a direction, and the open questions a
@@ -97,21 +116,55 @@ crates, Go packages).
 **Today.** [language.md § Import resolution](language.md#import-resolution):
 direct self-import is a check error; **longer cycles remain legal**.
 
-**Direction.** Enforce acyclicity, staged per the governing loop: a lint
-first (survey how many cycles exist in `pkgs/cli` + `sdk/std` today), then a
-`check` error. The key design question is **granularity**: forbidding cycles
-between *files* is strictest and simplest to state; forbidding them between
-*libraries* (directory + barrel) while allowing them among sibling files
-inside one library is more permissive and may match how tightly-coupled code
-naturally clusters. Leaning file-level unless the survey shows real sibling
-cycles.
+**The survey (2026-07).** The full import graph of `pkgs/cli` + `sdk/std`:
+167 files, 541 edges. Production code (excluding `*_test.thera`) contains
+**exactly one file-level cycle** — `element/element.thera ↔
+element/types.thera`, the mutually recursive symbol-model/type-model pair,
+and they are **siblings in the same directory**. At directory granularity
+there is one SCC — `diagnostic.thera ↔ lexer/` — and it is an artifact of
+contraction, not a real tangle: at file level it is a clean DAG
+(`lexer.thera → diagnostic.thera → lexer/token.thera`); the directory only
+cycles because `SourceSpan` lives inside `lexer/`. The fix is hoisting
+`SourceSpan` into a leaf library — which the deep-import stats independently
+demand (`lexer/token.thera` is imported from outside its directory 27×; see
+item 3). Two more findings: **test files manufacture false cycles** (with
+tests included there are three additional directory SCCs, every back-edge a
+`*_test.thera` — hence the consumer rule in _§ Nomenclature_), and the
+**prelude is safe** (`std.core` imports only its own siblings, so the
+implicit edge into every file cannot cycle).
 
-**Open questions.** (a) How many cycles exist in the current corpus, and what
-shape are they? (b) File-level or library-level? (c) Does the front-end's
-resolver already have the import DAG in a form that makes the lint cheap?
+**Direction — settled by the survey.** Granularity is **library-level**:
+cycles forbidden between libraries, free among sibling files within a
+directory library (the Go model — packages acyclic, files within free).
+File-level would tax the natural mutually-recursive-siblings case
+(`element ↔ types`) for no architectural gain; library-level makes the
+entire current corpus conform once `SourceSpan` is hoisted. A small program
+pays nothing: one directory is one library, where all cycles are legal — the
+constraint comes into existence exactly when a second directory (a declared
+boundary) does. Staging per the governing loop: lint first, then `check`
+error.
 
-**Status:** open. Graduates to language.md § Import resolution + a roadmap
-_Language_ item.
+**Diagnostics.** A cycle is a property of a set of edges — there is no
+principled single culprit — so the deterministic choice is to flag **every
+import statement participating in a cycle**, each carrying the full path
+(`import cycle: diagnostic → lexer/token → … → diagnostic`). A local edit
+can therefore surface diagnostics in the cycle's other files; this is
+acceptable because the blast radius is exactly the fix radius (the flagged
+files are precisely those where an edit could break the cycle), the author
+of the closing edge sees the error at the import they just wrote, and the
+full path in the message makes it actionable from any end. The check is an
+imports-only graph pass — no resolution, no types — so it runs first,
+instantly, and never flickers with checker state.
+
+**Open questions.** ~~(a) how many cycles / what shape~~ and ~~(b) file- or
+library-level~~ — settled by the survey, above. Remaining: (c) does the
+front-end's resolver already hold the import DAG in a form that makes the
+lint cheap? (The loader builds the import closure — see
+`pkgs/cli/loader.thera` — so likely yes.)
+
+**Status:** direction settled; remaining work — hoist `SourceSpan` to a leaf
+library, land the cycle lint, then promote to a `check` error. Graduates to
+language.md § Import resolution + a roadmap _Language_ item.
 
 ### 2. Per-library separate checking
 
@@ -159,18 +212,25 @@ to ban deep imports.)
 
 **Today.** Nothing distinguishes an outsider importing `util/strings` from a
 sibling doing so. Barrels re-export via `pub import`, but consumers are not
-required to come through them.
+required to come through them. The 2026-07 survey (item 1) counted **80 deep
+imports** in `pkgs/cli` + `sdk/std`, heavily concentrated: 27 alone target
+`lexer/token.thera` — a de-facto shared vocabulary library (`SourceSpan`,
+`Token`) trapped inside `lexer/`, whose hoisting item 1 already requires.
+(The survey also found 139 imports using `..` traversal — legal, and now
+documented as such in language.md § Import resolution, which previously said
+otherwise.)
 
 **Direction.** Files inside a directory library are importable only by
 siblings (same directory); outsiders go through the barrel. Then the barrel
 really is the API, and its `pub import` list is the one place the surface is
 defined. Staged: lint (survey violations in the corpus), then check error.
 
-**Open questions.** (a) Does the current corpus (`pkgs/cli`, `sdk/std`,
-examples) deep-import today, and how much migration does enforcement imply?
-(b) Is "same directory" the right sibling rule, or "same library subtree"
-(nested dirs)? (c) Interaction with test white-box access (`foo_test.thera`
-convention — presumably unaffected, tests are siblings).
+**Open questions.** ~~(a) does the corpus deep-import today~~ — yes, 80
+sites (above); migration is real but concentrated, and the biggest offender
+is fixed by item 1's `SourceSpan` hoist. Remaining: (b) is "same directory"
+the right sibling rule, or "same library subtree" (nested dirs)? (c)
+Interaction with test white-box access (`foo_test.thera` convention —
+presumably unaffected, tests are siblings).
 
 **Status:** open. Graduates to language.md § Visibility / § Import
 resolution.
@@ -219,25 +279,123 @@ It also directly attacks convergent reimplementation: "search the index
 before writing a helper" is a cheap, enforceable habit — and the repo-root
 orientation that today lives in CLAUDE.md becomes mostly derivable.
 
-**Status:** open; details live in the roadmap entry. The scale ask beyond it:
-make the index a **build artifact** (checked or cached under `build/`), so
-agents and the LSP consume it without running a tool.
+**Direction — transport settled (2026-07).** The candidate transports (a
+`thera doc` CLI, committed artifacts + a CI freshness check, a custom LSP
+command, an MCP server) are not competing designs — they are transports over
+one function, so the core is built **once** (doc extraction + index
+formatting, in `pkgs/cli`, riding the loader/element data) and exposed in
+order of agent reach:
+
+- **Front door: `thera doc <lib>` to stdout** (plus `thera doc --index` for
+  the workspace map). The shell is the one transport every coding agent has,
+  and output consumed from a pipe **cannot be stale** — the exact
+  trustworthy-prose property this item exists for. Output is terse,
+  deterministic, stable-ordered text (the consumer is a context window):
+  one line per `pub` symbol — signature + summary sentence. `--json` later
+  if tooling needs it.
+- **LSP shares the core** — hover and workspace-symbol serve the same data
+  as the ambient editor surface (roadmap doc-comment tooling items 2–3). No
+  custom LSP command: worst discovery of the four, and the thing agents
+  drive least well.
+- **MCP deferred** — a thin shim over the same core, addable the week a
+  non-exec agent context needs it; until then it adds config burden without
+  capability.
+- **Committed artifacts rejected.** The staleness window is adversarial (an
+  agent consults the index precisely while a change is in flight — exactly
+  when a committed copy is wrong), and the regen/CI/merge-conflict tax is
+  permanent. The bootstrap-snapshot precedent doesn't transfer: it is
+  committed because it must be, and changes rarely; API docs change with
+  every edit. The one unique benefit — API-surface changes visible in PR
+  diffs — is item 2's job (interface digests), not checked-in docs.
+
+**Discovery** is a prompting-surface problem with an existing reliable
+channel: a best-practice line in each project's CLAUDE.md ("before reading a
+library's source, run `thera doc <lib>`"), and/or the agent rules-file /
+skill from the roadmap's _Idioms & best-practices guidance_ item — "navigate
+Thera this way" lives beside "write Thera this way". Escape valve if that
+proves insufficient: commit only the tiny, slow-changing root map, whose own
+header teaches the tool — but wait for evidence before paying even that.
+
+**Status:** transport settled; open — the index format itself, and
+implementation sequencing (needs doc-comment tooling item 1, attach docs to
+AST, first). Details in the roadmap entry.
 
 ### 6. Doctests — self-verifying examples
 
-_Attacks: trustworthiness. **Already tracked:** roadmap _Developer tooling →
-Verify the code snippets in docs_ (with design notes: fragment wrappers,
-opt-in/out markers, rustdoc/Go prior art, the `tests/lang/` harness shape)._
+_Attacks: trustworthiness. **Also tracked:** roadmap _Developer tooling →
+Verify the code snippets in docs_ (the motivating bugs and harness notes)._
 
 **The scaling frame.** Code examples are the highest-value doc content for an
 LLM — they are the thing it imitates — and also the doc content that rots
-fastest. Compiling (and where possible running) fenced examples makes the
-docs self-verifying, which is precisely the property that matters when the
-primary reader trusts documents uncritically. The roadmap entry's own
-motivating bugs (a doc teaching `loop { … }`, which is not Thera) are this
-failure mode live.
+fastest. Verifying them makes the docs self-verifying, which is precisely the
+property that matters when the primary reader trusts documents uncritically.
+The roadmap entry's motivating bugs (a doc teaching `loop { … }`, a sketch
+calling an API that never compiled) were both **statically** wrong — so the
+static bar alone catches the rot class that prompted this item.
 
-**Status:** open; design and sequencing live in the roadmap entry.
+**Direction — settled (2026-07).** Examples come in three sizes, and size
+decides where they live. The principle: **minimize code that lives as
+strings** — only the smallest examples sit in comments; anything bigger is
+real code that participates in checking and refactors with no special
+tooling.
+
+1. **One-liners in doc comments** — fenced blocks in `///`/`//!`, REPL style
+   (~99 blocks across 33 `sdk/std` files today). Locality is the point: they
+   surface in hover and `thera doc` at the API they illustrate.
+   **The fence tag is the contract**: a `thera`-tagged fence claims to be
+   real Thera and is verified; attributes make exceptions (`thera sketch` —
+   rendered, never checked, self-labels aspirational API; `thera no_run` —
+   compile only). An **untagged fence is ignored** — legitimately: design
+   fiction is fine when lexically marked, and the corpus already conforms
+   (language.md's 64 blocks are all tagged and should verify; stdlib.md's 52
+   sketch blocks are all untagged). Same rule for fences in `docs/*.md`.
+2. **Workflow examples in test files** — an `@example`-decorated fn in the
+   existing `foo_test.thera` (consistent with `@test`; compiled and run by
+   the test runner). Ordinary code: renames, checking, and find-references
+   work with zero special handling. A doc site pulls one in by an explicit
+   reference on its own doc line — `/// @foo_test.thera#example_name` — the
+   `file#fragment` shape agents already know, and a breadcrumb an agent can
+   follow even with no tooling at all. Tooling (`thera doc`, hover) inlines
+   the referenced body. **Explicit references, no name magic**: Go-style
+   `example_<symbol>` name-matching detaches silently on rename, while a
+   reference is validated resolve-or-error by the same machinery as item 7's
+   `[Symbol]` references. An unreferenced `@example` fn is a natural lint.
+3. **Whole programs in `examples/`** — already exists, already run by
+   `bin/test.sh`. Done.
+
+**Static vs. run.** Compile-check (parse, resolve, type-check) is the
+universal bar for every tagged block — it is deterministic, needs no
+sandbox, and catches the observed rot class (fictional syntax, fictional
+APIs, stale names after renames). **Running is opt-in by shape**: a block
+runs iff it contains a `// => value` oracle (the harness debug-formats the
+expression and compares — the marker is both the assertion and the run-me
+signal; Go's `// Output:` design) or `// error:` expectations (check mode,
+per the `tests/lang` harness). The transform is also what makes REPL-style
+lines legal — bare expression statements and discarded `Result`s are errors,
+so oracle lines compile *as assertions*, not verbatim. Blocks with neither
+marker are compile-only. Wrapper synthesis: implicit `fn main` + prelude +
+the documented library auto-imported under its own namespace (existing
+examples already assume this — `path.components(...)`).
+
+**Phasing.** Spec the whole surface now (fence attributes, `// =>`,
+`@example`, `@file#fragment` references) so examples get written in the
+final shape; implement in stages: (1) extraction + **compile-check** of
+tagged fences — the high-order bit; (2) `@example` + references + `thera
+doc`/hover inlining (lands with item 5's doc generator — the reference
+convention is only as good as its rendering); (3) `// =>` oracles and
+check-mode blocks; (4) the `lint --fix` sweep converting the ~99 stdlib
+blocks' trailing comments to `// =>` where they parse as values.
+
+**Open questions.** (a) Do `// =>` runs get the `std.testing` deterministic
+doubles (fixed clock/env) ambiently, so `no_run` stays rare? (b) Doctest
+identity/reporting (`file:line` as the test name?). (c) Whether language.md's
+error-demonstrating blocks adopt `// expect error:` verbatim from
+`tests/lang` or keep the lighter `// error:` spelling.
+
+**Status:** direction settled; graduates to language.md § Documentation
+(fence tags, `// =>`, `@example`, references) as each phase lands. Sequencing:
+`sdk/std` doc comments first, language.md second, stdlib.md sketches stay
+untagged (or gain `thera sketch`) as their APIs land.
 
 ### 7. Doc-reference integrity, promoted to errors
 
@@ -311,7 +469,8 @@ column, and this doc's items are that loop applied to scale.
 
 1. **Items 1 + 2 together** — acyclicity + separate checking are one design,
    and the architecture decision that is cheap now and brutal to retrofit.
-   Start with the cycle survey; it is a day and informs everything.
+   The cycle survey is done (see item 1) and settled item 1's direction;
+   next up: the `SourceSpan` hoist and the cycle lint.
 2. **Item 5** (API index) — highest orientation payoff, machinery already
    half-planned.
 3. **Item 3** (deep-import ban) — small, survey-first, sharpens the unit
