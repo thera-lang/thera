@@ -19,9 +19,8 @@
 
 import std.char;
 
-import '../lexer/token' as _;
+import '../lexer' as _;
 import '../source' as _; // SourceSpan, synthetic spans
-import '../lexer/lexer';
 import '../ast/ast' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error
 
@@ -2633,7 +2632,7 @@ impl Parser {
                 }
                 // cps[interp_start .. i-1] is the expression source (closing } excluded).
                 let expr_source = String.from_chars(cps.slice(interp_start, i - 1));
-                let lex_result = lexer.tokenize(expr_source);
+                let lex_result = tokenize(expr_source);
                 for le in lex_result.errors {
                     self.errors.push(diagnostic.at(le.message, rebase_span(le.span, expr_source, region)));
                 }

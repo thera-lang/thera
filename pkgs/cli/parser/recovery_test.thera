@@ -22,8 +22,7 @@
 import std.testing;
 
 import '../lexer/lexer' as _;
-import '../ast/describe' as _;
-import '../ast/dump' as _;
+import '../ast' as _;
 import 'parser' as _;
 
 // Parse `src` as a single expression and render it canonically (holes visible:

@@ -10,16 +10,12 @@
 // `LoadedImports.file_imports`) grows here.
 
 import 'ast/ast' as _; // Program, Decl
-import 'lexer/lexer';
-import 'lexer/token'; // Token — the primary's cached tokenization rides on Closure
+import 'lexer/lexer'; // tokenize; Token — the primary's cached tokenization rides on Closure
 import 'parser/parser';
 import 'checker/checker';
 import 'codegen/codegen';
 import 'bytecode/encoder';
-import 'element/element';
-import 'element/inference';
-import 'element/resolver';
-import 'element/types';
+import 'element';
 import 'loader';
 import 'diagnostic'; // Diagnostic — the uniform phase error, produced by every phase
 
@@ -43,7 +39,7 @@ pub struct CompileOutcome {
 // resolver reads it instead of re-lexing the buffer per request.
 pub struct Closure {
     let program: Program;
-    let tokens: List<token.Token>;
+    let tokens: List<lexer.Token>;
     let loaded: loader.LoadedImports;
 }
 
@@ -76,7 +72,7 @@ pub struct Session {
     let surface_cache: Map<String, loader.FileSurface>;
     // Closure signature (sorted member keys) -> the imports-only element
     // model, reused across requests so a keystroke re-resolves the primary,
-    // not the whole closure (`resolver.layer_primary` stacks the primary on
+    // not the whole closure (`element.layer_primary` stacks the primary on
     // the cached base without mutating it — the frozen-base invariant).
     // Evicted when any member is invalidated.
     let library_cache: Map<String, CachedLibrary>;
@@ -85,7 +81,7 @@ pub struct Session {
     // check: evicted over the invalidation cone with `checked`; files the
     // checker skipped (the SDK, files already clean before records existed)
     // have no entry.
-    let type_records: Map<String, List<inference.TypeRecord>>;
+    let type_records: Map<String, List<element.TypeRecord>>;
 }
 
 // One cached imports-only library plus its member set (for eviction: an entry
@@ -230,7 +226,7 @@ impl Session {
                 if self.library_cache.len() >= LIBRARY_CACHE_CAP {
                     self.evict_lru_library();
                 }
-                let built = resolver.build_import_library(loaded.programs,
+                let built = element.build_import_library(loaded.programs,
                     loaded.file_namespaces, loaded.file_bare_surface);
                 let members: Set<String> = Set.new();
                 for k in keys {
@@ -240,7 +236,7 @@ impl Session {
                 built
             },
         };
-        return resolver.layer_primary(base, program, loaded.file_namespaces, loaded.file_bare_surface);
+        return element.layer_primary(base, program, loaded.file_namespaces, loaded.file_bare_surface);
     }
 
     // `p` (canonicalized) plus every file that transitively imports it, per
@@ -472,8 +468,8 @@ impl Session {
     // Fold a check run's committed-type records into the per-file store:
     // group by file, then replace those files' entries wholesale (files the
     // checker skipped don't appear and keep their stored records).
-    fn store_records(self, _ records: List<inference.TypeRecord>) -> Void {
-        let by_file: Map<String, List<inference.TypeRecord>> = [:];
+    fn store_records(self, _ records: List<element.TypeRecord>) -> Void {
+        let by_file: Map<String, List<element.TypeRecord>> = [:];
         for r in records {
             match by_file.get(r.file) {
                 Some(l) => { l.push(r); },
@@ -489,7 +485,7 @@ impl Session {
     // checking on demand when `p` is an open overlay with no stored records
     // (the post-edit LSP case). Entries are in walk order; a later entry for
     // the same span supersedes an earlier one (the `let` refinement override).
-    pub fn records_for(self, _ p: String) -> List<inference.TypeRecord> {
+    pub fn records_for(self, _ p: String) -> List<element.TypeRecord> {
         let canon = loader.canonical_path(p);
         if !self.type_records.has(canon) {
             if let Some(text) = self.overlays.get(canon) {
@@ -503,8 +499,8 @@ impl Session {
     // recorded span containing the offset (ties go to the later entry, so the
     // refinement override wins). None when the offset sits outside any
     // recorded node or the file has no records (never walked, or evicted).
-    pub fn type_at(self, _ p: String, _ offset: Int) -> Option<types.Type> {
-        let mut best: Option<types.Type> = Option.None;
+    pub fn type_at(self, _ p: String, _ offset: Int) -> Option<element.Type> {
+        let mut best: Option<element.Type> = Option.None;
         let mut best_len = 0;
         for r in self.records_for(p) {
             if offset >= r.offset && offset < r.offset + r.length {

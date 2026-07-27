@@ -10,7 +10,6 @@
 // namespaces (alias / trailing segment -> the imported library's public surface).
 
 import 'ast/ast' as _;
-import 'lexer/token';
 import 'lexer/lexer';
 import 'parser/parser';
 import 'element/element';
@@ -220,7 +219,7 @@ pub struct ParsedFile {
     // this cached tokenization instead of re-lexing the buffer per request (the
     // lowest rung of the analysis ladder). Paired with `program` by construction:
     // both are products of one `parse_source` over one source string.
-    let tokens: List<token.Token>;
+    let tokens: List<lexer.Token>;
     let diagnostics: List<diagnostic.Diagnostic>;
 }
 

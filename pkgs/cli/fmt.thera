@@ -28,8 +28,7 @@
 import std.fs;
 import std.char;
 
-import 'lexer/lexer';
-import 'lexer/token' as _;
+import 'lexer' as _;
 import 'source' as _; // SourceSpan
 import 'parser/parser';
 import 'edit/edit';
@@ -102,7 +101,7 @@ pub fn format_fragment(_ text: String, _ indent: String) -> String {
 // a syntactically-invalid file), or if the rewrite fails the round-trip token
 // check — so it can never change the token stream, and never break a compile.
 fn space_intra_line(_ source: String) -> String {
-    let lex = lexer.tokenize(source);
+    let lex = tokenize(source);
     if lex.errors.len() > 0 {
         return source;
     }
@@ -151,7 +150,7 @@ fn space_intra_line(_ source: String) -> String {
         return source;
     }
     let result = edit.apply_edits(source, edits);
-    let relexed = lexer.tokenize(result);
+    let relexed = tokenize(result);
     // Round-trip guard: the rewrite must leave the token stream unchanged (kinds
     // + lexemes) *and* the source still parseable. The parse check catches
     // offset-only changes the lexer can't see — the parser recognizes shift
@@ -383,7 +382,7 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
     // Materialized once so a string literal's line span is counted by index rather
     // than by re-slicing the source per token (`span.text()`).
     let chars = source.chars();
-    for tok in lexer.tokenize(source).tokens {
+    for tok in tokenize(source).tokens {
         if tok.kind != TokenKind.Eof {
             let idx = tok.span.line - 1;
             if idx >= 0 && idx < n {

@@ -731,6 +731,15 @@ warning machinery is live: add rules one at a time, corpus-sweeping each.
   a future warning candidate (the fix is renaming the binding).
 - **Did-you-mean suggestions** on `undefined name` / `no method` — cheap (edit
   distance over the known-name set), modest-but-real LLM value.
+- **Unknown namespace in a type annotation resolves instead of erroring.**
+  `let x: bogus.Thing = lib.make();` with no `bogus` import doesn't report an
+  unknown namespace — the annotation resolves `Thing` to a distinct nominal
+  identity and the error surfaces downstream as a baffling `expected Thing,
+  found Thing`. Values are covered (`mod-ns-file-local`); the annotation path
+  needs the same qualifier check (and the identity-mismatch message should
+  name the owning files when the display names are equal). Found during the
+  barrel migration (a leftover `inference.TypeRecord` annotation checked
+  "successfully" against the wrong identity).
 - **A semantic to decide:** qualified access through an `as _` import works
   today (the loader binds the derived namespace for unqualified imports too —
   `import std.path as _;` + `path.join(…)` compiles, and `unused-import` counts

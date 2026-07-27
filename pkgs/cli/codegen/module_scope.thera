@@ -11,9 +11,8 @@
 import '../ast/ast' as _;
 import '../source' as _; // SourceSpan
 import '../bytecode/module' as _;
-import '../element/types' as _;
-import '../element/element';
-import '../element/scope' as _;
+import '../element' as _;
+import '../element';
 
 // Well-known enum type ids and variant tags, fixed by convention and shared with
 // the runtime (runtime/src/value.rs). Result and Option are not in the type
