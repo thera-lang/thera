@@ -22,7 +22,8 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
   front-end compiled to bytecode); compiles the next revision of the front-end
   so the build needs no external toolchain. See `bootstrap/README.md`.
 - `examples/` — example `.thera` programs. `bench/` — perf/GC benchmark
-  harnesses. `bin/` — dev entry scripts.
+  harnesses. `bin/` — dev entry scripts. `dev/` — one-off analysis helpers (not
+  part of the build).
 - `docs/` — design docs.
 
 ## Current state

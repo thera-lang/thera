@@ -499,6 +499,57 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   refactorings_: the doc says what's idiomatic, the lint enforces it
   mechanically.
 
+- **Canonical (line-wrapping) formatter — re-evaluate the stance.** `thera fmt`
+  is **line-preserving by design**: it re-indents and normalizes intra-line
+  spacing but keeps every author-chosen line break (see _Changelog_ and
+  [architecture.md](architecture.md#the-formatter-thera-fmt)). The open question
+  is whether to go the rest of the way — a formatter that *reflows*, so a given
+  AST has exactly one rendering.
+
+  **Line length itself needs no guidance change.** The current rule (100 chars,
+  an authoring guideline — [language.md](language.md#style)) stands. A survey of
+  other languages finds no consensus worth deferring to: the reflowing
+  formatters spread across 77–100 (OCaml 77, Dart 80, Prettier 80, Black 88,
+  Elixir 98, rustfmt 100), and — tellingly — **Go and Zig, the two strongest
+  enforced-formatting traditions, both deliberately decline to take a position
+  on line length**, on the grounds that where to break is a semantic judgment
+  about what groups with what. From the LLM side the only real concern is
+  **pathological** lines, because agents navigate through line-addressed
+  interfaces (grep output, `file:line:col` diagnostics, patch hunks): a
+  1500-char line floods a grep result and makes a `col:` useless for locating
+  anything. That argues for a ceiling against outliers, not for tight wrapping.
+  Measured over the corpus (182 files / 53k lines), the codebase already
+  self-polices: comment prose sits at ≤84 chars (99.3%, max 94), and only 1.4%
+  of code lines exceed 100 — of which roughly a third to a half are string
+  literals and byte fixtures no wrapper could break.
+
+  **The case for canonicalization is about determinism, not width.** Three
+  payoffs, all agent-facing: source gets a canonical token stream; two agents
+  regenerating the same section produce identical bytes, so review diffs stop
+  carrying wrapping noise that isn't a change; and the model sheds the
+  column-budget bookkeeping it does inconsistently anyway. This is continuous
+  with a codebase that already ends its build in a byte-for-byte fixpoint check.
+
+  **Why we haven't, and what would move it.** Two standing objections: the
+  implementation complexity, and that machine-normalized source can *hurt*
+  readability for less common constructs and AST shapes. So the next step is
+  evidence, not a decision:
+  - **Scope the implementation cost** — does the grammar lend itself to a
+    reasonable-complexity formatter? Break-point scoring over the expression
+    tree is a different order of work than the current column-blind gap-edit
+    pass. Thera is brace-delimited with a small expression grammar, which is
+    favorable; the hard cases are the ones every such formatter hits (call
+    chains, nested generics, match arms).
+  - **Validate against the current corpus** — reflow it and read the diff. The
+    bar is that common shapes format well _and_ the uncommon ones don't blow up:
+    deep nesting, calls with many labeled arguments (Thera's named-argument
+    convention is horizontally expensive), long generic signatures,
+    builder-style chains.
+  - **An opt-out marker** — a source tag (à la `#[rustfmt::skip]` / `// dart
+    format off`) suppressing reflow for a region the author knows formats badly.
+    Cheap insurance, and it defuses the readability objection for the tail of
+    cases without holding the common path hostage to them.
+
 ### Language
 
 - **Only an identifier or a field may be a call target.** `maker()(5)` and
