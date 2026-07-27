@@ -9,7 +9,7 @@
 
 import std.json as _;
 
-import '../lexer/token' as _; // Token
+import '../lexer' as _; // Token
 import 'resolve';
 
 // A resolved signature at the cursor: its render, the per-parameter renders

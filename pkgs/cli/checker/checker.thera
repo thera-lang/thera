@@ -14,11 +14,8 @@
 
 import '../ast/ast' as _;
 import '../source' as _; // SourceSpan
-import '../element/types' as _;
-import '../element/element' as _;
-import '../element/scope' as _;
-import '../element/resolver';
-import '../element/inference' as _;
+import '../element' as _;
+import '../element';
 import '../diagnostic'; // Diagnostic — the uniform phase error
 
 pub struct CheckResult {
@@ -42,7 +39,7 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     _ file_bare_surface: Map<String, Map<String, String>>) -> CheckResult {
     let errors: List<diagnostic.Diagnostic> = [];
     let records: List<TypeRecord> = [];
-    let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
+    let library = element.build_library(program, imports, file_namespaces, file_bare_surface);
     check_duplicates(errors, program, imports);
     check_shadowed_surface(errors, program, library);
     check_unused_imports(errors, program, library);
@@ -71,7 +68,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
     // `prebuilt` is the session's cached-base + layered-primary library (LD14)
     // — behavior-identical to the full build by the resolver's contract.
     let library = prebuilt.unwrap_or_else(() =>
-        resolver.build_library(program, imports, file_namespaces, file_bare_surface));
+        element.build_library(program, imports, file_namespaces, file_bare_surface));
     if !skip.has(file_key(program.file_path)) {
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, library);
@@ -563,15 +560,11 @@ fn flag_shadow(_ errors: List<diagnostic.Diagnostic>, _ surface: Map<String, Str
 // ---- reserved core type names ----
 
 // The reserved-name list itself lives in the element layer
-// (`resolver.is_reserved_type_name`) — the resolver also uses it to pin core
+// (`element.is_reserved_type_name`) — the resolver also uses it to pin core
 // identity in the flat registry (EL8). Declaring one of these names in user
 // code would make the reserved meaning ambiguous at every use site, so it is a
 // check error (language.md "Reserved type names"). Values (`fn`/`const`) are not
 // reserved — casing conventions keep them unambiguous.
-fn is_reserved_type_name(_ name: String) -> Bool {
-    return resolver.is_reserved_type_name(name);
-}
-
 // Flag type declarations (struct/enum/interface, native or not) — and type
 // *parameters*, which declare a type name for their scope — that take a
 // reserved core type name. (A `<Result>` type parameter would otherwise pass
@@ -1123,7 +1116,7 @@ fn check_interface_decl(_ errors: List<diagnostic.Diagnostic>, _ decl: Interface
     // here is unknown.
     let fs = file_scope(library, current_file);
     for super_name in decl.super_interfaces {
-        match fs.resolve_type_def(resolver.bound_id(fs, super_name)) {
+        match fs.resolve_type_def(element.bound_id(fs, super_name)) {
             None => { add_error(errors, 'unknown super-interface: ${super_name}', decl.name_span); },
             Some(super_def) => {
                 if super_def.kind != TypeDefKind.Interface {
@@ -1133,7 +1126,7 @@ fn check_interface_decl(_ errors: List<diagnostic.Diagnostic>, _ decl: Interface
         }
     }
     if str_list_has(decl.super_interfaces, decl.name)
-        || extends_cycle(resolver.bound_id(fs, decl.name), library) {
+        || extends_cycle(element.bound_id(fs, decl.name), library) {
         add_error(errors, 'interface \'${decl.name}\' extends itself (inheritance cycle)', decl.name_span);
     }
 }
@@ -3284,7 +3277,7 @@ fn union_type_params(_ outer: Set<String>, _ own: List<TypeParam>) -> Set<String
 fn fn_param_bounds(_ decl: FnDecl, _ fs: FileScope) -> Map<String, List<TypeId>> {
     let b: Map<String, List<TypeId>> = [:];
     for tp in decl.type_params {
-        b[tp.name] = tp.bounds.map((n) => resolver.bound_id(fs, n));
+        b[tp.name] = tp.bounds.map((n) => element.bound_id(fs, n));
     }
     return b;
 }

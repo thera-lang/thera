@@ -12,7 +12,13 @@
 // across passes (struct fields stored in a Map are mutated by reference).
 
 import '../source' as _; // SourceSpan (symbol identity, EL13)
-import 'types' as _;
+// The element library's surface is the whole symbol/typing substrate: the
+// barrel re-exports the phase files so consumers (checker, codegen, session,
+// LSP) reach everything through `element`.
+pub import 'types' as _;
+pub import 'inference';
+pub import 'resolver';
+pub import 'scope';
 
 // The span for a synthesized element — a hermetic-floor entry or a fixture —
 // that has no source site. Zero-length at 0:0 of an empty source; `length == 0

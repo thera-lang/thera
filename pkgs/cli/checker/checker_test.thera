@@ -7,9 +7,7 @@ import std.testing;
 
 import '../ast/ast' as _;
 import '../testkit';
-import '../element/element' as _;
-import '../element/inference' as _;
-import '../element/types' as _;
+import '../element' as _;
 import '../diagnostic' as _; // Diagnostic
 import 'checker' as _;
 

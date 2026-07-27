@@ -18,11 +18,8 @@ import '../ast/ast' as _;
 import '../source' as _; // SourceSpan
 import '../bytecode/instr' as _;
 import '../bytecode/module' as _;
-import '../element/types' as _;
-import '../element/element';
-import '../element/scope' as _;
-import '../element/resolver';
-import '../element/inference' as _;
+import '../element' as _;
+import '../element';
 import 'module_scope' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error
 import std.env;   // the differential inference oracle (THERA_INFER_ORACLE) reads a flag
@@ -91,7 +88,7 @@ struct FileContext {
 pub fn compile_program(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>) -> CodegenResult {
-    let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
+    let library = element.build_library(program, imports, file_namespaces, file_bare_surface);
     // Fill un-annotated module-global types from their initializers (the resolver
     // only reads annotations) so a member access on a struct-typed global resolves.
     // Namespace resolution is the element-model FileScope's job (each unit resolves
@@ -295,7 +292,7 @@ impl FnCompiler {
         self.file = self.scope.unit_files[index];
         let bfs = file_scope(self.scope.library, self.file);
         for tp in fn_decl.type_params {
-            self.type_param_bounds[tp.name] = tp.bounds.map((n) => resolver.bound_id(bfs, n));
+            self.type_param_bounds[tp.name] = tp.bounds.map((n) => element.bound_id(bfs, n));
         }
         // A lifted lambda has no type params of its own, but inherits its
         // enclosing function's bounds (stashed at lift time) so a bound method on

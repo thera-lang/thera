@@ -6,7 +6,7 @@
 import std.testing;
 import std.fs;
 
-import 'element/types';
+import 'element';
 import 'loader';
 import 'session' as _;
 
@@ -261,9 +261,9 @@ fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
 
 // ---- committed-type records / type_at (CH19) ----
 
-fn render(_ t: Option<types.Type>) -> String {
+fn render(_ t: Option<element.Type>) -> String {
     return match t {
-        Some(ty) => types.type_to_string(ty),
+        Some(ty) => element.type_to_string(ty),
         None => '<none>',
     };
 }

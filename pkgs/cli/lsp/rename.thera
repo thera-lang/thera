@@ -9,8 +9,7 @@
 
 import std.json;
 
-import '../lexer/lexer';
-import '../lexer/token' as _;
+import '../lexer' as _;
 import '../source' as _; // SourceSpan
 import 'positions';
 import 'resolve';
@@ -76,7 +75,7 @@ fn is_file_scope_kind(_ kind: resolve.SymbolKind) -> Bool {
 // exactly one `Identifier` token covering the whole string (a keyword lexes to
 // its `Kw*` kind, a number/operator to another kind, two words to two tokens).
 pub fn is_identifier(_ name: String) -> Bool {
-    let toks = lexer.tokenize(name).tokens;
+    let toks = tokenize(name).tokens;
     return toks.len() == 2
         && toks[0].kind == TokenKind.Identifier
         && toks[0].lexeme() == name;

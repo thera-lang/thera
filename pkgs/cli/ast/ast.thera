@@ -16,6 +16,11 @@
 
 import '../source' as _; // SourceSpan, used by every node
 
+// The AST's renderer surface rides the barrel: type/decl describers and the
+// debug dump, re-exported for the LSP and tests.
+pub import 'describe';
+pub import 'dump';
+
 // --- Top level ---
 
 pub struct Program {

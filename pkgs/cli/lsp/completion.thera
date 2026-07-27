@@ -14,11 +14,9 @@
 
 import std.json as _;
 
-import '../ast/ast' as _;      // Program, Decl, FnDecl
-import '../ast/describe';      // describe_type
-import '../element/element';   // file_key
-import '../element/types';     // Type (the receiver's committed type)
-import '../lexer/token' as _;  // Token, TokenKind
+import '../ast/ast' as _;      // Program, Decl, FnDecl; describe_type
+import '../element';   // file_key; Type (the receiver's committed type)
+import '../lexer' as _;  // Token, TokenKind
 import '../source' as _;  // SourceSpan
 import 'resolve';
 
@@ -166,7 +164,7 @@ fn named_receiver_entries(_ ctx: resolve.ResolveCtx, _ recv: String,
 // The instance surface of a committed type: a named type's own members, or a
 // primitive's via its core declaration (`'s'.` lists the String surface —
 // `resolve.member_target`). A function receiver has no members.
-fn typed_entries(_ ctx: resolve.ResolveCtx, _ ty: types.Type) -> List<resolve.MemberEntry> {
+fn typed_entries(_ ctx: resolve.ResolveCtx, _ ty: element.Type) -> List<resolve.MemberEntry> {
     return match resolve.member_target(ctx, ty) {
         Some(id) => resolve.type_members(ctx, id.owner, id.name, instance: true),
         None => [],
@@ -262,9 +260,9 @@ fn nearest_bindings(_ fd: FnDecl, _ offset: Int) -> List<resolve.BindingSite> {
 // binding site, else the bare name.
 fn binding_detail(_ ctx: resolve.ResolveCtx, _ site: resolve.BindingSite) -> String {
     return match site.type_ann {
-        Some(t) => '${site.name}: ${describe.describe_type(t)}',
+        Some(t) => '${site.name}: ${describe_type(t)}',
         None => match resolve.recorded_type_at(ctx, site.span) {
-            Some(ty) => '${site.name}: ${types.type_to_string(ty)}',
+            Some(ty) => '${site.name}: ${element.type_to_string(ty)}',
             None => site.name,
         },
     };

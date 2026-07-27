@@ -23,14 +23,10 @@
 // committed-type record (CH19's `primary_types`); still deferred: members of
 // a value receiver (`xs.foo()` where `xs`'s type isn't written).
 
-import '../ast/ast' as _;       // Program, Decl, the per-decl payloads
-import '../ast/describe';  // describe_type
-import '../lexer/token' as _;   // Token, TokenKind
+import '../ast/ast' as _;       // Program, Decl, the per-decl payloads; describe_*
+import '../lexer' as _;   // Token, TokenKind, tokenize
 import '../source' as _;   // SourceSpan
-import '../lexer/lexer';   // tokenize
-import '../element/element';    // file_key, LibraryNamespace
-import '../element/inference';  // TypeRecord
-import '../element/types';      // Type, type_to_string
+import '../element';    // file_key, LibraryNamespace, TypeRecord, Type
 import 'paths';              // program_path
 
 // The identifier under the cursor: its name and source span.
@@ -66,7 +62,7 @@ pub struct ResolveCtx {
     // `Session.records_for`) — the inference-at-offset surface. May be empty
     // (no check yet, or a caller without a session); renders degrade to the
     // written annotation or the bare name.
-    let primary_types: List<inference.TypeRecord>;
+    let primary_types: List<element.TypeRecord>;
 }
 
 // What kind of thing a resolved symbol is. Distinguishes same-named symbols and
@@ -277,7 +273,7 @@ pub fn primary_tokens(_ ctx: ResolveCtx, _ text: String) -> List<Token> {
     if ctx.tokens.len() > 0 {
         return ctx.tokens;
     }
-    return lexer.tokenize(text).tokens;
+    return tokenize(text).tokens;
 }
 
 // A member on a plain named receiver: the receiver is an import namespace
@@ -329,12 +325,12 @@ fn inferred_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv_span: SourceSpan) -
 // `type_def_for` uses to let primitives host methods. The owner comes from
 // the file's bare surface (the prelude attributes `String` to core), so a
 // hermetic caller with no surfaces degrades to None rather than guessing.
-pub fn member_target(_ ctx: ResolveCtx, _ ty: types.Type) -> Option<types.TypeId> {
+pub fn member_target(_ ctx: ResolveCtx, _ ty: element.Type) -> Option<element.TypeId> {
     return match ty {
         Interface(id, _) => Option.Some(id),
-        Primitive(p) => match inference.primitive_type_name(p) {
+        Primitive(p) => match element.primitive_type_name(p) {
             Some(n) => bare_owner_key(ctx, n).map((owner) =>
-                types.TypeId { owner: owner, name: n }),
+                element.TypeId { owner: owner, name: n }),
             None => Option.None,
         },
         _ => Option.None,
@@ -486,7 +482,7 @@ fn import_binding_name(_ imp: ImportDecl) -> Option<String> {
 
 // The identifier (or `self`) token whose span covers `offset`, if any.
 pub fn name_at(_ text: String, _ offset: Int) -> Option<NameRef> {
-    return name_at_in(lexer.tokenize(text).tokens, text, offset);
+    return name_at_in(tokenize(text).tokens, text, offset);
 }
 
 // `name_at` through the ctx's cached tokenization (LS-D1) — for feature
@@ -510,7 +506,7 @@ fn name_at_in(_ toks: List<Token>, _ text: String, _ offset: Int) -> Option<Name
         }
         if tok.kind == TokenKind.StringLiteral {
             if let Some(ic) = interp_at(tok, text, offset) {
-                return match name_at_in(lexer.tokenize(ic.text).tokens, ic.text, offset - ic.base) {
+                return match name_at_in(tokenize(ic.text).tokens, ic.text, offset - ic.base) {
                     Some(nr) => Option.Some(NameRef {
                         name: nr.name,
                         span: span_in(text, ic.base + nr.span.offset, nr.span.length),
@@ -586,7 +582,7 @@ pub enum Receiver {
 }
 
 pub fn receiver_at(_ text: String, _ offset: Int) -> Receiver {
-    return receiver_at_in(lexer.tokenize(text).tokens, text, offset);
+    return receiver_at_in(tokenize(text).tokens, text, offset);
 }
 
 // `receiver_at` over an already-tokenized `text`, descending into a `${...}`
@@ -596,7 +592,7 @@ fn receiver_at_in(_ toks: List<Token>, _ text: String, _ offset: Int) -> Receive
     for p in toks.enumerate() {
         if p.value.kind == TokenKind.StringLiteral {
             if let Some(ic) = interp_at(p.value, text, offset) {
-                return receiver_at_in(lexer.tokenize(ic.text).tokens, ic.text, offset - ic.base);
+                return receiver_at_in(tokenize(ic.text).tokens, ic.text, offset - ic.base);
             }
         }
         let s = p.value.span;
@@ -758,7 +754,7 @@ fn field_resolved(_ ref: NameRef, _ fs: FieldSite) -> Resolved {
     let f = fs.field;
     return Resolved {
         ref_span: ref.span,
-        render: '${f.name}: ${describe.describe_type(f.type_ann)}',
+        render: '${f.name}: ${describe_type(f.type_ann)}',
         symbol: Option.Some(SymbolId {
             file: fs.file,
             kind: SymbolKind.Field,
@@ -830,14 +826,14 @@ pub fn local_binding_at(_ fn_decl: FnDecl, _ ref: NameRef) -> Option<BindingSite
 
 fn local_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ site: BindingSite) -> Resolved {
     let render = match site.type_ann {
-        Some(t) => '${ref.name}: ${describe.describe_type(t)}',
+        Some(t) => '${ref.name}: ${describe_type(t)}',
         // No written annotation: the committed-type record has the inferred
         // type — at the cursor's own span (a use-site `Ident`, or a `let`
         // name the checker stamps) or, failing that, the binding site's.
         None => match recorded_type_at(ctx, ref.span) {
-            Some(t) => '${ref.name}: ${types.type_to_string(t)}',
+            Some(t) => '${ref.name}: ${element.type_to_string(t)}',
             None => match recorded_type_at(ctx, site.span) {
-                Some(t) => '${ref.name}: ${types.type_to_string(t)}',
+                Some(t) => '${ref.name}: ${element.type_to_string(t)}',
                 None => ref.name,
             },
         },
@@ -857,8 +853,8 @@ fn local_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ site: BindingSite) -> Res
 // The committed type recorded for exactly `span`, or None. Later entries
 // supersede earlier ones (the `let` refinement override); a fully-unknown
 // type is withheld (the bare-name render is more honest than `?`).
-pub fn recorded_type_at(_ ctx: ResolveCtx, _ span: SourceSpan) -> Option<types.Type> {
-    let mut found: Option<types.Type> = Option.None;
+pub fn recorded_type_at(_ ctx: ResolveCtx, _ span: SourceSpan) -> Option<element.Type> {
+    let mut found: Option<element.Type> = Option.None;
     for r in ctx.primary_types {
         if r.offset == span.offset && r.length == span.length {
             found = match r.ty {
@@ -1416,7 +1412,7 @@ fn structural_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ offset: Int) -> Opti
 fn field_def_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ f: FieldDef) -> Resolved {
     return Resolved {
         ref_span: ref.span,
-        render: '${f.name}: ${describe.describe_type(f.type_ann)}',
+        render: '${f.name}: ${describe_type(f.type_ann)}',
         symbol: Option.Some(SymbolId {
             file: paths.program_path(ctx.program),
             kind: SymbolKind.Field,
@@ -1551,7 +1547,7 @@ fn param_with_label(_ fd: FnDecl, _ label: String) -> Option<Param> {
 // callee's file.
 fn param_resolved(_ ref: NameRef, _ p: Param, _ file: String) -> Resolved {
     let ann = match p.type_ann {
-        Some(t) => ': ${describe.describe_type(t)}',
+        Some(t) => ': ${describe_type(t)}',
         None => '',
     };
     return Resolved {
@@ -1953,7 +1949,7 @@ pub fn type_members(_ ctx: ResolveCtx, _ owner: String, _ type_name: String,
                     if t.name == type_name {
                         for f in t.fields {
                             out.push(MemberEntry { name: f.name, kind: SymbolKind.Field,
-                                detail: '${f.name}: ${describe.describe_type(f.type_ann)}' });
+                                detail: '${f.name}: ${describe_type(f.type_ann)}' });
                         }
                     }
                 }
@@ -2196,7 +2192,7 @@ pub fn describe_decl(_ decl: Decl) -> String {
 pub fn describe_fn(_ d: FnDecl) -> String {
     let params = d.params.map((p) => describe_param(p)).join(', ');
     let ret = match d.return_type {
-        Some(t) => ' -> ${describe.describe_type(t)}',
+        Some(t) => ' -> ${describe_type(t)}',
         None => '',
     };
     return 'fn ${d.name}(${params})${ret}';
@@ -2207,13 +2203,13 @@ pub fn describe_param(_ p: Param) -> String {
         return 'self';
     }
     return match p.type_ann {
-        Some(t) => '${p.name}: ${describe.describe_type(t)}',
+        Some(t) => '${p.name}: ${describe_type(t)}',
         None => p.name,
     };
 }
 
 fn describe_type_decl(_ d: TypeDecl) -> String {
-    let fields = d.fields.map((f) => '  ${f.name}: ${describe.describe_type(f.type_ann)}').join('\n');
+    let fields = d.fields.map((f) => '  ${f.name}: ${describe_type(f.type_ann)}').join('\n');
     return 'type ${d.name} = {\n${fields}\n}';
 }
 
@@ -2227,14 +2223,14 @@ fn variant_render(_ enum_name: String, _ v: EnumVariant) -> String {
     if v.fields.len() == 0 {
         return '${enum_name}.${v.name}';
     }
-    return '${enum_name}.${v.name}(${v.fields.map((t) => describe.describe_type(t)).join(', ')})';
+    return '${enum_name}.${v.name}(${v.fields.map((t) => describe_type(t)).join(', ')})';
 }
 
 fn variant_render_indented(_ v: EnumVariant) -> String {
     if v.fields.len() == 0 {
         return '  ${v.name}';
     }
-    return '  ${v.name}(${v.fields.map((t) => describe.describe_type(t)).join(', ')})';
+    return '  ${v.name}(${v.fields.map((t) => describe_type(t)).join(', ')})';
 }
 
 fn describe_interface(_ d: InterfaceDecl) -> String {
@@ -2244,14 +2240,14 @@ fn describe_interface(_ d: InterfaceDecl) -> String {
 
 fn describe_const(_ d: ConstDecl) -> String {
     return match d.type_ann {
-        Some(t) => 'const ${d.name}: ${describe.describe_type(t)} = ...',
+        Some(t) => 'const ${d.name}: ${describe_type(t)} = ...',
         None => 'const ${d.name} = ...',
     };
 }
 
 fn describe_let(_ d: LetDecl) -> String {
     return match d.type_ann {
-        Some(t) => 'let ${d.name}: ${describe.describe_type(t)} = ...',
+        Some(t) => 'let ${d.name}: ${describe_type(t)} = ...',
         None => 'let ${d.name} = ...',
     };
 }
