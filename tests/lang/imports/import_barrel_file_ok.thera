@@ -1,0 +1,11 @@
+//! spec: mod-import-barrel-file
+//! mode: run
+
+// The barrel reached by its file path is the same library as the directory
+// path (`import 'cyclib'` ≡ `import 'cyclib/cyclib'`) — not a deep import.
+
+import 'cyclib/cyclib';
+
+fn main() -> Void {
+    println(cyclib.describe(2));   // expect: even:2
+}

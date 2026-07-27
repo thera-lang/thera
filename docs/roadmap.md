@@ -840,6 +840,20 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Barrel-enforced boundaries — no deep imports** (2026-07). The second
+  scale.md item landed end to end (language.md § Import resolution;
+  conformance `mod-import-deep` / `mod-import-barrel-file`): a directory
+  library's non-barrel files are importable only from that directory —
+  outsiders import the barrel (directory path ≡ barrel-file path), which
+  re-exports whatever internals they need. Enforced in the loader
+  (`detect_deep_imports`, beside the cycle pass) as an error at the offending
+  import; same-directory sibling rule (nesting survey: zero cases); no
+  test-file exemption (white-box is already sibling-legal). The migration
+  extended three barrels (lexer → token model, element → its four phase
+  files, ast → describe/dump), moved all 33 deep-import sites through them,
+  and deduplicated checker's `is_reserved_type_name` forwarding shim.
+  Deferred: a normalization lint for the two barrel spellings.
+
 - **Acyclic library imports** (2026-07). Imports between libraries are now
   required to be acyclic — the first scale.md item landed end to end
   (language.md § Import resolution; conformance `mod-import-cycle` /

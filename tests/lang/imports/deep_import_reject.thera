@@ -1,0 +1,13 @@
+//! spec: mod-import-deep
+//! mode: check
+
+// A directory library's files are importable only from inside it: `even_side`
+// is an internal of `cyclib/` (the barrel re-exports it), so reaching it
+// directly from outside is an error at the import — the barrel is the
+// library's one API.
+
+import 'cyclib/even_side';   // expect error: import its barrel instead
+
+fn main() -> Void {
+    let _b = even_side.is_even(2);
+}

@@ -538,6 +538,9 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     // Library-level import cycles are check errors (language.md § Import
     // resolution): report every cross-unit import that participates in one.
     detect_import_cycles(loader.cache, file_imports, loader.diagnostics);
+    // So are deep imports — a non-barrel file inside a directory library is
+    // importable only from that directory.
+    detect_deep_imports(loader.cache, loader.diagnostics);
     return LoadedImports {
         programs: loader.order,
         diagnostics: loader.diagnostics,
@@ -884,20 +887,29 @@ fn public_name(_ decl: Decl) -> Option<String> {
 // flagged imports are exactly the edges an edit could break — each carrying
 // one full cycle path at unit granularity.
 
-// The acyclicity unit for a canonical file key: its directory when that
-// directory is a library (its barrel exists on disk), else the file itself.
-// `dir_cache` memoizes the barrel probe per directory for the call.
-fn unit_of(_ key: String, _ dir_cache: Map<String, Bool>) -> String {
-    let dir = path.dirname(key);
-    let is_lib = match dir_cache.get(dir) {
+// Whether `dir` is a directory library — its barrel `<dir>/<name>.thera`
+// exists on disk. Memoized per pass in `dir_cache`.
+fn is_library_dir(_ dir: String, _ dir_cache: Map<String, Bool>) -> Bool {
+    return match dir_cache.get(dir) {
         Some(b) => b,
         None => {
-            let b = is_file(path.join(dir, path.basename(dir) + source_exts()[0]));
+            let b = is_file(barrel_path(dir));
             dir_cache[dir] = b;
             b
         },
     };
-    return if is_lib { dir } else { key };
+}
+
+// The barrel file that fronts `dir` (whether or not it exists).
+fn barrel_path(_ dir: String) -> String {
+    return path.join(dir, path.basename(dir) + source_exts()[0]);
+}
+
+// The acyclicity unit for a canonical file key: its directory when that
+// directory is a library, else the file itself.
+fn unit_of(_ key: String, _ dir_cache: Map<String, Bool>) -> String {
+    let dir = path.dirname(key);
+    return if is_library_dir(dir, dir_cache) { dir } else { key };
 }
 
 // A unit rendered for the cycle message: a directory library with a trailing
@@ -1094,6 +1106,44 @@ fn detect_import_cycles(_ cache: Map<String, LibrarySource>,
                                 'import cycle between libraries: ${cycle_path(uf, ut, adj, comp)}',
                                 x.span, file));
                         }
+                    }
+                }
+            }
+        }
+    }
+    return;
+}
+
+// --- deep-import enforcement (language.md § Import resolution) ---
+//
+// A directory library's files are importable only from inside that directory:
+// outsiders import the barrel (by directory path or barrel-file path — the
+// same file), which re-exports the library's surface. This is what makes the
+// barrel the library's one API — without it, any internal file an outsider
+// imports becomes a second, undocumented surface. The rule is the same for
+// every importer, test files included: white-box access rides the
+// same-directory `foo_test.thera` convention, which sibling imports cover.
+
+// Report every import that resolves to a non-barrel file inside a directory
+// library the importer is not itself in. Runs per closure load, beside the
+// cycle pass; `thera check`'s printed-line dedupe collapses multi-run repeats.
+fn detect_deep_imports(_ cache: Map<String, LibrarySource>,
+    _ diags: List<diagnostic.Diagnostic>) -> Void {
+    let dir_cache: Map<String, Bool> = [:];
+    for file in cache.keys() {
+        let src = cache[file];
+        let importer_dir = path.dirname(file);
+        for decl in src.program.decls {
+            if let Import(x) = decl {
+                if let Some(child) = src.imports.get(x.path) {
+                    let target = element.file_key(child.program.file_path);
+                    let target_dir = path.dirname(target);
+                    if importer_dir != target_dir
+                        && is_library_dir(target_dir, dir_cache)
+                        && target != barrel_path(target_dir) {
+                        diags.push(diagnostic.in_file(
+                            '\'${x.path}\' resolves inside the library \'${display_path(target_dir)}/\'; import its barrel instead',
+                            x.span, file));
                     }
                 }
             }
