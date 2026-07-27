@@ -157,42 +157,35 @@ incremental story.
 architecture constraint on the checker that is cheap to honor now and brutal
 to retrofit.
 
-### 3. Barrel-enforced boundaries (no deep imports)
+### 3. Barrel-enforced boundaries (no deep imports) — **done, graduated**
 
-_Attacks: reading radius (a library's surface is real), trustworthiness (the
+_Attacked: reading radius (a library's surface is real), trustworthiness (the
 barrel doc describes everything reachable)._
 
-**Problem.** Import resolution lets `import 'util/strings'` reach an
-individual file inside a directory library, bypassing its barrel. That is how
-"internal" surfaces become load-bearing at scale — once anything outside
-imports an internal file, the library has two APIs, one undocumented. (The JS
-ecosystem learned this the hard way; package.json grew an `"exports"` field
-to ban deep imports.)
+The rule is now language: **a directory library's files are importable only
+from inside it** — outsiders go through the barrel (by directory path or
+barrel-file path, equivalently) — spec'd in
+[language.md § Import resolution](language.md#import-resolution), pinned by
+conformance IDs `mod-import-deep` / `mod-import-barrel-file`, enforced in the
+loader as an error-level `check` diagnostic at the offending import. The
+sibling rule is **same directory** (settled by the nesting survey: zero
+nested cases in the corpus; tightenable-free — subtree can be liberalized
+later, item 4's territory). Test files get no exemption — white-box access is
+the same-directory `foo_test.thera` convention, already sibling-legal. A
+directory *without* a barrel is not sealed: its files are independent
+single-file libraries (so a program root of loose files needs no barrel, and
+file → directory-library promotion never changes importers).
 
-**Today.** Nothing distinguishes an outsider importing `util/strings` from a
-sibling doing so. Barrels re-export via `pub import`, but consumers are not
-required to come through them. The 2026-07 survey (item 1) counted **80 deep
-imports** in `pkgs/cli` + `sdk/std`, heavily concentrated: 27 alone target
-`lexer/token.thera` — a de-facto shared vocabulary library (`SourceSpan`,
-`Token`) trapped inside `lexer/`, whose hoisting item 1 already requires.
-(The survey also found 139 imports using `..` traversal — legal, and now
-documented as such in language.md § Import resolution, which previously said
-otherwise.)
-
-**Direction.** Files inside a directory library are importable only by
-siblings (same directory); outsiders go through the barrel. Then the barrel
-really is the API, and its `pub import` list is the one place the surface is
-defined. Staged: lint (survey violations in the corpus), then check error.
-
-**Open questions.** ~~(a) does the corpus deep-import today~~ — yes, 80
-sites (above); migration is real but concentrated, and the biggest offender
-is fixed by item 1's `SourceSpan` hoist. Remaining: (b) is "same directory"
-the right sibling rule, or "same library subtree" (nested dirs)? (c)
-Interaction with test white-box access (`foo_test.thera` convention —
-presumably unaffected, tests are siblings).
-
-**Status:** open. Graduates to language.md § Visibility / § Import
-resolution.
+How it got here: the precise survey found 33 violations (27 production + 6
+test), all in `pkgs/cli`, targeting six internal files that were de-facto
+public API; the migration extended three barrels (lexer re-exports the token
+model, element its four phase files, ast its renderers) and moved every
+importer through them — deduplicating one convergent reimplementation
+(checker's `is_reserved_type_name` shim) and flushing out a checker hole
+(unknown namespace in a type annotation resolves instead of erroring — see
+the roadmap diagnostics punchlist). Deferred as a future normalization lint:
+the corpus's 93 barrel-reached-by-file-path imports (`import 'lexer/lexer'`
+for `import 'lexer'`) — legal, just two spellings of one thing.
 
 ### 4. A package unit + manifest (declared dependencies, layering)
 
@@ -432,8 +425,8 @@ column, and this doc's items are that loop applied to scale.
    has its acyclic order and is the open half.
 2. **Item 5** (API index) — highest orientation payoff, machinery already
    half-planned.
-3. **Item 3** (deep-import ban) — small, survey-first, sharpens the unit
-   items 2 and 4 depend on.
+3. **Item 3 is done** (migration + enforcement landed; the unit items 2 and
+   4 depend on is now sealed).
 4. **Item 6** (doctests), then **7** — the trustworthy-prose pair.
 5. **Item 8** (rename, then change-signature) — as soon as a real sweep
    needs it.

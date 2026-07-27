@@ -1082,6 +1082,21 @@ while `env_test.thera` imports `std.testing` closes no cycle). Loading still
 links a cyclic closure best-effort — names resolve, downstream diagnostics
 stay real — but the error gates compile/run like any other.
 
+**A directory library's files are importable only from inside it.** From
+anywhere else, the one importable surface is the barrel — reached by directory
+path (`import 'lexer'`) or barrel-file path (`import 'lexer/lexer'`), the same
+file either way; importing any *other* file inside the directory
+(`import 'lexer/token'`) is a check error at the import (`… resolves inside
+the library 'lexer/'; import its barrel instead`). This is what makes the
+barrel a library's one API: whatever internals an outsider needs, the barrel
+re-exports (`pub import`). The rule is the same for every importer — a test
+file's white-box access rides the same-directory `foo_test.thera` convention,
+which sibling imports already cover. A directory *without* a barrel is not a
+library, just a folder of independent single-file libraries, each freely
+importable — so a program root of loose files needs no barrel, and a
+single-file library (`source.thera`) can later become a directory library
+(`source/source.thera` plus siblings) without changing a single importer.
+
 **Stdlib imports** resolve against the SDK's standard library directory. Its
 exact location differs between the in-repo and distributed layouts (see
 [SDK layout](#sdk-layout)):
@@ -1148,6 +1163,10 @@ fn pad2(_ n: Int) -> String { ... }                // file-private helper
 - **`impl` blocks live wherever visibility allows** — an `impl Foo` or
   `impl Iface for Foo` may sit in any file that can see `Foo` (and the
   interface).
+- **The barrel is the library's one cross-directory surface** — a non-barrel
+  file inside a directory library is importable only by its siblings
+  ([§ Import resolution](#import-resolution)); whatever internals an outsider
+  needs, the barrel re-exports.
 - **`pub import` re-exports** — it binds the namespace _and_ republishes the
   target's public symbols as part of this library's API (the basis of barrels;
   see [Imports](#imports)). A plain `import` does not re-export. If two

@@ -541,3 +541,40 @@ fn test_cycle_through_test_file_is_ignored() -> Result<Void, Error> {
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
+
+// Deep-import enforcement (language.md § Import resolution): a non-barrel
+// file inside a directory library is importable only from that directory —
+// outsiders go through the barrel, reached equivalently by directory path or
+// barrel-file path. Sibling imports (including the white-box `foo_test`
+// convention) are untouched.
+@test
+fn test_deep_import_is_diagnosed() -> Result<Void, Error> {
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_deep_import_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
+    fs_ok(fs.create_dir_all(dir + '/lib'), 'create fixture dir')?;
+    fs_ok(fs.write_text(dir + '/lib/lib.thera', 'pub import \'inner\';\n'), 'write barrel')?;
+    fs_ok(fs.write_text(dir + '/lib/inner.thera',
+        'pub fn secret() -> Int { return 42; }\n'), 'write inner')?;
+    // Line 1 reaches inside the library; lines 2–3 are the two legal barrel
+    // spellings of the same file.
+    fs_ok(fs.write_text(dir + '/main.thera',
+        'import \'lib/inner\';\nimport \'lib/lib\';\nimport \'lib\' as _;\n'
+        + 'fn main() -> Int { return inner.secret() + lib.secret() + secret(); }\n'), 'write main')?;
+
+    let loaded = match fs.read_text(dir + '/main.thera') {
+        Ok(src) => load_imports(dir + '/main.thera', testkit.parse(src), Option.None),
+        Err(e) => { return Result.Err(error('read main: ${e.message()}')); },
+    };
+    testing.assert_eq(actual: loaded.diagnostics.len(), expected: 1)?;
+    let d = loaded.diagnostics[0];
+    testing.assert(d.message.contains('resolves inside the library'),
+        message: 'deep import diagnosed: ${d.message}')?;
+    testing.assert(d.message.contains('import its barrel instead'),
+        message: 'message names the fix: ${d.message}')?;
+    testing.assert_eq(actual: d.span.line, expected: 1)?;
+    testing.assert(d.file.unwrap_or('').ends_with('/main.thera'),
+        message: 'attributed to the importer')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
