@@ -135,27 +135,54 @@ throughput collapses with it. The target: an edit inside one library re-checks
 that library and (only when its public surface changed) its dependents —
 keeping the loop at seconds regardless of codebase size.
 
-**Today.** `check` is whole-program. The visibility model already provides
-the crucial ingredient: a library's `pub` surface **is** its interface, and
-visibility is erased in bytecode — nothing downstream depends on private
-internals.
+**Scoping (2026-07, measured — `dev/bench_session.thera`).** The session
+re-arch for the LSP already provides most of the in-process story: each layer
+(parse → `FileSurface` → imports-only element base → check verdict → type
+records) is a pure function of earlier layers with a cache, invalidated over
+the reverse-import cone. Measured on the 53k-line corpus: a warm no-edit
+re-check is **5 ms** against a ~400 ms cold closure; a cold CLI process pays
+4.4 s for the whole corpus. What the item's original sketch asked for was
+therefore not one build but **three separable deltas**:
 
-**Direction.** Compute a per-library **interface digest** (a hash of the
-`pub` surface: names, signatures, types). On an edit, re-check the edited
-library; if its digest is unchanged, stop — dependents cannot be affected. If
-it changed, re-check dependents (transitively, same rule). This also yields a
-free, precise agent-facing signal: "your change altered the public surface of
-X; these N libraries depend on it."
+- **(a) The surface-digest gate — landed.** Invalidation was *any-edit*: a
+  body-only edit (the overwhelming agent case) evicted the whole dependent
+  cone — measured 123–199 ms per re-check where ~5 ms is achievable, a gap
+  that grows linearly with the edited file's fan-in. Now `set_overlay`
+  parses the new text (seeding the parse cache — no net extra parse) and
+  compares the file's **printed public surface** (`surface_signature` in
+  `session.thera`: pub fn/interface signatures, pub type/enum shapes,
+  pub const/let annotations, impl headers + pub method signatures, pub
+  imports — sorted, so decl order is not surface). Unchanged ⇒ only the
+  edited file and its white-box test sibling re-check; dependents' verdicts
+  and type records stay live. Measured after: **66 ms** (direct-dep edit)
+  and **10 ms** (deep-leaf edit). Soundness rests on two language rules:
+  return types are always written (omitted = `Void`, never inferred) and
+  module-level bindings are annotated boundaries — so bodies cannot leak
+  into importer-visible types; the unannotated-const/let case contributes
+  its decl text (conservative), private decls are excluded but the
+  white-box sibling is evicted unconditionally, and any unparseable side
+  falls back to the full cone (mid-edit states stay conservative).
+- **(b) Persistence — open, the next arc.** Every CLI process is cold: 4.4 s
+  corpus, 416 ms single file, every `thera check`/CI run — and agents live
+  in cold CLI runs. The caches being pure functions of (file text, dep
+  surfaces) is exactly what makes them disk-keyable:
+  `(content hash, dep-digest vector) → verdict + FileSurface` under
+  `build/`, turning a warm re-run into a hash walk. The digest definition
+  from (a) is the key ingredient and now exists in code.
+- **(c) Per-library composition — open, deferred until it hurts.** The
+  element-model cache is **closure-signature-monolithic**: keyed on the
+  whole import set, any member edit evicts the whole base, and the base
+  rebuild is most of the residual 66 ms above. With acyclicity (item 1) and
+  sealed barrels (item 3) landed, the model could be built and cached *per
+  library* and composed in topo order — per-library eviction, structural
+  sharing, a parallelism seam, and the agent-facing report "the surface of
+  X changed; these N libraries depend on it". The genuinely large refactor;
+  (a)+(b) capture most of the latency win before it.
 
-**Open questions.** (a) How far is the current checker from being callable
-per-library (what global state does it thread)? (b) Where does the digest
-cache live (`build/`, keyed how)? (c) Does `thera test` ride the same DAG
-(only re-run tests of affected libraries)? (d) Interaction with the LSP's
-incremental story.
-
-**Status:** open. This is the item to decide **early** — it is an
-architecture constraint on the checker that is cheap to honor now and brutal
-to retrofit.
+**Status:** (a) landed (gate + tests in `session.thera` /
+`session_test.thera`); (b) open — next; (c) open — deferred. The
+"decide early" warning is discharged: the acyclic DAG is enforced and the
+digest definition is code, so (b) and (c) extend rather than retrofit.
 
 ### 3. Barrel-enforced boundaries (no deep imports) — **done, graduated**
 
@@ -419,10 +446,10 @@ column, and this doc's items are that loop applied to scale.
 
 ## Suggested order
 
-1. **Items 1 + 2 together** — acyclicity + separate checking are one design,
-   and the architecture decision that is cheap now and brutal to retrofit.
-   **Item 1 is done** (rule spec'd, enforced, conformance-pinned); item 2 now
-   has its acyclic order and is the open half.
+1. **Items 1 + 2 together** — acyclicity + separate checking are one design.
+   **Item 1 is done**; item 2 is scoped into three arcs with **(a) the
+   surface-digest gate landed** — (b) persistence is the next arc, (c)
+   per-library composition deferred until base-rebuild cost or memory hurts.
 2. **Item 5** (API index) — highest orientation payoff, machinery already
    half-planned.
 3. **Item 3 is done** (migration + enforcement landed; the unit items 2 and
