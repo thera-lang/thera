@@ -60,6 +60,17 @@ pub fn resolve_type_ref_in(_ ref: TypeRef, _ scope: FileScope,
 
 fn resolve_named_in(_ nt: NamedType, _ scope: FileScope,
     _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    // A qualifier that isn't one of this file's namespaces resolves to
+    // Unknown — never a bare-name fallback, which would mint a *different*
+    // identity for the same spelling and cascade into a same-name type
+    // mismatch. The checker reports `unknown namespace` at the annotation
+    // (`check_named_type`); Unknown's leniency keeps that the only error.
+    if let Some(ns) = nt.namespace {
+        match scope.namespace_surface(ns) {
+            Some(_) => void,
+            None => { return Type.Unknown; },
+        }
+    }
     if let Some(p) = primitive_type(nt.name) {
         return p;
     }

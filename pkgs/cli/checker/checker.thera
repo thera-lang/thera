@@ -2808,10 +2808,27 @@ fn check_named_type(_ errors: List<diagnostic.Diagnostic>, _ name: String, _ nam
     _ type_params: Set<String>) -> Void {
     match namespace {
         Some(ns) => {
-            if !library.type_defs.has(name) {
-                add_error(errors, 'unknown type: ${name}', span);
-            } else {
-                check_member_visible(errors, ns, name, span, library, current_file);
+            // The qualifier must be a namespace this file imports — checked
+            // here because no other gate sees a type-position qualifier (the
+            // value gates catch a bad qualifier as an undefined name). Without
+            // this, `bogus.T` resolved `T` by bare name to a *different*
+            // identity and surfaced downstream as a baffling same-name
+            // type mismatch (`expected T, found T`).
+            match file_scope(library, current_file).namespace_surface(ns) {
+                None => {
+                    match qualifying_namespace(name, library, current_file) {
+                        Some(actual) => add_error(errors,
+                            'unknown namespace: ${ns}; `${name}` is exposed by `${actual}` — qualify as `${actual}.${name}`', span),
+                        None => add_error(errors, 'unknown namespace: ${ns}', span),
+                    };
+                },
+                Some(_) => {
+                    if !library.type_defs.has(name) {
+                        add_error(errors, 'unknown type: ${name}', span);
+                    } else {
+                        check_member_visible(errors, ns, name, span, library, current_file);
+                    }
+                },
             }
         },
         None => {

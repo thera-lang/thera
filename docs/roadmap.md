@@ -782,15 +782,13 @@ warning machinery is live: add rules one at a time, corpus-sweeping each.
   a future warning candidate (the fix is renaming the binding).
 - **Did-you-mean suggestions** on `undefined name` / `no method` — cheap (edit
   distance over the known-name set), modest-but-real LLM value.
-- **Unknown namespace in a type annotation resolves instead of erroring.**
-  `let x: bogus.Thing = lib.make();` with no `bogus` import doesn't report an
-  unknown namespace — the annotation resolves `Thing` to a distinct nominal
-  identity and the error surfaces downstream as a baffling `expected Thing,
-  found Thing`. Values are covered (`mod-ns-file-local`); the annotation path
-  needs the same qualifier check (and the identity-mismatch message should
-  name the owning files when the display names are equal). Found during the
-  barrel migration (a leftover `inference.TypeRecord` annotation checked
-  "successfully" against the wrong identity).
+- **Same-name type-identity mismatches should name the owners.** A mismatch
+  between two same-named types from different libraries prints
+  `expected Thing, found Thing` — useless to an agent. When the two display
+  names are equal, the message should qualify each side with its owning
+  library/file. (The unknown-namespace-in-annotation half of this entry is
+  fixed — see the Changelog — which removes the most common way to hit it;
+  genuinely distinct same-named types can still collide.)
 - **A semantic to decide:** qualified access through an `as _` import works
   today (the loader binds the derived namespace for unqualified imports too —
   `import std.path as _;` + `path.join(…)` compiles, and `unused-import` counts
@@ -890,6 +888,18 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Unknown namespace in type position is its own error** (2026-07). A type
+  annotation or construction qualified with a namespace the file doesn't
+  import (`bogus.Thing`) used to resolve its bare segment to a *different*
+  nominal identity and surface downstream as `expected Thing, found Thing`.
+  Now `check_named_type` rejects the unbound qualifier at the annotation
+  (`unknown namespace: bogus`, with a qualify-as hint when an import exposes
+  the type), and `resolve_named_in` resolves such a reference as `Unknown`,
+  so the root cause is the *only* diagnostic (no mismatch cascade). Pinned by
+  `mod-ns-file-local`'s type-position test. Found during the barrel
+  migration, where a leftover `inference.TypeRecord` annotation checked
+  "successfully" against the wrong identity.
 
 - **Barrel-enforced boundaries — no deep imports** (2026-07). The second
   scale.md item landed end to end (language.md § Import resolution;
