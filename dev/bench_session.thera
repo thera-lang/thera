@@ -1,0 +1,72 @@
+// One-off scoping benchmark for scale.md item 2 (per-library separate
+// checking): measures what the session's existing incrementality already buys
+// — warm re-checks, cone invalidation — and the gap a surface-digest gate
+// would close (a body-only edit currently re-checks the whole dependent cone;
+// with a digest it would re-check one file). Not part of the build.
+//
+// Run: bin/thera.sh run dev/bench_session.thera
+
+import '../pkgs/cli/session';
+import '../pkgs/cli/loader';
+
+import std.fs;
+import std.time;
+
+// Check `p` through the session, returning elapsed milliseconds.
+fn check_ms(_ sess: session.Session, _ p: String) -> Int {
+    let canon = loader.canonical_path(p);
+    let src = match fs.read_text(canon) {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+    let t0 = time.now_millis();
+    let diags = sess.check(src, canon);
+    let dt = time.now_millis() - t0;
+    if diags.len() > 0 {
+        println('  (unexpected diags: ${diags.len()})');
+    }
+    return dt;
+}
+
+fn main() -> Void {
+    let sdk = loader.find_sdk_root();
+    let target = 'pkgs/cli/fmt.thera';
+    let dep = loader.canonical_path('pkgs/cli/parser/parser.thera');
+    let deep_leaf = loader.canonical_path('pkgs/cli/source.thera');
+
+    // 1. Cold vs warm: what the run-scoped caches already buy.
+    let sess = session.new_session(sdk);
+    println('cold check of fmt.thera (full closure):     ${check_ms(sess, target)} ms');
+    println('warm re-check, nothing edited:              ${check_ms(sess, target)} ms');
+
+    // 2. Body-only edit to a direct dep (append a comment — surface unchanged).
+    //    Today this invalidates the whole dependent cone; a digest gate would
+    //    re-check only the edited file.
+    let dep_src = match fs.read_text(dep) { Ok(s) => s, Err(_) => '' };
+    sess.set_overlay(dep, dep_src + '// touch\n');
+    println('re-check after body edit to parser/:        ${check_ms(sess, target)} ms');
+
+    // 3. Same, but the edit is near the closure root (source.thera) — the
+    //    cone is most of pkgs/cli.
+    let leaf_src = match fs.read_text(deep_leaf) { Ok(s) => s, Err(_) => '' };
+    sess.set_overlay(deep_leaf, leaf_src + '// touch\n');
+    println('re-check after body edit to source.thera:   ${check_ms(sess, target)} ms');
+
+    // 3b. The digest-world ideal for scenario 3: re-check source.thera alone
+    //     in the (now re-warmed) session.
+    sess.set_overlay(deep_leaf, leaf_src + '// touch2\n');
+    let t3 = time.now_millis();
+    let d3 = sess.check(leaf_src + '// touch2\n', deep_leaf);
+    println('digest-world ideal for source.thera edit:   ${time.now_millis() - t3} ms  (${d3.len()} diags)');
+
+    // 4. The digest-world ideal for scenario 2: re-check the edited file
+    //    alone in a warm session (everything else stays checked-clean).
+    let sess2 = session.new_session(sdk);
+    let warmup = check_ms(sess2, target);
+    sess2.set_overlay(dep, dep_src + '// touch\n');
+    let t0 = time.now_millis();
+    let diags = sess2.check(dep_src + '// touch\n', dep);
+    let dt = time.now_millis() - t0;
+    println('digest-world ideal (edited file alone):     ${dt} ms  (warmup was ${warmup} ms, ${diags.len()} diags)');
+    return;
+}

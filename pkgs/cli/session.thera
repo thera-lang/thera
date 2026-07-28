@@ -10,6 +10,7 @@
 // `LoadedImports.file_imports`) grows here.
 
 import 'ast/ast' as _; // Program, Decl
+import 'source' as _; // SourceSpan (the digest's decl-text fallback)
 import 'lexer/lexer'; // tokenize; Token — the primary's cached tokenization rides on Closure
 import 'parser/parser';
 import 'checker/checker';
@@ -18,6 +19,8 @@ import 'bytecode/encoder';
 import 'element';
 import 'loader';
 import 'diagnostic'; // Diagnostic — the uniform phase error, produced by every phase
+
+import std.path;
 
 // The most distinct closure signatures the imports-only library cache retains
 // before evicting the least-recently-used entry. Sized to comfortably exceed the
@@ -106,12 +109,42 @@ pub fn new_session(_ sdk_root: Option<String>) -> Session {
 
 impl Session {
     // Set (or update) the overlay text for `p` — the open-buffer content the
-    // loader reads instead of disk. Evicts the file's cached parse and
-    // checked-clean status so the next analysis re-sees the change.
+    // loader reads instead of disk.
+    //
+    // **The surface-digest gate** (scale.md item 2): the new text is parsed
+    // here (not an extra parse — the result seeds the parse cache the next
+    // analysis would fill anyway) and its printed public surface compared to
+    // the cached parse's. A **surface-preserving edit** — the overwhelming
+    // case for agent edits: bodies, comments, private decls — invalidates
+    // only this file and its white-box test sibling; importers' checked
+    // status stays valid, so a body edit costs one file's re-check, not the
+    // dependent cone's. A surface *change* (or either side failing to parse
+    // cleanly — mid-edit states stay conservative) falls back to the full
+    // cone eviction below.
     pub fn set_overlay(self, _ p: String, _ text: String) -> Void {
         let key = loader.canonical_path(p);
+        let old_sig = match self.parse_cache.get(key) {
+            Some(pf) => {
+                if pf.diagnostics.len() == 0 {
+                    Option.Some(surface_signature(pf.program))
+                } else {
+                    Option.None
+                }
+            },
+            None => Option.None,
+        };
         self.overlays[key] = text;
-        self.invalidate(p);
+        let pf = loader.parse_source(key, text);
+        let unchanged = match old_sig {
+            Some(old) => pf.diagnostics.len() == 0 && surface_signature(pf.program) == old,
+            None => false,
+        };
+        if unchanged {
+            self.invalidate_file(key);
+        } else {
+            self.invalidate(p);
+        }
+        self.parse_cache[key] = pf;
     }
 
     // Drop `p`'s overlay (closed buffer): analyses revert to disk content.
@@ -154,6 +187,36 @@ impl Session {
             }
             self.evict_libraries_with(k);
         }
+    }
+
+    // The narrow eviction for a surface-preserving edit: `key`'s own caches,
+    // its forward edges (the edit may have changed its imports), and its
+    // white-box test sibling — `<base>_test.thera` sees `key`'s *private*
+    // top-level names, which the surface digest deliberately excludes.
+    // Importers' checked status survives (their view of `key` is its public
+    // surface, unchanged by definition here). Cached library bases containing
+    // `key` are still evicted: they hold `key`'s old AST, and keeping them
+    // would serve stale spans to position tooling (go-to-definition into the
+    // edited file). Removing *that* rebuild cost is item 2's per-library
+    // composition arc, not this gate's job.
+    fn invalidate_file(self, _ key: String) -> Void {
+        match self.import_graph.remove(key) {
+            Some(_) => void,
+            None => void,
+        }
+        for k in [key, test_sibling_of(key)] {
+            self.checked.remove(k);
+            match self.surface_cache.remove(k) {
+                Some(_) => void,
+                None => void,
+            }
+            match self.type_records.remove(k) {
+                Some(_) => void,
+                None => void,
+            }
+        }
+        self.evict_libraries_with(key);
+        return;
     }
 
     // Drop the least-recently-used cached library — the front entry, since a hit
@@ -647,4 +710,147 @@ fn mark_checked_clean(_ checked: Set<String>, _ primary_key: String,
         }
     }
     return;
+}
+
+// --- the surface digest (scale.md item 2) ---
+
+// `foo.thera` -> its white-box sibling `foo_test.thera`, in the same directory.
+// (For a `_test` file this yields a `_test_test` name that exists nowhere —
+// the evictions against it are no-ops.)
+fn test_sibling_of(_ key: String) -> String {
+    let dir = path.dirname(key);
+    let seg = path.basename(key);
+    let ext = '.thera';
+    let base = if seg.ends_with(ext) { seg.slice(0, seg.len() - ext.len()) } else { seg };
+    return '${dir}/${base}_test${ext}';
+}
+
+// The file's public surface, printed canonically — what the overlay gate
+// compares. Everything an *importer's* check can observe is included: pub
+// fn/interface signatures, pub type/enum shapes (fields and variants are
+// public), pub const/let annotations, impl headers plus pub method signatures
+// (conformance is cross-file even though `impl` carries no `pub`), and pub
+// imports (re-exports). Bodies are excluded on purpose, and soundly: return
+// types are always written (omitted means Void, never inferred), and a
+// module-level binding is an annotated boundary — so a body can't leak into
+// an importer-visible type. The one exception is an *unannotated* const/let,
+// whose type comes from its initializer: those contribute their whole decl
+// text, so an initializer edit reads as a surface change (conservative).
+// Private decls are excluded: only the white-box test sibling sees them, and
+// `invalidate_file` evicts that sibling unconditionally.
+fn surface_signature(_ p: Program) -> String {
+    let lines: List<String> = [];
+    for decl in p.decls {
+        match decl {
+            Fn(x) => {
+                if x.is_pub {
+                    lines.push('fn ${fn_sig(x)}');
+                }
+            },
+            Type(x) => {
+                if x.is_pub {
+                    let fields = x.fields.map((f) => field_sig(f));
+                    lines.push('type ${x.name}${type_params_sig(x.type_params)} { ${fields.join('; ')} }');
+                }
+            },
+            Enum(x) => {
+                if x.is_pub {
+                    let vs = x.variants.map((v) => variant_sig(v));
+                    lines.push('enum ${x.name}${type_params_sig(x.type_params)} { ${vs.join(' | ')} }');
+                }
+            },
+            Interface(x) => {
+                if x.is_pub {
+                    let ms = x.methods.map((m) => fn_sig(m));
+                    lines.push('interface ${x.name}${type_params_sig(x.type_params)}: ${x.super_interfaces.join('+')} { ${ms.join('; ')} }');
+                }
+            },
+            Const(x) => {
+                if x.is_pub {
+                    lines.push('const ${x.name}: ${ann_or_decl_text(x.type_ann, x.span)}');
+                }
+            },
+            Let(x) => {
+                if x.is_pub {
+                    lines.push('let ${x.name}: ${ann_or_decl_text(x.type_ann, x.span)}');
+                }
+            },
+            Impl(x) => {
+                let iface = match x.interface_name {
+                    Some(n) => {
+                        let ns = x.interface_namespace.map((s) => s + '.').unwrap_or('');
+                        let args = x.interface_args.map((a) => describe_type(a));
+                        '${ns}${n}<${args.join(', ')}> '
+                    },
+                    None => '',
+                };
+                let ms = x.methods.filter((m) => m.is_pub).map((m) => fn_sig(m));
+                lines.push('impl${type_params_sig(x.type_params)} ${iface}for ${x.type_name} { ${ms.join('; ')} }');
+            },
+            Import(x) => {
+                if x.is_pub {
+                    lines.push('pub import ${x.path}');
+                }
+            },
+        }
+    }
+    // Sorted: declaration order is invisible to importers (names resolve by
+    // name), so reordering decls is not a surface change.
+    return lines.sort((a, b) => a.compare(b) == Ordering.Less).join('\n');
+}
+
+// A function's importer-visible signature. The param's *external* label, type,
+// and default-presence matter to callers; its internal name and default
+// *value* don't.
+fn fn_sig(_ x: FnDecl) -> String {
+    let ps = x.params.map((p) => param_sig(p));
+    let ret = match x.return_type {
+        Some(t) => describe_type(t),
+        None => 'Void',
+    };
+    return '${x.name}${type_params_sig(x.type_params)}(${ps.join(', ')}) -> ${ret}';
+}
+
+fn param_sig(_ p: Param) -> String {
+    if p.is_self {
+        return 'self';
+    }
+    let label = p.label.unwrap_or('_');
+    let ty = match p.type_ann {
+        Some(t) => describe_type(t),
+        None => '?',
+    };
+    let dflt = match p.default_value {
+        Some(_) => ' = _',
+        None => '',
+    };
+    return '${label}: ${ty}${dflt}';
+}
+
+fn field_sig(_ f: FieldDef) -> String {
+    let m = if f.is_mut { 'mut ' } else { '' };
+    return '${m}${f.name}: ${describe_type(f.type_ann)}';
+}
+
+fn variant_sig(_ v: EnumVariant) -> String {
+    let payload = v.fields.map((t) => describe_type(t));
+    return '${v.name}(${payload.join(', ')})';
+}
+
+fn type_params_sig(_ tps: List<TypeParam>) -> String {
+    if tps.len() == 0 {
+        return '';
+    }
+    let parts = tps.map((tp) => '${tp.name}: ${tp.bounds.join('+')}');
+    return '<${parts.join(', ')}>';
+}
+
+// The written annotation, or — unannotated — the whole decl's source text
+// (the initializer *is* the type's source then, so its edits must read as
+// surface changes).
+fn ann_or_decl_text(_ ann: Option<TypeRef>, _ span: SourceSpan) -> String {
+    return match ann {
+        Some(t) => describe_type(t),
+        None => span.text(),
+    };
 }
