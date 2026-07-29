@@ -599,7 +599,11 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   by a single long string literal, 7 long because of a trailing comment). This
   is the case for **width 100**: it matches the existing authoring guideline,
   and going to 80 triples the churn for a benefit nobody has articulated — the
-  LLM concern is pathological lines, not tight wrapping.
+  LLM concern is pathological lines, not tight wrapping. **Provisional**, and
+  deliberately so: these counts measure a hand-wrapped corpus, which is the
+  wrong evidence for the question. Revisit once the formatter actually reflows
+  and each candidate width can be evaluated on what it produces — read against
+  the industry spread above, which spans 77–100 with no consensus to defer to.
 
   **Cost, calibrated against this repo.** Two existing full-coverage AST
   traversals bound the per-node cost:
