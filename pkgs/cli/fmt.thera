@@ -32,13 +32,21 @@ import 'lexer' as _;
 import 'source' as _; // SourceSpan
 import 'parser/parser';
 import 'edit/edit';
+import 'reflow';
 
 const INDENT: String = '    ';
 
+// How many split rounds `format_source_reflow` will run. Each round splits at
+// most one group per over-width line, so a deeply nested line needs several; the
+// cap is a backstop against an input that somehow never settles (the loop's own
+// exit is "no over-width line has a splittable group left").
+const MAX_REFLOW_ROUNDS: Int = 12;
+
 // Format a single file in place. Returns `true` if the file was modified.
-pub fn format_file(_ path: String) -> Result<Bool, Error> {
+// With `wrap`, over-width lines are also split (`thera fmt --reflow`).
+pub fn format_file(_ path: String, wrap: Bool = false) -> Result<Bool, Error> {
     let source = fs.read_text(path)?;
-    let formatted = format_source(source);
+    let formatted = formatted_text(source, wrap);
     if formatted == source {
         return Result.Ok(false);
     }
@@ -46,11 +54,86 @@ pub fn format_file(_ path: String) -> Result<Bool, Error> {
     return Result.Ok(true);
 }
 
-// Whether `path` needs formatting — `true` if `format_source` would change it.
-// The read-only counterpart to `format_file` (writes nothing), for `fmt --check`.
-pub fn check_file(_ path: String) -> Result<Bool, Error> {
+// Whether `path` needs formatting — `true` if formatting would change it. The
+// read-only counterpart to `format_file` (writes nothing), for `fmt --check`.
+pub fn check_file(_ path: String, wrap: Bool = false) -> Result<Bool, Error> {
     let source = fs.read_text(path)?;
-    return Result.Ok(format_source(source) != source);
+    return Result.Ok(formatted_text(source, wrap) != source);
+}
+
+// The formatted form of `source` — with line reflow when `wrap`, else the
+// line-preserving format. The single place the two entry points branch, so
+// `format_file` and `check_file` can never disagree about what "formatted" is.
+fn formatted_text(_ source: String, _ wrap: Bool) -> String {
+    if wrap {
+        return format_source_reflow(source);
+    }
+    return format_source(source);
+}
+
+// Format with line reflow (`thera fmt --reflow`) — the canonical format, plus
+// line breaks *added* to relieve lines wider than `width`. Split-only: every
+// line break the author wrote survives, so this can only shorten lines, never
+// rearrange code that already fits (see docs/roadmap.md → Canonical
+// (line-wrapping) formatter; joining is Stage 2).
+//
+// Each round asks `reflow` for the breaks that would relieve the currently
+// over-width lines, inserts them, and re-formats to re-indent. Rounds are
+// monotone — breaks are only ever added — so the loop settles when no over-width
+// line has a splittable group left (a long string literal or a long trailing
+// comment has none, and is left alone).
+//
+// Guarded like every other path here: if the result is not token-identical to
+// the input, or no longer parses, the plain `format_source` output is returned
+// instead. So `--reflow` can never change what the code means.
+pub fn format_source_reflow(_ source: String, width: Int = reflow.DEFAULT_WIDTH) -> String {
+    let base = format_source(source);
+    let mut cur = base;
+    let mut round = 0;
+    while round < MAX_REFLOW_ROUNDS {
+        let breaks = reflow.break_offsets(cur, width);
+        if breaks.len() == 0 {
+            round = MAX_REFLOW_ROUNDS;
+        } else {
+            cur = format_source(insert_newlines(cur, breaks));
+            round = round + 1;
+        }
+    }
+    return reflow_guarded(source, cur, base);
+}
+
+// Insert a newline at each offset (ascending, duplicates tolerated). Offsets
+// index code points, as token spans do.
+fn insert_newlines(_ text: String, _ offsets: List<Int>) -> String {
+    let parts: List<String> = [];
+    let mut prev = 0;
+    for off in offsets {
+        if off < prev || off > text.len() {
+            continue; // out of order or past the end: ignore rather than corrupt
+        }
+        parts.push(text.slice(prev, off));
+        parts.push('\n');
+        prev = off;
+    }
+    parts.push(text.slice(prev, text.len()));
+    return parts.join('');
+}
+
+// `candidate` if it is token-for-token the same code as `original` and still
+// parses, else `fallback`. The same contract Stage A holds itself to.
+fn reflow_guarded(_ original: String, _ candidate: String, _ fallback: String) -> String {
+    let before = tokenize(original);
+    let after = tokenize(candidate);
+    if before.errors.len() > 0 || after.errors.len() > 0 {
+        return fallback;
+    }
+    if !same_tokens(before.tokens, original.chars(), after.tokens, candidate.chars()) {
+        return fallback;
+    }
+    if parser.parse_tokens(after.tokens).errors.len() > 0 {
+        return fallback;
+    }
+    return candidate;
 }
 
 // Format a string of source code. Idempotent: formatting formatted source is a
