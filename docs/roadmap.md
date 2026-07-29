@@ -419,19 +419,19 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   first-class-functions fix, and that did not compile when it was written. Both
   were caught by hand, which is exactly the thing that doesn't scale.
 
-  **Design settled (2026-07) — see [scale.md](scale.md) § item 6** for the
-  full treatment. The shape: three example tiers by size (fenced one-liners in
-  doc comments; `@example` fns in `foo_test.thera`, pulled into doc sites by
+  **Design settled (2026-07) — see [scale.md](scale.md) § item 6** for the full
+  treatment. The shape: three example tiers by size (fenced one-liners in doc
+  comments; `@example` fns in `foo_test.thera`, pulled into doc sites by
   explicit `/// @file#fragment` references; whole programs in `examples/`);
   **the fence tag is the contract** — `thera`-tagged blocks are verified
   (attributes `sketch`/`no_run` for exceptions), untagged blocks are ignored,
   which the existing corpus already conforms to (language.md's blocks all
-  tagged, stdlib.md's sketches all untagged); **compile-check is the
-  universal bar**, running is opt-in by shape (a `// => value` oracle or
-  `// error:` expectations — the `tests/lang` harness has the machinery).
-  Implementation phased: extraction + compile-check first (catches the rot
-  class above), `@example`/references with the doc generator, oracles and the
-  `// =>` migration sweep after.
+  tagged, stdlib.md's sketches all untagged); **compile-check is the universal
+  bar**, running is opt-in by shape (a `// => value` oracle or `// error:`
+  expectations — the `tests/lang` harness has the machinery). Implementation
+  phased: extraction + compile-check first (catches the rot class above),
+  `@example`/references with the doc generator, oracles and the `// =>`
+  migration sweep after.
 
 - **Doc-comment tooling — machinery pending.** The conventions
   ([language.md](language.md#documentation)), the `sdk/std/` migration to
@@ -909,9 +909,9 @@ warning machinery is live: add rules one at a time, corpus-sweeping each.
   between two same-named types from different libraries prints
   `expected Thing, found Thing` — useless to an agent. When the two display
   names are equal, the message should qualify each side with its owning
-  library/file. (The unknown-namespace-in-annotation half of this entry is
-  fixed — see the Changelog — which removes the most common way to hit it;
-  genuinely distinct same-named types can still collide.)
+  library/file. (The unknown-namespace-in-annotation half of this entry is fixed
+  — see the Changelog — which removes the most common way to hit it; genuinely
+  distinct same-named types can still collide.)
 - **A semantic to decide:** qualified access through an `as _` import works
   today (the loader binds the derived namespace for unqualified imports too —
   `import std.path as _;` + `path.join(…)` compiles, and `unused-import` counts
@@ -929,10 +929,10 @@ last thing between `std.http` and complete: the client is `http://`-only — an
 `https://` URL parses then fails at `connect`. Design + staged plan (crate
 choice, native ABI, the park/retry mapping, `TlsStream`, and a hermetic test
 strategy) in [http-tls.md](http-tls.md). **Stages 1–3 of that plan have landed**
-(`rustls`/`aws-lc-rs`/`webpki-roots`; the runtime's TLS session + `tls_*` natives
-riding the existing park/retry model; and `net.TlsStream`/`net.connect_tls`, so
-Thera can speak TLS today); next is the `https` branch in the client, then the
-hermetic in-process TLS loop.
+(`rustls`/`aws-lc-rs`/`webpki-roots`; the runtime's TLS session + `tls_*`
+natives riding the existing park/retry model; and
+`net.TlsStream`/`net.connect_tls`, so Thera can speak TLS today); next is the
+`https` branch in the client, then the hermetic in-process TLS loop.
 
 ### Scheduler punchlist
 
@@ -1013,47 +1013,46 @@ Brief summaries of finished arcs; design details live in
 conformance specs. Newest first.
 
 - **Unknown namespace in type position is its own error** (2026-07). A type
-  annotation or construction qualified with a namespace the file doesn't
-  import (`bogus.Thing`) used to resolve its bare segment to a *different*
-  nominal identity and surface downstream as `expected Thing, found Thing`.
-  Now `check_named_type` rejects the unbound qualifier at the annotation
-  (`unknown namespace: bogus`, with a qualify-as hint when an import exposes
-  the type), and `resolve_named_in` resolves such a reference as `Unknown`,
-  so the root cause is the *only* diagnostic (no mismatch cascade). Pinned by
-  `mod-ns-file-local`'s type-position test. Found during the barrel
-  migration, where a leftover `inference.TypeRecord` annotation checked
-  "successfully" against the wrong identity.
+  annotation or construction qualified with a namespace the file doesn't import
+  (`bogus.Thing`) used to resolve its bare segment to a _different_ nominal
+  identity and surface downstream as `expected Thing, found Thing`. Now
+  `check_named_type` rejects the unbound qualifier at the annotation
+  (`unknown namespace: bogus`, with a qualify-as hint when an import exposes the
+  type), and `resolve_named_in` resolves such a reference as `Unknown`, so the
+  root cause is the _only_ diagnostic (no mismatch cascade). Pinned by
+  `mod-ns-file-local`'s type-position test. Found during the barrel migration,
+  where a leftover `inference.TypeRecord` annotation checked "successfully"
+  against the wrong identity.
 
 - **Barrel-enforced boundaries — no deep imports** (2026-07). The second
-  scale.md item landed end to end (language.md § Import resolution;
-  conformance `mod-import-deep` / `mod-import-barrel-file`): a directory
-  library's non-barrel files are importable only from that directory —
-  outsiders import the barrel (directory path ≡ barrel-file path), which
-  re-exports whatever internals they need. Enforced in the loader
-  (`detect_deep_imports`, beside the cycle pass) as an error at the offending
-  import; same-directory sibling rule (nesting survey: zero cases); no
-  test-file exemption (white-box is already sibling-legal). The migration
-  extended three barrels (lexer → token model, element → its four phase
-  files, ast → describe/dump), moved all 33 deep-import sites through them,
-  and deduplicated checker's `is_reserved_type_name` forwarding shim.
-  Deferred: a normalization lint for the two barrel spellings.
+  scale.md item landed end to end (language.md § Import resolution; conformance
+  `mod-import-deep` / `mod-import-barrel-file`): a directory library's
+  non-barrel files are importable only from that directory — outsiders import
+  the barrel (directory path ≡ barrel-file path), which re-exports whatever
+  internals they need. Enforced in the loader (`detect_deep_imports`, beside the
+  cycle pass) as an error at the offending import; same-directory sibling rule
+  (nesting survey: zero cases); no test-file exemption (white-box is already
+  sibling-legal). The migration extended three barrels (lexer → token model,
+  element → its four phase files, ast → describe/dump), moved all 33 deep-import
+  sites through them, and deduplicated checker's `is_reserved_type_name`
+  forwarding shim. Deferred: a normalization lint for the two barrel spellings.
 
 - **Acyclic library imports** (2026-07). Imports between libraries are now
   required to be acyclic — the first scale.md item landed end to end
   (language.md § Import resolution; conformance `mod-import-cycle` /
   `mod-import-cycle-sibling`). The unit is the **library**: a directory
-  library's files (barrel + siblings) may cycle freely; every other file is
-  its own unit; a test file's imports don't participate (a consumer, not a
-  member). Detection lives in the loader (`detect_import_cycles`, a
-  Kosaraju pass over `file_imports` contracted to units) and reports an
-  error-level diagnostic on **every** participating import, each carrying one
-  full cycle path (`import cycle between libraries: a.thera → b/ → a.thera`)
-  — the flagged set is exactly the edits that can break the cycle. Landed
-  directly as an error (no lint stage): the corpus was already clean after
-  the `SourceSpan` hoist into `pkgs/cli/source.thera`, and per-library
-  incremental checking (scale.md item 2) will rely on the DAG. Loading still
-  links a cyclic closure best-effort, so downstream diagnostics stay real;
-  `thera check`'s printed-line dedupe collapses the per-closure repeats.
+  library's files (barrel + siblings) may cycle freely; every other file is its
+  own unit; a test file's imports don't participate (a consumer, not a member).
+  Detection lives in the loader (`detect_import_cycles`, a Kosaraju pass over
+  `file_imports` contracted to units) and reports an error-level diagnostic on
+  **every** participating import, each carrying one full cycle path
+  (`import cycle between libraries: a.thera → b/ → a.thera`) — the flagged set
+  is exactly the edits that can break the cycle. Landed directly as an error (no
+  lint stage): the corpus was already clean after the `SourceSpan` hoist into
+  `pkgs/cli/source.thera`, and per-library incremental checking (scale.md
+  item 2) will rely on the DAG. Loading still links a cyclic closure
+  best-effort, so downstream diagnostics stay real; `thera check`'s printed-line
+  dedupe collapses the per-closure repeats.
 
 - **LSP go-to-type-definition** (2026-07). `textDocument/typeDefinition`
   (`pkgs/cli/lsp/type_definition.thera`) — jump from a _value_ to the
