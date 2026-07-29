@@ -710,8 +710,30 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
        `bin/build_sdk.sh` still reproduces the front-end **byte-for-byte** — the
        front-end compiled from reflowed sources compiles itself to the same
        bytes.
-  2. **Flip constructs to `Fit` one at a time** — call arguments, parameter
-     lists, collection literals, struct literals — corpus-sweeping each.
+  2. **Joining — _landed_.** Author line breaks stop being authoritative: a
+     group that fits the margin is collapsed onto one line, so layout is a
+     function of the token stream rather than of how the code was typed. `(` and
+     `[` are `Fit`; `{` is `AlwaysSplit` unless it opens a **struct literal**,
+     which is the one classification tokens cannot make (`impl Foo {` and
+     `Point {` read alike) and so the only reason `groups.thera` consults the
+     AST — to classify an offset, never to render.
+     - **A trailing comma now means "keep this split."** Not a choice so much as
+       a consequence of the whitespace-only contract: the formatter cannot delete
+       the comma, and `g(a, b, )` is not an acceptable join. It lands on the same
+       semantics Prettier and Dart use. It holds back 8 of 126 joinable `(`
+       groups in the corpus and all 19 `[` groups.
+     - **`Fill` was not optional.** Splitting a scalar `[…]` one-element-per-line
+       turned the byte fixtures in `codegen_test.thera` into ~90-line blocks
+       (+1483 in that file alone). Packing them to the margin brings it to +128.
+     - **Measured:** corpus 84 files, **+2776/−1037**. Full `bin/test.sh` green
+       and `bin/build_sdk.sh` still byte-for-byte.
+     - **Known rough edge — argument hugging.** A call whose sole or last
+       argument is itself multi-line (a builder chain, a multi-line string) has
+       its argument list expanded rather than hugging the argument, so
+       `.subcommand(cli.Command.new('run')` becomes `.subcommand(` + an indented
+       chain + a lone `)`. Corpus-wide this adds **283 lone-closer lines**,
+       concentrated in `main.thera`. Conventional for most calls; only the
+       builder-chain shape really wants hugging. That is Stage 3's first item.
   3. **Special rules** — last-argument hugging (`fiber.spawn(() => { … })` must
      hug rather than expand the argument list; lambdas-as-arguments are
      pervasive) and method chains (all-or-nothing at the dots).

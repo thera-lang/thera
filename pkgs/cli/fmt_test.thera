@@ -149,11 +149,54 @@ fn reflow_splits_a_parameter_list() -> Result<Void, Error> {
 }
 
 @test
-fn reflow_is_split_only() -> Result<Void, Error> {
-    // The author broke this call across lines and it fits well inside the
-    // margin. Stage 1 only ever *adds* breaks, so the layout is left as written
-    // — joining it back up is Stage 2's job.
-    let src = 'fn f() {\n    g(\n        a,\n        b);\n}\n';
+fn reflow_joins_a_group_that_fits() -> Result<Void, Error> {
+    // Stage 2: an author break inside a group that fits is *removed*, so the
+    // layout is a function of the token stream rather than of how it was typed.
+    return check_reflow(
+        'fn f() {\n    g(\n        a,\n        b);\n}\n',
+        'fn f() {\n    g(a, b);\n}\n',
+        100);
+}
+
+@test
+fn reflow_keeps_a_block_split() -> Result<Void, Error> {
+    // A statement block never joins, however short — collapsing bodies onto one
+    // line is legal and almost never wanted.
+    let src = 'fn f() {\n    if a {\n        b();\n    }\n}\n';
+    return check_reflow(src, src, 100);
+}
+
+@test
+fn reflow_keeps_a_match_body_split() -> Result<Void, Error> {
+    let src = 'fn f() -> Int {\n    return match x {\n        Some(v) => 1,\n'
+        + '        None => 2,\n    };\n}\n';
+    return check_reflow(src, src, 100);
+}
+
+@test
+fn reflow_joins_a_struct_literal() -> Result<Void, Error> {
+    // The one `{` that does join. It cannot be told from a block by tokens
+    // alone (`impl Foo {` and `Point {` read alike), so this is the single
+    // place the AST is consulted.
+    return check_reflow(
+        'fn f() {\n    let p = Point {\n        x: 1\n    };\n}\n',
+        'fn f() {\n    let p = Point { x: 1 };\n}\n',
+        100);
+}
+
+@test
+fn reflow_trailing_comma_keeps_a_group_split() -> Result<Void, Error> {
+    // A whitespace-only formatter cannot delete the comma, and joining would
+    // give `g(a, b, )`. So a trailing comma reads as "keep this split" — the
+    // meaning Prettier and Dart give it.
+    let src = 'fn f() {\n    g(\n        a,\n        b,\n    );\n}\n';
+    return check_reflow(src, src, 100);
+}
+
+@test
+fn reflow_comment_keeps_a_group_split() -> Result<Void, Error> {
+    // Joining would pull `b` onto the comment's line and comment it out.
+    let src = 'fn f() {\n    g(\n        a, // why\n        b);\n}\n';
     return check_reflow(src, src, 100);
 }
 

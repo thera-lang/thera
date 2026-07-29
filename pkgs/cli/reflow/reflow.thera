@@ -30,6 +30,9 @@
 import std.char;
 
 import '../lexer' as _; // tokenize, Token, TokenKind
+import '../source' as _; // Comment
+import '../parser/parser';
+import 'groups';
 
 // The margin `thera fmt --reflow` targets. Provisional — see docs/roadmap.md.
 pub const DEFAULT_WIDTH: Int = 100;
@@ -40,7 +43,160 @@ struct Pair {
     let close: Int; // offset of the closing bracket
     let open_line: Int; // 1-based line of each end; equal iff the pair is
     let close_line: Int; // entirely on one line (i.e. not already broken)
+    let kind: TokenKind; // the opening bracket's kind, which sets the default mode
+    // Whether a `,` sits directly before the closer. A whitespace-only formatter
+    // cannot delete it, and joining would yield `[a, b, ]`, so a trailing comma
+    // reads as "keep this split" — the same meaning Prettier and Dart give it.
+    let trailing_comma: Bool;
     let breaks: List<Int>; // newline-insertion offsets, ascending
+}
+
+// A bracket pair whose interior line breaks should collapse to single spaces.
+pub struct FlatSpan {
+    let start: Int; // offset of the opening bracket
+    let end: Int; // offset of the closing bracket
+}
+
+// The groups that should be joined onto one line: multi-line groups in `Fit`
+// mode whose content fits within `width`. Disjoint and ascending — an outer
+// group that joins subsumes its children, so only the outermost is returned.
+//
+// Empty when the source doesn't lex or parse: the join decision needs the AST to
+// tell a struct literal's `{` from a block's (see groups.thera), and without it
+// the safe answer is to change nothing.
+//
+// A group is held back — left split however well it would fit — when it contains
+// a line comment (joining would swallow the code after it), when it contains a
+// multi-line string literal (whose newlines are content, not layout), or when it
+// ends in a trailing comma.
+pub fn join_spans(_ source: String, _ width: Int) -> List<FlatSpan> {
+    let lex = tokenize(source);
+    if lex.errors.len() > 0 {
+        return [];
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return [];
+    }
+    let fit_braces = groups.fit_brace_offsets(parsed.program, lex.tokens);
+    let chars = source.chars();
+    let starts = line_start_offsets(chars);
+
+    let candidates: List<Pair> = [];
+    for p in bracket_pairs(lex.tokens) {
+        if p.open_line == p.close_line {
+            continue; // already on one line
+        }
+        if !is_fit(p, fit_braces) || p.trailing_comma {
+            continue;
+        }
+        if spans_comment(lex.comments, p) || spans_multiline_string(lex.tokens, chars, p) {
+            continue;
+        }
+        let from = line_start_at(starts, p.open_line);
+        let to = line_end_at(starts, chars, p.close_line);
+        if flat_width(chars, from, to) <= width {
+            candidates.push(p);
+        }
+    }
+
+    let out: List<FlatSpan> = [];
+    for p in candidates {
+        if !contained_in_another(p, candidates) {
+            out.push(FlatSpan { start: p.open, end: p.close });
+        }
+    }
+    return out;
+}
+
+// `(` and `[` join when they fit; `{` does not, unless it opens a struct
+// literal. A statement block, `match` body, or declaration body stays expanded
+// however short it is.
+fn is_fit(_ p: Pair, _ fit_braces: List<Int>) -> Bool {
+    return match p.kind {
+        LParen => true,
+        LBracket => true,
+        LBrace => fit_braces.contains(p.open),
+        _ => false,
+    };
+}
+
+fn spans_comment(_ comments: List<Comment>, _ p: Pair) -> Bool {
+    for c in comments {
+        if c.span.offset > p.open && c.span.offset < p.close {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn spans_multiline_string(_ tokens: List<Token>, _ chars: List<Int>, _ p: Pair) -> Bool {
+    for t in tokens {
+        if t.kind == TokenKind.StringLiteral && t.span.offset > p.open
+            && t.span.offset < p.close {
+            let stop = t.span.offset + t.span.length;
+            let mut i = t.span.offset;
+            while i < stop && i < chars.len() {
+                if chars[i] == char.LF {
+                    return true;
+                }
+                i = i + 1;
+            }
+        }
+    }
+    return false;
+}
+
+// The width of `[from, to)` once its interior line breaks collapse to single
+// spaces — i.e. the width of the line joining would produce. Leading indentation
+// counts; it survives the join.
+fn flat_width(_ chars: List<Int>, _ from: Int, _ to: Int) -> Int {
+    let mut w = 0;
+    let mut pending_space = false;
+    let mut started = false;
+    let mut i = from;
+    while i < to && i < chars.len() {
+        let c = chars[i];
+        if c == char.LF || c == char.SPACE || c == char.TAB || c == char.CR {
+            if started {
+                pending_space = true;
+            } else {
+                w = w + 1; // the opening line's indentation
+            }
+        } else {
+            if pending_space {
+                w = w + 1;
+                pending_space = false;
+            }
+            w = w + 1;
+            started = true;
+        }
+        i = i + 1;
+    }
+    return w;
+}
+
+// Offsets at which each 1-based line starts; index 0 is unused.
+fn line_start_offsets(_ chars: List<Int>) -> List<Int> {
+    let out: List<Int> = [];
+    out.push(0);
+    out.push(0);
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == char.LF {
+            out.push(i + 1);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+fn line_start_at(_ starts: List<Int>, _ line: Int) -> Int {
+    return starts.get(line).unwrap_or(0);
+}
+
+fn line_end_at(_ starts: List<Int>, _ chars: List<Int>, _ line: Int) -> Int {
+    return starts.get(line + 1).unwrap_or(chars.len() + 1) - 1;
 }
 
 // The offsets in `source` at which inserting a newline would relieve an
@@ -60,7 +216,7 @@ pub fn break_offsets(_ source: String, _ width: Int) -> List<Int> {
     let chars = source.chars();
     let out: List<Int> = [];
     for line in over_width_lines(source, width) {
-        for b in group_breaks_for_line(pairs, line, chars) {
+        for b in group_breaks_for_line(pairs, line, chars, width) {
             out.push(b);
         }
     }
@@ -89,6 +245,7 @@ fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
     // Parallel stacks: the open token, and the break offsets accumulated for it.
     let open_toks: List<Token> = [];
     let open_breaks: List<List<Int>> = [];
+    let mut prev_kind = TokenKind.Eof; // the kind before the current token
     for t in tokens {
         if is_opener(t.kind) {
             open_toks.push(t);
@@ -109,6 +266,8 @@ fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
                         close: t.span.offset,
                         open_line: ot.span.line,
                         close_line: t.span.line,
+                        kind: ot.kind,
+                        trailing_comma: prev_kind == TokenKind.Comma,
                         breaks: bs,
                     });
                 }
@@ -120,6 +279,7 @@ fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
                 open_breaks[open_breaks.len() - 1].push(t.span.offset + 1);
             }
         }
+        prev_kind = t.kind;
     }
     return out;
 }
@@ -151,7 +311,9 @@ fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
 // Empty when the line holds no usable group — one long string literal, a long
 // trailing comment, or only groups already fully broken. Those lines are left
 // alone; no line breaking can shorten them.
-fn group_breaks_for_line(_ pairs: List<Pair>, _ line: Int, _ chars: List<Int>) -> List<Int> {
+fn group_breaks_for_line(
+    _ pairs: List<Pair>, _ line: Int, _ chars: List<Int>, _ width: Int
+) -> List<Int> {
     let on_line: List<Pair> = [];
     for p in pairs {
         // Any group covering the line is a candidate, not just one opening on
@@ -176,6 +338,8 @@ fn group_breaks_for_line(_ pairs: List<Pair>, _ line: Int, _ chars: List<Int>) -
                 close: p.close,
                 open_line: p.open_line,
                 close_line: p.close_line,
+                kind: p.kind,
+                trailing_comma: p.trailing_comma,
                 breaks: breaks,
             });
         }
@@ -188,12 +352,113 @@ fn group_breaks_for_line(_ pairs: List<Pair>, _ line: Int, _ chars: List<Int>) -
             continue;
         }
         if p.close - p.open > best_width {
-            best = p.breaks;
+            best = if is_scalar_list(p, chars) {
+                fill_breaks(p, chars, width)
+            } else {
+                p.breaks
+            };
             best_width = p.close - p.open;
         }
     }
     return best;
 }
+
+// Whether this is a `[…]` of plain scalars — every element a single bare token,
+// no call, no nested collection, no operator. Such a list is packed rather than
+// split one-per-line: a byte fixture of 90 numbers does not want 90 lines.
+fn is_scalar_list(_ p: Pair, _ chars: List<Int>) -> Bool {
+    if p.kind != TokenKind.LBracket || p.breaks.len() < 4 {
+        return false; // not a list, or too short for packing to matter
+    }
+    let mut i = 0;
+    while i + 1 < p.breaks.len() {
+        if !is_scalar_element(chars, p.breaks[i], p.breaks[i + 1]) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// An element is scalar when its text is one unbroken run — no bracket (so no
+// call or nested literal) and no interior space (so no operator or `key: value`).
+fn is_scalar_element(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
+    let mut seen = false;
+    let mut i = from;
+    while i < to && i < chars.len() {
+        let c = chars[i];
+        if c == LPAREN || c == LBRACKET || c == LBRACE || c == COLON {
+            return false;
+        }
+        if is_layout(c) {
+            if seen {
+                return false; // a space *inside* the element
+            }
+        } else if c != COMMA {
+            seen = true;
+        }
+        i = i + 1;
+    }
+    return seen;
+}
+
+// Break points that pack a scalar list into rows within `width`, rather than one
+// element per line: after the opener, before each element that would overflow the
+// current row, and before the closer.
+fn fill_breaks(_ p: Pair, _ chars: List<Int>, _ width: Int) -> List<Int> {
+    let indent = line_indent_of(chars, p.open) + 4;
+    let out: List<Int> = [];
+    out.push(p.breaks[0]);
+    let mut col = indent;
+    let mut i = 0;
+    while i + 1 < p.breaks.len() {
+        let w = trimmed_width(chars, p.breaks[i], p.breaks[i + 1]);
+        if col > indent && col + w > width {
+            out.push(p.breaks[i]);
+            col = indent;
+        }
+        col = col + w + 1; // the element, plus the space after its comma
+        i = i + 1;
+    }
+    out.push(p.breaks[p.breaks.len() - 1]);
+    return out;
+}
+
+// The width of `[from, to)` ignoring surrounding whitespace.
+fn trimmed_width(_ chars: List<Int>, _ from: Int, _ to: Int) -> Int {
+    let mut a = from;
+    while a < to && a < chars.len() && is_layout(chars[a]) {
+        a = a + 1;
+    }
+    let mut b = to;
+    while b > a && b - 1 < chars.len() && is_layout(chars[b - 1]) {
+        b = b - 1;
+    }
+    return b - a;
+}
+
+// The number of leading spaces on the line containing `off`.
+fn line_indent_of(_ chars: List<Int>, _ off: Int) -> Int {
+    let mut start = off;
+    while start > 0 && chars[start - 1] != char.LF {
+        start = start - 1;
+    }
+    let mut n = 0;
+    while start + n < chars.len() && chars[start + n] == char.SPACE {
+        n = n + 1;
+    }
+    return n;
+}
+
+fn is_layout(_ c: Int) -> Bool {
+    return c == char.SPACE || c == char.TAB || c == char.CR || c == char.LF;
+}
+
+const LPAREN: Int = 40;
+const LBRACKET: Int = 91;
+const LBRACE: Int = 123;
+const COMMA: Int = 44;
+const COLON: Int = 58;
 
 // A group's break points minus the ones already taken — inserting a newline
 // where the author (or an earlier round) already put one would open a blank line.

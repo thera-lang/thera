@@ -1,0 +1,196 @@
+// Which bracket groups may be *joined* onto one line — the one piece of line
+// breaking that needs the AST.
+//
+// The default is decided by bracket kind alone: `(` and `[` are `Fit` (join when
+// the content fits), `{` is `AlwaysSplit` (a statement block, `match` body, or
+// `impl`/`enum`/`interface`/`struct` declaration body stays expanded however
+// short it is — collapsing `match x { Some(v) => 1, None => 2 }` onto one line is
+// legal and almost never wanted).
+//
+// That leaves exactly one exception: a **struct literal** (`Point { x: 1, y: 2 }`)
+// is a `{` that *should* join. It cannot be recognised from tokens — `impl Foo {`,
+// `struct Foo {`, and `Point {` all read as "identifier, then brace" — so this
+// module walks the AST and reports the offset of each struct literal's `{`.
+//
+// Note the AST is used only to *classify an offset*, never to render: the
+// formatter still emits the original tokens (see reflow.thera), so the parser's
+// `if let` / `let … else` / `else if` desugaring is irrelevant here.
+
+import '../ast/ast' as _;
+import '../source' as _; // SourceSpan
+import '../lexer' as _; // Token, TokenKind
+
+// The source offsets of every struct-literal `{` in `p`, ascending. Any `{` not
+// in this list is `AlwaysSplit`.
+pub fn fit_brace_offsets(_ p: Program, _ tokens: List<Token>) -> List<Int> {
+    let spans: List<SourceSpan> = [];
+    for d in p.decls {
+        walk_decl(d, spans);
+    }
+    let out: List<Int> = [];
+    for s in spans {
+        if let Some(off) = first_brace_in(tokens, s) {
+            out.push(off);
+        }
+    }
+    return out.sort((a, b) => a < b);
+}
+
+// The offset of the first `{` inside `span` — a struct literal's span starts at
+// its type name, so its brace is the first one within it.
+fn first_brace_in(_ tokens: List<Token>, _ span: SourceSpan) -> Option<Int> {
+    let stop = span.offset + span.length;
+    for t in tokens {
+        if t.span.offset >= span.offset && t.span.offset < stop
+            && t.kind == TokenKind.LBrace {
+            return Option.Some(t.span.offset);
+        }
+    }
+    return Option.None;
+}
+
+// --- the walk ---
+//
+// Mirrors `lint.thera`'s traversal: every node kind is visited, and the only
+// thing collected is a struct literal's span.
+
+fn walk_decl(_ d: Decl, _ out: List<SourceSpan>) -> Void {
+    match d {
+        Fn(f) => { walk_fn(f, out); },
+        Impl(i) => {
+            for m in i.methods {
+                walk_fn(m, out);
+            }
+        },
+        Interface(it) => {
+            for m in it.methods {
+                walk_fn(m, out);
+            }
+        },
+        Const(c) => { walk_expr(c.value, out); },
+        Let(l) => { walk_expr(l.value, out); },
+        Import(_) => void,
+        Type(_) => void,
+        Enum(_) => void,
+    }
+}
+
+fn walk_fn(_ f: FnDecl, _ out: List<SourceSpan>) -> Void {
+    for p in f.params {
+        if let Some(e) = p.default_value { walk_expr(e, out); }
+    }
+    if let Some(b) = f.body { walk_block(b, out); }
+}
+
+fn walk_block(_ b: Block, _ out: List<SourceSpan>) -> Void {
+    for s in b.stmts {
+        walk_stmt(s, out);
+    }
+    if let Some(e) = b.tail { walk_expr(e, out); }
+}
+
+fn walk_stmt(_ s: Stmt, _ out: List<SourceSpan>) -> Void {
+    match s {
+        Let(l) => { walk_expr(l.value, out); },
+        Return(_, v) => { walk_opt_expr(v, out); },
+        Throw(_, e) => { walk_expr(e, out); },
+        Expr(_, e) => { walk_expr(e, out); },
+        Assign(_, target, _, value) => {
+            walk_expr(target, out);
+            walk_expr(value, out);
+        },
+        If(i) => {
+            walk_expr(i.condition, out);
+            walk_block(i.then_block, out);
+            walk_opt_block(i.else_block, out);
+        },
+        For(f) => {
+            walk_expr(f.iterable, out);
+            walk_block(f.body, out);
+        },
+        While(w) => {
+            walk_expr(w.condition, out);
+            walk_block(w.body, out);
+        },
+        Break(_) => void,
+        Continue(_) => void,
+    }
+}
+
+fn walk_expr(_ e: Expr, _ out: List<SourceSpan>) -> Void {
+    match e {
+        Struct(x) => {
+            out.push(x.span);
+            for fi in x.fields {
+                walk_expr(fi.value, out);
+            }
+        },
+        Str(_, parts) => {
+            for part in parts {
+                if let Interp(_, inner) = part { walk_expr(inner, out); }
+            }
+        },
+        ListLit(_, items) => {
+            for item in items {
+                walk_expr(item, out);
+            }
+        },
+        MapLit(_, entries) => {
+            for entry in entries {
+                walk_expr(entry.key, out);
+                walk_expr(entry.value, out);
+            }
+        },
+        Call(x) => {
+            walk_expr(x.callee, out);
+            for arg in x.args {
+                walk_expr(arg.value, out);
+            }
+        },
+        Field(_, obj, _) => { walk_expr(obj, out); },
+        Index(_, obj, idx) => {
+            walk_expr(obj, out);
+            walk_expr(idx, out);
+        },
+        Binary(_, l, _, r) => {
+            walk_expr(l, out);
+            walk_expr(r, out);
+        },
+        Unary(_, _, operand) => { walk_expr(operand, out); },
+        Propagate(_, inner) => { walk_expr(inner, out); },
+        Range(_, lo, hi) => {
+            walk_expr(lo, out);
+            walk_expr(hi, out);
+        },
+        Match(x) => {
+            walk_expr(x.subject, out);
+            for arm in x.arms {
+                walk_expr(arm.body, out);
+            }
+        },
+        Lambda(x) => { walk_expr(x.body, out); },
+        Block(_, b) => { walk_block(b, out); },
+        If(x) => {
+            walk_expr(x.condition, out);
+            walk_block(x.then_block, out);
+            walk_opt_block(x.else_block, out);
+        },
+        Return(_, v) => { walk_opt_expr(v, out); },
+        Throw(_, inner) => { walk_expr(inner, out); },
+        Int(_, _) => void,
+        Float(_, _) => void,
+        Bool(_, _) => void,
+        Unit(_) => void,
+        Ident(_, _) => void,
+        Loc(_) => void,
+        Error(_) => void,
+    }
+}
+
+fn walk_opt_expr(_ e: Option<Expr>, _ out: List<SourceSpan>) -> Void {
+    if let Some(inner) = e { walk_expr(inner, out); }
+}
+
+fn walk_opt_block(_ b: Option<Block>, _ out: List<SourceSpan>) -> Void {
+    if let Some(inner) = b { walk_block(inner, out); }
+}

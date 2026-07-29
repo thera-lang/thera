@@ -91,15 +91,73 @@ pub fn format_source_reflow(_ source: String, width: Int = reflow.DEFAULT_WIDTH)
     let mut cur = base;
     let mut round = 0;
     while round < MAX_REFLOW_ROUNDS {
-        let breaks = reflow.break_offsets(cur, width);
-        if breaks.len() == 0 {
+        // Join first, then split: joining can only produce lines within the
+        // margin, so the split pass never immediately undoes it, and the two
+        // cannot trade a line back and forth.
+        let joined = apply_joins(cur, width);
+        let breaks = reflow.break_offsets(joined, width);
+        let next = if breaks.len() == 0 {
+            joined
+        } else {
+            format_source(insert_newlines(joined, breaks))
+        };
+        if next == cur {
             round = MAX_REFLOW_ROUNDS;
         } else {
-            cur = format_source(insert_newlines(cur, breaks));
+            cur = next;
             round = round + 1;
         }
     }
     return reflow_guarded(source, cur, base);
+}
+
+// Collapse the interior line breaks of every group `reflow` says should be
+// joined, then re-format so the result is re-indented and its intra-line spacing
+// re-normalized (joining leaves a single space where a newline was, which Stage A
+// then tightens — `g(\n a\n)` becomes `g( a )` and then `g(a)`).
+fn apply_joins(_ text: String, _ width: Int) -> String {
+    let spans = reflow.join_spans(text, width);
+    if spans.len() == 0 {
+        return text;
+    }
+    let chars = text.chars();
+    let out: List<Int> = [];
+    let mut si = 0;
+    let mut i = 0;
+    while i < chars.len() {
+        // Advance past any span that ended before here.
+        while si < spans.len() && spans[si].end < i {
+            si = si + 1;
+        }
+        let inside = si < spans.len() && i > spans[si].start && i < spans[si].end;
+        if inside && is_layout_space(chars[i]) {
+            // Collapse this whitespace run to one space, but only if it holds a
+            // newline — a run that doesn't is already correct intra-line spacing.
+            let mut j = i;
+            let mut saw_newline = false;
+            while j < chars.len() && j < spans[si].end && is_layout_space(chars[j]) {
+                if chars[j] == char.LF {
+                    saw_newline = true;
+                }
+                j = j + 1;
+            }
+            if saw_newline {
+                out.push(char.SPACE);
+                i = j;
+            } else {
+                out.push(chars[i]);
+                i = i + 1;
+            }
+        } else {
+            out.push(chars[i]);
+            i = i + 1;
+        }
+    }
+    return format_source(String.from_chars(out));
+}
+
+fn is_layout_space(_ c: Int) -> Bool {
+    return c == char.SPACE || c == char.TAB || c == char.CR || c == char.LF;
 }
 
 // Insert a newline at each offset (ascending, duplicates tolerated). Offsets
