@@ -1,0 +1,274 @@
+//! Line breaking for `thera fmt --reflow`.
+//!
+//! Stage 1 of the reflowing formatter (docs/roadmap.md → Developer tooling →
+//! Canonical (line-wrapping) formatter): **split-only**. Every line break the
+//! author wrote is preserved; this pass only *adds* breaks, to relieve lines
+//! that exceed the margin. Joining — where a canonical formatter removes an
+//! author break because the group fits — is Stage 2.
+//!
+//! The unit of breaking is a **bracket group**: a matched `(`/`[`/`{` pair. A
+//! group's break points are the positions a newline may be inserted — after the
+//! opener, after each top-level `,`/`;`, and before the closer — chosen
+//! all-or-nothing, so a split list puts one element per line rather than packing
+//! as many as fit (packing makes one added element rewrap its neighbours, which
+//! is the diff churn this work exists to remove).
+//!
+//! Breaks are chosen **outermost-first**: for an over-width line, the widest
+//! group lying entirely on that line and contained in no other such group is
+//! split. That makes a split reveal structure rather than bury it, and the
+//! caller re-runs the pass so inner groups split only if their line is *still*
+//! over.
+//!
+//! This pass is deliberately **token-only** — it never consults the AST. The
+//! parser desugars `if let` / `let … else` / `else if` into `match` (see
+//! docs/roadmap.md → Compiler & front-end), so a syntax-driven formatter would
+//! have to reverse that; tokens carry what the user actually wrote. It also
+//! means a break can only land at a bracket or separator boundary, so it can
+//! never split a string literal, and never separate the adjacent `>` `>` the
+//! parser reads as a shift operator.
+
+import std.char;
+
+import '../lexer' as _; // tokenize, Token, TokenKind
+
+// The margin `thera fmt --reflow` targets. Provisional — see docs/roadmap.md.
+pub const DEFAULT_WIDTH: Int = 100;
+
+// A matched bracket pair and the offsets at which it may be broken.
+struct Pair {
+    let open: Int; // offset of the opening bracket
+    let close: Int; // offset of the closing bracket
+    let open_line: Int; // 1-based line of each end; equal iff the pair is
+    let close_line: Int; // entirely on one line (i.e. not already broken)
+    let breaks: List<Int>; // newline-insertion offsets, ascending
+}
+
+// The offsets in `source` at which inserting a newline would relieve an
+// over-width line, ascending. Empty when nothing can be improved — a line with
+// no splittable group on it (one long string literal, a long trailing comment)
+// is left alone, as is a source that doesn't lex.
+//
+// One round: each over-width line contributes at most one group. The caller
+// re-formats and calls again until this returns empty, so a line needing two
+// levels of splitting gets them on successive rounds.
+pub fn break_offsets(_ source: String, _ width: Int) -> List<Int> {
+    let lex = tokenize(source);
+    if lex.errors.len() > 0 {
+        return [];
+    }
+    let pairs = bracket_pairs(lex.tokens);
+    let chars = source.chars();
+    let out: List<Int> = [];
+    for line in over_width_lines(source, width) {
+        for b in group_breaks_for_line(pairs, line, chars) {
+            out.push(b);
+        }
+    }
+    // A partially-broken group's later break points lie on lines below the one
+    // that selected it, so two over-width lines can contribute interleaved
+    // offsets. The caller inserts left to right, so normalize here.
+    return sorted_unique(out);
+}
+
+// Ascending, duplicates removed.
+fn sorted_unique(_ xs: List<Int>) -> List<Int> {
+    let out: List<Int> = [];
+    for x in xs.sort((a, b) => a < b) {
+        if out.len() == 0 || out[out.len() - 1] != x {
+            out.push(x);
+        }
+    }
+    return out;
+}
+
+// Match every bracket in the token stream, recording each pair's break points.
+// An unbalanced stream (which a clean lex shouldn't produce) yields the pairs
+// matched so far rather than failing.
+fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
+    let out: List<Pair> = [];
+    // Parallel stacks: the open token, and the break offsets accumulated for it.
+    let open_toks: List<Token> = [];
+    let open_breaks: List<List<Int>> = [];
+    for t in tokens {
+        if is_opener(t.kind) {
+            open_toks.push(t);
+            // A newline may follow the opener itself.
+            let bs: List<Int> = [];
+            bs.push(t.span.offset + 1);
+            open_breaks.push(bs);
+        } else if is_closer(t.kind) {
+            // The stacks are maintained in step, so the breaks pop succeeds
+            // whenever the token pop does.
+            if let Some(ot) = open_toks.pop() {
+                let bs = open_breaks.pop().unwrap_or([]);
+                if matches(ot.kind, t.kind) {
+                    // …and one before the closer, so it lands on its own line.
+                    bs.push(t.span.offset);
+                    out.push(Pair {
+                        open: ot.span.offset,
+                        close: t.span.offset,
+                        open_line: ot.span.line,
+                        close_line: t.span.line,
+                        breaks: bs,
+                    });
+                }
+            }
+        } else if t.kind == TokenKind.Comma || t.kind == TokenKind.Semi {
+            // A separator breaks the group it sits *directly* in, so it is
+            // recorded against the innermost open bracket only.
+            if open_breaks.len() > 0 {
+                open_breaks[open_breaks.len() - 1].push(t.span.offset + 1);
+            }
+        }
+    }
+    return out;
+}
+
+// The 1-based line numbers whose rendered width exceeds `width`.
+fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
+    let out: List<Int> = [];
+    let mut line = 1;
+    for text in source.lines() {
+        if text.len() > width {
+            out.push(line);
+        }
+        line = line + 1;
+    }
+    return out;
+}
+
+// The breaks to take for an over-width `line`: those of the widest group opening
+// on it that is contained in no other group opening there — outermost first, so
+// the split reveals structure rather than burying it, and widest because that is
+// the split most likely to bring the line under the margin.
+//
+// A group already broken across lines is still a candidate: its opening line can
+// be over-width because only *some* of its elements were split off (a parameter
+// list with two params on line one and the third below). Taking all of its
+// remaining break points is what makes splitting all-or-nothing rather than
+// leaving a half-packed list.
+//
+// Empty when the line holds no usable group — one long string literal, a long
+// trailing comment, or only groups already fully broken. Those lines are left
+// alone; no line breaking can shorten them.
+fn group_breaks_for_line(_ pairs: List<Pair>, _ line: Int, _ chars: List<Int>) -> List<Int> {
+    let on_line: List<Pair> = [];
+    for p in pairs {
+        // Any group covering the line is a candidate, not just one opening on
+        // it: an over-width line is often a *continuation* of a group broken
+        // further up (the tail of a split argument list), whose remaining
+        // separators are the breaks that relieve it. `close > open + 1` skips an
+        // empty pair — breaking `f()` adds a line without shortening anything.
+        if p.open_line <= line && p.close_line >= line && p.close > p.open + 1 {
+            on_line.push(p);
+        }
+    }
+    // Narrow to the groups that still have a break to give *before* asking which
+    // is outermost. A group already fully split — every enclosing block, once
+    // its statements sit one per line — has none, and must not be allowed to
+    // mask the inner group that would actually relieve the line.
+    let usable: List<Pair> = [];
+    for p in on_line {
+        let breaks = usable_breaks(p, chars);
+        if breaks.len() > 0 {
+            usable.push(Pair {
+                open: p.open,
+                close: p.close,
+                open_line: p.open_line,
+                close_line: p.close_line,
+                breaks: breaks,
+            });
+        }
+    }
+    // Outermost first, widest among those.
+    let mut best: List<Int> = [];
+    let mut best_width = -1;
+    for p in usable {
+        if contained_in_another(p, usable) {
+            continue;
+        }
+        if p.close - p.open > best_width {
+            best = p.breaks;
+            best_width = p.close - p.open;
+        }
+    }
+    return best;
+}
+
+// A group's break points minus the ones already taken — inserting a newline
+// where the author (or an earlier round) already put one would open a blank line.
+fn usable_breaks(_ p: Pair, _ chars: List<Int>) -> List<Int> {
+    let out: List<Int> = [];
+    for b in p.breaks {
+        if !at_line_boundary(chars, b) {
+            out.push(b);
+        }
+    }
+    return out;
+}
+
+// Whether offset `off` already sits at a line boundary — a newline immediately
+// follows it (`,⏎`, the "after" break points) or immediately precedes it
+// (`⏎    )`, the "before the closer" point), ignoring horizontal whitespace.
+fn at_line_boundary(_ chars: List<Int>, _ off: Int) -> Bool {
+    let mut i = off;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == char.LF {
+            return true;
+        }
+        if c != char.SPACE && c != char.TAB && c != char.CR {
+            i = chars.len();
+        } else {
+            i = i + 1;
+        }
+    }
+    let mut j = off - 1;
+    while j >= 0 {
+        let c = chars[j];
+        if c == char.LF {
+            return true;
+        }
+        if c != char.SPACE && c != char.TAB && c != char.CR {
+            return false;
+        }
+        j = j - 1;
+    }
+    return false;
+}
+
+fn contained_in_another(_ p: Pair, _ others: List<Pair>) -> Bool {
+    for o in others {
+        if o.open < p.open && o.close > p.close {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn is_opener(_ k: TokenKind) -> Bool {
+    return match k {
+        LParen => true,
+        LBracket => true,
+        LBrace => true,
+        _ => false,
+    };
+}
+
+fn is_closer(_ k: TokenKind) -> Bool {
+    return match k {
+        RParen => true,
+        RBracket => true,
+        RBrace => true,
+        _ => false,
+    };
+}
+
+fn matches(_ open: TokenKind, _ close: TokenKind) -> Bool {
+    return match open {
+        LParen => close == TokenKind.RParen,
+        LBracket => close == TokenKind.RBracket,
+        LBrace => close == TokenKind.RBrace,
+        _ => false,
+    };
+}

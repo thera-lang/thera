@@ -120,6 +120,62 @@ fn keeps_shift_operators_tight() -> Result<Void, Error> {
         + '    let m: Map<K, List<Int>> = [:];\n}\n');
 }
 
+// --- reflow (`fmt --reflow`) ---
+
+// Reflow at `width` and assert the result equals `want` *and* is idempotent.
+fn check_reflow(_ src: String, _ want: String, _ width: Int) -> Result<Void, Error> {
+    let once = format_source_reflow(src, width: width);
+    testing.assert_eq(actual: once, expected: want)?;
+    testing.assert_eq(actual: format_source_reflow(once, width: width), expected: want)?;
+    return Result.Ok(void);
+}
+
+@test
+fn reflow_splits_an_over_width_call() -> Result<Void, Error> {
+    // All-or-nothing: every argument goes to its own line, rather than packing
+    // as many as fit (packing makes one added argument rewrap its neighbours).
+    return check_reflow(
+        'fn f() {\n    g(alpha, beta, gamma);\n}\n',
+        'fn f() {\n    g(\n        alpha,\n        beta,\n        gamma\n    );\n}\n',
+        20);
+}
+
+@test
+fn reflow_splits_a_parameter_list() -> Result<Void, Error> {
+    return check_reflow(
+        'fn some_function(_ a: Int, _ b: Int) -> Int {\n    return a;\n}\n',
+        'fn some_function(\n    _ a: Int,\n    _ b: Int\n) -> Int {\n    return a;\n}\n',
+        30);
+}
+
+@test
+fn reflow_is_split_only() -> Result<Void, Error> {
+    // The author broke this call across lines and it fits well inside the
+    // margin. Stage 1 only ever *adds* breaks, so the layout is left as written
+    // — joining it back up is Stage 2's job.
+    let src = 'fn f() {\n    g(\n        a,\n        b);\n}\n';
+    return check_reflow(src, src, 100);
+}
+
+@test
+fn reflow_leaves_a_line_it_cannot_split() -> Result<Void, Error> {
+    // No bracket group on the line, so no break point exists: a long string
+    // literal is left over-width rather than mangled. The enclosing block is not
+    // a candidate either — its own break points are already taken.
+    let src = 'fn f() {\n    let s = \'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\';\n}\n';
+    return check_reflow(src, src, 20);
+}
+
+@test
+fn reflow_splits_the_outermost_group_first() -> Result<Void, Error> {
+    // `g(...)` encloses `h(...)`; the outer call breaks so the split reveals the
+    // call structure instead of burying it inside the argument.
+    return check_reflow(
+        'fn f() {\n    g(h(a, b), c);\n}\n',
+        'fn f() {\n    g(\n        h(a, b),\n        c\n    );\n}\n',
+        16);
+}
+
 @test
 fn leaves_trailing_comment_untouched() -> Result<Void, Error> {
     // The gap before a `//` comment holds a newline (comments end their line), so

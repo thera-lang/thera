@@ -1,0 +1,74 @@
+// Tests for the line-breaking pass. These work on the *break-offset* level
+// rather than on rendered text — the rendered shapes are pinned end to end in
+// `fmt_test.thera`, so these pin the decisions behind them: which group is
+// chosen, and when nothing should happen at all.
+
+import std.testing;
+
+import 'reflow' as _;
+
+// The offsets `break_offsets` picks for `src` at `width`.
+fn breaks_for(_ src: String, _ width: Int) -> List<Int> {
+    return break_offsets(src, width);
+}
+
+@test
+fn no_breaks_when_every_line_fits() -> Result<Void, Error> {
+    let src = 'fn f() {\n    g(a, b);\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 100).len(), expected: 0);
+}
+
+@test
+fn no_breaks_without_a_splittable_group() -> Result<Void, Error> {
+    // The only over-width line is a string literal with no bracket on it. The
+    // enclosing block covers the line but its break points are already taken, so
+    // there is nothing to give.
+    let src = 'fn f() {\n    let s = \'aaaaaaaaaaaaaaaaaaaaaaaaaaaa\';\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 20).len(), expected: 0);
+}
+
+@test
+fn no_breaks_for_an_empty_group() -> Result<Void, Error> {
+    // `f()` has no content, so breaking it would add a line without shortening
+    // anything — the long line is left alone.
+    let src = 'fn f() {\n    let some_quite_long_name = h();\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 20).len(), expected: 0);
+}
+
+@test
+fn breaks_an_over_width_call_at_every_separator() -> Result<Void, Error> {
+    // `g(alpha, beta)` → after `(`, after the comma, and before `)`.
+    let src = 'fn f() {\n    g(alpha, beta);\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 18).len(), expected: 3);
+}
+
+@test
+fn offsets_are_ascending_and_unique() -> Result<Void, Error> {
+    let src = 'fn f() {\n    g(alpha, beta, gamma, delta);\n}\n';
+    let offs = breaks_for(src, 18);
+    let mut prev = -1;
+    let mut ok = offs.len() > 0;
+    for o in offs {
+        if o <= prev {
+            ok = false;
+        }
+        prev = o;
+    }
+    return testing.assert(ok, message: 'break offsets must be ascending and unique');
+}
+
+@test
+fn skips_a_break_that_already_exists() -> Result<Void, Error> {
+    // The call is already fully split, so a second round has nothing to add —
+    // this is what makes `format_source_reflow`'s loop terminate.
+    let src = 'fn f() {\n    g(\n        alpha,\n        beta\n    );\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 10).len(), expected: 0);
+}
+
+@test
+fn ignores_source_that_does_not_lex() -> Result<Void, Error> {
+    // An unterminated string: no tokens to trust, so no breaks are proposed and
+    // the caller keeps the original text.
+    let src = 'fn f() {\n    let s = \'unterminated;\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 10).len(), expected: 0);
+}
