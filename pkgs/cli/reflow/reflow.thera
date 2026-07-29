@@ -216,7 +216,7 @@ pub fn break_offsets(_ source: String, _ width: Int) -> List<Int> {
     let chars = source.chars();
     let out: List<Int> = [];
     for line in over_width_lines(source, width) {
-        for b in group_breaks_for_line(pairs, line, chars) {
+        for b in group_breaks_for_line(pairs, line, chars, width) {
             out.push(b);
         }
     }
@@ -311,7 +311,9 @@ fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
 // Empty when the line holds no usable group — one long string literal, a long
 // trailing comment, or only groups already fully broken. Those lines are left
 // alone; no line breaking can shorten them.
-fn group_breaks_for_line(_ pairs: List<Pair>, _ line: Int, _ chars: List<Int>) -> List<Int> {
+fn group_breaks_for_line(
+    _ pairs: List<Pair>, _ line: Int, _ chars: List<Int>, _ width: Int
+) -> List<Int> {
     let on_line: List<Pair> = [];
     for p in pairs {
         // Any group covering the line is a candidate, not just one opening on
@@ -350,12 +352,113 @@ fn group_breaks_for_line(_ pairs: List<Pair>, _ line: Int, _ chars: List<Int>) -
             continue;
         }
         if p.close - p.open > best_width {
-            best = p.breaks;
+            best = if is_scalar_list(p, chars) {
+                fill_breaks(p, chars, width)
+            } else {
+                p.breaks
+            };
             best_width = p.close - p.open;
         }
     }
     return best;
 }
+
+// Whether this is a `[…]` of plain scalars — every element a single bare token,
+// no call, no nested collection, no operator. Such a list is packed rather than
+// split one-per-line: a byte fixture of 90 numbers does not want 90 lines.
+fn is_scalar_list(_ p: Pair, _ chars: List<Int>) -> Bool {
+    if p.kind != TokenKind.LBracket || p.breaks.len() < 4 {
+        return false; // not a list, or too short for packing to matter
+    }
+    let mut i = 0;
+    while i + 1 < p.breaks.len() {
+        if !is_scalar_element(chars, p.breaks[i], p.breaks[i + 1]) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// An element is scalar when its text is one unbroken run — no bracket (so no
+// call or nested literal) and no interior space (so no operator or `key: value`).
+fn is_scalar_element(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
+    let mut seen = false;
+    let mut i = from;
+    while i < to && i < chars.len() {
+        let c = chars[i];
+        if c == LPAREN || c == LBRACKET || c == LBRACE || c == COLON {
+            return false;
+        }
+        if is_layout(c) {
+            if seen {
+                return false; // a space *inside* the element
+            }
+        } else if c != COMMA {
+            seen = true;
+        }
+        i = i + 1;
+    }
+    return seen;
+}
+
+// Break points that pack a scalar list into rows within `width`, rather than one
+// element per line: after the opener, before each element that would overflow the
+// current row, and before the closer.
+fn fill_breaks(_ p: Pair, _ chars: List<Int>, _ width: Int) -> List<Int> {
+    let indent = line_indent_of(chars, p.open) + 4;
+    let out: List<Int> = [];
+    out.push(p.breaks[0]);
+    let mut col = indent;
+    let mut i = 0;
+    while i + 1 < p.breaks.len() {
+        let w = trimmed_width(chars, p.breaks[i], p.breaks[i + 1]);
+        if col > indent && col + w > width {
+            out.push(p.breaks[i]);
+            col = indent;
+        }
+        col = col + w + 1; // the element, plus the space after its comma
+        i = i + 1;
+    }
+    out.push(p.breaks[p.breaks.len() - 1]);
+    return out;
+}
+
+// The width of `[from, to)` ignoring surrounding whitespace.
+fn trimmed_width(_ chars: List<Int>, _ from: Int, _ to: Int) -> Int {
+    let mut a = from;
+    while a < to && a < chars.len() && is_layout(chars[a]) {
+        a = a + 1;
+    }
+    let mut b = to;
+    while b > a && b - 1 < chars.len() && is_layout(chars[b - 1]) {
+        b = b - 1;
+    }
+    return b - a;
+}
+
+// The number of leading spaces on the line containing `off`.
+fn line_indent_of(_ chars: List<Int>, _ off: Int) -> Int {
+    let mut start = off;
+    while start > 0 && chars[start - 1] != char.LF {
+        start = start - 1;
+    }
+    let mut n = 0;
+    while start + n < chars.len() && chars[start + n] == char.SPACE {
+        n = n + 1;
+    }
+    return n;
+}
+
+fn is_layout(_ c: Int) -> Bool {
+    return c == char.SPACE || c == char.TAB || c == char.CR || c == char.LF;
+}
+
+const LPAREN: Int = 40;
+const LBRACKET: Int = 91;
+const LBRACE: Int = 123;
+const COMMA: Int = 44;
+const COLON: Int = 58;
 
 // A group's break points minus the ones already taken — inserting a newline
 // where the author (or an earlier round) already put one would open a blank line.
