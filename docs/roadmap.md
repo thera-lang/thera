@@ -419,19 +419,19 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   first-class-functions fix, and that did not compile when it was written. Both
   were caught by hand, which is exactly the thing that doesn't scale.
 
-  **Design settled (2026-07) — see [scale.md](scale.md) § item 6** for the
-  full treatment. The shape: three example tiers by size (fenced one-liners in
-  doc comments; `@example` fns in `foo_test.thera`, pulled into doc sites by
+  **Design settled (2026-07) — see [scale.md](scale.md) § item 6** for the full
+  treatment. The shape: three example tiers by size (fenced one-liners in doc
+  comments; `@example` fns in `foo_test.thera`, pulled into doc sites by
   explicit `/// @file#fragment` references; whole programs in `examples/`);
   **the fence tag is the contract** — `thera`-tagged blocks are verified
   (attributes `sketch`/`no_run` for exceptions), untagged blocks are ignored,
   which the existing corpus already conforms to (language.md's blocks all
-  tagged, stdlib.md's sketches all untagged); **compile-check is the
-  universal bar**, running is opt-in by shape (a `// => value` oracle or
-  `// error:` expectations — the `tests/lang` harness has the machinery).
-  Implementation phased: extraction + compile-check first (catches the rot
-  class above), `@example`/references with the doc generator, oracles and the
-  `// =>` migration sweep after.
+  tagged, stdlib.md's sketches all untagged); **compile-check is the universal
+  bar**, running is opt-in by shape (a `// => value` oracle or `// error:`
+  expectations — the `tests/lang` harness has the machinery). Implementation
+  phased: extraction + compile-check first (catches the rot class above),
+  `@example`/references with the doc generator, oracles and the `// =>`
+  migration sweep after.
 
 - **Doc-comment tooling — machinery pending.** The conventions
   ([language.md](language.md#documentation)), the `sdk/std/` migration to
@@ -503,7 +503,7 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   is **line-preserving by design**: it re-indents and normalizes intra-line
   spacing but keeps every author-chosen line break (see _Changelog_ and
   [architecture.md](architecture.md#the-formatter-thera-fmt)). The open question
-  is whether to go the rest of the way — a formatter that *reflows*, so a given
+  is whether to go the rest of the way — a formatter that _reflows_, so a given
   AST has exactly one rendering.
 
   **Line length itself needs no guidance change.** The current rule (100 chars,
@@ -518,10 +518,10 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   interfaces (grep output, `file:line:col` diagnostics, patch hunks): a
   1500-char line floods a grep result and makes a `col:` useless for locating
   anything. That argues for a ceiling against outliers, not for tight wrapping.
-  Measured over the corpus (182 files / 53k lines), the codebase already
-  self-polices: comment prose sits at ≤84 chars (99.3%, max 94), and only 1.4%
-  of code lines exceed 100 — of which roughly a third to a half are string
-  literals and byte fixtures no wrapper could break.
+  Measured over the corpus (400 files / 59.7k lines), the codebase already
+  self-polices: comment prose sits at ≤84 chars (99.3%, max 94), and under 1% of
+  lines exceed 100 — of which roughly a third are string literals and byte
+  fixtures no wrapper could break.
 
   **The case for canonicalization is about determinism, not width.** Three
   payoffs, all agent-facing: source gets a canonical token stream; two agents
@@ -530,25 +530,148 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   column-budget bookkeeping it does inconsistently anyway. This is continuous
   with a codebase that already ends its build in a byte-for-byte fixpoint check.
 
-  **Why we haven't, and what would move it.** Two standing objections: the
-  implementation complexity, and that machine-normalized source can *hurt*
-  readability for less common constructs and AST shapes. So the next step is
-  evidence, not a decision:
-  - **Scope the implementation cost** — does the grammar lend itself to a
-    reasonable-complexity formatter? Break-point scoring over the expression
-    tree is a different order of work than the current column-blind gap-edit
-    pass. Thera is brace-delimited with a small expression grammar, which is
-    favorable; the hard cases are the ones every such formatter hits (call
-    chains, nested generics, match arms).
-  - **Validate against the current corpus** — reflow it and read the diff. The
-    bar is that common shapes format well _and_ the uncommon ones don't blow up:
-    deep nesting, calls with many labeled arguments (Thera's named-argument
-    convention is horizontally expensive), long generic signatures,
-    builder-style chains.
-  - **An opt-out marker** — a source tag (à la `#[rustfmt::skip]` / `// dart
-    format off`) suppressing reflow for a region the author knows formats badly.
-    Cheap insurance, and it defuses the readability objection for the tail of
-    cases without holding the common path hostage to them.
+  **Scoped (2026-07) — the plan below.** The two open questions from the
+  previous revision (implementation cost, corpus impact) are answered:
+  ~1100–1300 lines of Thera, and a corpus impact small enough to migrate in
+  place at width 100. What follows is the intended implementation.
+
+  **Architecture: an event stream, not a `Doc` tree.** Two standard formulations
+  of the same algorithm exist — Wadler's tree of `Doc` values, and **Oppen's
+  (1980) linear stream**. Take Oppen's: the front end walks the AST emitting a
+  flat event sequence, and the back end consumes it in a **single pass** with
+  two stacks and a ring buffer sized to the margin (O(n) time, O(width) space,
+  no tree to materialize or re-measure). Four events:
+
+  ```
+  Text(span)                 // emit the original source slice
+  Open(mode, indent, span)
+  Close
+  Break(soft | hard)
+  ```
+
+  `Text(span)` is load-bearing: the formatter **slices original source and never
+  re-renders a lexeme**, so none of the reconstruction cost lands (string
+  interpolation and escapes, hex-vs-decimal `Int` spelling, float formatting).
+  Three decorations on `Open` carry the whole layout policy:
+  - **`mode`** — `Fit` (fit-or-split), `AlwaysSplit`, or `Fill`. A group renders
+    flat if its flattened width fits the remaining columns, else its breaks are
+    taken and its children are considered independently, outermost first.
+    Splitting is **all-or-nothing** (one element per line), never fill-style
+    packing: fill makes one added argument rewrap its neighbors, which is the
+    reflow-cascade diff noise canonicalization exists to remove. `Fill` is the
+    single carve-out, for homogeneous scalar collection literals (the corpus has
+    a `[…]` with 211 elements).
+  - **`indent`** — a nesting delta (+4). **By depth, not visual column** — a
+    change from today's hanging indent, which aligns continuations under the
+    opener's column and so turns any rename into a re-alignment diff across the
+    whole block.
+  - **`span`** — makes "this group must break" (contains a comment, or a
+    multi-line string literal) a single interval test.
+
+  **`AlwaysSplit` is what keeps the migration small.** Statement blocks, `match`
+  bodies, and `impl`/`enum`/`interface`/`struct` bodies never fit-test — they
+  expand unconditionally. Without that rule ~363 multi-line groups would
+  collapse onto one line, **147 of them `match` bodies**; with it, the number is
+  ~22 corpus-wide (15 call-argument lists, 4 collection literals, 3 struct
+  literals). That single rule is the difference between an unreadable migration
+  diff and a trivial one.
+
+  **Comments need no AST change.** Thera has **line comments only** and a
+  printer emits atoms in source order, so ownership never has to be decided:
+  keep a cursor into the offset-sorted `LexResult.comments` and flush every
+  comment whose offset precedes the atom about to be emitted. Two rules — a
+  comment on the same line as the previous token is **trailing** (emit on the
+  current output line, force a break after); otherwise it is **own-line** (emit
+  at the current indent, preserving at most one blank line before). The usual
+  special cases fall out for free: a dangling comment before a closer precedes
+  that closer's offset, so it flushes there. Explicitly **not** doing node
+  attachment — it relocates the policy rather than removing it, has nowhere to
+  live on the 31 tuple-payload variants in
+  [ast.thera](../pkgs/cli/ast/ast.thera) without converting them to structs
+  (touching every exhaustive `match` in the checker and codegen), and would cost
+  the compile path the comment-blind, byte-identical property
+  [lexer.thera](../pkgs/cli/lexer/lexer.thera) currently guarantees.
+
+  **Corpus impact (measured 2026-07, 400 files / 59.7k lines).** Joining: ~22
+  sites, per the `AlwaysSplit` note above. Splitting, by target width — code
+  lines over the margin that have a break opportunity: **@80 2071, @90 972, @100
+  391**. Plus an irreducible tail no wrapper can fix (@100: 192 lines dominated
+  by a single long string literal, 7 long because of a trailing comment). This
+  is the case for **width 100**: it matches the existing authoring guideline,
+  and going to 80 triples the churn for a benefit nobody has articulated — the
+  LLM concern is pathological lines, not tight wrapping. **Provisional**, and
+  deliberately so: these counts measure a hand-wrapped corpus, which is the
+  wrong evidence for the question. Revisit once the formatter actually reflows
+  and each candidate width can be evaluated on what it produces — read against
+  the industry spread above, which spans 77–100 with no consensus to defer to.
+
+  **Cost, calibrated against this repo.** Two existing full-coverage AST
+  traversals bound the per-node cost:
+  [describe.thera](../pkgs/cli/ast/describe.thera) (225 lines / 58 arms —
+  expressions, types, patterns) and [dump.thera](../pkgs/cli/ast/dump.thera)
+  (183 / 40 — declarations, statements, blocks, with indentation) — **408 lines
+  for complete AST coverage**. A formatter's arms add group markers but drop
+  lexeme reconstruction, so:
+
+  | component                                                    | lines          |
+  | ------------------------------------------------------------ | -------------- |
+  | Oppen back end (greedy renderer)                             | ~200           |
+  | AST → event stream                                           | ~600–800       |
+  | comment merge (offset-ordered)                               | ~100           |
+  | special rules (last-arg hugging, method chains, AlwaysSplit) | ~200           |
+  | **total**                                                    | **~1100–1300** |
+
+  This is a **rewrite** of [fmt.thera](../pkgs/cli/fmt.thera), not an extension:
+  Stage A (intra-line spacing) is subsumed because the renderer emits spacing
+  directly, and Stage B (indentation) because indent comes from `Open`. What
+  survives is the safety guard, the CLI/LSP plumbing, and `format_fragment`'s
+  contract. **Considered and declined:** a cheaper token-tree reflow (group tree
+  from bracket nesting + keyword lookback, ~1000 lines, reusing Stage B's
+  bracket stack). Against the calibrated AST number it saves ~200 lines and
+  gives up canonicality-per-AST (it can only be canonical per _bracket
+  structure_), precedence-aware operator breaking, and telling a grouping paren
+  from a call from a parameter list without heuristics. Recorded so it isn't
+  re-proposed.
+
+  **Thera-specific constraints.** Never break between adjacent `>` `>` — the
+  parser forms the shift operators from adjacent angle tokens, so a break there
+  changes the parse. A multi-line string literal is an unbreakable atom that
+  forces its enclosing group to split (15 call-argument groups contain one).
+  Trailing commas are already grammatical in every comma list, so a split list
+  can emit one.
+
+  **Staging — behind `thera fmt --reflow`.** The flag is the risk control; each
+  stage is a strict subset of the next, so nothing is throwaway.
+  1. **Back end + emitter, every `Open` as `AlwaysSplit` except over-width
+     groups** — a split-only formatter. Changes ~390 lines at width 100, joins
+     nothing, and so raises no readability objection. This alone retires the
+     pathological-line problem, which is the one concrete agent-facing harm.
+  2. **Flip constructs to `Fit` one at a time** — call arguments, parameter
+     lists, collection literals, struct literals — corpus-sweeping each.
+  3. **Special rules** — last-argument hugging (`fiber.spawn(() => { … })` must
+     hug rather than expand the argument list; lambdas-as-arguments are
+     pervasive) and method chains (all-or-nothing at the dots).
+  4. **Drop the flag**, make it the default, retire Stages A/B.
+
+  **Gates at every stage.** Idempotence (formatting twice is byte-identical);
+  token-stream equality + reparse (today's guard, unchanged); **the self-compile
+  fixpoint** — reformat the front-end and confirm `bin/build_sdk.sh` still
+  reproduces byte-for-byte, which makes the build itself a correctness oracle
+  since the corpus _is_ the compiler; and a hand-read of the diff on the worst
+  files, against the standing bar that common shapes format well **and**
+  uncommon ones don't blow up (deep nesting — the corpus reaches 18 levels —
+  long generic signatures, many-labeled-argument calls, builder chains).
+
+  **Escape hatch: a `// fmt: off` / `// fmt: on` region marker**, not a magic
+  trailing comma. Prettier and Dart treat an author's trailing comma as a forced
+  break, which preserves determinism but reintroduces exactly the formatting
+  decision this work removes — and an agent will not apply it consistently. An
+  explicit region marker is rare, visible, and keeps the common path independent
+  of invisible punctuation.
+
+  **If it doesn't pan out.** The fallback is to **relax the repo's `fmt --check`
+  gate** until the rewrite lands, rather than hold the corpus to a formatter
+  mid-migration.
 
 ### Language
 
@@ -786,9 +909,9 @@ warning machinery is live: add rules one at a time, corpus-sweeping each.
   between two same-named types from different libraries prints
   `expected Thing, found Thing` — useless to an agent. When the two display
   names are equal, the message should qualify each side with its owning
-  library/file. (The unknown-namespace-in-annotation half of this entry is
-  fixed — see the Changelog — which removes the most common way to hit it;
-  genuinely distinct same-named types can still collide.)
+  library/file. (The unknown-namespace-in-annotation half of this entry is fixed
+  — see the Changelog — which removes the most common way to hit it; genuinely
+  distinct same-named types can still collide.)
 - **A semantic to decide:** qualified access through an `as _` import works
   today (the loader binds the derived namespace for unqualified imports too —
   `import std.path as _;` + `path.join(…)` compiles, and `unused-import` counts
@@ -806,10 +929,10 @@ last thing between `std.http` and complete: the client is `http://`-only — an
 `https://` URL parses then fails at `connect`. Design + staged plan (crate
 choice, native ABI, the park/retry mapping, `TlsStream`, and a hermetic test
 strategy) in [http-tls.md](http-tls.md). **Stages 1–3 of that plan have landed**
-(`rustls`/`aws-lc-rs`/`webpki-roots`; the runtime's TLS session + `tls_*` natives
-riding the existing park/retry model; and `net.TlsStream`/`net.connect_tls`, so
-Thera can speak TLS today); next is the `https` branch in the client, then the
-hermetic in-process TLS loop.
+(`rustls`/`aws-lc-rs`/`webpki-roots`; the runtime's TLS session + `tls_*`
+natives riding the existing park/retry model; and
+`net.TlsStream`/`net.connect_tls`, so Thera can speak TLS today); next is the
+`https` branch in the client, then the hermetic in-process TLS loop.
 
 ### Scheduler punchlist
 
@@ -890,47 +1013,46 @@ Brief summaries of finished arcs; design details live in
 conformance specs. Newest first.
 
 - **Unknown namespace in type position is its own error** (2026-07). A type
-  annotation or construction qualified with a namespace the file doesn't
-  import (`bogus.Thing`) used to resolve its bare segment to a *different*
-  nominal identity and surface downstream as `expected Thing, found Thing`.
-  Now `check_named_type` rejects the unbound qualifier at the annotation
-  (`unknown namespace: bogus`, with a qualify-as hint when an import exposes
-  the type), and `resolve_named_in` resolves such a reference as `Unknown`,
-  so the root cause is the *only* diagnostic (no mismatch cascade). Pinned by
-  `mod-ns-file-local`'s type-position test. Found during the barrel
-  migration, where a leftover `inference.TypeRecord` annotation checked
-  "successfully" against the wrong identity.
+  annotation or construction qualified with a namespace the file doesn't import
+  (`bogus.Thing`) used to resolve its bare segment to a _different_ nominal
+  identity and surface downstream as `expected Thing, found Thing`. Now
+  `check_named_type` rejects the unbound qualifier at the annotation
+  (`unknown namespace: bogus`, with a qualify-as hint when an import exposes the
+  type), and `resolve_named_in` resolves such a reference as `Unknown`, so the
+  root cause is the _only_ diagnostic (no mismatch cascade). Pinned by
+  `mod-ns-file-local`'s type-position test. Found during the barrel migration,
+  where a leftover `inference.TypeRecord` annotation checked "successfully"
+  against the wrong identity.
 
 - **Barrel-enforced boundaries — no deep imports** (2026-07). The second
-  scale.md item landed end to end (language.md § Import resolution;
-  conformance `mod-import-deep` / `mod-import-barrel-file`): a directory
-  library's non-barrel files are importable only from that directory —
-  outsiders import the barrel (directory path ≡ barrel-file path), which
-  re-exports whatever internals they need. Enforced in the loader
-  (`detect_deep_imports`, beside the cycle pass) as an error at the offending
-  import; same-directory sibling rule (nesting survey: zero cases); no
-  test-file exemption (white-box is already sibling-legal). The migration
-  extended three barrels (lexer → token model, element → its four phase
-  files, ast → describe/dump), moved all 33 deep-import sites through them,
-  and deduplicated checker's `is_reserved_type_name` forwarding shim.
-  Deferred: a normalization lint for the two barrel spellings.
+  scale.md item landed end to end (language.md § Import resolution; conformance
+  `mod-import-deep` / `mod-import-barrel-file`): a directory library's
+  non-barrel files are importable only from that directory — outsiders import
+  the barrel (directory path ≡ barrel-file path), which re-exports whatever
+  internals they need. Enforced in the loader (`detect_deep_imports`, beside the
+  cycle pass) as an error at the offending import; same-directory sibling rule
+  (nesting survey: zero cases); no test-file exemption (white-box is already
+  sibling-legal). The migration extended three barrels (lexer → token model,
+  element → its four phase files, ast → describe/dump), moved all 33 deep-import
+  sites through them, and deduplicated checker's `is_reserved_type_name`
+  forwarding shim. Deferred: a normalization lint for the two barrel spellings.
 
 - **Acyclic library imports** (2026-07). Imports between libraries are now
   required to be acyclic — the first scale.md item landed end to end
   (language.md § Import resolution; conformance `mod-import-cycle` /
   `mod-import-cycle-sibling`). The unit is the **library**: a directory
-  library's files (barrel + siblings) may cycle freely; every other file is
-  its own unit; a test file's imports don't participate (a consumer, not a
-  member). Detection lives in the loader (`detect_import_cycles`, a
-  Kosaraju pass over `file_imports` contracted to units) and reports an
-  error-level diagnostic on **every** participating import, each carrying one
-  full cycle path (`import cycle between libraries: a.thera → b/ → a.thera`)
-  — the flagged set is exactly the edits that can break the cycle. Landed
-  directly as an error (no lint stage): the corpus was already clean after
-  the `SourceSpan` hoist into `pkgs/cli/source.thera`, and per-library
-  incremental checking (scale.md item 2) will rely on the DAG. Loading still
-  links a cyclic closure best-effort, so downstream diagnostics stay real;
-  `thera check`'s printed-line dedupe collapses the per-closure repeats.
+  library's files (barrel + siblings) may cycle freely; every other file is its
+  own unit; a test file's imports don't participate (a consumer, not a member).
+  Detection lives in the loader (`detect_import_cycles`, a Kosaraju pass over
+  `file_imports` contracted to units) and reports an error-level diagnostic on
+  **every** participating import, each carrying one full cycle path
+  (`import cycle between libraries: a.thera → b/ → a.thera`) — the flagged set
+  is exactly the edits that can break the cycle. Landed directly as an error (no
+  lint stage): the corpus was already clean after the `SourceSpan` hoist into
+  `pkgs/cli/source.thera`, and per-library incremental checking (scale.md
+  item 2) will rely on the DAG. Loading still links a cyclic closure
+  best-effort, so downstream diagnostics stay real; `thera check`'s printed-line
+  dedupe collapses the per-closure repeats.
 
 - **LSP go-to-type-definition** (2026-07). `textDocument/typeDefinition`
   (`pkgs/cli/lsp/type_definition.thera`) — jump from a _value_ to the
