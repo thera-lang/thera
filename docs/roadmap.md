@@ -642,10 +642,27 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 
   **Staging — behind `thera fmt --reflow`.** The flag is the risk control; each
   stage is a strict subset of the next, so nothing is throwaway.
-  1. **Back end + emitter, every `Open` as `AlwaysSplit` except over-width
-     groups** — a split-only formatter. Changes ~390 lines at width 100, joins
-     nothing, and so raises no readability objection. This alone retires the
-     pathological-line problem, which is the one concrete agent-facing harm.
+  1. **Split-only — _landed_ (`pkgs/cli/reflow/`).** Joins nothing, so it raises
+     no readability objection, and it retires the pathological-line problem —
+     the one concrete agent-facing harm. **Simpler than the design above, and
+     deliberately so:** Stage 1 needs no `Doc`/event layer at all. It selects
+     **break offsets** from the token stream and hands layout back to the
+     existing indentation pass, so the whole stage is one module plus a loop
+     (`format_source_reflow`: format → break → format, to a fixpoint). It never
+     consults the AST — modes only matter once groups can *join*, which is Stage
+     2 — so the desugaring hazard does not arise here at all. The event stream
+     above is still the target shape for Stage 2; it is not needed before then.
+     - **Measured (width 100):** corpus over-width lines **545 → 132**. Of the
+       132, all but **2** are single long string literals no wrapper can break;
+       the 2 are long boolean chains needing operator breaking (Stage 3).
+     - **The line count understates the diff.** "~390 lines relieved" is the
+       count of lines *split*, not lines *touched* — a split line becomes many.
+       The actual corpus sweep is **67 files, +4094/−742**. Worth knowing before
+       Stage 4 lands it for real.
+     - **Verified:** full `bin/test.sh` green on the reflowed corpus, and
+       `bin/build_sdk.sh` still reproduces the front-end **byte-for-byte** — the
+       front-end compiled from reflowed sources compiles itself to the same
+       bytes.
   2. **Flip constructs to `Fit` one at a time** — call arguments, parameter
      lists, collection literals, struct literals — corpus-sweeping each.
   3. **Special rules** — last-argument hugging (`fiber.spawn(() => { … })` must
