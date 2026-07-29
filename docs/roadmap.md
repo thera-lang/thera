@@ -232,6 +232,53 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 
 ### Compiler & front-end
 
+- **Faithful syntax nodes for `if let` / `let … else` / `else if`.** The parser
+  **desugars** all three into a `MatchExpr` (`parse_if_let` / `parse_let_else`),
+  leaving `MatchOrigin` and `Block.synthetic` behind as provenance so consumers
+  can reverse it. Every syntax-facing tool then pays that tax independently:
+  [lint.thera](../pkgs/cli/lint/lint.thera) already reverses it by `origin`, a
+  `fmt` that rendered from the AST would rewrite **677 corpus `if let` sites**
+  (plus 86 `let … else`, 124 `else if`) into `match` blocks, and the LSP
+  renderers still queued — `implementation`, call hierarchy, inlay hints,
+  `willRenameFiles` — all want the form the user wrote. Diagnostics inherit the
+  same problem: a type error inside an `if let` is reported against a `match`
+  that isn't in the source.
+
+  **This decision was already made once, for the smaller case.** `Stmt.Assign`
+  keeps `x += y` faithfully rather than desugaring to `x = x + y`, because doing
+  so "aliased the target node into the value (PA5: one node in two positions
+  breaks span-keyed consumers, and the `+=` shape was unrecoverable for
+  fmt/lint)" — see [ast.thera](../pkgs/cli/ast/ast.thera). The same reasoning
+  applies here; only the node count is bigger.
+
+  **Shape — mirror `assign_value`, don't add a lowering pass.** A lowering pass
+  would create a second tree and a span-sync problem between the faithful tree
+  the LSP queries and the lowered tree the checker walks. The established idiom
+  is better: keep the written shape in the AST and expose a free function that
+  builds the desugared form **on demand**, transient, "never in the AST that
+  walks see" (`assign_value`, consumed at exactly four sites — checker,
+  inference ×2, codegen). So: add `Expr.IfLet` and `Stmt.LetElse`, move the
+  desugaring out of the parser into `if_let_to_match` / `let_else_to_match`
+  beside `assign_value`, and let each semantic consumer opt in with one
+  delegating arm. Retires `MatchOrigin` entirely — a real `match` becomes the
+  only thing that produces `Expr.Match`.
+
+  **Stage it; the three cases are not equal cost.** `if let` and `let … else`
+  are **additive** — new variants, every existing consumer keeps compiling until
+  it opts in. `else if` is **invasive**: it is currently a `synthetic` `Block`
+  wrapping an `If`, so making it faithful changes `IfExpr.else_block`'s type and
+  touches every `IfExpr`/`IfStmt` consumer — and it is the easiest of the three
+  to detect as-is. Do the additive pair first; `else if` last, or not at all.
+
+  Blast radius for the pair: nine files carry `Expr` matches (`ast`, `describe`,
+  `checker`, `codegen`, `inference`, `fix`, `lint`, `lsp/resolve`, `parser`), 14
+  non-test `Match` consumer sites, 4 parser construction sites. **Not a
+  prerequisite for the reflowing formatter** — that deliberately uses a token
+  backbone and consults the AST only for group intervals, so it is unaffected
+  either way. Cost to watch: the transient node is rebuilt per visit and an
+  if-let→match is heavier than `assign_value`'s single `Binary`; measure against
+  the self-compile if the profile moves.
+
 - **Prelude-linked test harnesses.** The checker/resolver unit harnesses
   (`errors_of`, `typed_ctx`, …) build a _hermetic_ element model — no imports,
   empty surfaces — resolving built-ins against the `<builtin>` floor
