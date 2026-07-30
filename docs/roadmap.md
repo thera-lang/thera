@@ -581,32 +581,36 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   mechanically.
 
 - **Reflowing formatter — remaining work.** `thera fmt --reflow` splits and
-  joins bracket groups today (see _Changelog_). Three things stand between it
-  and being the default.
+  joins bracket groups, and hugs a multi-line argument rather than prying the
+  call apart around it (see _Changelog_). Two things stand between it and being
+  the default, plus one gap that hugging exposed.
 
-  - **Last-argument hugging.** A call whose last argument is itself multi-line
-    has its argument list expanded rather than hugging the argument, so
-    `.subcommand(cli.Command.new('run')` becomes `.subcommand(` + an indented
-    chain + a lone `)`. The corpus sweep adds 284 lone-closer lines, but most
-    are ordinary multi-argument calls where a lone `);` is exactly what rustfmt
-    and Prettier produce; the real cost is the narrower set — builder chains
-    (`main.thera`, ~25 sites) and calls ending in a multi-line string — so call
-    it 25–50 sites that read worse. **Fix:** when the outermost splittable
-    group's last element itself contains a splittable group, prefer the inner
-    one, and suppress the outer group's trailing comma so the result isn't
-    `foo(a, bar(…),)` — that comma interaction is the fiddly part. ~80–150
-    lines. **Cheaper before the corpus sweep than after**, so do it first.
-    - _Declined alongside it_, absent a forcing case: **method chains** (only 19
-      lines in the sweep begin with a `.`, so preserving author breaks at dots
-      is already fine) and **operator breaking** (two lines in the whole corpus,
-      and it needs precedence information, which the token-only design
-      deliberately avoids).
+  - **All-or-nothing for a half-split comma list.** A comma list broken at
+    *some* of its break points keeps that shape: `add_error(errors,⏎ '…',⏎
+    span);` whose message is too long to ever fit is never completed to one
+    argument per line, while the same call with a shorter message is. Layout
+    therefore still depends on how long an argument happens to be — the
+    author-dependent layout the pass exists to remove. **Fix:** in
+    [break_edits](../pkgs/cli/reflow/reflow.thera), take every remaining break
+    of a comma list that already has one taken, exempting a group that holds a
+    line comment (a break before it would swallow the code after) and a scalar
+    `[…]` (packed to the margin by design). The condition is "some of its own
+    breaks taken", *not* "spans several lines" — a group is also multi-line when
+    an element is, and that is exactly the hugging shape, which must survive.
+    - Measured at ~30 lines to write and **+6652/−2121 across 103 files** on the
+      sweep, against +2335/−927 across 89 without it — a 2.4× jump, because it
+      canonicalizes hand-wrapping the pass currently leaves alone. It also
+      surfaces a latent [apply_joins](../pkgs/cli/fmt.thera) bug: joining an
+      outer group leaves an inner group's trailing comma stranded (`Comment {
+      … span: span, }`), since the delete only fires for the comma last within
+      the *joined* span. Fix that first. Do the whole item **before** the corpus
+      sweep, since it is a corpus-wide reshape.
 
   - **Make it the default.** Drop the `--reflow` flag, retire
     [fmt.thera](../pkgs/cli/fmt.thera)'s Stage A (intra-line spacing, subsumed —
     the reflow path emits it) and Stage B (indentation, subsumed by group
     indent), fold `reflow/` into a `fmt/` barrel, and reformat the corpus in one
-    sweep — 89 files, +2790/−1089 at width 100. `bin/test.sh`'s `fmt --check`
+    sweep — 89 files, +2335/−927 at width 100. `bin/test.sh`'s `fmt --check`
     gate updates in the same commit.
 
   - **Then choose the width empirically.** 100 is inherited from the authoring
@@ -1005,6 +1009,29 @@ conformance specs. Newest first.
     from "nothing to do" and hid two real bugs during development (a double comma,
     and generic-argument commas counted as a block's own), so `--reflow` now
     reports each skipped file.
+  - **A split has to pay for itself** — the second pass, and what makes a call
+    hug a multi-line argument. Outermost-first was handing each over-width line
+    to the widest group covering it, which for a builder chain is the whole
+    chain, whose only break there is the one before its closer: splitting sheds
+    a `)` and nothing else, while the line stays over-width and gains an indent
+    level. So a group is now a candidate only if the head it would leave — the
+    line up to its first break on that line — is itself within the margin, which
+    picks the `.flag(…)` that can genuinely break over the `.subcommand(…)` that
+    cannot. A line no break can shorten is skipped outright: every line a
+    multi-line string touches is emitted verbatim, so a `.details('…')` argument
+    used to pry apart the chain around it a group per round without ever
+    shortening the line it was chasing. Corpus effect: **+2790/−1089 →
+    +2335/−927**, lone-closer lines **385 → 278**, over-width unchanged at 137.
+  - **A closer line aligns with its own opener**, not the outermost one it
+    closes (`fmt.thera`'s `scan_lines`). Pre-existing and reachable without
+    `--reflow`, but hugging makes staggered closers common:
+    `a.foo(b.new('x')⏎ .bar(⏎ …⏎ ));` had its `));` dedented past the `.bar(`
+    it closes.
+  - **A comma inside `Map<String, …>` is no longer a break point.** `<`/`>` are
+    ordinary operator tokens, so the comma read as a separator of the enclosing
+    block — enough to produce `let names: Map<String,⏎List<NameSite>> = [:];`.
+    It was already excluded from making a group a comma list; now it is excluded
+    from the break list too.
   - **Verified** by reflowing the whole corpus: `bin/test.sh` green and
     `bin/build_sdk.sh` still byte-for-byte — the front-end compiled from reflowed
     sources compiles itself to the same bytes.
@@ -1012,6 +1039,13 @@ conformance specs. Newest first.
     can only be canonical per bracket structure, not per token stream), and a full
     `Doc`/event renderer (the break-offset form reuses the existing indentation
     pass instead, which is most of why the implementation came in small).
+  - _Declined_ for hugging specifically: **preferring the inner group of the
+    last element**, the shape the plan originally called for. Measured on the
+    sweep, it would improve the 10 sites where that inner group is itself split
+    (saving two lines and an indent level each) and worsen the 60 where it fits
+    on one line, since hugging explodes its arguments one per line. It also
+    contradicts outermost-first, which is pinned as deliberate. The head-fits
+    rule above gets the builder chains without the trade.
 
 - **Unknown namespace in type position is its own error** (2026-07). A type
   annotation or construction qualified with a namespace the file doesn't import

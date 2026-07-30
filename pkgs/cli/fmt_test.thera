@@ -232,6 +232,30 @@ fn reflow_leaves_a_line_it_cannot_split() -> Result<Void, Error> {
 }
 
 @test
+fn reflow_hugs_a_chain_argument() -> Result<Void, Error> {
+    // `sub(…)` covers the over-width line, but its only break there is the one
+    // before its closer — splitting it sheds a `)`. `.flag(…)` breaks where it
+    // counts, so the chain keeps its shape instead of being pried apart.
+    return check_reflow(
+        'fn f() {\n    a.sub(b.new(\'x\')\n'
+        + '        .flag(\'one\', help: \'yyyyyyyyyyyyyyyyyyyy\'));\n}\n',
+        'fn f() {\n    a.sub(b.new(\'x\')\n        .flag(\n            \'one\',\n'
+        + '            help: \'yyyyyyyyyyyyyyyyyyyy\',\n        ));\n}\n',
+        40);
+}
+
+@test
+fn reflow_leaves_an_unbreakable_string_argument() -> Result<Void, Error> {
+    // A multi-line string is emitted verbatim, so no break can bring its lines
+    // under the margin. Splitting the call around it would add two lines and
+    // shorten nothing — and, since every enclosing group covers those lines too,
+    // would go on prying the chain apart a group per round.
+    let src = 'fn f() {\n    a.sub(b.new(\'x\')\n        .details(\n'
+        + '\'a very long line of prose that runs past the margin\nand more\'));\n}\n';
+    return check_reflow(src, src, 40);
+}
+
+@test
 fn reflow_splits_the_outermost_group_first() -> Result<Void, Error> {
     // `g(...)` encloses `h(...)`; the outer call breaks so the split reveals the
     // call structure instead of burying it inside the argument.
@@ -239,6 +263,16 @@ fn reflow_splits_the_outermost_group_first() -> Result<Void, Error> {
         'fn f() {\n    g(h(a, b), c);\n}\n',
         'fn f() {\n    g(\n        h(a, b),\n        c,\n    );\n}\n',
         16);
+}
+
+@test
+fn closer_line_aligns_with_its_own_opener() -> Result<Void, Error> {
+    // `));` closes `.bar(` and then `foo(`. It aligns to the *inner* one — the
+    // `)` it starts with is the one that belongs at that column; dedenting to
+    // `foo(`'s anchor would put the closer left of the arguments it closes.
+    let src = 'fn f() {\n    a.foo(b.new(\'x\')\n        .bar(\n            \'y\',\n'
+        + '            z: 1,\n        ));\n}\n';
+    return check(src, src);
 }
 
 @test
