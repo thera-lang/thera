@@ -218,6 +218,48 @@ fn reflow_adds_a_trailing_comma_when_splitting() -> Result<Void, Error> {
 }
 
 @test
+fn reflow_completes_a_half_split_comma_list() -> Result<Void, Error> {
+    // A list broken at some of its break points is broken at all of them, even
+    // where no break can bring the line under the margin. Otherwise this call
+    // keeps its hand-wrapping forever while the same call with a shorter middle
+    // argument comes out one per line — layout deciding itself on how long an
+    // argument happens to be.
+    return check_reflow(
+        'fn f() {\n    g(aaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbb,\n        cccc);\n}\n',
+        'fn f() {\n    g(\n        aaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbb,\n'
+        + '        cccc,\n    );\n}\n',
+        20);
+}
+
+@test
+fn reflow_keeps_a_hugged_list_whole() -> Result<Void, Error> {
+    // `g(…)` is a comma list spanning lines, but none of its *own* breaks are
+    // taken — it is multi-line because an argument is. That is the hugging
+    // shape, so all-or-nothing must not read it as a half-finished split.
+    let src = 'fn f() {\n    g(a, hh(\n        xxxxxxxxxxxx,\n        y,\n    ));\n}\n';
+    return check_reflow(src, src, 24);
+}
+
+@test
+fn reflow_comment_keeps_a_half_split_list() -> Result<Void, Error> {
+    // Completing this split would insert a break after `a,` — putting `b` on the
+    // comment's line and commenting it out. A group holding a comment is left
+    // exactly as written.
+    let src = 'fn f() {\n    g(a, // why\n        bbbbbbbbbbbbbbbbbbbbbbbb,\n        c);\n}\n';
+    return check_reflow(src, src, 20);
+}
+
+@test
+fn reflow_keeps_a_scalar_list_packed() -> Result<Void, Error> {
+    // A scalar `[…]` is filled to the margin by design, so its half-taken breaks
+    // are the intended layout rather than a half-finished split. Without the
+    // exemption a byte fixture would go to one element per line.
+    let src = 'fn f() {\n    let xs = [\n        1, 2, 3, 4, 5,\n'
+        + '        6, 7, 8, 9, 10,\n    ];\n}\n';
+    return check_reflow(src, src, 24);
+}
+
+@test
 fn reflow_never_commas_a_grouping_paren() -> Result<Void, Error> {
     // `(a + b,)` is a parse error, so a paren with no top-level comma is split
     // like any other group but never gains a trailing comma.
