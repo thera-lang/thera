@@ -136,7 +136,7 @@ fn reflow_splits_an_over_width_call() -> Result<Void, Error> {
     // as many as fit (packing makes one added argument rewrap its neighbours).
     return check_reflow(
         'fn f() {\n    g(alpha, beta, gamma);\n}\n',
-        'fn f() {\n    g(\n        alpha,\n        beta,\n        gamma\n    );\n}\n',
+        'fn f() {\n    g(\n        alpha,\n        beta,\n        gamma,\n    );\n}\n',
         20);
 }
 
@@ -144,7 +144,7 @@ fn reflow_splits_an_over_width_call() -> Result<Void, Error> {
 fn reflow_splits_a_parameter_list() -> Result<Void, Error> {
     return check_reflow(
         'fn some_function(_ a: Int, _ b: Int) -> Int {\n    return a;\n}\n',
-        'fn some_function(\n    _ a: Int,\n    _ b: Int\n) -> Int {\n    return a;\n}\n',
+        'fn some_function(\n    _ a: Int,\n    _ b: Int,\n) -> Int {\n    return a;\n}\n',
         30);
 }
 
@@ -185,12 +185,34 @@ fn reflow_joins_a_struct_literal() -> Result<Void, Error> {
 }
 
 @test
-fn reflow_trailing_comma_keeps_a_group_split() -> Result<Void, Error> {
-    // A whitespace-only formatter cannot delete the comma, and joining would
-    // give `g(a, b, )`. So a trailing comma reads as "keep this split" — the
-    // meaning Prettier and Dart give it.
-    let src = 'fn f() {\n    g(\n        a,\n        b,\n    );\n}\n';
-    return check_reflow(src, src, 100);
+fn reflow_deletes_a_trailing_comma_when_joining() -> Result<Void, Error> {
+    // The comma is optional in every comma list (docs/grammar.md), so the join
+    // removes it rather than leaving `g(a, b, )` — and a trailing comma no
+    // longer silently pins a group open.
+    return check_reflow(
+        'fn f() {\n    g(\n        a,\n        b,\n    );\n}\n',
+        'fn f() {\n    g(a, b);\n}\n',
+        100);
+}
+
+@test
+fn reflow_adds_a_trailing_comma_when_splitting() -> Result<Void, Error> {
+    // The symmetric half: a split comma list ends in a comma, so adding an
+    // element later is a one-line diff instead of two.
+    return check_reflow(
+        'fn f() {\n    g(alphaaaaaa, betaaaaaa);\n}\n',
+        'fn f() {\n    g(\n        alphaaaaaa,\n        betaaaaaa,\n    );\n}\n',
+        20);
+}
+
+@test
+fn reflow_never_commas_a_grouping_paren() -> Result<Void, Error> {
+    // `(a + b,)` is a parse error, so a paren with no top-level comma is split
+    // like any other group but never gains a trailing comma.
+    return check_reflow(
+        'fn f() -> Int {\n    return (aaaaaaaaaaaa + bbbbbbbbbbbb);\n}\n',
+        'fn f() -> Int {\n    return (\n        aaaaaaaaaaaa + bbbbbbbbbbbb\n    );\n}\n',
+        30);
 }
 
 @test
@@ -215,7 +237,7 @@ fn reflow_splits_the_outermost_group_first() -> Result<Void, Error> {
     // call structure instead of burying it inside the argument.
     return check_reflow(
         'fn f() {\n    g(h(a, b), c);\n}\n',
-        'fn f() {\n    g(\n        h(a, b),\n        c\n    );\n}\n',
+        'fn f() {\n    g(\n        h(a, b),\n        c,\n    );\n}\n',
         16);
 }
 

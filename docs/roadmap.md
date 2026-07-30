@@ -480,6 +480,40 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   `@example`/references with the doc generator, oracles and the `// =>`
   migration sweep after.
 
+- **Reflowing doc comments — the prose half of the formatter.** `thera fmt`
+  normalizes code layout but never touches comment text, so `///` prose is
+  hand-wrapped and drifts. A follow-on to the canonical-formatter arc (see
+  _Canonical (line-wrapping) formatter_): rewrap `///` / `//!` runs to the same
+  margin the code uses.
+
+  **It needs its own guard, and the existing one does not cover it.** The
+  formatter's safety check is token equality, and **comments are not in the
+  token stream** — the lexer records them on a side channel
+  ([lexer.thera](../pkgs/cli/lexer/lexer.thera)), so `same_tokens` says nothing
+  about them. That is benign today (no pass touches comment text) but it means
+  reflowing prose would be unguarded. The invariant to add is **normalized prose
+  equality**: strip the `///` prefixes and collapse whitespace on both sides, and
+  require the text to match. Note this also means doc-comment reflow was never
+  blocked by the whitespace-only contract — the two are independent.
+
+  **What must not be rewrapped**, and the reason this is a real pass rather than
+  a word-wrap loop:
+  - **Fenced code blocks.** A ```` ```thera ```` block is source, not prose.
+    This interlocks with _Verify the code snippets in docs_ below, which wants
+    those same fences extracted and compiled — both features need one
+    fence-detector, so build it once.
+  - **Lists, tables, and indented examples**, where the line structure is the
+    content.
+  - **Ordinary `//` comments — scope call.** Doc comments have a defined shape;
+    plain comments are often deliberately laid out (aligned trailing notes, the
+    ASCII diagrams in module headers). Leaning toward `///` / `//!` only, with
+    plain comments left alone.
+
+  Sequencing: after the formatter arc settles, and after (or with) the
+  fence-detector from the doctest item. Not urgent — measured over the corpus,
+  comment prose already sits at ≤84 chars in 99.3% of lines, so this buys
+  consistency rather than relief.
+
 - **Doc-comment tooling — machinery pending.** The conventions
   ([language.md](language.md#documentation)), the `sdk/std/` migration to
   `///`/`//!`, and the lexer's comment side-channel are done (see _Changelog_) —
