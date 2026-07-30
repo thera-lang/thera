@@ -79,6 +79,25 @@ fn adds_the_trailing_comma_an_already_split_list_lacks() -> Result<Void, Error> 
 }
 
 @test
+fn skips_a_group_that_cannot_shorten_the_line() -> Result<Void, Error> {
+    // The call's only break on the over-width line is the one before its closer,
+    // so splitting it would leave the line all but as long — and one level
+    // further indented. Nothing else on the line can break, so nothing does.
+    let src = 'fn f() {\n    g(\n        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + b);\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 20).len(), expected: 0);
+}
+
+@test
+fn never_breaks_inside_a_generic_argument_list() -> Result<Void, Error> {
+    // The comma in `Map<String, …>` sits in no bracket of its own — `<`/`>` are
+    // ordinary operator tokens — so it would otherwise read as a separator of the
+    // enclosing block, and `let m: Map<String,⏎List<Int>> = [:];` would look like
+    // a legal split.
+    let src = 'fn f() {\n    let m: Map<String, LongTypeNameeeeeeeeeee> = [:];\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 30).len(), expected: 0);
+}
+
+@test
 fn ignores_source_that_does_not_lex() -> Result<Void, Error> {
     // An unterminated string: no tokens to trust, so no breaks are proposed and
     // the caller keeps the original text.

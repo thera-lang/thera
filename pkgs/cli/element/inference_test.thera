@@ -63,7 +63,7 @@ fn test_map_literal_is_map_of_key_value() -> Result<Void, Error> {
         expected: mk_iface(ctx, 'Map', [
             Type.Primitive(Primitive.Int),
             Type.Primitive(Primitive.Bool),
-    ]))?;
+        ]))?;
     return Result.Ok(void);
 }
 

@@ -10,11 +10,15 @@
 //! exception is a `[…]` of plain scalars, which is filled to the margin.
 //!
 //! Two directions. **Splitting** relieves a line over the margin, choosing
-//! **outermost-first**: the widest group covering the line that still has a
-//! break to give. That makes a split reveal structure rather than bury it.
-//! **Joining** ([join_spans]) collapses a multi-line group that would fit,
-//! so layout follows the token stream rather than how the code was typed —
-//! held back where the group holds a line comment or a multi-line string.
+//! **outermost-first** — the widest group covering the line — so that a split
+//! reveals structure rather than burying it. Only among the groups whose split
+//! would *pay for itself*, though: one that would leave the line over the margin
+//! anyway has relieved nothing, and taking it merely indents the line further.
+//! That is what makes a call hug a multi-line argument instead of prying itself
+//! apart around it. **Joining** ([join_spans]) collapses a multi-line group that
+//! would fit, so layout follows the token stream rather than how the code was
+//! typed — held back where the group holds a line comment or a multi-line
+//! string.
 //!
 //! Nearly **token-only**: the parser desugars `if let` / `let … else` /
 //! `else if` into `match` (docs/roadmap.md → Compiler & front-end), so a
@@ -240,9 +244,16 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
     }
     let pairs = bracket_pairs(lex.tokens, parsed.generic_delims);
     let chars = source.chars();
+    let fixed = verbatim_lines(lex.tokens, chars, width);
+    let starts = line_start_offsets(chars);
     let out: List<BreakEdit> = [];
     for line in over_width_lines(source, width) {
-        for e in group_breaks_for_line(pairs, line, chars, width) {
+        if fixed.has(line) {
+            continue;
+        }
+        let from = line_start_at(starts, line);
+        let to = line_end_at(starts, chars, line);
+        for e in group_breaks_for_line(pairs, line, from, to, chars, width) {
             out.push(e);
         }
     }
@@ -336,18 +347,60 @@ fn bracket_pairs(_ tokens: List<Token>, _ delims: parser.GenericDelims) -> List<
             }
         } else if t.kind == TokenKind.Comma || t.kind == TokenKind.Semi {
             // A separator breaks the group it sits *directly* in, so it is
-            // recorded against the innermost open bracket only.
-            if open_breaks.len() > 0 {
+            // recorded against the innermost open bracket only — and only when
+            // it is outside any generic argument list. `Map<String, Site>` has
+            // no bracket of its own here (`<`/`>` are ordinary operator tokens),
+            // so its comma would otherwise be read as the enclosing block's:
+            // enough to mark the block a comma list and earn it a stray `,`, and
+            // enough to make `let names: Map<String,⏎List<NameSite>> = [:];` a
+            // legal-looking split.
+            if open_breaks.len() > 0 && angle == 0 {
                 open_breaks[open_breaks.len() - 1].push(t.span.offset + 1);
-                // Only a comma outside any generic argument list makes this
-                // group a comma list. `Map<String, Site>` inside a block would
-                // otherwise mark the *block* as one, earning it a stray `,`.
-                if t.kind == TokenKind.Comma && angle == 0 {
+                if t.kind == TokenKind.Comma {
                     open_commas[open_commas.len() - 1] = true;
                 }
             }
         }
         prev_kind = t.kind;
+    }
+    return out;
+}
+
+// The 1-based lines a break cannot bring under the margin, because a multi-line
+// string literal fixes their content: every line one touches is emitted verbatim
+// (see fmt.thera's `LineInfo.verbatim`), so its interior and closing lines are
+// untouchable. Its *opening* line can still shed the code before the quote — the
+// break leaves the literal starting at column 0 — so that line counts as fixed
+// only when the literal's own first line already exceeds the margin.
+//
+// Excluding these matters more than the line count suggests. An unrelievable
+// line is covered by *every* enclosing group, so the outermost one is picked and
+// split each round, and the line stays over-width regardless: a `.details('…')`
+// argument spanning twenty lines used to pry apart the entire builder chain
+// around it, one group per round, without ever shortening the line it was
+// chasing.
+fn verbatim_lines(_ tokens: List<Token>, _ chars: List<Int>, _ width: Int) -> Set<Int> {
+    let out: Set<Int> = Set.new();
+    for t in tokens {
+        if t.kind != TokenKind.StringLiteral {
+            continue;
+        }
+        let stop = t.span.offset + t.span.length;
+        let mut line = t.span.line;
+        let mut first = 0; // width of the literal from its quote to its first LF
+        let mut i = t.span.offset;
+        while i < stop && i < chars.len() {
+            if chars[i] == char.LF {
+                line = line + 1;
+                out.add(line);
+            } else if line == t.span.line {
+                first = first + 1;
+            }
+            i = i + 1;
+        }
+        if line > t.span.line && first > width {
+            out.add(t.span.line);
+        }
     }
     return out;
 }
@@ -365,10 +418,11 @@ fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
     return out;
 }
 
-// The breaks to take for an over-width `line`: those of the widest group opening
-// on it that is contained in no other group opening there — outermost first, so
-// the split reveals structure rather than burying it, and widest because that is
-// the split most likely to bring the line under the margin.
+// The breaks to take for an over-width `line`, whose text is `chars[from..to)`:
+// those of the widest group covering it that is contained in no other candidate
+// — outermost first, so the split reveals structure rather than burying it, and
+// widest because that is the split most likely to bring the line under the
+// margin.
 //
 // A group already broken across lines is still a candidate: its opening line can
 // be over-width because only *some* of its elements were split off (a parameter
@@ -380,7 +434,7 @@ fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
 // trailing comment, or only groups already fully broken. Those lines are left
 // alone; no line breaking can shorten them.
 fn group_breaks_for_line(
-    _ pairs: List<Pair>, _ line: Int, _ chars: List<Int>, _ width: Int
+    _ pairs: List<Pair>, _ line: Int, _ from: Int, _ to: Int, _ chars: List<Int>, _ width: Int
 ) -> List<BreakEdit> {
     let on_line: List<Pair> = [];
     for p in pairs {
@@ -393,14 +447,33 @@ fn group_breaks_for_line(
             on_line.push(p);
         }
     }
-    // Narrow to the groups that still have a break to give *before* asking which
-    // is outermost. A group already fully split — every enclosing block, once
-    // its statements sit one per line — has none, and must not be allowed to
-    // mask the inner group that would actually relieve the line.
+    // Rank the groups before asking which is outermost, because outermost-first
+    // would otherwise hand the line to one that cannot help it. A split cuts the
+    // line at the group's first break on it and pushes the rest down, so the head
+    // left behind is the width the line actually ends up with — and a group whose
+    // head is still over the margin has relieved nothing.
+    //
+    // Preferring the groups that clear the margin is what makes a call hug its
+    // last argument instead of prying itself apart around it. In a builder chain
+    // an over-width `.positional('target', help: '…')` is covered both by its own
+    // parentheses and by the enclosing `.subcommand(…)`, whose only break on that
+    // line is the one before its closer — splitting it sheds a `)` and nothing
+    // else, while `.positional` breaks where it counts. Preferring the latter
+    // leaves the chain's shape intact.
+    //
+    // When no group can clear the margin the line is irreducible — a long
+    // single-line string literal is the usual reason — and nothing is split for
+    // it. That costs no canonicity: a comma list that is already broken is
+    // completed by the all-or-nothing pass in [break_edits] regardless of width,
+    // so what is declined here is only the *pointless* split of a group that
+    // cannot help.
     let usable: List<Pair> = [];
     for p in on_line {
+        // The group still splits all-or-nothing once chosen — every remaining
+        // break is taken, not just the ones on this line.
         let breaks = usable_breaks(p, chars);
-        if breaks.len() > 0 {
+        let head = head_width(breaks, from, to);
+        if head >= 0 && head <= width {
             usable.push(Pair {
                 open: p.open,
                 close: p.close,
@@ -413,6 +486,7 @@ fn group_breaks_for_line(
             });
         }
     }
+
     // Outermost first, widest among those.
     let mut best: List<BreakEdit> = [];
     let mut best_width = -1;
@@ -543,6 +617,19 @@ const LBRACKET: Int = 91;
 const LBRACE: Int = 123;
 const COMMA: Int = 44;
 const COLON: Int = 58;
+
+// The width the line spanning `[from, to)` would keep if it were cut at the
+// first of `breaks` falling on it — everything past that break moves down, so
+// this is what the line is left with. `-1` when no break falls on the line, i.e.
+// the group has nothing to offer it.
+fn head_width(_ breaks: List<Int>, _ from: Int, _ to: Int) -> Int {
+    for o in breaks {
+        if o >= from && o <= to {
+            return o - from;
+        }
+    }
+    return -1;
+}
 
 // A group's break points minus the ones already taken — inserting a newline
 // where the author (or an earlier round) already put one would open a blank line.

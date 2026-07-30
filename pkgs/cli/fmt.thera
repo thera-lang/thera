@@ -627,11 +627,20 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
     while li < n {
         let row = toks_by_line[li];
         // Leading closers pop back to their openers; the line aligns to the
-        // outermost one's anchor.
+        // **innermost** one's anchor — that closer is the line's first character,
+        // so the line belongs where its own group's closer belongs, and any
+        // further closers just trail on it (`…\n        ));`). They usually share
+        // an anchor and the choice is moot; it only shows when the brackets were
+        // opened on different lines, as `a.foo(b.new('x')\n    .bar(\n …\n    ));`
+        // does — there, aligning to the outermost `(` would dedent the line past
+        // the `.bar(` it closes.
         let mut j = 0;
         let mut aligned = -1;
         while j < row.len() && is_closer(row[j].kind) {
-            aligned = pop_or_zero(levels);
+            let anchor = pop_or_zero(levels);
+            if aligned < 0 {
+                aligned = anchor;
+            }
             pop_kind(kinds);
             j = j + 1;
         }
