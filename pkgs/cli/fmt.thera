@@ -650,7 +650,14 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
                         tok.span.offset + tok.span.length,
                     );
                     if nl > 0 {
-                        let mut k = 0;
+                        // A text block's value is set by its content lines and
+                        // its closing delimiter, never by the column its `'''`
+                        // opens at — and only whitespace may follow that `'''`.
+                        // So its opening line reindents like any other code,
+                        // which is the point of a form meant to sit indented.
+                        // An ordinary multi-line string carries value from the
+                        // opening line, so that line stays put.
+                        let mut k = if is_text_block(chars, tok.span.offset) { 1 } else { 0 };
                         while k <= nl {
                             let m = idx + k;
                             if m < n {
@@ -886,6 +893,18 @@ fn pop_or_zero(_ stack: List<Int>) -> Int {
 
 fn pop_kind(_ kinds: List<TokenKind>) -> Void {
     kinds.pop();
+}
+
+// Whether the string literal at `offset` is a text block — three of the same
+// quote. (A raw string's span opens on its `r`, so it never reads as one.)
+fn is_text_block(_ chars: List<Int>, _ offset: Int) -> Bool {
+    if offset + 2 >= chars.len() {
+        return false;
+    }
+    let q = chars[offset];
+    return (q == char.SQUOTE || q == char.DQUOTE)
+        && chars[offset + 1] == q
+        && chars[offset + 2] == q;
 }
 
 fn count_newlines(_ chars: List<Int>, _ start: Int, _ end: Int) -> Int {

@@ -1,0 +1,60 @@
+//! spec: lex-string-block
+//! mode: run
+
+// Each line is printed behind a `|` so the expectations can show leading
+// whitespace, which the runner trims off an expectation directive.
+fn dump(_ s: String) -> Void {
+    for line in s.lines() {
+        println('|${line}');
+    }
+}
+
+fn help() -> String {
+    return '''
+        usage: tool [options]
+
+          --help  show this
+        ''';
+}
+
+fn main() -> Int {
+    // The margin is the least-indented non-blank line and the closing
+    // delimiter's line; indentation past it is content, and blank lines survive.
+    dump(help());
+    // expect: |usage: tool [options]
+    // expect: |
+    // expect: |  --help  show this
+
+    // Escapes and interpolation work as in any other string, and a lone quote
+    // is just content.
+    let who = 'world';
+    dump('''
+        it's ${who}\t.
+        ''');
+    // expect: |it's world	.
+
+    // The closing delimiter on a content line ends the value there: no trailing
+    // newline, so this is one line rather than two.
+    println('[${'''
+        no newline'''}]');
+    // expect: [no newline]
+
+    // A content line indented less than the closer lowers the margin rather
+    // than erroring.
+    dump('''
+            deep
+        shallow
+            ''');
+    // expect: |    deep
+    // expect: |shallow
+
+    // Incidental trailing whitespace is dropped per line, but `\x20` is an
+    // escape and so survives. (The stripping half needs source lines with
+    // trailing spaces, which no checked-in file should depend on keeping — the
+    // lexer tests pin it from a quoted string instead.)
+    println('${'''
+        c\x20
+        '''.chars()}');
+    // expect: [99, 32, 10]
+    return 0;
+}

@@ -83,6 +83,8 @@ UNIT   = 'void'                       // the single value of type Void
 STRING = "'" strChar* "'" | '"' strChar* '"'
        | 'r' "'" (any char except "'")* "'"     // raw: no escapes, no interp
        | 'r' '"' (any char except '"')* '"'
+       | "'''" hws* NL strChar* "'''"           // text block: margin stripped
+       | '"""' hws* NL strChar* '"""'
 strChar = escape | interpolation | (any char except the delimiter)
 escape  = '\' ('n' | 't' | 'r' | 'b' | 'f' | 'v' | '0' | '\' | "'" | '"' | '$')
         | '\x' hex hex                    // a byte, U+0000..U+00FF
@@ -112,6 +114,19 @@ exist to hold. To carry the delimiter, switch quote styles (`r"it's"`); content
 with both quote characters needs an ordinary string. The prefix can't shadow a
 name — no Thera syntax juxtaposes an identifier and a string literal, so `r`
 stays an ordinary identifier everywhere else.
+
+Three quotes open a **text block**, where the indentation that keeps the source
+readable is not part of the value. Escapes and `${…}` work exactly as in an
+ordinary string; only whitespace handling differs. The content starts on the line
+after the opening delimiter (only whitespace may follow it — anything else is an
+error). The **margin** stripped from every line is the smallest indentation
+across the non-blank content lines *and* the closing delimiter's own line, so
+lining the closing `'''` up where the left edge belongs is how the margin is
+said; a line indented less than the closer simply lowers it. Trailing whitespace
+is dropped per line, keeping the value independent of invisible characters —
+`\x20` forces one that's meant. A closing delimiter on its own line supplies the
+final newline; on a content line it ends the value there. Indentation is measured
+on source characters, so a leading `\t` escape is content, not margin.
 
 ### Operators & punctuation
 
@@ -450,9 +465,10 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 - Integer bases & separators: `0b…`, `0o…` (binary/octal), digit separators
   (`1_000`); integer/float **exponents** (`1e9`); float shorthands `1.` and
   `.5`. (Hex `0x…` _is_ supported.)
-- String: triple-quoted / indent-stripping block strings; hash-delimited raw
-  strings (`r#'…'#`); `\a`, `\e`, and braceless `\uXXXX`. (`\u{…}`, `\xNN`,
-  `\0`/`\b`/`\f`/`\v`, and raw `r'…'` _are_ supported.)
+- String: raw text blocks (`r'''…'''` — a named error, not a silent misparse);
+  hash-delimited raw strings (`r#'…'#`); `\a`, `\e`, and braceless `\uXXXX`.
+  (`\u{…}`, `\xNN`, `\0`/`\b`/`\f`/`\v`, raw `r'…'`, and text blocks `'''…'''`
+  _are_ supported.)
 - Tuple literals/types `(a, b)` — `(…)` is grouping or lambda params only.
 
 **Statements & control flow**

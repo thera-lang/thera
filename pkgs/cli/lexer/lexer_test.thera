@@ -144,6 +144,94 @@ fn test_raw_string() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// A text block's source, assembled from lines so the test reads like the code it
+// lexes rather than like one long escape run.
+fn block(_ lines: List<String>) -> String {
+    return lines.join('\n');
+}
+
+@test
+fn test_text_block_strips_the_common_margin() -> Result<Void, Error> {
+    // The margin is the least-indented non-blank line and the closing
+    // delimiter's line; indentation beyond it is content, and the closer on its
+    // own line supplies the final newline.
+    let src = block(["'''", '    one', '      two', '', '    three', "    '''"]);
+    testing.assert_eq(
+        actual: tokenize(src).tokens[0].lexeme(),
+        expected: 'one\n  two\n\nthree\n',
+    )?;
+    // A line indented less than the closer lowers the margin rather than erroring.
+    let ragged = block(["'''", '        deep', '    shallow', "        '''"]);
+    testing.assert_eq(
+        actual: tokenize(ragged).tokens[0].lexeme(),
+        expected: '    deep\nshallow\n',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_text_block_trailing_whitespace_and_closer() -> Result<Void, Error> {
+    // Incidental trailing whitespace goes; an escaped space survives, since
+    // escapes are decoded after the whitespace is measured.
+    let src = block(["'''", '    ab   ', '    c\\x20', "    '''"]);
+    testing.assert_eq(actual: tokenize(src).tokens[0].lexeme(), expected: 'ab\nc \n')?;
+    // The closer on a content line ends the value there — no final newline.
+    let tight = block(["'''", "    one line'''"]);
+    testing.assert_eq(actual: tokenize(tight).tokens[0].lexeme(), expected: 'one line')?;
+    // An empty block is the empty string.
+    testing.assert_eq(
+        actual: tokenize(block(["'''", "    '''"])).tokens[0].lexeme(),
+        expected: '',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_text_block_keeps_escapes_and_interpolation() -> Result<Void, Error> {
+    // A text block is an ordinary string in every respect but whitespace: a
+    // lone quote is content, and `${…}` is captured for the parser as usual.
+    let src = block(["'''", "    it's \${x} \\t.", "    '''"]);
+    let toks = tokenize(src).tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
+    testing.assert_eq(actual: toks[0].interps.len(), expected: 1)?;
+    testing.assert_eq(actual: toks[0].lexeme(), expected: "it's \${x} \t.\n")?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_text_block_content_on_opening_line() -> Result<Void, Error> {
+    let r = tokenize(block(["'''oops", "    '''"]));
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(
+        actual: r.errors[0].message,
+        expected: "a text block's content starts on the line after '''",
+    )?;
+    // Whitespace after the opening delimiter is fine.
+    testing.assert(!tokenize(block(["'''   ", '    x', "    '''"])).has_errors())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_unterminated_text_block() -> Result<Void, Error> {
+    let r = tokenize(block(["'''", '    x']));
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message, expected: 'unterminated text block')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_raw_text_block_is_named() -> Result<Void, Error> {
+    // `r'''…'''` is a plausible reach; lexing it as an empty raw string plus
+    // whatever follows would cascade, so the gap is named instead.
+    let r = tokenize(block(["r'''", '    x', "    '''"]));
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(
+        actual: r.errors[0].message,
+        expected: "a raw text block is not supported; use a text block or r'…'",
+    )?;
+    return Result.Ok(void);
+}
+
 @test
 fn test_raw_prefix_is_not_stolen_from_identifiers() -> Result<Void, Error> {
     // Only an `r` directly against a quote is a prefix; `r` stays a usable name.

@@ -276,6 +276,37 @@ Either quote opens one, so the other can appear in the content (`r"it's"`); for
 content with both, use an ordinary string. Needing interpolation and raw content
 together is a sign they're two pieces: `r'\d+' + suffix`.
 
+Three quotes open a **text block**, where the indentation that keeps the source
+readable is not part of the value. Escapes and `${…}` work as they always do —
+only whitespace handling differs:
+
+```thera
+fn usage(_ name: String) -> String {
+    return '''
+        usage: ${name} [options] <command>
+
+          --help  show this help
+        ''';
+}
+```
+
+That value is `usage: … <command>\n\n  --help  show this help\n` — the eight
+columns of source indentation are gone, the two that separate `--help` from the
+left edge are not. The **margin** is the smallest indentation across the
+non-blank lines *and* the closing delimiter's line, so lining the closing `'''`
+up where the left edge belongs is how you say where it is; a line indented less
+than the closer just lowers the margin. Content starts on the line after the
+opening delimiter (only whitespace may follow it). A closing delimiter on its own
+line supplies the final newline — put it at the end of a content line and the
+value stops there.
+
+Trailing whitespace is dropped from each line, so what a program prints never
+depends on characters nobody can see, and a whitespace-trimming editor can't
+change behavior; `\x20` forces a trailing space that's meant. Since `'''` is
+still an ordinary string in every other respect, a lone `'` inside needs no
+escaping. Raw and block don't compose yet: `r'''…'''` is a named error rather
+than a silent misparse.
+
 Strings are UTF-8 and are **not** integer-indexable — `s[i]` is disallowed,
 since it would let code split a multi-byte character in half. Work in code
 points explicitly instead: `.chars()` yields the Unicode code points (as `Int`s

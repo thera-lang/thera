@@ -35,6 +35,7 @@ and [grammar.md](grammar.md) (syntax).
 | `lex-float`           | Literals                | digits both sides of `.`; no `1.` / `.5` / exponent                                                                      | ✓      |
 | `lex-string-escape`   | Literals                | the 11 escapes + `\xNN` + `\u{…}`; unknown escape = error                                                                | ✓      |
 | `lex-string-raw`      | Literals                | raw strings `r'…'` / `r"…"` — no escapes, no interpolation                                                               | ✓      |
+| `lex-string-block`    | Literals                | text blocks `'''…'''`: margin stripped, trailing whitespace dropped, escapes + interpolation live                        | ✓      |
 | `lex-string-interp`   | Literals                | `${expr}` interpolation                                                                                                  | ✓      |
 | `lex-bool-unit`       | Literals                | `true` / `false` / `void` keywords in expression position                                                                | ✓      |
 
