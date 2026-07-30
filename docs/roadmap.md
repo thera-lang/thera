@@ -255,7 +255,38 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   its own gap worth closing alongside. Found writing `fmt.format_source`, whose
   `width: Int = reflow.DEFAULT_WIDTH` the LSP could not call; the workaround
   there was to drop the parameter, which is the better API anyway (the formatter
-  is not configurable). A conformance test under `tests/lang/` should pin it.
+  is not configurable).
+
+  **The fix has to satisfy `#loc` at the same time**, and that is the part most
+  likely to go wrong. A default parameter value needs *two* contexts at once:
+  its names belong to the declaring file, while `#loc` must stamp the **call**
+  site — which is what gives `std.testing` assertions the failing test's
+  location, via codegen's `relocate_loc_default`. Today's caller-scope resolution is exactly
+  what makes that work, so the two are the same mechanism.
+
+  ```thera
+  // lib.thera
+  pub fn tag(_ at: SourceLoc) -> Int { return at.line; }
+  pub fn caller_line(at: Int = tag(#loc)) -> Int { return at; }
+  //                          ^^^ declaring scope   ^^^^ call site
+  ```
+
+  Neither extreme works. Resolving the whole default in the caller's scope is
+  today's bug. Hoisting it into a thunk compiled in `lib.thera` — the tidiest
+  fix for the scope half — would silently break `#loc`, which would then report
+  `lib.thera` instead of the caller, and every assertion in the corpus would
+  point at [assert.thera](../sdk/std/testing/assert.thera). So: **resolve names
+  at the declaration, keep expanding the default per call site.** The work is
+  threading the declaring file's scope through to where the caller's unit lowers
+  the default, which is presumably why it resolves in the caller's scope now.
+
+  Both halves are pinned as `xfail` conformance tests under
+  `fn-default-params` — `tests/lang/functions/default_arg_scope.thera` (the
+  plain case, with the
+  check/emit divergence) and `default_arg_loc.thera` (the composite above) —
+  so the harness reports XPASS when a fix lands. `expr-loc`'s existing
+  `loc_metaconstant.thera` covers `#loc` alone and would not have caught a fix
+  that broke the composite.
 
 - **Faithful syntax nodes for `if let` / `let … else` / `else if`.** The parser
   **desugars** all three into a `MatchExpr` (`parse_if_let` / `parse_let_else`),

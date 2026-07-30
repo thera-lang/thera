@@ -1,0 +1,27 @@
+// Support library for `default_arg_scope` and `default_arg_loc`: it declares
+// functions whose default parameter values name things only *this* file can see.
+// No `//!` directive block, so the harness treats it as a support file.
+
+import 'defaultsub';
+
+const LOCAL_PAD: Int = 7;
+
+// A default naming a file-local const.
+pub fn padded(_ n: Int, pad: Int = LOCAL_PAD) -> Int {
+    return n + pad;
+}
+
+// A default naming a member of an import only this file has.
+pub fn scaled(_ n: Int, by: Int = defaultsub.FACTOR) -> Int {
+    return n * by;
+}
+
+pub fn tag(_ at: SourceLoc) -> Int {
+    return at.line;
+}
+
+// The composite: the default needs `tag` from *this* file's scope and `#loc`
+// from the call site. Neither end alone is enough.
+pub fn caller_line(at: Int = tag(#loc)) -> Int {
+    return at;
+}

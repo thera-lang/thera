@@ -1,0 +1,25 @@
+//! spec: fn-default-params
+//! mode: run
+//! xfail: a default combining a declaring-file name with `#loc` needs both scopes; see default_arg_scope
+
+// The case a fix is most likely to get wrong. A default parameter value needs
+// **two different contexts at once**: its names resolve in the declaring file
+// (`tag` lives in `defaultlib`), while `#loc` must stamp the *call* site — that
+// is what gives `std.testing` assertions the failing test's location, via
+// codegen's `relocate_loc_default`.
+//
+// So neither extreme works. Resolving the whole default in the caller's scope is
+// today's bug (`tag` is not visible here). Hoisting the default into a thunk
+// compiled in `defaultlib` would fix the scope and silently break `#loc`, which
+// would then report `defaultlib.thera` instead of the caller. The fix has to
+// resolve names at the declaration while still expanding the default per call
+// site.
+
+import 'defaultlib';
+
+fn main() -> Int {
+    let a = defaultlib.caller_line();
+    let b = defaultlib.caller_line();
+    println('${b == a + 1}');   // expect: true
+    return 0;
+}
