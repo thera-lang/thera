@@ -483,7 +483,7 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 - **Reflowing doc comments — the prose half of the formatter.** `thera fmt`
   normalizes code layout but never touches comment text, so `///` prose is
   hand-wrapped and drifts. A follow-on to the canonical-formatter arc (see
-  _Canonical (line-wrapping) formatter_): rewrap `///` / `//!` runs to the same
+  _Reflowing formatter_): rewrap `///` / `//!` runs to the same
   margin the code uses.
 
   **It needs its own guard, and the existing one does not cover it.** The
@@ -580,218 +580,52 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   refactorings_: the doc says what's idiomatic, the lint enforces it
   mechanically.
 
-- **Canonical (line-wrapping) formatter — re-evaluate the stance.** `thera fmt`
-  is **line-preserving by design**: it re-indents and normalizes intra-line
-  spacing but keeps every author-chosen line break (see _Changelog_ and
-  [architecture.md](architecture.md#the-formatter-thera-fmt)). The open question
-  is whether to go the rest of the way — a formatter that _reflows_, so a given
-  AST has exactly one rendering.
+- **Reflowing formatter — remaining work.** `thera fmt --reflow` splits and
+  joins bracket groups today (see _Changelog_). Three things stand between it
+  and being the default.
 
-  **Line length itself needs no guidance change.** The current rule (100 chars,
-  an authoring guideline — [language.md](language.md#style)) stands. A survey of
-  other languages finds no consensus worth deferring to: the reflowing
-  formatters spread across 77–100 (OCaml 77, Dart 80, Prettier 80, Black 88,
-  Elixir 98, rustfmt 100), and — tellingly — **Go and Zig, the two strongest
-  enforced-formatting traditions, both deliberately decline to take a position
-  on line length**, on the grounds that where to break is a semantic judgment
-  about what groups with what. From the LLM side the only real concern is
-  **pathological** lines, because agents navigate through line-addressed
-  interfaces (grep output, `file:line:col` diagnostics, patch hunks): a
-  1500-char line floods a grep result and makes a `col:` useless for locating
-  anything. That argues for a ceiling against outliers, not for tight wrapping.
-  Measured over the corpus (400 files / 59.7k lines), the codebase already
-  self-polices: comment prose sits at ≤84 chars (99.3%, max 94), and under 1% of
-  lines exceed 100 — of which roughly a third are string literals and byte
-  fixtures no wrapper could break.
+  - **Last-argument hugging.** A call whose last argument is itself multi-line
+    has its argument list expanded rather than hugging the argument, so
+    `.subcommand(cli.Command.new('run')` becomes `.subcommand(` + an indented
+    chain + a lone `)`. The corpus sweep adds 284 lone-closer lines, but most
+    are ordinary multi-argument calls where a lone `);` is exactly what rustfmt
+    and Prettier produce; the real cost is the narrower set — builder chains
+    (`main.thera`, ~25 sites) and calls ending in a multi-line string — so call
+    it 25–50 sites that read worse. **Fix:** when the outermost splittable
+    group's last element itself contains a splittable group, prefer the inner
+    one, and suppress the outer group's trailing comma so the result isn't
+    `foo(a, bar(…),)` — that comma interaction is the fiddly part. ~80–150
+    lines. **Cheaper before the corpus sweep than after**, so do it first.
+    - _Declined alongside it_, absent a forcing case: **method chains** (only 19
+      lines in the sweep begin with a `.`, so preserving author breaks at dots
+      is already fine) and **operator breaking** (two lines in the whole corpus,
+      and it needs precedence information, which the token-only design
+      deliberately avoids).
 
-  **The case for canonicalization is about determinism, not width.** Three
-  payoffs, all agent-facing: source gets a canonical token stream; two agents
-  regenerating the same section produce identical bytes, so review diffs stop
-  carrying wrapping noise that isn't a change; and the model sheds the
-  column-budget bookkeeping it does inconsistently anyway. This is continuous
-  with a codebase that already ends its build in a byte-for-byte fixpoint check.
+  - **Make it the default.** Drop the `--reflow` flag, retire
+    [fmt.thera](../pkgs/cli/fmt.thera)'s Stage A (intra-line spacing, subsumed —
+    the reflow path emits it) and Stage B (indentation, subsumed by group
+    indent), fold `reflow/` into a `fmt/` barrel, and reformat the corpus in one
+    sweep — 89 files, +2790/−1089 at width 100. `bin/test.sh`'s `fmt --check`
+    gate updates in the same commit.
 
-  **Scoped (2026-07) — the plan below.** The two open questions from the
-  previous revision (implementation cost, corpus impact) are answered:
-  ~1100–1300 lines of Thera, and a corpus impact small enough to migrate in
-  place at width 100. What follows is the intended implementation.
-
-  **Architecture: an event stream, not a `Doc` tree.** Two standard formulations
-  of the same algorithm exist — Wadler's tree of `Doc` values, and **Oppen's
-  (1980) linear stream**. Take Oppen's: the front end walks the AST emitting a
-  flat event sequence, and the back end consumes it in a **single pass** with
-  two stacks and a ring buffer sized to the margin (O(n) time, O(width) space,
-  no tree to materialize or re-measure). Four events:
-
-  ```
-  Text(span)                 // emit the original source slice
-  Open(mode, indent, span)
-  Close
-  Break(soft | hard)
-  ```
-
-  `Text(span)` is load-bearing: the formatter **slices original source and never
-  re-renders a lexeme**, so none of the reconstruction cost lands (string
-  interpolation and escapes, hex-vs-decimal `Int` spelling, float formatting).
-  Three decorations on `Open` carry the whole layout policy:
-  - **`mode`** — `Fit` (fit-or-split), `AlwaysSplit`, or `Fill`. A group renders
-    flat if its flattened width fits the remaining columns, else its breaks are
-    taken and its children are considered independently, outermost first.
-    Splitting is **all-or-nothing** (one element per line), never fill-style
-    packing: fill makes one added argument rewrap its neighbors, which is the
-    reflow-cascade diff noise canonicalization exists to remove. `Fill` is the
-    single carve-out, for homogeneous scalar collection literals (the corpus has
-    a `[…]` with 211 elements).
-  - **`indent`** — a nesting delta (+4). **By depth, not visual column** — a
-    change from today's hanging indent, which aligns continuations under the
-    opener's column and so turns any rename into a re-alignment diff across the
-    whole block.
-  - **`span`** — makes "this group must break" (contains a comment, or a
-    multi-line string literal) a single interval test.
-
-  **`AlwaysSplit` is what keeps the migration small.** Statement blocks, `match`
-  bodies, and `impl`/`enum`/`interface`/`struct` bodies never fit-test — they
-  expand unconditionally. Without that rule ~363 multi-line groups would
-  collapse onto one line, **147 of them `match` bodies**; with it, the number is
-  ~22 corpus-wide (15 call-argument lists, 4 collection literals, 3 struct
-  literals). That single rule is the difference between an unreadable migration
-  diff and a trivial one.
-
-  **Comments need no AST change.** Thera has **line comments only** and a
-  printer emits atoms in source order, so ownership never has to be decided:
-  keep a cursor into the offset-sorted `LexResult.comments` and flush every
-  comment whose offset precedes the atom about to be emitted. Two rules — a
-  comment on the same line as the previous token is **trailing** (emit on the
-  current output line, force a break after); otherwise it is **own-line** (emit
-  at the current indent, preserving at most one blank line before). The usual
-  special cases fall out for free: a dangling comment before a closer precedes
-  that closer's offset, so it flushes there. Explicitly **not** doing node
-  attachment — it relocates the policy rather than removing it, has nowhere to
-  live on the 31 tuple-payload variants in
-  [ast.thera](../pkgs/cli/ast/ast.thera) without converting them to structs
-  (touching every exhaustive `match` in the checker and codegen), and would cost
-  the compile path the comment-blind, byte-identical property
-  [lexer.thera](../pkgs/cli/lexer/lexer.thera) currently guarantees.
-
-  **Corpus impact (measured 2026-07, 400 files / 59.7k lines).** Joining: ~22
-  sites, per the `AlwaysSplit` note above. Splitting, by target width — code
-  lines over the margin that have a break opportunity: **@80 2071, @90 972, @100
-  391**. Plus an irreducible tail no wrapper can fix (@100: 192 lines dominated
-  by a single long string literal, 7 long because of a trailing comment). This
-  is the case for **width 100**: it matches the existing authoring guideline,
-  and going to 80 triples the churn for a benefit nobody has articulated — the
-  LLM concern is pathological lines, not tight wrapping. **Provisional**, and
-  deliberately so: these counts measure a hand-wrapped corpus, which is the
-  wrong evidence for the question. Revisit once the formatter actually reflows
-  and each candidate width can be evaluated on what it produces — read against
-  the industry spread above, which spans 77–100 with no consensus to defer to.
-
-  **Cost, calibrated against this repo.** Two existing full-coverage AST
-  traversals bound the per-node cost:
-  [describe.thera](../pkgs/cli/ast/describe.thera) (225 lines / 58 arms —
-  expressions, types, patterns) and [dump.thera](../pkgs/cli/ast/dump.thera)
-  (183 / 40 — declarations, statements, blocks, with indentation) — **408 lines
-  for complete AST coverage**. A formatter's arms add group markers but drop
-  lexeme reconstruction, so:
-
-  | component                                                    | lines          |
-  | ------------------------------------------------------------ | -------------- |
-  | Oppen back end (greedy renderer)                             | ~200           |
-  | AST → event stream                                           | ~600–800       |
-  | comment merge (offset-ordered)                               | ~100           |
-  | special rules (last-arg hugging, method chains, AlwaysSplit) | ~200           |
-  | **total**                                                    | **~1100–1300** |
-
-  This is a **rewrite** of [fmt.thera](../pkgs/cli/fmt.thera), not an extension:
-  Stage A (intra-line spacing) is subsumed because the renderer emits spacing
-  directly, and Stage B (indentation) because indent comes from `Open`. What
-  survives is the safety guard, the CLI/LSP plumbing, and `format_fragment`'s
-  contract. **Considered and declined:** a cheaper token-tree reflow (group tree
-  from bracket nesting + keyword lookback, ~1000 lines, reusing Stage B's
-  bracket stack). Against the calibrated AST number it saves ~200 lines and
-  gives up canonicality-per-AST (it can only be canonical per _bracket
-  structure_), precedence-aware operator breaking, and telling a grouping paren
-  from a call from a parameter list without heuristics. Recorded so it isn't
-  re-proposed.
-
-  **Thera-specific constraints.** Never break between adjacent `>` `>` — the
-  parser forms the shift operators from adjacent angle tokens, so a break there
-  changes the parse. A multi-line string literal is an unbreakable atom that
-  forces its enclosing group to split (15 call-argument groups contain one).
-  Trailing commas are already grammatical in every comma list, so a split list
-  can emit one.
-
-  **Staging — behind `thera fmt --reflow`.** The flag is the risk control; each
-  stage is a strict subset of the next, so nothing is throwaway.
-  1. **Split-only — _landed_ (`pkgs/cli/reflow/`).** Joins nothing, so it raises
-     no readability objection, and it retires the pathological-line problem —
-     the one concrete agent-facing harm. **Simpler than the design above, and
-     deliberately so:** Stage 1 needs no `Doc`/event layer at all. It selects
-     **break offsets** from the token stream and hands layout back to the
-     existing indentation pass, so the whole stage is one module plus a loop
-     (`format_source_reflow`: format → break → format, to a fixpoint). It never
-     consults the AST — modes only matter once groups can *join*, which is Stage
-     2 — so the desugaring hazard does not arise here at all. The event stream
-     above is still the target shape for Stage 2; it is not needed before then.
-     - **Measured (width 100):** corpus over-width lines **545 → 132**. Of the
-       132, all but **2** are single long string literals no wrapper can break;
-       the 2 are long boolean chains needing operator breaking (Stage 3).
-     - **The line count understates the diff.** "~390 lines relieved" is the
-       count of lines *split*, not lines *touched* — a split line becomes many.
-       The actual corpus sweep is **67 files, +4094/−742**. Worth knowing before
-       Stage 4 lands it for real.
-     - **Verified:** full `bin/test.sh` green on the reflowed corpus, and
-       `bin/build_sdk.sh` still reproduces the front-end **byte-for-byte** — the
-       front-end compiled from reflowed sources compiles itself to the same
-       bytes.
-  2. **Joining — _landed_.** Author line breaks stop being authoritative: a
-     group that fits the margin is collapsed onto one line, so layout is a
-     function of the token stream rather than of how the code was typed. `(` and
-     `[` are `Fit`; `{` is `AlwaysSplit` unless it opens a **struct literal**,
-     which is the one classification tokens cannot make (`impl Foo {` and
-     `Point {` read alike) and so the only reason `groups.thera` consults the
-     AST — to classify an offset, never to render.
-     - **A trailing comma now means "keep this split."** Not a choice so much as
-       a consequence of the whitespace-only contract: the formatter cannot delete
-       the comma, and `g(a, b, )` is not an acceptable join. It lands on the same
-       semantics Prettier and Dart use. It holds back 8 of 126 joinable `(`
-       groups in the corpus and all 19 `[` groups.
-     - **`Fill` was not optional.** Splitting a scalar `[…]` one-element-per-line
-       turned the byte fixtures in `codegen_test.thera` into ~90-line blocks
-       (+1483 in that file alone). Packing them to the margin brings it to +128.
-     - **Measured:** corpus 84 files, **+2776/−1037**. Full `bin/test.sh` green
-       and `bin/build_sdk.sh` still byte-for-byte.
-     - **Known rough edge — argument hugging.** A call whose sole or last
-       argument is itself multi-line (a builder chain, a multi-line string) has
-       its argument list expanded rather than hugging the argument, so
-       `.subcommand(cli.Command.new('run')` becomes `.subcommand(` + an indented
-       chain + a lone `)`. Corpus-wide this adds **283 lone-closer lines**,
-       concentrated in `main.thera`. Conventional for most calls; only the
-       builder-chain shape really wants hugging. That is Stage 3's first item.
-  3. **Special rules** — last-argument hugging (`fiber.spawn(() => { … })` must
-     hug rather than expand the argument list; lambdas-as-arguments are
-     pervasive) and method chains (all-or-nothing at the dots).
-  4. **Drop the flag**, make it the default, retire Stages A/B.
-
-  **Gates at every stage.** Idempotence (formatting twice is byte-identical);
-  token-stream equality + reparse (today's guard, unchanged); **the self-compile
-  fixpoint** — reformat the front-end and confirm `bin/build_sdk.sh` still
-  reproduces byte-for-byte, which makes the build itself a correctness oracle
-  since the corpus _is_ the compiler; and a hand-read of the diff on the worst
-  files, against the standing bar that common shapes format well **and**
-  uncommon ones don't blow up (deep nesting — the corpus reaches 18 levels —
-  long generic signatures, many-labeled-argument calls, builder chains).
-
-  **Escape hatch: a `// fmt: off` / `// fmt: on` region marker**, not a magic
-  trailing comma. Prettier and Dart treat an author's trailing comma as a forced
-  break, which preserves determinism but reintroduces exactly the formatting
-  decision this work removes — and an agent will not apply it consistently. An
-  explicit region marker is rare, visible, and keeps the common path independent
-  of invisible punctuation.
-
-  **If it doesn't pan out.** The fallback is to **relax the repo's `fmt --check`
-  gate** until the rewrite lands, rather than hold the corpus to a formatter
-  mid-migration.
+  - **Then choose the width empirically.** 100 is inherited from the authoring
+    guideline ([language.md](language.md#style)), not measured. Once the
+    formatter is canonical the question becomes directly answerable: reflow the
+    corpus at **80 / 88 / 90 / 92 / 94 / 100** and compare — total line count,
+    how many lines crowd the margin, how many constructs are forced apart that
+    read better whole, and how much irreducible tail (long string literals)
+    survives at each. Take a natural knee if one shows up; keep 100 if none
+    does.
+    - Context for the call: the reflowing formatters spread across 77–100 (OCaml
+      77, Dart 80, Prettier 80, Black 88, Elixir 98, rustfmt 100), and —
+      tellingly — **Go and Zig, the two strongest enforced-formatting
+      traditions, both decline to take a position on line length**, on the
+      grounds that where to break is a semantic judgment about what groups with
+      what. From the LLM side the concern is **pathological** lines, since
+      agents navigate through line-addressed interfaces (grep output,
+      `file:line:col`, patch hunks) — which argues for a ceiling against
+      outliers, not for tight wrapping.
 
 ### Language
 
@@ -1131,6 +965,53 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Reflowing formatter — `thera fmt --reflow`** (2026-07). `thera fmt` was
+  line-preserving by design; it now breaks and joins lines too, behind a flag
+  while the corpus migration is pending (what is left is under _Developer
+  tooling_). Corpus effect at width 100: over-width lines **545 → 138**, of which
+  127 are single long string literals and 5 are multi-line help text — nothing a
+  wrapper can break — leaving 2 genuine cases (long boolean chains).
+  - **A token backbone, not an AST pretty-printer.** A bracket pair is a group;
+    its break points are after the opener, after each top-level separator, and
+    before the closer, taken **all-or-nothing** (packing would make one added
+    element rewrap its neighbours, which is the churn this exists to remove). For
+    an over-width line the **outermost** group with a break left to give is split,
+    widest first. The AST is consulted for exactly one thing — whether a `{` opens
+    a struct literal, which tokens cannot tell (`impl Foo {` and `Point {` read
+    alike) — and only to classify an offset, never to render. So the parser's
+    `if let` / `let … else` / `else if` desugaring never has to be reversed, and a
+    break can never land inside a string literal or between the adjacent `>` `>`
+    of a shift operator.
+  - **Joining** removes author line breaks inside a group that fits, so layout
+    follows the token stream rather than how the code was typed. `{` never joins —
+    a statement block, `match` body, or declaration body stays expanded however
+    short — unless it opens a struct literal. A group holding a line comment
+    (joining would comment out the code after it) or a multi-line string is held
+    back.
+  - **`Fill`** packs a scalar `[…]` literal to the margin rather than one element
+    per line; without it the byte fixtures in `codegen_test.thera` expanded to
+    ~90 lines each.
+  - **Trailing commas are added on split and removed on join** — the one place the
+    formatter edits tokens rather than whitespace. The grammar makes the comma
+    optional in every comma list, so the guard drops inert trailing commas from
+    both streams and still compares exactly; only a group with an existing
+    top-level comma qualifies, since `(a + b,)` is a parse error. This replaced an
+    *accidental* magic trailing comma — under the original whitespace-only rule a
+    trailing comma silently pinned a group open, because the formatter could not
+    delete it.
+  - **Guarded, and no longer silently.** Unless the result is the same code and
+    still parses, the plain format is returned. That fallback is indistinguishable
+    from "nothing to do" and hid two real bugs during development (a double comma,
+    and generic-argument commas counted as a block's own), so `--reflow` now
+    reports each skipped file.
+  - **Verified** by reflowing the whole corpus: `bin/test.sh` green and
+    `bin/build_sdk.sh` still byte-for-byte — the front-end compiled from reflowed
+    sources compiles itself to the same bytes.
+  - _Declined:_ a **token-tree** reflow with no AST at all (saves ~200 lines but
+    can only be canonical per bracket structure, not per token stream), and a full
+    `Doc`/event renderer (the break-offset form reuses the existing indentation
+    pass instead, which is most of why the implementation came in small).
 
 - **Unknown namespace in type position is its own error** (2026-07). A type
   annotation or construction qualified with a namespace the file doesn't import

@@ -78,7 +78,7 @@ fn formatted_text(_ source: String, _ wrap: Bool, _ path: String) -> String {
 // Format with line reflow (`thera fmt --reflow`) — the canonical format, with
 // groups joined onto one line where they fit and split where they don't, so
 // layout follows the token stream rather than how the code was typed (see
-// docs/roadmap.md → Canonical (line-wrapping) formatter).
+// docs/roadmap.md → Reflowing formatter).
 //
 // Each round joins what fits, then splits what is still over `width`, then
 // re-formats to re-indent; it settles when a round changes nothing. Joining only
