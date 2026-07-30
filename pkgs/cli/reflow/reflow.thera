@@ -1,32 +1,33 @@
-//! Line breaking for `thera fmt --reflow`.
+//! Line breaking for `thera fmt --reflow` (docs/roadmap.md → Developer tooling
+//! → Reflowing formatter).
 //!
-//! Stage 1 of the reflowing formatter (docs/roadmap.md → Developer tooling →
-//! Canonical (line-wrapping) formatter): **split-only**. Every line break the
-//! author wrote is preserved; this pass only *adds* breaks, to relieve lines
-//! that exceed the margin. Joining — where a canonical formatter removes an
-//! author break because the group fits — is Stage 2.
+//! The unit of breaking is a **bracket group**: a matched `(`/`[`/`{` pair. Its
+//! break points are the positions a newline may be inserted — after the opener,
+//! after each top-level `,`/`;`, and before the closer — chosen
+//! **all-or-nothing**, so a split list puts one element per line rather than
+//! packing as many as fit (packing makes one added element rewrap its
+//! neighbours, which is the diff churn this work exists to remove). The one
+//! exception is a `[…]` of plain scalars, which is filled to the margin.
 //!
-//! The unit of breaking is a **bracket group**: a matched `(`/`[`/`{` pair. A
-//! group's break points are the positions a newline may be inserted — after the
-//! opener, after each top-level `,`/`;`, and before the closer — chosen
-//! all-or-nothing, so a split list puts one element per line rather than packing
-//! as many as fit (packing makes one added element rewrap its neighbours, which
-//! is the diff churn this work exists to remove).
+//! Two directions. **Splitting** relieves a line over the margin, choosing
+//! **outermost-first**: the widest group covering the line that still has a
+//! break to give. That makes a split reveal structure rather than bury it.
+//! **Joining** ([join_spans]) collapses a multi-line group that would fit,
+//! so layout follows the token stream rather than how the code was typed —
+//! held back where the group holds a line comment or a multi-line string.
 //!
-//! Breaks are chosen **outermost-first**: for an over-width line, the widest
-//! group lying entirely on that line and contained in no other such group is
-//! split. That makes a split reveal structure rather than bury it, and the
-//! caller re-runs the pass so inner groups split only if their line is *still*
-//! over.
+//! Nearly **token-only**: the parser desugars `if let` / `let … else` /
+//! `else if` into `match` (docs/roadmap.md → Compiler & front-end), so a
+//! syntax-driven formatter would have to reverse that, while tokens carry what
+//! the user actually wrote. The AST is consulted for exactly two things, both
+//! *classification* rather than rendering — whether a `{` opens a struct literal
+//! (see groups.thera) and which `<`/`>` are generic delimiters. A break can only
+//! land at a bracket or separator, so it can never split a string literal or
+//! separate the adjacent `>` `>` the parser reads as a shift operator.
 //!
-//! This pass is deliberately **token-only** — it never consults the AST. The
-//! parser desugars `if let` / `let … else` / `else if` into `match` (see
-//! docs/roadmap.md → Compiler & front-end), so a syntax-driven formatter would
-//! have to reverse that; tokens carry what the user actually wrote. It also
-//! means a break can only land at a bracket or separator boundary, so it can
-//! never split a string literal, and never separate the adjacent `>` `>` the
-//! parser reads as a shift operator.
-
+//! A comma list gains a trailing comma when it splits and loses one when it
+//! joins — the single place the formatter edits tokens rather than whitespace,
+//! and safe because the grammar makes that comma optional everywhere.
 import std.char;
 
 import '../lexer' as _; // tokenize, Token, TokenKind
