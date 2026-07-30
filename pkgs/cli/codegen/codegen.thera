@@ -172,6 +172,12 @@ pub fn compile_program(
 // user identifier. Must match the runtime's `interp::INIT_THUNK`.
 const INIT_THUNK_NAME: String = '<init>';
 
+// The most arguments one `CallNative` can carry: the bytecode writes `argc` as a
+// varint but the runtime reads it back into a byte, so anything past this would
+// silently wrap. A string literal with more pieces than this concatenates in
+// chunks (see `string_expr`).
+const MAX_CONCAT_ARGC: Int = 255;
+
 // Register one module's declarations into the shared scope.
 fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
     let file = program.file_path;
@@ -1695,12 +1701,26 @@ impl FnCompiler {
                 self.emit(Instr.ConstStr(''));
                 return;
             }
+            // One variadic `str_concat` over all the pieces, not a fold of
+            // pairwise calls: `str_concat` allocates a fresh String per call, so
+            // folding recopies the growing prefix at every step — a k-piece
+            // literal costs k-1 allocations and O(len × k) copying instead of one
+            // pass. Evaluation order is unchanged (pieces still run left to
+            // right); only the concatenation moves to the end.
+            //
+            // `argc` is a byte on the wire, so a literal with more pieces than
+            // that folds in chunks. The running result is already on the stack
+            // when a chunk starts, so it counts as that chunk's first argument.
             self.string_piece(parts[0], span);
             let mut i = 1;
             while i < parts.len() {
-                self.string_piece(parts[i], span);
-                self.emit(Instr.CallNative('str_concat', 2));
-                i = i + 1;
+                let mut argc = 1; // the accumulator, already on the stack
+                while i < parts.len() && argc < MAX_CONCAT_ARGC {
+                    self.string_piece(parts[i], span);
+                    argc = argc + 1;
+                    i = i + 1;
+                }
+                self.emit(Instr.CallNative('str_concat', argc));
             }
         }
     }

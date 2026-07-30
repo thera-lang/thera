@@ -98,6 +98,19 @@ fn first_call_argc(_ code: List<Instr>) -> Int {
 
 fn enum_tag_tag() -> String { return 'simple_${Op.EnumTag.byte()}'; }
 
+// The argument counts of every `str_concat` call in `code`, in order.
+fn concat_argcs(_ code: List<Instr>) -> List<Int> {
+    let out: List<Int> = [];
+    for i in code {
+        if let CallNative(name, argc) = i {
+            if name == 'str_concat' {
+                out.push(argc);
+            }
+        }
+    }
+    return out;
+}
+
 @test
 fn test_arithmetic_and_control_flow_byte_identical() -> Result<Void, Error> {
     let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
@@ -627,5 +640,46 @@ fn test_module_let_rejects_effectful_native() -> Result<Void, Error> {
         + 'native fn clock() -> Int\n'
         + 'fn main() -> Int { return clock(); }';
     testing.assert_eq(actual: errors_of(ok), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_string_literal_lowers_to_one_variadic_concat() -> Result<Void, Error> {
+    // A k-piece literal is one `str_concat` over all k pieces, not a fold of
+    // pairwise calls. `str_concat` allocates a fresh String per call, so folding
+    // recopies the growing prefix at every step.
+    // (Core-free, like the other cases here, so no String methods.)
+    let src = "fn main() -> String {\n"
+        + "    let a = 'x';\n"
+        + "    return '\${a}/\${a}/\${a}';\n"
+        + "}";
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    // 5 pieces: a, '/', a, '/', a.
+    testing.assert_eq(actual: concat_argcs(code_of(src, 'main')), expected: [5])?;
+
+    // A literal with no interpolation is a single constant — nothing to join.
+    let plain = "fn main() -> String { return 'abc'; }";
+    testing.assert_eq(actual: concat_argcs(code_of(plain, 'main')), expected: [])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_huge_string_literal_chunks_at_the_argc_limit() -> Result<Void, Error> {
+    // `argc` is a byte on the wire, so a literal with more pieces than that
+    // folds in chunks rather than silently wrapping to a bogus count. The
+    // running result is already on the stack, so it is the next chunk's first
+    // argument: 300 pieces → 255, then 1 + the remaining 45.
+    let pieces: List<String> = [];
+    let mut i = 0;
+    while i < 150 {
+        pieces.push('\${a}-'); // each iteration contributes two pieces
+        i = i + 1;
+    }
+    let src = "fn main() -> String {\n"
+        + "    let a = 'x';\n"
+        + "    return '" + pieces.join('') + "';\n"
+        + "}";
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: concat_argcs(code_of(src, 'main')), expected: [255, 46])?;
     return Result.Ok(void);
 }
