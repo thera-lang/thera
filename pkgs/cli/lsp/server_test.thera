@@ -72,7 +72,10 @@ fn test_initialize_advertises_capabilities() -> Result<Void, Error> {
     testing.assert(out.contains('"capabilities"'), message: 'has capabilities')?;
     testing.assert(out.contains('textDocumentSync'), message: 'declares document sync')?;
     testing.assert(out.contains('diagnosticProvider'), message: 'declares pull diagnostics')?;
-    testing.assert(out.contains('workspaceDiagnostics'), message: 'declares workspace diagnostics')?;
+    testing.assert(
+        out.contains('workspaceDiagnostics'),
+        message: 'declares workspace diagnostics',
+    )?;
     testing.assert(out.contains('"id":1') || out.contains('"id": 1'), message: 'echoes the id')?;
     return Result.Ok(void);
 }
@@ -99,8 +102,10 @@ fn test_workspace_diagnostic_covers_unopened_files() -> Result<Void, Error> {
     let body = out.into_string().unwrap_or('');
     testing.assert(body.contains('bad.thera'), message: 'reports the unopened bad.thera')?;
     testing.assert(body.contains('good.thera'), message: 'reports the clean good.thera too')?;
-    testing.assert(body.contains('"kind":"full"') || body.contains('"kind": "full"'),
-        message: 'full document reports')?;
+    testing.assert(
+        body.contains('"kind":"full"') || body.contains('"kind": "full"'),
+        message: 'full document reports',
+    )?;
     // The error text surfaces (bad.thera's report carries a diagnostic item).
     testing.assert(body.contains('"message"'), message: 'bad.thera carries a diagnostic')?;
 
@@ -150,9 +155,15 @@ fn test_did_change_configuration_updates_exclude() -> Result<Void, Error> {
         + '{"previousResultIds":[]}}');
     testing.assert(before.contains('bad.thera'), message: 'reported before the exclude is set')?;
 
-    let changed = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":'
-        + '{"settings":{"thera":{"exclude":["tests/lang/**"]}}}}');
-    testing.assert(changed.contains('workspace/diagnostic/refresh'), message: 'the change nudges a re-pull')?;
+    let changed = capture(
+        server,
+        '{"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":'
+        + '{"settings":{"thera":{"exclude":["tests/lang/**"]}}}}',
+    );
+    testing.assert(
+        changed.contains('workspace/diagnostic/refresh'),
+        message: 'the change nudges a re-pull',
+    )?;
     let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
     testing.assert(!after.contains('bad.thera'), message: 'dropped after the exclude is set')?;
@@ -169,14 +180,20 @@ fn test_surface_edit_nudges_refresh_when_supported() -> Result<Void, Error> {
     let server = new_server(Option.None);
     server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
         + '{"capabilities":{"workspace":{"diagnostics":{"refreshSupport":true}}}}}');
-    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
-        + '{"textDocument":{"uri":"file:///r.thera","text":"fn f() -> Int { return 1; }"}}}');
+    server.handle(
+        io.StringWriter.new(),
+        '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.thera","text":"fn f() -> Int { return 1; }"}}}',
+    );
     // Change the signature (add a parameter) — a public-surface change.
     let out = io.StringWriter.new();
     server.handle(out, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///r.thera"},"contentChanges":[{"text":"fn f(_ n: Int) -> Int { return 1; }"}]}}');
     let body = out.into_string().unwrap_or('');
-    testing.assert(body.contains('workspace/diagnostic/refresh'), message: 'a surface edit nudges a re-pull')?;
+    testing.assert(
+        body.contains('workspace/diagnostic/refresh'),
+        message: 'a surface edit nudges a re-pull',
+    )?;
     return Result.Ok(void);
 }
 
@@ -189,14 +206,20 @@ fn test_body_edit_does_not_nudge() -> Result<Void, Error> {
     let server = new_server(Option.None);
     server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
         + '{"capabilities":{"workspace":{"diagnostics":{"refreshSupport":true}}}}}');
-    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
-        + '{"textDocument":{"uri":"file:///r.thera","text":"fn f() -> Int { return 1; }"}}}');
+    server.handle(
+        io.StringWriter.new(),
+        '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.thera","text":"fn f() -> Int { return 1; }"}}}',
+    );
     // Same signature, different body — no importer can observe this.
     let out = io.StringWriter.new();
     server.handle(out, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///r.thera"},"contentChanges":[{"text":"fn f() -> Int { return 2; }"}]}}');
     let body = out.into_string().unwrap_or('');
-    testing.assert(!body.contains('workspace/diagnostic/refresh'), message: 'a body edit does not nudge')?;
+    testing.assert(
+        !body.contains('workspace/diagnostic/refresh'),
+        message: 'a body edit does not nudge',
+    )?;
     return Result.Ok(void);
 }
 
@@ -205,14 +228,23 @@ fn test_body_edit_does_not_nudge() -> Result<Void, Error> {
 @test
 fn test_no_refresh_nudge_without_support() -> Result<Void, Error> {
     let server = new_server(Option.None);
-    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
-    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
-        + '{"textDocument":{"uri":"file:///r.thera","text":"fn f() -> Int { return 1; }"}}}');
+    server.handle(
+        io.StringWriter.new(),
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+    );
+    server.handle(
+        io.StringWriter.new(),
+        '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.thera","text":"fn f() -> Int { return 1; }"}}}',
+    );
     let out = io.StringWriter.new();
     server.handle(out, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///r.thera"},"contentChanges":[{"text":"fn f() -> Int { return 2; }"}]}}');
     let body = out.into_string().unwrap_or('');
-    testing.assert(!body.contains('workspace/diagnostic/refresh'), message: 'no unsolicited nudge')?;
+    testing.assert(
+        !body.contains('workspace/diagnostic/refresh'),
+        message: 'no unsolicited nudge',
+    )?;
     return Result.Ok(void);
 }
 
@@ -265,8 +297,10 @@ fn test_document_pull_reports_errors() -> Result<Void, Error> {
     let out = capture(server, '{"jsonrpc":"2.0","id":5,"method":"textDocument/diagnostic","params":'
         + '{"textDocument":{"uri":"file:///x.thera"}}}');
     testing.assert(out.contains('undefined name: missing'), message: 'the pull reports the error')?;
-    testing.assert(out.contains('"kind":"full"') || out.contains('"kind": "full"'),
-        message: 'a full document report')?;
+    testing.assert(
+        out.contains('"kind":"full"') || out.contains('"kind": "full"'),
+        message: 'a full document report',
+    )?;
     return Result.Ok(void);
 }
 
@@ -293,15 +327,24 @@ fn test_document_pull_unchanged_on_repull() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let _o = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///u.thera","text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }"}}}');
-    let first = capture(server, '{"jsonrpc":"2.0","id":1,"method":"textDocument/diagnostic","params":'
-        + '{"textDocument":{"uri":"file:///u.thera"}}}');
+    let first = capture(
+        server,
+        '{"jsonrpc":"2.0","id":1,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///u.thera"}}}',
+    );
     testing.assert(first.contains('"kind":"full"'), message: 'first pull is a full report')?;
     let rid = first_result_id(first);
     testing.assert(!rid.is_empty(), message: 'the full report carries a resultId')?;
     // Re-pull with identical content, echoing the resultId — an unchanged report.
-    let second = capture(server, '{"jsonrpc":"2.0","id":2,"method":"textDocument/diagnostic","params":'
-        + '{"textDocument":{"uri":"file:///u.thera"},"previousResultId":"' + rid + '"}}');
-    testing.assert(second.contains('"kind":"unchanged"'), message: 're-pull of an unchanged doc is unchanged')?;
+    let second = capture(
+        server,
+        '{"jsonrpc":"2.0","id":2,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///u.thera"},"previousResultId":"' + rid + '"}}',
+    );
+    testing.assert(
+        second.contains('"kind":"unchanged"'),
+        message: 're-pull of an unchanged doc is unchanged',
+    )?;
     testing.assert(!second.contains('"items"'), message: 'an unchanged report omits items')?;
     return Result.Ok(void);
 }
@@ -313,16 +356,25 @@ fn test_document_pull_full_again_after_edit() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let _o = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///u.thera","text":"fn f() -> Int { return 1; }"}}}');
-    let first = capture(server, '{"jsonrpc":"2.0","id":1,"method":"textDocument/diagnostic","params":'
-        + '{"textDocument":{"uri":"file:///u.thera"}}}');
+    let first = capture(
+        server,
+        '{"jsonrpc":"2.0","id":1,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///u.thera"}}}',
+    );
     let rid = first_result_id(first);
     // Introduce an error, then re-pull echoing the stale resultId.
     let _c = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///u.thera"},"contentChanges":[{"text":"fn f() -> Int { return missing; }"}]}}');
-    let second = capture(server, '{"jsonrpc":"2.0","id":2,"method":"textDocument/diagnostic","params":'
-        + '{"textDocument":{"uri":"file:///u.thera"},"previousResultId":"' + rid + '"}}');
+    let second = capture(
+        server,
+        '{"jsonrpc":"2.0","id":2,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///u.thera"},"previousResultId":"' + rid + '"}}',
+    );
     testing.assert(second.contains('"kind":"full"'), message: 'a changed doc re-pulls full')?;
-    testing.assert(second.contains('undefined name: missing'), message: 'the new diagnostic is sent')?;
+    testing.assert(
+        second.contains('undefined name: missing'),
+        message: 'the new diagnostic is sent',
+    )?;
     return Result.Ok(void);
 }
 
@@ -340,7 +392,10 @@ fn test_workspace_pull_unchanged_on_repull() -> Result<Void, Error> {
     let rid = first_result_id(first);
     let second = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[{"uri":"file:///w.thera","value":"' + rid + '"}]}}');
-    testing.assert(second.contains('"kind":"unchanged"'), message: 're-pull of the unchanged file is unchanged')?;
+    testing.assert(
+        second.contains('"kind":"unchanged"'),
+        message: 're-pull of the unchanged file is unchanged',
+    )?;
     return Result.Ok(void);
 }
 
@@ -351,8 +406,10 @@ fn test_document_pull_is_empty_when_clean() -> Result<Void, Error> {
         + '{"textDocument":{"uri":"file:///ok.thera","text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }"}}}');
     let out = capture(server, '{"jsonrpc":"2.0","id":6,"method":"textDocument/diagnostic","params":'
         + '{"textDocument":{"uri":"file:///ok.thera"}}}');
-    testing.assert(out.contains('"items":[]') || out.contains('"items": []'),
-        message: 'a clean document reports no items')?;
+    testing.assert(
+        out.contains('"items":[]') || out.contains('"items": []'),
+        message: 'a clean document reports no items',
+    )?;
     return Result.Ok(void);
 }
 
@@ -380,8 +437,10 @@ fn test_document_symbol_outline() -> Result<Void, Error> {
 fn test_document_symbol_unknown_doc_is_empty() -> Result<Void, Error> {
     let out = handled('{"jsonrpc":"2.0","id":4,"method":"textDocument/documentSymbol","params":'
         + '{"textDocument":{"uri":"file:///nope.thera"}}}');
-    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
-        message: 'empty outline for an unopened document')?;
+    testing.assert(
+        out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'empty outline for an unopened document',
+    )?;
     return Result.Ok(void);
 }
 
@@ -438,7 +497,10 @@ fn test_signature_help_on_unterminated_call() -> Result<Void, Error> {
     server.handle(asked, '{"jsonrpc":"2.0","id":10,"method":"textDocument/signatureHelp","params":'
         + '{"textDocument":{"uri":"file:///sh.thera"},"position":{"line":2,"character":15}}}');
     let out = asked.into_string().unwrap_or('');
-    testing.assert(out.contains('fn add(a: Int, b: Int) -> Int'), message: 'shows the signature: ${out}')?;
+    testing.assert(
+        out.contains('fn add(a: Int, b: Int) -> Int'),
+        message: 'shows the signature: ${out}',
+    )?;
     testing.assert(out.contains('"activeParameter":0'), message: 'parameter 0 active: ${out}')?;
     return Result.Ok(void);
 }
@@ -447,16 +509,21 @@ fn test_signature_help_on_unterminated_call() -> Result<Void, Error> {
 fn test_hover_on_a_keyword_is_null() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
-    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
-        + '{"textDocument":{"uri":"file:///h.thera","text":"pub fn greet() -> Int { return 1; }"}}}');
+    server.handle(
+        opened,
+        '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///h.thera","text":"pub fn greet() -> Int { return 1; }"}}}',
+    );
 
     // Character 0 is the `pub` keyword — not an identifier, so no hover.
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":'
         + '{"textDocument":{"uri":"file:///h.thera"},"position":{"line":0,"character":0}}}');
     let out = asked.into_string().unwrap_or('');
-    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
-        message: 'no hover on a keyword')?;
+    testing.assert(
+        out.contains('"result":null') || out.contains('"result": null'),
+        message: 'no hover on a keyword',
+    )?;
     return Result.Ok(void);
 }
 
@@ -475,8 +542,10 @@ fn test_definition_jumps_to_declaration() -> Result<Void, Error> {
         + '{"textDocument":{"uri":"file:///d.thera"},"position":{"line":1,"character":28}}}');
     let out = asked.into_string().unwrap_or('');
     testing.assert(out.contains('file:///d.thera'), message: 'returns a location in the file')?;
-    testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
-        message: 'points at the declaration on line 0')?;
+    testing.assert(
+        out.contains('"line":0') || out.contains('"line": 0'),
+        message: 'points at the declaration on line 0',
+    )?;
     return Result.Ok(void);
 }
 
@@ -491,8 +560,10 @@ fn test_definition_on_unknown_is_null() -> Result<Void, Error> {
     server.handle(asked, '{"jsonrpc":"2.0","id":8,"method":"textDocument/definition","params":'
         + '{"textDocument":{"uri":"file:///d.thera"},"position":{"line":0,"character":0}}}');
     let out = asked.into_string().unwrap_or('');
-    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
-        message: 'no definition for a keyword')?;
+    testing.assert(
+        out.contains('"result":null') || out.contains('"result": null'),
+        message: 'no definition for a keyword',
+    )?;
     return Result.Ok(void);
 }
 
@@ -510,9 +581,14 @@ fn test_type_definition_jumps_to_the_type() -> Result<Void, Error> {
     server.handle(asked, '{"jsonrpc":"2.0","id":50,"method":"textDocument/typeDefinition","params":'
         + '{"textDocument":{"uri":"file:///td.thera"},"position":{"line":1,"character":52}}}');
     let out = asked.into_string().unwrap_or('');
-    testing.assert(out.contains('file:///td.thera'), message: 'returns a location in the file: ${out}')?;
-    testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
-        message: 'points at the type declaration on line 0: ${out}')?;
+    testing.assert(
+        out.contains('file:///td.thera'),
+        message: 'returns a location in the file: ${out}',
+    )?;
+    testing.assert(
+        out.contains('"line":0') || out.contains('"line": 0'),
+        message: 'points at the type declaration on line 0: ${out}',
+    )?;
     return Result.Ok(void);
 }
 
@@ -527,8 +603,10 @@ fn test_type_definition_on_a_function_is_null() -> Result<Void, Error> {
     server.handle(asked, '{"jsonrpc":"2.0","id":51,"method":"textDocument/typeDefinition","params":'
         + '{"textDocument":{"uri":"file:///td.thera"},"position":{"line":0,"character":3}}}');
     let out = asked.into_string().unwrap_or('');
-    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
-        message: 'no type definition for a function name: ${out}')?;
+    testing.assert(
+        out.contains('"result":null') || out.contains('"result": null'),
+        message: 'no type definition for a function name: ${out}',
+    )?;
     return Result.Ok(void);
 }
 
@@ -556,7 +634,10 @@ fn test_references_are_semantic() -> Result<Void, Error> {
     server.handle(no_decl, '{"jsonrpc":"2.0","id":21,"method":"textDocument/references","params":'
         + '{"textDocument":{"uri":"file:///r.thera"},"position":{"line":0,"character":34},'
         + '"context":{"includeDeclaration":false}}}');
-    testing.assert_eq(actual: count_substr(no_decl.into_string().unwrap_or(''), '"range"'), expected: 2)?;
+    testing.assert_eq(
+        actual: count_substr(no_decl.into_string().unwrap_or(''), '"range"'),
+        expected: 2,
+    )?;
     return Result.Ok(void);
 }
 
@@ -583,9 +664,12 @@ fn test_rename_is_semantic() -> Result<Void, Error> {
 fn test_definition_navigates_to_a_field() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
-    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+    server.handle(
+        opened,
+        '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///f.thera",'
-        + '"text":"struct S { let n: Int; }\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}');
+        + '"text":"struct S { let n: Int; }\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}',
+    );
     // Go-to-definition on the `n` of `self.n` (line 1, char 43) lands on the field
     // declaration up on line 0.
     let asked = io.StringWriter.new();
@@ -593,8 +677,10 @@ fn test_definition_navigates_to_a_field() -> Result<Void, Error> {
         + '{"textDocument":{"uri":"file:///f.thera"},"position":{"line":1,"character":43}}}');
     let out = asked.into_string().unwrap_or('');
     testing.assert(out.contains('file:///f.thera'), message: 'returns a location in the file')?;
-    testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
-        message: 'points at the field declaration on line 0')?;
+    testing.assert(
+        out.contains('"line":0') || out.contains('"line": 0'),
+        message: 'points at the field declaration on line 0',
+    )?;
     return Result.Ok(void);
 }
 
@@ -613,14 +699,22 @@ fn test_rename_renames_a_field() -> Result<Void, Error> {
     server.handle(asked, '{"jsonrpc":"2.0","id":41,"method":"textDocument/rename","params":'
         + '{"textDocument":{"uri":"file:///f.thera"},"position":{"line":2,"character":43},"newName":"m"}}');
     let out = asked.into_string().unwrap_or('');
-    testing.assert(!out.contains('"result":null') && !out.contains('"result": null'),
-        message: 'a field rename is not declined')?;
-    testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
-        message: 'rewrites the field declaration on line 0')?;
-    testing.assert(out.contains('"line":1') || out.contains('"line": 1'),
-        message: 'rewrites the struct-literal field on line 1')?;
-    testing.assert(out.contains('"line":2') || out.contains('"line": 2'),
-        message: 'rewrites the member access on line 2')?;
+    testing.assert(
+        !out.contains('"result":null') && !out.contains('"result": null'),
+        message: 'a field rename is not declined',
+    )?;
+    testing.assert(
+        out.contains('"line":0') || out.contains('"line": 0'),
+        message: 'rewrites the field declaration on line 0',
+    )?;
+    testing.assert(
+        out.contains('"line":1') || out.contains('"line": 1'),
+        message: 'rewrites the struct-literal field on line 1',
+    )?;
+    testing.assert(
+        out.contains('"line":2') || out.contains('"line": 2'),
+        message: 'rewrites the member access on line 2',
+    )?;
     return Result.Ok(void);
 }
 
@@ -676,16 +770,20 @@ fn test_rename_to_a_keyword_is_rejected() -> Result<Void, Error> {
     server.handle(asked, '{"jsonrpc":"2.0","id":31,"method":"textDocument/rename","params":'
         + '{"textDocument":{"uri":"file:///r.thera"},"position":{"line":0,"character":20},"newName":"fn"}}');
     let out = asked.into_string().unwrap_or('');
-    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
-        message: 'renaming to a keyword yields no edit')?;
+    testing.assert(
+        out.contains('"result":null') || out.contains('"result": null'),
+        message: 'renaming to a keyword yields no edit',
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_shutdown_responds_null() -> Result<Void, Error> {
     let out = handled('{"jsonrpc":"2.0","id":9,"method":"shutdown"}');
-    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
-        message: 'null result')?;
+    testing.assert(
+        out.contains('"result":null') || out.contains('"result": null'),
+        message: 'null result',
+    )?;
     return Result.Ok(void);
 }
 
@@ -709,7 +807,10 @@ fn test_edit_reflected_in_document_pull() -> Result<Void, Error> {
         + '"contentChanges":[{"text":"fn f() -> Int { return missing; }"}]}}');
     let out = capture(server, '{"jsonrpc":"2.0","id":7,"method":"textDocument/diagnostic","params":'
         + '{"textDocument":{"uri":"file:///e.thera"}}}');
-    testing.assert(out.contains('undefined name: missing'), message: 'the pull reflects the edited text')?;
+    testing.assert(
+        out.contains('undefined name: missing'),
+        message: 'the pull reflects the edited text',
+    )?;
     return Result.Ok(void);
 }
 
@@ -722,8 +823,10 @@ fn test_workspace_report_echoes_open_version() -> Result<Void, Error> {
         + '{"textDocument":{"uri":"file:///v.thera","version":3,"text":"fn f() -> Int { return 1; }"}}}');
     let out = capture(server, '{"jsonrpc":"2.0","id":8,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
-    testing.assert(out.contains('"version":3') || out.contains('"version": 3'),
-        message: 'the open buffer version rides on its workspace report item')?;
+    testing.assert(
+        out.contains('"version":3') || out.contains('"version": 3'),
+        message: 'the open buffer version rides on its workspace report item',
+    )?;
     return Result.Ok(void);
 }
 
@@ -736,10 +839,15 @@ fn test_did_close_removes_document() -> Result<Void, Error> {
         + '{"textDocument":{"uri":"file:///g.thera","text":"fn solo() -> Int { return 1; }"}}}');
     let _closed = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didClose","params":'
         + '{"textDocument":{"uri":"file:///g.thera"}}}');
-    let out = capture(server, '{"jsonrpc":"2.0","id":10,"method":"textDocument/documentSymbol","params":'
-        + '{"textDocument":{"uri":"file:///g.thera"}}}');
-    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
-        message: 'closed document has no outline')?;
+    let out = capture(
+        server,
+        '{"jsonrpc":"2.0","id":10,"method":"textDocument/documentSymbol","params":'
+        + '{"textDocument":{"uri":"file:///g.thera"}}}',
+    );
+    testing.assert(
+        out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'closed document has no outline',
+    )?;
     return Result.Ok(void);
 }
 
@@ -768,9 +876,11 @@ fn test_serve_coalesces_a_burst_of_edits() -> Result<Void, Error> {
     while i <= 5 {
         // Each edit renames the function — a public-surface change, so each on its
         // own would warrant a nudge; the burst must still collapse to exactly one.
-        stream = stream + jsonrpc.frame('{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        stream = stream + jsonrpc.frame(
+            '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
             + '{"textDocument":{"uri":"' + uri + '"},'
-            + '"contentChanges":[{"text":"fn f${i}() -> Int { return 0; }"}]}}');
+            + '"contentChanges":[{"text":"fn f${i}() -> Int { return 0; }"}]}}'
+        );
         i = i + 1;
     }
     let reader = BurstReader { data: stream.bytes(), pos: 0 };
@@ -795,15 +905,23 @@ fn test_did_change_evicts_the_parse_cache() -> Result<Void, Error> {
     let prog = parser.parse_tokens(seed_lex.tokens).program;
     server.analysis.session.parse_cache[path] =
         loader.ParsedFile { program: prog, tokens: seed_lex.tokens, diagnostics: [] };
-    testing.assert(server.analysis.session.parse_cache.get(path).is_some(), message: 'seed is cached')?;
+    testing.assert(
+        server.analysis.session.parse_cache.get(path).is_some(),
+        message: 'seed is cached',
+    )?;
 
-    server.handle(io.StringWriter.new(),
+    server.handle(
+        io.StringWriter.new(),
         '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///c.thera"},'
-        + '"contentChanges":[{"text":"fn h() -> Int { return 2; }"}]}}');
+        + '"contentChanges":[{"text":"fn h() -> Int { return 2; }"}]}}',
+    );
     // Pull model: the re-parse happens when the client pulls, not on the edit.
-    let _pulled = capture(server, '{"jsonrpc":"2.0","id":9,"method":"textDocument/diagnostic","params":'
-        + '{"textDocument":{"uri":"file:///c.thera"}}}');
+    let _pulled = capture(
+        server,
+        '{"jsonrpc":"2.0","id":9,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///c.thera"}}}',
+    );
     match server.analysis.session.parse_cache.get(path) {
         Some(pf) => {
             testing.assert_eq(actual: pf.program.decls.len(), expected: 1)?;
@@ -837,8 +955,10 @@ fn test_unparseable_body_gets_parse_error() -> Result<Void, Error> {
     // a silent drop.
     let out = handled('{oops');
     testing.assert(out.contains('-32700'), message: 'replies with ParseError')?;
-    testing.assert(out.contains('"id":null') || out.contains('"id": null'),
-        message: 'null id: the request id is unknowable')?;
+    testing.assert(
+        out.contains('"id":null') || out.contains('"id": null'),
+        message: 'null id: the request id is unknowable',
+    )?;
     return Result.Ok(void);
 }
 
@@ -849,8 +969,11 @@ fn test_requests_after_shutdown_are_rejected() -> Result<Void, Error> {
     // loop.
     let server = new_server(Option.None);
     let _down = capture(server, '{"jsonrpc":"2.0","id":12,"method":"shutdown"}');
-    let out = capture(server, '{"jsonrpc":"2.0","id":13,"method":"textDocument/documentSymbol","params":'
-        + '{"textDocument":{"uri":"file:///x.thera"}}}');
+    let out = capture(
+        server,
+        '{"jsonrpc":"2.0","id":13,"method":"textDocument/documentSymbol","params":'
+        + '{"textDocument":{"uri":"file:///x.thera"}}}',
+    );
     testing.assert(out.contains('-32600'), message: 'request after shutdown is invalid')?;
     let keep_going = server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"exit"}');
     testing.assert(!keep_going, message: 'exit still stops serving')?;
@@ -872,7 +995,10 @@ fn test_close_drops_a_loose_file_from_the_workspace_pull() -> Result<Void, Error
     testing.assert(before.contains('stale.thera'), message: 'the open loose file is reported')?;
     let closed = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didClose","params":'
         + '{"textDocument":{"uri":"file:///stale.thera"}}}');
-    testing.assert(closed.contains('workspace/diagnostic/refresh'), message: 'close nudges a re-pull')?;
+    testing.assert(
+        closed.contains('workspace/diagnostic/refresh'),
+        message: 'close nudges a re-pull',
+    )?;
     let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
     testing.assert(!after.contains('stale.thera'), message: 'the closed loose file drops out')?;
@@ -897,8 +1023,14 @@ fn test_serve_backgrounds_the_workspace_scan() -> Result<Void, Error> {
         + jsonrpc.frame('{"jsonrpc":"2.0","method":"exit"}');
     let out = served(stream);
     testing.assert(out.contains('bad.thera'), message: 'the backgrounded scan reports bad.thera')?;
-    testing.assert(out.contains('undefined name: missing'), message: 'its diagnostic reaches the wire')?;
-    testing.assert(out.contains('"id":2') || out.contains('"id": 2'), message: 'replies to the pull id')?;
+    testing.assert(
+        out.contains('undefined name: missing'),
+        message: 'its diagnostic reaches the wire',
+    )?;
+    testing.assert(
+        out.contains('"id":2') || out.contains('"id": 2'),
+        message: 'replies to the pull id',
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
@@ -926,15 +1058,20 @@ fn test_workspace_scan_cache_never_serves_a_stale_result() -> Result<Void, Error
     // A second pull with nothing changed: the cache reuses, same answer.
     let second = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
-    testing.assert(!second.contains('undefined name'), message: 'an unchanged re-pull stays clean')?;
+    testing.assert(
+        !second.contains('undefined name'),
+        message: 'an unchanged re-pull stays clean',
+    )?;
 
     // Now the content changes (via a buffer). The cache must miss and re-check.
     let _open = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"' + uri + '","text":"fn f() -> Int { return missing; }"}}}');
     let dirty = capture(server, '{"jsonrpc":"2.0","id":4,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
-    testing.assert(dirty.contains('undefined name: missing'),
-        message: 'the edit is reported, not the cached clean result')?;
+    testing.assert(
+        dirty.contains('undefined name: missing'),
+        message: 'the edit is reported, not the cached clean result',
+    )?;
 
     // And back: reverting to the original text must clear it, not stick.
     let _revert = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
@@ -974,8 +1111,10 @@ fn test_unchanged_repull_takes_the_generation_fast_tier() -> Result<Void, Error>
     }
     let repull = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
-    testing.assert(repull.contains('POISON'),
-        message: 'nothing changed: the poisoned cache is served without a compare')?;
+    testing.assert(
+        repull.contains('POISON'),
+        message: 'nothing changed: the poisoned cache is served without a compare',
+    )?;
 
     // Any input mutation breaks the stamp; the poisoned contents then fail the
     // compare tier too, and the scan recomputes the real diagnostics.
@@ -1010,15 +1149,16 @@ fn test_un_excluding_a_file_drops_the_scan_cache() -> Result<Void, Error> {
         + '{"exclude":["**/*bad.thera"]}}}');
     let before = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
-    testing.assert(!before.contains('undefined name: missing'),
-        message: 'hidden while excluded')?;
+    testing.assert(!before.contains('undefined name: missing'), message: 'hidden while excluded')?;
 
     let _cfg = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeConfiguration",'
         + '"params":{"settings":{"thera":{"exclude":[]}}}}');
     let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
-    testing.assert(after.contains('undefined name: missing'),
-        message: 'un-excluding reports it, though no file content changed')?;
+    testing.assert(
+        after.contains('undefined name: missing'),
+        message: 'un-excluding reports it, though no file content changed',
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
@@ -1051,8 +1191,10 @@ fn test_watched_file_change_invalidates_the_cached_parse() -> Result<Void, Error
         + '"params":{"changes":[{"uri":"file://' + file + '","type":2}]}}');
     let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
-    testing.assert(after.contains('undefined name: missing'),
-        message: 'the on-disk edit is re-analyzed, not served from the cached parse')?;
+    testing.assert(
+        after.contains('undefined name: missing'),
+        message: 'the on-disk edit is re-analyzed, not served from the cached parse',
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
@@ -1083,8 +1225,10 @@ fn test_watched_create_and_delete_update_the_scanned_set() -> Result<Void, Error
         + '"params":{"changes":[{"uri":"file://' + born + '","type":1}]}}');
     let after_create = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic",'
         + '"params":{"previousResultIds":[]}}');
-    testing.assert(after_create.contains('second.thera'),
-        message: 'a created file joins the scan')?;
+    testing.assert(
+        after_create.contains('second.thera'),
+        message: 'a created file joins the scan',
+    )?;
 
     // And goes away again (type 3 = Deleted).
     fs.remove(born)?;
@@ -1092,8 +1236,10 @@ fn test_watched_create_and_delete_update_the_scanned_set() -> Result<Void, Error
         + '"params":{"changes":[{"uri":"file://' + born + '","type":3}]}}');
     let after_delete = capture(server, '{"jsonrpc":"2.0","id":4,"method":"workspace/diagnostic",'
         + '"params":{"previousResultIds":[]}}');
-    testing.assert(!after_delete.contains('second.thera'),
-        message: 'a deleted file leaves the scan')?;
+    testing.assert(
+        !after_delete.contains('second.thera'),
+        message: 'a deleted file leaves the scan',
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
@@ -1120,8 +1266,10 @@ fn test_initialized_skips_the_watcher_when_unsupported() -> Result<Void, Error> 
     let server = new_server(Option.None);
     let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
     let out = capture(server, '{"jsonrpc":"2.0","method":"initialized","params":{}}');
-    testing.assert(!out.contains('client/registerCapability'),
-        message: 'no registration without dynamicRegistration support')?;
+    testing.assert(
+        !out.contains('client/registerCapability'),
+        message: 'no registration without dynamicRegistration support',
+    )?;
     return Result.Ok(void);
 }
 
@@ -1139,9 +1287,18 @@ fn test_serve_supersedes_the_older_workspace_pull() -> Result<Void, Error> {
         + jsonrpc.frame('{"jsonrpc":"2.0","method":"exit"}');
     let out = served(stream);
     testing.assert_eq(actual: count_substr(out, '-32802'), expected: 1)?;
-    testing.assert(out.contains('"retriggerRequest":false'), message: 'the client needn\'t re-ask')?;
-    testing.assert(out.contains('"id":2') || out.contains('"id": 2'), message: 'the superseded pull is answered')?;
-    testing.assert(out.contains('"id":3') || out.contains('"id": 3'), message: 'the newer pull is answered')?;
+    testing.assert(
+        out.contains('"retriggerRequest":false'),
+        message: 'the client needn\'t re-ask',
+    )?;
+    testing.assert(
+        out.contains('"id":2') || out.contains('"id": 2'),
+        message: 'the superseded pull is answered',
+    )?;
+    testing.assert(
+        out.contains('"id":3') || out.contains('"id": 3'),
+        message: 'the newer pull is answered',
+    )?;
     return Result.Ok(void);
 }
 
@@ -1169,10 +1326,15 @@ fn test_an_unrelated_cancel_does_not_kill_the_scan() -> Result<Void, Error> {
         + jsonrpc.frame('{"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":99}}')
         + jsonrpc.frame('{"jsonrpc":"2.0","method":"exit"}');
     let out = served(stream);
-    testing.assert(out.contains('"id":2') || out.contains('"id": 2'), message: 'the pull is answered')?;
+    testing.assert(
+        out.contains('"id":2') || out.contains('"id": 2'),
+        message: 'the pull is answered',
+    )?;
     testing.assert(out.contains('"items"'), message: 'with its report')?;
-    testing.assert(!out.contains('-32800') && !out.contains('-32802'),
-        message: 'not with a cancellation error')?;
+    testing.assert(
+        !out.contains('-32800') && !out.contains('-32802'),
+        message: 'not with a cancellation error',
+    )?;
     return Result.Ok(void);
 }
 
@@ -1184,10 +1346,13 @@ fn test_code_action_offers_if_let() -> Result<Void, Error> {
     let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///a.thera","text":'
         + '"fn f(_ o: Option<Int>) { match o { Some(v) => { g(v); }, None => {} } }"}}}');
-    let out = capture(server, '{"jsonrpc":"2.0","id":20,"method":"textDocument/codeAction","params":'
+    let out = capture(
+        server,
+        '{"jsonrpc":"2.0","id":20,"method":"textDocument/codeAction","params":'
         + '{"textDocument":{"uri":"file:///a.thera"},'
         + '"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":80}},'
-        + '"context":{"diagnostics":[]}}}');
+        + '"context":{"diagnostics":[]}}}',
+    );
     testing.assert(out.contains('Convert `match` to `if let`'), message: 'offers the rewrite')?;
     testing.assert(out.contains('refactor.rewrite'), message: 'is a rewrite action')?;
     testing.assert(out.contains('if let Some(v) = o'), message: 'edit rewrites to if let')?;
@@ -1199,12 +1364,17 @@ fn test_code_action_empty_when_nothing_convertible() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///b.thera","text":"fn f() -> Int { return 1; }"}}}');
-    let out = capture(server, '{"jsonrpc":"2.0","id":21,"method":"textDocument/codeAction","params":'
+    let out = capture(
+        server,
+        '{"jsonrpc":"2.0","id":21,"method":"textDocument/codeAction","params":'
         + '{"textDocument":{"uri":"file:///b.thera"},'
         + '"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":20}},'
-        + '"context":{"diagnostics":[]}}}');
-    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
-        message: 'no actions offered')?;
+        + '"context":{"diagnostics":[]}}}',
+    );
+    testing.assert(
+        out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'no actions offered',
+    )?;
     return Result.Ok(void);
 }
 
@@ -1215,10 +1385,13 @@ fn test_code_action_offers_unwrap_or() -> Result<Void, Error> {
     let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///c.thera","text":'
         + '"fn f(_ o: Option<Int>) -> Int { return match o { Some(v) => v, None => 0 }; }"}}}');
-    let out = capture(server, '{"jsonrpc":"2.0","id":22,"method":"textDocument/codeAction","params":'
+    let out = capture(
+        server,
+        '{"jsonrpc":"2.0","id":22,"method":"textDocument/codeAction","params":'
         + '{"textDocument":{"uri":"file:///c.thera"},'
         + '"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":80}},'
-        + '"context":{"diagnostics":[]}}}');
+        + '"context":{"diagnostics":[]}}}',
+    );
     testing.assert(out.contains('Convert `match` to `unwrap_or`'), message: 'offers unwrap_or')?;
     testing.assert(out.contains('o.unwrap_or(0)'), message: 'edit rewrites to unwrap_or')?;
     return Result.Ok(void);
@@ -1255,8 +1428,10 @@ fn test_code_action_only_exact_kind_offers() -> Result<Void, Error> {
 fn test_code_action_only_quickfix_is_empty() -> Result<Void, Error> {
     // An unrelated requested kind filters out our refactor.
     let out = code_action_with_only('"quickfix"');
-    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
-        message: 'quickfix-only request offers nothing')?;
+    testing.assert(
+        out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'quickfix-only request offers nothing',
+    )?;
     return Result.Ok(void);
 }
 
@@ -1264,8 +1439,10 @@ fn test_code_action_only_quickfix_is_empty() -> Result<Void, Error> {
 fn test_code_action_only_sibling_kind_is_empty() -> Result<Void, Error> {
     // A sibling under `refactor` is not an ancestor of `refactor.rewrite`.
     let out = code_action_with_only('"refactor.extract"');
-    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
-        message: 'sibling refactor kind offers nothing')?;
+    testing.assert(
+        out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'sibling refactor kind offers nothing',
+    )?;
     return Result.Ok(void);
 }
 
@@ -1375,7 +1552,10 @@ fn test_cancel_settles_the_open_pull() -> Result<Void, Error> {
     let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
     let _pull = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[],"partialResultToken":"tok-4"}}');
-    let cancelled = capture(server, '{"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":2}}');
+    let cancelled = capture(
+        server,
+        '{"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":2}}',
+    );
     testing.assert(cancelled.contains('"id":2'), message: 'the open pull is answered')?;
     testing.assert(cancelled.contains('-32800'), message: 'with RequestCancelled')?;
 
@@ -1429,8 +1609,10 @@ fn test_close_restreams_an_unchanged_files_diagnostics() -> Result<Void, Error> 
         + '{"textDocument":{"uri":"' + uri + '"}}}');
     testing.assert(closed.contains('$/progress'), message: 'the close streams a delta')?;
     testing.assert(closed.contains('subject.thera'), message: 'naming the closed file')?;
-    testing.assert(closed.contains('undefined name: missing'),
-        message: 're-sending its unchanged diagnostics in full')?;
+    testing.assert(
+        closed.contains('undefined name: missing'),
+        message: 're-sending its unchanged diagnostics in full',
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);

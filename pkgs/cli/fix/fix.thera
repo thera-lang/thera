@@ -264,11 +264,7 @@ pub fn fix_locations(_ source: String, only: List<String> = []) -> List<FixLocat
     let out: List<FixLocation> = [];
     for site in sites_matching(parse_fix_sites(source), only) {
         let pos = edit.offset_to_line_col(source, site.edit.start);
-        out.push(FixLocation {
-            line: pos.line,
-            column: pos.column,
-            message: site.message,
-        });
+        out.push(FixLocation { line: pos.line, column: pos.column, message: site.message });
     }
     return out;
 }

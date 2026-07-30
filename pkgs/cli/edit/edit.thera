@@ -19,11 +19,7 @@ pub struct TextEdit {
 
 // The edit that replaces the text a span covers with `new_text`.
 pub fn span_edit(_ span: SourceSpan, _ new_text: String) -> TextEdit {
-    return TextEdit {
-        start: span.offset,
-        end: span.offset + span.length,
-        new_text: new_text,
-    };
+    return TextEdit { start: span.offset, end: span.offset + span.length, new_text: new_text };
 }
 
 // A pure insertion of `text` at code-point `offset` (nothing is removed).

@@ -26,20 +26,14 @@ pub fn format_document(_ text: String) -> List<json.Json> {
     }
 
     let range = json.obj([
-        'start': json.obj([
-            'line': json.double(0.0),
-            'character': json.double(0.0),
-        ]),
+        'start': json.obj(['line': json.double(0.0), 'character': json.double(0.0)]),
         'end': json.obj([
             'line': json.double(end_line.to_double()),
             'character': json.double(end_char.to_double()),
         ]),
     ]);
 
-    let edit = json.obj([
-        'range': range,
-        'newText': json.str(formatted),
-    ]);
+    let edit = json.obj(['range': range, 'newText': json.str(formatted)]);
 
     return [edit];
 }

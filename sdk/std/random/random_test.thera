@@ -9,8 +9,7 @@ fn test_seeded_draw_is_pinned() -> Result<Void, Error> {
     // advances to GAMMA, mixes to 0xE220A8397B1DCDAF, and maps to this Double.
     // Pins the pure-Thera `mix`/`to_unit` against drift (matches the reference and
     // the prior native implementation bit-for-bit).
-    testing.assert_eq(actual: random.seeded(0).double(),
-        expected: 0.8833108082136426)?;
+    testing.assert_eq(actual: random.seeded(0).double(), expected: 0.8833108082136426)?;
     return Result.Ok(void);
 }
 

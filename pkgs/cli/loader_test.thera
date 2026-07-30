@@ -74,7 +74,10 @@ fn test_canonical_path_absolutizes_and_normalizes() -> Result<Void, Error> {
     // display_path is the inverse for paths under the current directory —
     // and leaves everything else canonical.
     testing.assert_eq(actual: display_path(canonical_path('x.thera')), expected: 'x.thera')?;
-    testing.assert_eq(actual: display_path('/somewhere/else.thera'), expected: '/somewhere/else.thera')?;
+    testing.assert_eq(
+        actual: display_path('/somewhere/else.thera'),
+        expected: '/somewhere/else.thera',
+    )?;
     return Result.Ok(void);
 }
 
@@ -89,10 +92,14 @@ fn test_canonical_identity_across_root_spellings() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_canonical_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir + '/sub'), 'create fixture dir')?;
-    fs_ok(fs.write_text(dir + '/root.thera',
-        'import \'sub/child\';\npub fn ping() -> Int { return 1; }\n'), 'write root')?;
-    fs_ok(fs.write_text(dir + '/sub/child.thera',
-        'import \'../root\';\npub fn pong() -> Int { return 1; }\n'), 'write child')?;
+    fs_ok(fs.write_text(
+        dir + '/root.thera',
+        'import \'sub/child\';\npub fn ping() -> Int { return 1; }\n',
+    ), 'write root')?;
+    fs_ok(fs.write_text(
+        dir + '/sub/child.thera',
+        'import \'../root\';\npub fn pong() -> Int { return 1; }\n',
+    ), 'write child')?;
 
     // Absolute spelling, from wherever the suite runs.
     check_root_closure(load_root(dir + '/root.thera')?)?;
@@ -147,24 +154,32 @@ fn load_root(_ path: String) -> Result<LoadedImports, Error> {
 fn check_root_closure(_ loaded: LoadedImports) -> Result<Void, Error> {
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
     for d in loaded.diagnostics {
-        testing.assert(d.message.contains('import cycle between libraries'),
-            message: 'cycle diagnosed: ${d.message}')?;
+        testing.assert(
+            d.message.contains('import cycle between libraries'),
+            message: 'cycle diagnosed: ${d.message}',
+        )?;
         testing.assert_eq(actual: d.span.line, expected: 1)?;
     }
     testing.assert_eq(actual: loaded.programs.len(), expected: 1)?;
     let child_path = loaded.programs[0].file_path.unwrap_or('');
-    testing.assert(child_path.starts_with('/') && child_path.ends_with('/sub/child.thera'),
-        message: 'child key is canonical: ${child_path}')?;
+    testing.assert(
+        child_path.starts_with('/') && child_path.ends_with('/sub/child.thera'),
+        message: 'child key is canonical: ${child_path}',
+    )?;
     testing.assert_eq(actual: loaded.file_namespaces.len(), expected: 2)?;
     for key in loaded.file_namespaces.keys() {
         let ns = loaded.file_namespaces[key];
         if key.ends_with('/root.thera') {
-            testing.assert(ns.get('child').map((s) => s.names.has('pong')).unwrap_or(false),
-                message: 'root sees child.pong')?;
+            testing.assert(
+                ns.get('child').map((s) => s.names.has('pong')).unwrap_or(false),
+                message: 'root sees child.pong',
+            )?;
         } else {
             testing.assert(key.ends_with('/sub/child.thera'), message: 'unexpected key ${key}')?;
-            testing.assert(ns.get('root').map((s) => s.names.has('ping')).unwrap_or(false),
-                message: 'child sees root.ping through the cycle')?;
+            testing.assert(
+                ns.get('root').map((s) => s.names.has('ping')).unwrap_or(false),
+                message: 'child sees root.ping through the cycle',
+            )?;
         }
     }
     // The import graph carries both edges of the cycle, keyed canonically.
@@ -173,11 +188,15 @@ fn check_root_closure(_ loaded: LoadedImports) -> Result<Void, Error> {
         let edges = loaded.file_imports[key];
         testing.assert_eq(actual: edges.len(), expected: 1)?;
         if key.ends_with('/root.thera') {
-            testing.assert(edges[0].ends_with('/sub/child.thera'),
-                message: 'root imports child: ${edges[0]}')?;
+            testing.assert(
+                edges[0].ends_with('/sub/child.thera'),
+                message: 'root imports child: ${edges[0]}',
+            )?;
         } else {
-            testing.assert(edges[0].ends_with('/root.thera'),
-                message: 'child imports root: ${edges[0]}')?;
+            testing.assert(
+                edges[0].ends_with('/root.thera'),
+                message: 'child imports root: ${edges[0]}',
+            )?;
         }
     }
     return Result.Ok(void);
@@ -201,8 +220,10 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     let secret = dir + '/secret.thera';
     fs_ok(fs.write_text(secret, 'pub fn s() -> Int { return 1; }\n'), 'write secret')?;
-    fs_ok(fs.write_text(dir + '/main.thera',
-        'import \'nonexistent\';\nimport \'secret\';\nfn main() -> Void { }\n'), 'write main')?;
+    fs_ok(fs.write_text(
+        dir + '/main.thera',
+        'import \'nonexistent\';\nimport \'secret\';\nfn main() -> Void { }\n',
+    ), 'write main')?;
 
     // Make `secret.thera` unreadable (restored below so cleanup can remove it).
     if let Err(e) = process.run('chmod', args: ['000', secret]) {
@@ -219,16 +240,22 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
     let resolve_d = loaded.diagnostics[0];
     let read_d = loaded.diagnostics[1];
-    testing.assert(resolve_d.message.contains('cannot resolve import \'nonexistent\''),
-        message: 'resolve failure surfaced: ${resolve_d.message}')?;
+    testing.assert(
+        resolve_d.message.contains('cannot resolve import \'nonexistent\''),
+        message: 'resolve failure surfaced: ${resolve_d.message}',
+    )?;
     testing.assert_eq(actual: resolve_d.span.line, expected: 1)?;
-    testing.assert(read_d.message.contains('cannot read import \'secret\''),
-        message: 'read failure surfaced: ${read_d.message}')?;
+    testing.assert(
+        read_d.message.contains('cannot read import \'secret\''),
+        message: 'read failure surfaced: ${read_d.message}',
+    )?;
     testing.assert_eq(actual: read_d.span.line, expected: 2)?;
     for d in loaded.diagnostics {
         let file = d.file.unwrap_or('');
-        testing.assert(file.ends_with('/main.thera'),
-            message: 'attributed to the importer: ${file}')?;
+        testing.assert(
+            file.ends_with('/main.thera'),
+            message: 'attributed to the importer: ${file}',
+        )?;
     }
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
@@ -245,23 +272,34 @@ fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_surface_collision_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
-    fs_ok(fs.write_text(dir + '/inner_a.thera', 'pub fn deep() -> Int { return 1; }\n'), 'write inner_a')?;
-    fs_ok(fs.write_text(dir + '/inner_b.thera', 'pub fn deep() -> Int { return 2; }\n'), 'write inner_b')?;
+    fs_ok(
+        fs.write_text(dir + '/inner_a.thera', 'pub fn deep() -> Int { return 1; }\n'),
+        'write inner_a',
+    )?;
+    fs_ok(
+        fs.write_text(dir + '/inner_b.thera', 'pub fn deep() -> Int { return 2; }\n'),
+        'write inner_b',
+    )?;
     // A colliding barrel (line 2 is the offending pub import) …
-    fs_ok(fs.write_text(dir + '/barrel.thera',
-        'pub import \'inner_a\';\npub import \'inner_b\';\n'), 'write barrel')?;
+    fs_ok(fs.write_text(
+        dir + '/barrel.thera',
+        'pub import \'inner_a\';\npub import \'inner_b\';\n',
+    ), 'write barrel')?;
     // … a diamond (both routes reach inner_a — not a collision) …
     fs_ok(fs.write_text(dir + '/route.thera', 'pub import \'inner_a\';\n'), 'write route')?;
-    fs_ok(fs.write_text(dir + '/diamond.thera',
-        'pub import \'inner_a\';\npub import \'route\';\n'), 'write diamond')?;
+    fs_ok(fs.write_text(
+        dir + '/diamond.thera',
+        'pub import \'inner_a\';\npub import \'route\';\n',
+    ), 'write diamond')?;
     // … and a main whose two `as _` imports collide (line 3).
-    fs_ok(fs.write_text(dir + '/main.thera',
+    fs_ok(fs.write_text(
+        dir + '/main.thera',
         'import \'diamond\';\nimport \'inner_a\' as _;\nimport \'inner_b\' as _;\n'
-        + 'import \'barrel\';\nfn main() -> Void { }\n'), 'write main')?;
+        + 'import \'barrel\';\nfn main() -> Void { }\n',
+    ), 'write main')?;
 
     let loaded = match fs.read_text(dir + '/main.thera') {
-        Ok(src) => load_imports(dir + '/main.thera',
-            testkit.parse(src), Option.None),
+        Ok(src) => load_imports(dir + '/main.thera', testkit.parse(src), Option.None),
         Err(e) => { return Result.Err(error('read main: ${e.message()}')); },
     };
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
@@ -271,15 +309,22 @@ fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
         let file = d.file.unwrap_or('');
         if d.message.contains('barrel') {
             barrel_seen = true;
-            testing.assert(d.message.contains('`deep`'), message: 'barrel names the name: ${d.message}')?;
-            testing.assert(file.ends_with('/barrel.thera'),
-                message: 'barrel collision attributed to the barrel: ${file}')?;
+            testing.assert(
+                d.message.contains('`deep`'),
+                message: 'barrel names the name: ${d.message}',
+            )?;
+            testing.assert(
+                file.ends_with('/barrel.thera'),
+                message: 'barrel collision attributed to the barrel: ${file}',
+            )?;
             testing.assert_eq(actual: d.span.line, expected: 2)?;
         }
         if d.message.contains('as _') {
             bare_seen = true;
-            testing.assert(file.ends_with('/main.thera'),
-                message: 'bare collision attributed to the importer: ${file}')?;
+            testing.assert(
+                file.ends_with('/main.thera'),
+                message: 'bare collision attributed to the importer: ${file}',
+            )?;
             testing.assert_eq(actual: d.span.line, expected: 3)?;
         }
     }
@@ -297,8 +342,10 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     let main_path = dir + '/main.thera';
-    fs_ok(fs.write_text(main_path, 'import \'std.nonexistent\';\nfn main() -> Void { }\n'),
-        'write main')?;
+    fs_ok(
+        fs.write_text(main_path, 'import \'std.nonexistent\';\nfn main() -> Void { }\n'),
+        'write main',
+    )?;
     let src = match fs.read_text(main_path) {
         Ok(s) => s,
         Err(e) => { return Result.Err(error('read main: ${e.message()}')); },
@@ -307,16 +354,19 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
     // No SDK (the hermetic mode): the diagnostic names the missing SDK.
     let no_sdk = load_imports(main_path, testkit.parse(src), Option.None);
     testing.assert_eq(actual: no_sdk.diagnostics.len(), expected: 1)?;
-    testing.assert(no_sdk.diagnostics[0].message.contains('no Thera SDK found'),
-        message: 'missing SDK named: ${no_sdk.diagnostics[0].message}')?;
+    testing.assert(
+        no_sdk.diagnostics[0].message.contains('no Thera SDK found'),
+        message: 'missing SDK named: ${no_sdk.diagnostics[0].message}',
+    )?;
 
     // A real SDK: the module itself is the problem.
     if let Some(root) = find_sdk_root() {
-        let with_sdk = load_imports(main_path, testkit.parse(src),
-            Option.Some(root));
+        let with_sdk = load_imports(main_path, testkit.parse(src), Option.Some(root));
         testing.assert_eq(actual: with_sdk.diagnostics.len(), expected: 1)?;
-        testing.assert(with_sdk.diagnostics[0].message.contains('not in the SDK'),
-            message: 'missing module named: ${with_sdk.diagnostics[0].message}')?;
+        testing.assert(
+            with_sdk.diagnostics[0].message.contains('not in the SDK'),
+            message: 'missing module named: ${with_sdk.diagnostics[0].message}',
+        )?;
     }
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
@@ -335,8 +385,10 @@ fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
     // that lives beside it under `std/` and imports it.
     fs_ok(fs.create_dir_all(dir + '/std/greet'), 'create greet lib dir')?;
     fs_ok(fs.create_dir_all(dir + '/std/app'), 'create app dir')?;
-    fs_ok(fs.write_text(dir + '/std/greet/greet.thera', 'pub fn hi() -> Int { return 1; }\n'),
-        'write greet')?;
+    fs_ok(
+        fs.write_text(dir + '/std/greet/greet.thera', 'pub fn hi() -> Int { return 1; }\n'),
+        'write greet',
+    )?;
     let app_path = dir + '/std/app/app.thera';
     let app_src = 'import \'std.greet\';\nfn main() -> Int { return greet.hi(); }\n';
     fs_ok(fs.write_text(app_path, app_src), 'write app')?;
@@ -347,8 +399,10 @@ fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
     // has none); `std.greet` must NOT be among the failures.
     let loaded = load_imports(app_path, testkit.parse(app_src), Option.None);
     for d in loaded.diagnostics {
-        testing.assert(!d.message.contains('std.greet'),
-            message: 'std.greet should resolve from the file\'s own SDK, but: ${d.message}')?;
+        testing.assert(
+            !d.message.contains('std.greet'),
+            message: 'std.greet should resolve from the file\'s own SDK, but: ${d.message}',
+        )?;
     }
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
@@ -359,7 +413,10 @@ fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
 fn test_pub_import_reexports_through_barrel() -> Result<Void, Error> {
     // A barrel: `pub import 'inner'` re-exports inner's public surface alongside
     // the barrel's own public declarations.
-    let inner = LibrarySource { program: prog_of('pub fn deep() { }', 'inner.thera'), imports: [:] };
+    let inner = LibrarySource {
+        program: prog_of('pub fn deep() { }', 'inner.thera'),
+        imports: [:],
+    };
     let barrel = LibrarySource {
         program: prog_of('pub import \'inner\';\npub fn own() { }', 'barrel.thera'),
         imports: [:],
@@ -379,10 +436,19 @@ fn test_pub_import_diamond_is_not_a_collision() -> Result<Void, Error> {
     // the deep file once. (Pins the semantics the loader's per-call surface
     // memo must preserve: naively merging per-child surfaces would flag a
     // false collision here.)
-    let deep = LibrarySource { program: prog_of('pub fn shared() { }', 'deep.thera'), imports: [:] };
-    let left = LibrarySource { program: prog_of('pub import \'deep\';', 'left.thera'), imports: [:] };
+    let deep = LibrarySource {
+        program: prog_of('pub fn shared() { }', 'deep.thera'),
+        imports: [:],
+    };
+    let left = LibrarySource {
+        program: prog_of('pub import \'deep\';', 'left.thera'),
+        imports: [:],
+    };
     left.imports['deep'] = deep;
-    let right = LibrarySource { program: prog_of('pub import \'deep\';', 'right.thera'), imports: [:] };
+    let right = LibrarySource {
+        program: prog_of('pub import \'deep\';', 'right.thera'),
+        imports: [:],
+    };
     right.imports['deep'] = deep;
     let barrel = LibrarySource {
         program: prog_of('pub import \'left\';\npub import \'right\';', 'barrel.thera'),
@@ -405,13 +471,20 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_surface_cache_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
-    fs_ok(fs.write_text(dir + '/util.thera', 'pub fn helper() -> Int { return 1; }\n'), 'write util')?;
+    fs_ok(
+        fs.write_text(dir + '/util.thera', 'pub fn helper() -> Int { return 1; }\n'),
+        'write util',
+    )?;
     let main_src = 'import \'util\';\nfn main() -> Int { return util.helper(); }\n';
     fs_ok(fs.write_text(dir + '/main.thera', main_src), 'write main')?;
 
     let cache: Map<String, FileSurface> = [:];
-    let first = load_imports(dir + '/main.thera',
-        testkit.parse(main_src), Option.None, surface_cache: cache);
+    let first = load_imports(
+        dir + '/main.thera',
+        testkit.parse(main_src),
+        Option.None,
+        surface_cache: cache,
+    );
     testing.assert_eq(actual: first.diagnostics.len(), expected: 0)?;
     let main_key = canonical_path(dir + '/main.thera');
     testing.assert(cache.has(main_key), message: 'main surface cached')?;
@@ -422,8 +495,12 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
     if let Some(entry) = cache.get(main_key) {
         entry.bare_surface['__marker'] = 'planted';
     }
-    let second = load_imports(dir + '/main.thera',
-        testkit.parse(main_src), Option.None, surface_cache: cache);
+    let second = load_imports(
+        dir + '/main.thera',
+        testkit.parse(main_src),
+        Option.None,
+        surface_cache: cache,
+    );
     let served = second.file_bare_surface.get(main_key)
         .map((m) => m.has('__marker')).unwrap_or(false);
     testing.assert(served, message: 'second load serves the cached entry')?;
@@ -445,14 +522,24 @@ fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
     fs_ok(fs.write_text(dir + '/main.thera', main_src), 'write main')?;
 
     let cache: Map<String, FileSurface> = [:];
-    let cold = load_imports(dir + '/main.thera',
-        testkit.parse(main_src), Option.None, surface_cache: cache);
-    let warm = load_imports(dir + '/main.thera',
-        testkit.parse(main_src), Option.None, surface_cache: cache);
+    let cold = load_imports(
+        dir + '/main.thera',
+        testkit.parse(main_src),
+        Option.None,
+        surface_cache: cache,
+    );
+    let warm = load_imports(
+        dir + '/main.thera',
+        testkit.parse(main_src),
+        Option.None,
+        surface_cache: cache,
+    );
     testing.assert(cold.diagnostics.len() > 0, message: 'cold load reports the collision')?;
     testing.assert_eq(actual: warm.diagnostics.len(), expected: cold.diagnostics.len())?;
-    testing.assert(warm.diagnostics[0].message.contains('clash'),
-        message: 'replayed diagnostic names the colliding fn')?;
+    testing.assert(
+        warm.diagnostics[0].message.contains('clash'),
+        message: 'replayed diagnostic names the colliding fn',
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
@@ -469,14 +556,22 @@ fn test_cycle_within_directory_library_is_legal() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_sibling_cycle_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir + '/liba'), 'create fixture dir')?;
-    fs_ok(fs.write_text(dir + '/liba/liba.thera',
-        'pub import \'x\';\npub import \'y\';\n'), 'write barrel')?;
-    fs_ok(fs.write_text(dir + '/liba/x.thera',
-        'import \'y\';\npub fn fx() -> Int { return 1; }\n'), 'write x')?;
-    fs_ok(fs.write_text(dir + '/liba/y.thera',
-        'import \'x\';\npub fn fy() -> Int { return x.fx(); }\n'), 'write y')?;
-    fs_ok(fs.write_text(dir + '/main.thera',
-        'import \'liba\';\nfn main() -> Void { }\n'), 'write main')?;
+    fs_ok(fs.write_text(
+        dir + '/liba/liba.thera',
+        'pub import \'x\';\npub import \'y\';\n',
+    ), 'write barrel')?;
+    fs_ok(fs.write_text(
+        dir + '/liba/x.thera',
+        'import \'y\';\npub fn fx() -> Int { return 1; }\n',
+    ), 'write x')?;
+    fs_ok(fs.write_text(
+        dir + '/liba/y.thera',
+        'import \'x\';\npub fn fy() -> Int { return x.fx(); }\n',
+    ), 'write y')?;
+    fs_ok(fs.write_text(
+        dir + '/main.thera',
+        'import \'liba\';\nfn main() -> Void { }\n',
+    ), 'write main')?;
 
     let loaded = match fs.read_text(dir + '/main.thera') {
         Ok(src) => load_imports(dir + '/main.thera', testkit.parse(src), Option.None),
@@ -494,10 +589,14 @@ fn test_cycle_between_directory_libraries_is_diagnosed() -> Result<Void, Error> 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir + '/libp'), 'create libp')?;
     fs_ok(fs.create_dir_all(dir + '/libq'), 'create libq')?;
-    fs_ok(fs.write_text(dir + '/libp/libp.thera',
-        'import \'../libq\';\npub fn fp() -> Int { return libq.fq(); }\n'), 'write libp')?;
-    fs_ok(fs.write_text(dir + '/libq/libq.thera',
-        'import \'../libp\';\npub fn fq() -> Int { return 2; }\n'), 'write libq')?;
+    fs_ok(fs.write_text(
+        dir + '/libp/libp.thera',
+        'import \'../libq\';\npub fn fp() -> Int { return libq.fq(); }\n',
+    ), 'write libp')?;
+    fs_ok(fs.write_text(
+        dir + '/libq/libq.thera',
+        'import \'../libp\';\npub fn fq() -> Int { return 2; }\n',
+    ), 'write libq')?;
 
     let loaded = match fs.read_text(dir + '/libp/libp.thera') {
         Ok(src) => load_imports(dir + '/libp/libp.thera', testkit.parse(src), Option.None),
@@ -505,11 +604,15 @@ fn test_cycle_between_directory_libraries_is_diagnosed() -> Result<Void, Error> 
     };
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
     for d in loaded.diagnostics {
-        testing.assert(d.message.contains('import cycle between libraries'),
-            message: 'cycle diagnosed: ${d.message}')?;
+        testing.assert(
+            d.message.contains('import cycle between libraries'),
+            message: 'cycle diagnosed: ${d.message}',
+        )?;
         // The path is at library granularity: directory libraries, marked '/'.
-        testing.assert(d.message.contains('libp/') && d.message.contains('libq/'),
-            message: 'path names both libraries: ${d.message}')?;
+        testing.assert(
+            d.message.contains('libp/') && d.message.contains('libq/'),
+            message: 'path names both libraries: ${d.message}',
+        )?;
         testing.assert_eq(actual: d.span.line, expected: 1)?;
     }
 
@@ -522,15 +625,20 @@ fn test_cycle_through_test_file_is_ignored() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_test_consumer_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
-    fs_ok(fs.write_text(dir + '/foo.thera',
-        'import \'util\';\npub fn ff() -> Int { return util.fu(); }\n'), 'write foo')?;
-    fs_ok(fs.write_text(dir + '/util.thera',
-        'pub fn fu() -> Int { return 3; }\n'), 'write util')?;
+    fs_ok(fs.write_text(
+        dir + '/foo.thera',
+        'import \'util\';\npub fn ff() -> Int { return util.fu(); }\n',
+    ), 'write foo')?;
+    fs_ok(fs.write_text(dir + '/util.thera', 'pub fn fu() -> Int { return 3; }\n'), 'write util')?;
     // `util_test` imports `foo`, closing foo → util → (util_test) → foo only
     // through the test file — which is a consumer, not a member: no cycle.
-    fs_ok(fs.write_text(dir + '/util_test.thera',
-        'import \'util\';\nimport \'foo\';\nfn probe() -> Int { return foo.ff() + util.fu(); }\n'),
-        'write util_test')?;
+    fs_ok(
+        fs.write_text(
+            dir + '/util_test.thera',
+            'import \'util\';\nimport \'foo\';\nfn probe() -> Int { return foo.ff() + util.fu(); }\n',
+        ),
+        'write util_test',
+    )?;
 
     let loaded = match fs.read_text(dir + '/util_test.thera') {
         Ok(src) => load_imports(dir + '/util_test.thera', testkit.parse(src), Option.None),
@@ -553,13 +661,20 @@ fn test_deep_import_is_diagnosed() -> Result<Void, Error> {
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir + '/lib'), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/lib/lib.thera', 'pub import \'inner\';\n'), 'write barrel')?;
-    fs_ok(fs.write_text(dir + '/lib/inner.thera',
-        'pub fn secret() -> Int { return 42; }\n'), 'write inner')?;
+    fs_ok(fs.write_text(
+        dir + '/lib/inner.thera',
+        'pub fn secret() -> Int { return 42; }\n',
+    ), 'write inner')?;
     // Line 1 reaches inside the library; lines 2–3 are the two legal barrel
     // spellings of the same file.
-    fs_ok(fs.write_text(dir + '/main.thera',
-        'import \'lib/inner\';\nimport \'lib/lib\';\nimport \'lib\' as _;\n'
-        + 'fn main() -> Int { return inner.secret() + lib.secret() + secret(); }\n'), 'write main')?;
+    fs_ok(
+        fs.write_text(
+            dir + '/main.thera',
+            'import \'lib/inner\';\nimport \'lib/lib\';\nimport \'lib\' as _;\n'
+            + 'fn main() -> Int { return inner.secret() + lib.secret() + secret(); }\n',
+        ),
+        'write main',
+    )?;
 
     let loaded = match fs.read_text(dir + '/main.thera') {
         Ok(src) => load_imports(dir + '/main.thera', testkit.parse(src), Option.None),
@@ -567,13 +682,19 @@ fn test_deep_import_is_diagnosed() -> Result<Void, Error> {
     };
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 1)?;
     let d = loaded.diagnostics[0];
-    testing.assert(d.message.contains('resolves inside the library'),
-        message: 'deep import diagnosed: ${d.message}')?;
-    testing.assert(d.message.contains('import its barrel instead'),
-        message: 'message names the fix: ${d.message}')?;
+    testing.assert(
+        d.message.contains('resolves inside the library'),
+        message: 'deep import diagnosed: ${d.message}',
+    )?;
+    testing.assert(
+        d.message.contains('import its barrel instead'),
+        message: 'message names the fix: ${d.message}',
+    )?;
     testing.assert_eq(actual: d.span.line, expected: 1)?;
-    testing.assert(d.file.unwrap_or('').ends_with('/main.thera'),
-        message: 'attributed to the importer')?;
+    testing.assert(
+        d.file.unwrap_or('').ends_with('/main.thera'),
+        message: 'attributed to the importer',
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);

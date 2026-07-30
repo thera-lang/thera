@@ -42,21 +42,39 @@ impl Display for Diagnostic {
 // knows its file; a file-less hermetic span yields None).
 pub fn at(_ message: String, _ span: source.SourceSpan) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
-    return Diagnostic { message: message, span: span, file: file, severity: Severity.Error, rule: Option.None };
+    return Diagnostic {
+        message: message,
+        span: span,
+        file: file,
+        severity: Severity.Error,
+        rule: Option.None,
+    };
 }
 
 // An `Error` diagnostic attributed to an explicit owning file — used by the
 // loader, which stamps each import-closure error with the file it came from
 // regardless of the span's own key.
 pub fn in_file(_ message: String, _ span: source.SourceSpan, _ file: String) -> Diagnostic {
-    return Diagnostic { message: message, span: span, file: Option.Some(file), severity: Severity.Error, rule: Option.None };
+    return Diagnostic {
+        message: message,
+        span: span,
+        file: Option.Some(file),
+        severity: Severity.Error,
+        rule: Option.None,
+    };
 }
 
 // A `Warning` diagnostic: a named, suppressable rule (`// ignore: <rule>` on
 // the offending line, or the line above, silences it at that site).
 pub fn warning(_ message: String, _ span: source.SourceSpan, _ rule: String) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
-    return Diagnostic { message: message, span: span, file: file, severity: Severity.Warning, rule: Option.Some(rule) };
+    return Diagnostic {
+        message: message,
+        span: span,
+        file: file,
+        severity: Severity.Warning,
+        rule: Option.Some(rule),
+    };
 }
 
 // Whether `d` is an error (the severity that gates compile/run/exit codes) —

@@ -21,16 +21,15 @@ fn check(_ src: String, _ want: String) -> Result<Void, Error> {
 
 @test
 fn reindents_a_block() -> Result<Void, Error> {
-    return check(
-        'fn f() {\nx();\ny();\n}\n',
-        'fn f() {\n    x();\n    y();\n}\n');
+    return check('fn f() {\nx();\ny();\n}\n', 'fn f() {\n    x();\n    y();\n}\n');
 }
 
 @test
 fn reindents_nested_blocks() -> Result<Void, Error> {
     return check(
         'fn f() {\nif a {\nb();\n} else {\nc();\n}\n}\n',
-        'fn f() {\n    if a {\n        b();\n    } else {\n        c();\n    }\n}\n');
+        'fn f() {\n    if a {\n        b();\n    } else {\n        c();\n    }\n}\n',
+    );
 }
 
 @test
@@ -39,14 +38,16 @@ fn hanging_indent_for_multi_open_line() -> Result<Void, Error> {
     // closer dedents back to the opening line.
     return check(
         'fn f() {\nxs.push(Foo {\na: 1,\n});\n}\n',
-        'fn f() {\n    xs.push(Foo {\n        a: 1,\n    });\n}\n');
+        'fn f() {\n    xs.push(Foo {\n        a: 1,\n    });\n}\n',
+    );
 }
 
 @test
 fn continuation_indent_for_method_chain() -> Result<Void, Error> {
     return check(
         'fn f() {\nlet x = a\n.b()\n.c();\n}\n',
-        'fn f() {\n    let x = a\n        .b()\n        .c();\n}\n');
+        'fn f() {\n    let x = a\n        .b()\n        .c();\n}\n',
+    );
 }
 
 @test
@@ -54,7 +55,8 @@ fn wrapped_return_type_then_body() -> Result<Void, Error> {
     // The `-> T {` continuation is indented, but the body hangs from the `fn`.
     return check(
         'fn f(_ x: Int)\n-> Int {\nreturn x;\n}\n',
-        'fn f(_ x: Int)\n    -> Int {\n    return x;\n}\n');
+        'fn f(_ x: Int)\n    -> Int {\n    return x;\n}\n',
+    );
 }
 
 @test
@@ -69,9 +71,7 @@ fn preserves_multiline_string() -> Result<Void, Error> {
 
 @test
 fn collapses_blank_runs_and_trailing() -> Result<Void, Error> {
-    return check(
-        'fn f() {\n\n\n\nx();\n}\n\n\n',
-        'fn f() {\n\n    x();\n}\n');
+    return check('fn f() {\n\n\n\nx();\n}\n\n\n', 'fn f() {\n\n    x();\n}\n');
 }
 
 @test
@@ -87,7 +87,8 @@ fn spaces_signature_and_comparison() -> Result<Void, Error> {
     // comparison (not a generic).
     return check(
         'fn  foo( a:Int,b:String )->Bool{\nreturn a<b ;\n}\n',
-        'fn foo(a: Int, b: String) -> Bool {\n    return a < b;\n}\n');
+        'fn foo(a: Int, b: String) -> Bool {\n    return a < b;\n}\n',
+    );
 }
 
 @test
@@ -96,7 +97,8 @@ fn tightens_generics_and_generic_call() -> Result<Void, Error> {
     // brackets, while the surrounding `=`/`[]` keep normal spacing.
     return check(
         'fn f() {\nlet xs : List < Int > = [ ] ;\nlet s = Set < String > .new ( ) ;\n}\n',
-        'fn f() {\n    let xs: List<Int> = [];\n    let s = Set<String>.new();\n}\n');
+        'fn f() {\n    let xs: List<Int> = [];\n    let s = Set<String>.new();\n}\n',
+    );
 }
 
 @test
@@ -104,14 +106,16 @@ fn distinguishes_unary_and_binary_minus() -> Result<Void, Error> {
     return check(
         'fn f() {\nlet a = - 1 ;\nlet b = 3 - 1 ;\nlet c = xs [ 0 ] - 1 ;\nlet d = f ( - 2 ) ;\n}\n',
         'fn f() {\n    let a = -1;\n    let b = 3 - 1;\n'
-        + '    let c = xs[0] - 1;\n    let d = f(-2);\n}\n');
+        + '    let c = xs[0] - 1;\n    let d = f(-2);\n}\n',
+    );
 }
 
 @test
 fn spaces_struct_literal_interior() -> Result<Void, Error> {
     return check(
         'fn f() {\nlet p = Point{x:1,y:2} ;\n}\n',
-        'fn f() {\n    let p = Point { x: 1, y: 2 };\n}\n');
+        'fn f() {\n    let p = Point { x: 1, y: 2 };\n}\n',
+    );
 }
 
 @test
@@ -122,7 +126,8 @@ fn keeps_shift_operators_tight() -> Result<Void, Error> {
     return check(
         'fn f() {\nlet a = v >>> 8 ;\nlet b = x << 2 ;\nlet m : Map < K , List < Int > > = [ : ] ;\n}\n',
         'fn f() {\n    let a = v >>> 8;\n    let b = x << 2;\n'
-        + '    let m: Map<K, List<Int>> = [:];\n}\n');
+        + '    let m: Map<K, List<Int>> = [:];\n}\n',
+    );
 }
 
 // --- line breaking (the whole formatter) ---
@@ -142,7 +147,8 @@ fn reflow_splits_an_over_width_call() -> Result<Void, Error> {
     return check_canonical(
         'fn f() {\n    g(alpha, beta, gamma);\n}\n',
         'fn f() {\n    g(\n        alpha,\n        beta,\n        gamma,\n    );\n}\n',
-        20);
+        20,
+    );
 }
 
 @test
@@ -150,7 +156,8 @@ fn reflow_splits_a_parameter_list() -> Result<Void, Error> {
     return check_canonical(
         'fn some_function(_ a: Int, _ b: Int) -> Int {\n    return a;\n}\n',
         'fn some_function(\n    _ a: Int,\n    _ b: Int,\n) -> Int {\n    return a;\n}\n',
-        30);
+        30,
+    );
 }
 
 @test
@@ -160,7 +167,8 @@ fn reflow_joins_a_group_that_fits() -> Result<Void, Error> {
     return check_canonical(
         'fn f() {\n    g(\n        a,\n        b);\n}\n',
         'fn f() {\n    g(a, b);\n}\n',
-        100);
+        100,
+    );
 }
 
 @test
@@ -186,7 +194,8 @@ fn reflow_joins_a_struct_literal() -> Result<Void, Error> {
     return check_canonical(
         'fn f() {\n    let p = Point {\n        x: 1\n    };\n}\n',
         'fn f() {\n    let p = Point { x: 1 };\n}\n',
-        100);
+        100,
+    );
 }
 
 @test
@@ -197,7 +206,8 @@ fn reflow_deletes_a_trailing_comma_when_joining() -> Result<Void, Error> {
     return check_canonical(
         'fn f() {\n    g(\n        a,\n        b,\n    );\n}\n',
         'fn f() {\n    g(a, b);\n}\n',
-        100);
+        100,
+    );
 }
 
 @test
@@ -209,7 +219,8 @@ fn reflow_deletes_a_nested_trailing_comma_when_joining() -> Result<Void, Error> 
     return check_canonical(
         'fn f() {\n    push(Comment {\n        kind: k,\n        span: span,\n    });\n}\n',
         'fn f() {\n    push(Comment { kind: k, span: span });\n}\n',
-        100);
+        100,
+    );
 }
 
 @test
@@ -219,7 +230,8 @@ fn reflow_adds_a_trailing_comma_when_splitting() -> Result<Void, Error> {
     return check_canonical(
         'fn f() {\n    g(alphaaaaaa, betaaaaaa);\n}\n',
         'fn f() {\n    g(\n        alphaaaaaa,\n        betaaaaaa,\n    );\n}\n',
-        20);
+        20,
+    );
 }
 
 @test
@@ -233,7 +245,8 @@ fn reflow_completes_a_half_split_comma_list() -> Result<Void, Error> {
         'fn f() {\n    g(aaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbb,\n        cccc);\n}\n',
         'fn f() {\n    g(\n        aaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbb,\n'
         + '        cccc,\n    );\n}\n',
-        20);
+        20,
+    );
 }
 
 @test
@@ -271,7 +284,8 @@ fn reflow_never_commas_a_grouping_paren() -> Result<Void, Error> {
     return check_canonical(
         'fn f() -> Int {\n    return (aaaaaaaaaaaa + bbbbbbbbbbbb);\n}\n',
         'fn f() -> Int {\n    return (\n        aaaaaaaaaaaa + bbbbbbbbbbbb\n    );\n}\n',
-        30);
+        30,
+    );
 }
 
 @test
@@ -300,7 +314,8 @@ fn reflow_hugs_a_chain_argument() -> Result<Void, Error> {
         + '        .flag(\'one\', help: \'yyyyyyyyyyyyyyyyyyyy\'));\n}\n',
         'fn f() {\n    a.sub(b.new(\'x\')\n        .flag(\n            \'one\',\n'
         + '            help: \'yyyyyyyyyyyyyyyyyyyy\',\n        ));\n}\n',
-        40);
+        40,
+    );
 }
 
 @test
@@ -321,7 +336,8 @@ fn reflow_splits_the_outermost_group_first() -> Result<Void, Error> {
     return check_canonical(
         'fn f() {\n    g(h(a, b), c);\n}\n',
         'fn f() {\n    g(\n        h(a, b),\n        c,\n    );\n}\n',
-        16);
+        16,
+    );
 }
 
 @test
@@ -338,7 +354,5 @@ fn closer_line_aligns_with_its_own_opener() -> Result<Void, Error> {
 fn leaves_trailing_comment_untouched() -> Result<Void, Error> {
     // The gap before a `//` comment holds a newline (comments end their line), so
     // Stage A never touches it — but code spacing on the line is still fixed.
-    return check(
-        'fn f() {\nlet x=1 ; // set x\n}\n',
-        'fn f() {\n    let x = 1; // set x\n}\n');
+    return check('fn f() {\nlet x=1 ; // set x\n}\n', 'fn f() {\n    let x = 1; // set x\n}\n');
 }

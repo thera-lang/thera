@@ -70,11 +70,15 @@ fn test_find() -> Result<Void, Error> {
 fn test_pad() -> Result<Void, Error> {
     testing.assert_eq(actual: '7'.pad_start(3, '0'), expected: '007')?;
     testing.assert_eq(actual: '7'.pad_end(3, '.'), expected: '7..')?;
-    testing.assert_eq(actual: 'abc'.pad_start(2, '0'), expected: 'abc')?;  // already wide
-    testing.assert_eq(actual: 'abc'.pad_start(3, '0'), expected: 'abc')?;  // exactly wide
-    testing.assert_eq(actual: 'x'.pad_start(5, 'ab'), expected: 'ababx')?; // multi-char pad truncates
+    testing.assert_eq(actual: 'abc'.pad_start(2, '0'), expected: 'abc')?;
+    // already wide
+    testing.assert_eq(actual: 'abc'.pad_start(3, '0'), expected: 'abc')?;
+    // exactly wide
+    testing.assert_eq(actual: 'x'.pad_start(5, 'ab'), expected: 'ababx')?;
+    // multi-char pad truncates
     testing.assert_eq(actual: 'x'.pad_end(4, 'ab'), expected: 'xaba')?;
-    testing.assert_eq(actual: 'x'.pad_start(3, ''), expected: 'x')?;       // empty pad: unchanged
+    testing.assert_eq(actual: 'x'.pad_start(3, ''), expected: 'x')?;
+    // empty pad: unchanged
     return Result.Ok(void);
 }
 
@@ -143,9 +147,12 @@ fn test_numeric_escapes() -> Result<Void, Error> {
 @test
 fn test_try_from_chars() -> Result<Void, Error> {
     testing.assert_eq(actual: String.try_from_chars([72, 105]), expected: Option.Some('Hi'))?;
-    testing.assert_eq(actual: String.try_from_chars([55296]), expected: Option.None)?;   // lone surrogate
-    testing.assert_eq(actual: String.try_from_chars([-1]), expected: Option.None)?;      // negative
-    testing.assert_eq(actual: String.try_from_chars([1114112]), expected: Option.None)?; // > U+10FFFF
+    testing.assert_eq(actual: String.try_from_chars([55296]), expected: Option.None)?;
+    // lone surrogate
+    testing.assert_eq(actual: String.try_from_chars([-1]), expected: Option.None)?;
+    // negative
+    testing.assert_eq(actual: String.try_from_chars([1114112]), expected: Option.None)?;
+    // > U+10FFFF
     return Result.Ok(void);
 }
 
@@ -156,12 +163,13 @@ fn test_to_int_radix() -> Result<Void, Error> {
     testing.assert_eq(actual: '1a'.to_int_radix(16), expected: Option.Some(26))?;
     // Binary and decimal, with an optional sign.
     testing.assert_eq(actual: '1010'.to_int_radix(2), expected: Option.Some(10))?;
-    testing.assert_eq(actual: '-7f'.to_int_radix(16),
-        expected: Option.Some(0 - 127))?;
+    testing.assert_eq(actual: '-7f'.to_int_radix(16), expected: Option.Some(0 - 127))?;
     // A full-width pattern wraps two's-complement to its signed value (the
     // SplitMix64 gamma; matches BigInt.parse(radix:16).toSigned(64)).
-    testing.assert_eq(actual: '9E3779B97F4A7C15'.to_int_radix(16),
-        expected: Option.Some(0 - 7046029254386353131))?;
+    testing.assert_eq(
+        actual: '9E3779B97F4A7C15'.to_int_radix(16),
+        expected: Option.Some(0 - 7046029254386353131),
+    )?;
     // Invalid: a digit beyond the radix, a non-digit, empty, and a lone sign.
     testing.assert_eq(actual: '2'.to_int_radix(2), expected: Option.None)?;
     testing.assert_eq(actual: 'xz'.to_int_radix(16), expected: Option.None)?;

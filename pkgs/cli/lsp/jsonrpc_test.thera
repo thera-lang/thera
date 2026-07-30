@@ -47,21 +47,23 @@ fn test_find_header_end_locates_body() -> Result<Void, Error> {
 @test
 fn test_find_header_end_incomplete() -> Result<Void, Error> {
     // No blank line yet -> the header isn't complete.
-    testing.assert_eq(actual: find_header_end('Content-Length: 5\r\n'.bytes()),
-        expected: Option.None)?;
+    testing.assert_eq(
+        actual: find_header_end('Content-Length: 5\r\n'.bytes()),
+        expected: Option.None,
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_parse_content_length() -> Result<Void, Error> {
-    testing.assert_eq(actual: parse_content_length('Content-Length: 42\r\n'),
-        expected: Option.Some(42))?;
+    testing.assert_eq(
+        actual: parse_content_length('Content-Length: 42\r\n'),
+        expected: Option.Some(42),
+    )?;
     // The header name is case-insensitive.
-    testing.assert_eq(actual: parse_content_length('content-length: 7'),
-        expected: Option.Some(7))?;
+    testing.assert_eq(actual: parse_content_length('content-length: 7'), expected: Option.Some(7))?;
     // No Content-Length present.
-    testing.assert_eq(actual: parse_content_length('Content-Type: x\r\n'),
-        expected: Option.None)?;
+    testing.assert_eq(actual: parse_content_length('Content-Type: x\r\n'), expected: Option.None)?;
     return Result.Ok(void);
 }
 
@@ -96,8 +98,10 @@ fn test_missing_content_length_recovers() -> Result<Void, Error> {
 
 @test
 fn test_negative_content_length_is_malformed() -> Result<Void, Error> {
-    testing.assert_eq(actual: parse_content_length('Content-Length: -5\r\n'),
-        expected: Option.None)?;
+    testing.assert_eq(
+        actual: parse_content_length('Content-Length: -5\r\n'),
+        expected: Option.None,
+    )?;
     let input = 'Content-Length: -5\r\n\r\n${frame('{"c":3}')}';
     let reader = FakeReader { data: input.bytes(), pos: 0 };
     let buf = new_buffer();

@@ -469,8 +469,12 @@ fn compute_prefix_unary(_ toks: List<Token>, _ delims: parser.GenericDelims) -> 
 // Zero when `a` binds tightly to what follows or `b` binds tightly to what
 // precedes; one otherwise (the fusion-safe default — two word-ish tokens are
 // never tight, and the round-trip check backs it up).
-fn space_between(_ a: Token, _ b: Token, _ a_prefix_unary: Bool,
-    _ delims: parser.GenericDelims) -> Int {
+fn space_between(
+    _ a: Token,
+    _ b: Token,
+    _ a_prefix_unary: Bool,
+    _ delims: parser.GenericDelims,
+) -> Int {
     // An empty brace pair is tight (`{}`, `Foo {}`, `=> {}`) — a non-empty one
     // spaces its interior (`Foo { x }`), which the default 1 already gives.
     if a.kind == TokenKind.LBrace && b.kind == TokenKind.RBrace {
@@ -640,8 +644,11 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
                 // Only a multi-line string pins its lines verbatim; a single-line
                 // string (nl == 0) is just a token and its line formats normally.
                 if tok.kind == TokenKind.StringLiteral {
-                    let nl = count_newlines(chars, tok.span.offset,
-                        tok.span.offset + tok.span.length);
+                    let nl = count_newlines(
+                        chars,
+                        tok.span.offset,
+                        tok.span.offset + tok.span.length,
+                    );
                     if nl > 0 {
                         let mut k = 0;
                         while k <= nl {

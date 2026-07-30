@@ -26,8 +26,12 @@ pub fn dump_decl(_ d: Decl, _ depth: Int) -> String {
         Type(x) => dump_type(x, depth),
         Impl(x) => dump_impl(x, depth),
         Interface(x) => dump_interface(x, depth),
-        Const(x) => pad(depth) + 'const ' + x.name + dump_ann(x.type_ann) + ' = ' + describe_expr(x.value),
-        Let(x) => pad(depth) + 'let ' + x.name + dump_ann(x.type_ann) + ' = ' + describe_expr(x.value),
+        Const(x) => pad(depth) + 'const ' + x.name + dump_ann(
+            x.type_ann
+        ) + ' = ' + describe_expr(x.value),
+        Let(x) => pad(depth) + 'let ' + x.name + dump_ann(
+            x.type_ann
+        ) + ' = ' + describe_expr(x.value),
         Enum(x) => dump_enum(x, depth),
     };
 }
@@ -65,7 +69,9 @@ pub fn dump_stmt(_ s: Stmt, _ depth: Int) -> String {
 // --- helpers ---
 
 fn dump_fn(_ x: FnDecl, _ depth: Int) -> String {
-    let sig = pad(depth) + 'fn ' + x.name + '(' + dump_params(x.params) + ')' + dump_ret(x.return_type);
+    let sig = pad(depth) + 'fn ' + x.name + '(' + dump_params(x.params) + ')' + dump_ret(
+        x.return_type
+    );
     return match x.body {
         Some(b) => sig + '\n' + dump_block(b, depth + 1),
         None => sig, // native fn — no body

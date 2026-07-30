@@ -85,9 +85,12 @@ struct FileContext {
 // Compile `program` plus any `imports` into one module. All modules' functions,
 // types, and methods register into a single scope (so cross-module references
 // resolve), then every unit is compiled.
-pub fn compile_program(_ program: Program, _ imports: List<Program>,
+pub fn compile_program(
+    _ program: Program,
+    _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Map<String, String>>) -> CodegenResult {
+    _ file_bare_surface: Map<String, Map<String, String>>,
+) -> CodegenResult {
     let library = element.build_library(program, imports, file_namespaces, file_bare_surface);
     // Fill un-annotated module-global types from their initializers (the resolver
     // only reads annotations) so a member access on a struct-typed global resolves.
@@ -148,7 +151,8 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
     for row in dispatch.unresolved {
         errors.push(diagnostic.at(
             'internal: unresolved dispatch row `${row.type_name}.${row.selector}`',
-            row.span));
+            row.span,
+        ));
     }
 
     return CodegenResult {
@@ -199,7 +203,12 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                         // An interface default keys the method table by the
                         // interface's owner-qualified key — two libraries'
                         // same-named interfaces keep distinct default units.
-                        scope.add_method(TypeId { owner: element.file_key(file), name: x.name }, x.name, method, file);
+                        scope.add_method(
+                            TypeId { owner: element.file_key(file), name: x.name },
+                            x.name,
+                            method,
+                            file,
+                        );
                     }
                 }
             },
@@ -211,7 +220,14 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                 // sees under the name (owner-qualified key).
                 if let Some(iface) = x.interface_name {
                     let ifs = file_scope(scope.library, file);
-                    scope.add_interface_impl(owner, x.type_name, TypeId { owner: ifs.resolve_type_owner(iface, x.interface_namespace), name: iface });
+                    scope.add_interface_impl(
+                        owner,
+                        x.type_name,
+                        TypeId {
+                            owner: ifs.resolve_type_owner(iface, x.interface_namespace),
+                            name: iface,
+                        },
+                    );
                 }
                 for method in x.methods {
                     let is_static = !has_self_param(method.params);
@@ -220,7 +236,15 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                     } else if method.is_native {
                         scope.add_native_instance_method(x.type_name, method);
                     } else {
-                        if let Some(_) = method.body { scope.add_method(TypeId { owner: owner, name: x.type_name }, x.type_name, method, file); }
+                        if let Some(_) = method.body {
+                            scope.add_method(
+                                TypeId { owner: owner, name: x.type_name },
+                                x.type_name,
+                                method,
+                                file,
+                            );
+
+                        }
                     }
                     if let Some(_) = x.interface_name {
                         if !is_static && !method.is_native {
@@ -309,7 +333,9 @@ impl FnCompiler {
         // and the checker infer every expression in the body to the same type.
         // (The unit table holds only the receiver's name; its parameters come from
         // the type definition.) The chosen `self_type` is recorded for the oracle.
-        let self_type = self.scope.unit_self_types[index].map((name) => named_self_type(name, self.scope.library, self.scope.unit_files[index]));
+        let self_type = self.scope.unit_self_types[index].map(
+            (name) => named_self_type(name, self.scope.library, self.scope.unit_files[index])
+        );
         self.scope.unit_ctx_self[index] = self_type;
         let type_params: Set<String> = Set.new();
         if let Some(st) = self_type {
@@ -320,7 +346,14 @@ impl FnCompiler {
         for tp in fn_decl.type_params {
             type_params.add(tp.name);
         }
-        let return_type = fn_decl.return_type.map((ref) => resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), type_params, self_type));
+        let return_type = fn_decl.return_type.map(
+            (ref) => resolve_type_ref_in(
+                ref,
+                file_scope(self.scope.library, self.file),
+                type_params,
+                self_type,
+            )
+        );
         // Implicit-`Ok` wrapping applies only when the *resolved* return type is
         // the core `Result` (identity, not spelling — X1).
         self.returns_result = match return_type {
@@ -380,7 +413,12 @@ impl FnCompiler {
             } else {
                 match lambda_types {
                     Some(lt) => lt.get(p.name).unwrap_or(Type.Unknown),
-                    None => resolve_opt_in(p.type_ann, file_scope(self.scope.library, self.file), type_params, self_type),
+                    None => resolve_opt_in(
+                        p.type_ann,
+                        file_scope(self.scope.library, self.file),
+                        type_params,
+                        self_type,
+                    ),
                 }
             };
             self.type_scope[p.name] = pt;
@@ -624,7 +662,10 @@ impl FnCompiler {
 
     // Load a module global (top-level `let`) by its owner-resolved slot.
     fn emit_global(self, _ owner: String, _ name: String) -> Void {
-        if let Some(slot) = self.scope.global_in_file(owner, name) { self.emit(Instr.GlobalGet(slot)); }
+        if let Some(slot) = self.scope.global_in_file(owner, name) {
+            self.emit(Instr.GlobalGet(slot));
+
+        }
     }
 
     // Inline the top-level constant `owner`/`name` by compiling its initializer
@@ -684,7 +725,14 @@ impl FnCompiler {
             Let(x) => {
                 // Evaluate before declaring, so the initializer can't see the
                 // not-yet-bound name. A captured `mut` local is boxed.
-                let annotated = x.type_ann.map((ref) => resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), self.ctx.type_params, self.ctx.self_type));
+                let annotated = x.type_ann.map(
+                    (ref) => resolve_type_ref_in(
+                        ref,
+                        file_scope(self.scope.library, self.file),
+                        self.ctx.type_params,
+                        self.ctx.self_type,
+                    )
+                );
                 self.expr_expecting(x.value, annotated);
                 // `let _ = …`: evaluated for effect, value discarded — no slot.
                 if x.name == '_' {
@@ -692,9 +740,14 @@ impl FnCompiler {
                 } else {
                     // An explicit annotation is the binding's type (matching the
                     // inference engine); fall back to the initializer's inferred type.
-                    let ty = annotated.unwrap_or_else(() => refine_binding_type(x.name,
+                    let ty = annotated.unwrap_or_else(() => refine_binding_type(
+                        x.name,
                         infer_expr(x.value, self.type_scope, self.ctx, Option.None),
-                        stmts, index + 1, self.type_scope, self.ctx));
+                        stmts,
+                        index + 1,
+                        self.type_scope,
+                        self.ctx,
+                    ));
                     if self.boxed_locals.has(x.name) {
                         self.emit(Instr.StructNew(self.scope.cell_type_index()));
                     }
@@ -814,7 +867,10 @@ impl FnCompiler {
                     self.emit(Instr.Simple(Op.Pop));
                 } else {
                     match self.type_of(object) {
-                        Some(t) => { self.error('indexed assignment on ${t} is not supported', span); },
+                        Some(t) => {
+                            self.error('indexed assignment on ${t} is not supported', span);
+
+                        },
                         None => { self.error('indexed assignment on unknown type', span); },
                     }
                 }
@@ -869,7 +925,13 @@ impl FnCompiler {
                     self.iterator_for(var_name, iterable, body);
                 } else {
                     match self.type_of(iterable) {
-                        Some(t) => { self.error('cannot iterate ${t} (only ranges, lists, and Iterators are supported)', expr_span(iterable)); },
+                        Some(t) => {
+                            self.error(
+                                'cannot iterate ${t} (only ranges, lists, and Iterators are supported)',
+                                expr_span(iterable),
+                            );
+
+                        },
                         None => { self.error('cannot iterate this value', expr_span(iterable)); },
                     }
                 }
@@ -1056,11 +1118,17 @@ impl FnCompiler {
             Return(_, value) => { self.emit_return(value); },
             Throw(_, value) => { self.emit_throw(value); },
             Lambda(x) => { self.lambda_expr(x, expected); },
-            Range(span, _, _) => { self.error('a range is only valid as a for-loop iterable', span); },
+            Range(span, _, _) => {
+                self.error('a range is only valid as a for-loop iterable', span);
+
+            },
             Loc(span) => { self.emit_source_loc(span); },
             // Unreachable after a clean `check` (recovery holes are rejected there);
             // a defensive trap in case codegen ever runs on an unchecked tree.
-            Error(span) => { self.error('internal: unresolved parse error reached codegen', span); },
+            Error(span) => {
+                self.error('internal: unresolved parse error reached codegen', span);
+
+            },
         }
     }
 
@@ -1072,7 +1140,11 @@ impl FnCompiler {
     fn emit_source_loc(self, _ span: SourceSpan) -> Void {
         let file = self.file.unwrap_or('');
         let fields: List<FieldInit> = [
-            FieldInit { name: 'file', name_span: span, value: Expr.Str(span, [StringPart.Text(span, file)]) },
+            FieldInit {
+                name: 'file',
+                name_span: span,
+                value: Expr.Str(span, [StringPart.Text(span, file)]),
+            },
             FieldInit { name: 'line', name_span: span, value: Expr.Int(span, span.line) },
             FieldInit { name: 'column', name_span: span, value: Expr.Int(span, span.column) },
         ];
@@ -1099,8 +1171,13 @@ impl FnCompiler {
         self.exit_scope(saved);
     }
 
-    fn if_expr(self, _ condition: Expr, _ then_block: Block, _ else_block: Option<Block>,
-        _ expected: Option<Type>) -> Void {
+    fn if_expr(
+        self,
+        _ condition: Expr,
+        _ then_block: Block,
+        _ else_block: Option<Block>,
+        _ expected: Option<Type>,
+    ) -> Void {
         self.expr(condition);
         let else_label = self.new_label();
         let end = self.new_label();
@@ -1178,8 +1255,13 @@ impl FnCompiler {
         // The lifted unit resolves bare names in the enclosing unit's file, and
         // inherits the enclosing function's type-parameter bounds so a bound
         // method on a `T`-typed param still resolves inside the lambda.
-        let index = self.scope.add_lambda(lifted, boxed_captures, stash,
-            self.type_param_bounds, self.file);
+        let index = self.scope.add_lambda(
+            lifted,
+            boxed_captures,
+            stash,
+            self.type_param_bounds,
+            self.file,
+        );
         // Push the captured values (in capture order), then bundle the closure. A
         // boxed capture pushes the cell itself (Load, no field.get) so it's shared.
         for name in captures {
@@ -1223,7 +1305,9 @@ impl FnCompiler {
             Some(_) => true,
             None => false,
         };
-        let tag_slot = if is_enum && (has_dispatch || top_level_tag_tests(e) >= MATCH_DISPATCH_MIN_CASES) {
+        let tag_slot = if is_enum && (
+            has_dispatch || top_level_tag_tests(e) >= MATCH_DISPATCH_MIN_CASES
+        ) {
             self.emit(Instr.Load(subject));
             self.emit(Instr.Simple(Op.EnumTag));
             let ts = self.fresh_slot();
@@ -1332,8 +1416,15 @@ impl FnCompiler {
         self.emit_leaf(plan.default_arm, false, ctx);
     }
 
-    fn emit_bisect(self, _ lo: Int, _ hi: Int, _ tags: List<Int>, _ cases: Map<Int, MatchArm>,
-        _ default_label: Int, _ ctx: MatchCtx) -> Void {
+    fn emit_bisect(
+        self,
+        _ lo: Int,
+        _ hi: Int,
+        _ tags: List<Int>,
+        _ cases: Map<Int, MatchArm>,
+        _ default_label: Int,
+        _ ctx: MatchCtx,
+    ) -> Void {
         let mid = (lo + hi) / 2;
         let t = tags[mid];
         let has_left = lo <= mid - 1;
@@ -1386,8 +1477,14 @@ impl FnCompiler {
     // `Type` (not just its id) lets a nested constructor pattern resolve its
     // payload's *instantiated* type — `Some(Line(k))` on an `Option<Shape>`
     // recurses with `Shape`, substituting the subject's type arguments (CG7).
-    fn emit_pattern(self, _ pattern: Pattern, _ value_slot: Int, _ value_ty: Type,
-        _ fail: Option<Int>, _ tag_slot: Option<Int>) -> Void {
+    fn emit_pattern(
+        self,
+        _ pattern: Pattern,
+        _ value_slot: Int,
+        _ value_ty: Type,
+        _ fail: Option<Int>,
+        _ tag_slot: Option<Int>,
+    ) -> Void {
         match pattern {
             Wildcard(_) => void, // matches anything, binds nothing
             Ident(_, name) => { self.slots[name] = value_slot; }, // bind the whole value
@@ -1423,7 +1520,9 @@ impl FnCompiler {
                             self.emit(Instr.Load(value_slot));
                             self.emit(Instr.EnumGet(p.index));
                             self.emit(Instr.Store(field_slot));
-                            let ft = if p.index < field_types.len() { field_types[p.index] } else { Type.Unknown };
+                            let ft = if p.index < field_types.len() {
+                                field_types[p.index]
+                            } else { Type.Unknown };
                             self.emit_pattern(arg, field_slot, ft, fail, Option.None);
                         },
                     }
@@ -1434,8 +1533,13 @@ impl FnCompiler {
 
     // A match arm body either yields a value (and jumps to the merge point) or
     // transfers control out of the function (return/throw).
-    fn arm_body(self, _ body: Expr, _ end: Int, _ jump_to_end: Bool,
-        _ expected: Option<Type>) -> Void {
+    fn arm_body(
+        self,
+        _ body: Expr,
+        _ end: Int,
+        _ jump_to_end: Bool,
+        _ expected: Option<Type>,
+    ) -> Void {
         match body {
             Return(_, value) => { self.emit_return(value); },
             Throw(_, value) => { self.emit_throw(value); },
@@ -1501,7 +1605,11 @@ impl FnCompiler {
                 }
                 return;
             }
-            if let Some(eq_idx) = self.interface_method(type_id_of_type(left_type), self.core_iface_key('Eq'), 'eq') {
+            if let Some(eq_idx) = self.interface_method(
+                type_id_of_type(left_type),
+                self.core_iface_key('Eq'),
+                'eq',
+            ) {
                 self.expr(left);
                 self.expr(right);
                 self.emit(Instr.Call(eq_idx, 2));
@@ -1532,7 +1640,10 @@ impl FnCompiler {
         }
 
         if !is_primitive {
-            self.error('operator `${op}` on ${operand_type.unwrap_or('unknown type')} not yet supported', span);
+            self.error(
+                'operator `${op}` on ${operand_type.unwrap_or('unknown type')} not yet supported',
+                span,
+            );
             return;
         }
         let is_double = operand_type == Option.Some('Double');
@@ -1619,7 +1730,11 @@ impl FnCompiler {
     // virtual dispatch (an interface-typed or bounded-generic value), or a concrete
     // impl method. Errors when the type has no `Display`.
     fn emit_display(self, _ t: Type, _ span: SourceSpan) -> Void {
-        if let Some(symbol) = self.native_instance_method_symbol(name_of_type(t), 'display') { self.emit(Instr.CallNative(symbol, 1)); return; }
+        if let Some(symbol) = self.native_instance_method_symbol(name_of_type(t), 'display') {
+            self.emit(Instr.CallNative(symbol, 1));
+            return;
+
+        }
         if self.dispatches_via(t, 'display') {
             self.emit(Instr.CallVirtual('display', 1));
             return;
@@ -1638,8 +1753,14 @@ impl FnCompiler {
 
     // The runtime native symbol backing `ty_name`'s native instance `method`, if it
     // has one (e.g. the primitives' `display` → `int_to_string`); None otherwise.
-    fn native_instance_method_symbol(self, _ ty_name: Option<String>, _ method: String) -> Option<String> {
-        if let Some(t) = ty_name { if let Some(m) = self.scope.native_instance_methods.get(t) { return m.get(method); } }
+    fn native_instance_method_symbol(
+        self,
+        _ ty_name: Option<String>,
+        _ method: String,
+    ) -> Option<String> {
+        if let Some(t) = ty_name {
+            if let Some(m) = self.scope.native_instance_methods.get(t) { return m.get(method); }
+        }
         return Option.None;
     }
 
@@ -1653,7 +1774,9 @@ impl FnCompiler {
         let owner = fs.resolve_type_owner(x.type_name, x.namespace);
         match self.scope.resolve_struct(owner, x.type_name) {
             Some(info) => {
-                let declared = fs.resolve_type_def(TypeId { owner: owner, name: x.type_name }).map((def) => def.fields);
+                let declared = fs.resolve_type_def(
+                    TypeId { owner: owner, name: x.type_name }
+                ).map((def) => def.fields);
                 for field_name in info.field_names {
                     match find_field_init(x.fields, field_name) {
                         Some(value) => {
@@ -1663,7 +1786,13 @@ impl FnCompiler {
                             };
                             self.expr_expecting(value, exp);
                         },
-                        None => { self.error('missing field `${field_name}` in ${x.type_name} literal', x.span); },
+                        None => {
+                            self.error(
+                                'missing field `${field_name}` in ${x.type_name} literal',
+                                x.span,
+                            );
+
+                        },
                     }
                 }
                 self.emit(Instr.StructNew(info.index));
@@ -1679,7 +1808,10 @@ impl FnCompiler {
         // surface, so two libraries' same-named consts inline their own values.
         if let Ident(_, ns_name) = object {
             if self.is_namespace(ns_name) {
-                if let Some(owner) = file_scope(self.scope.library, self.file).member_owner(ns_name, field) {
+                if let Some(owner) = file_scope(
+                    self.scope.library,
+                    self.file,
+                ).member_owner(ns_name, field) {
                     if self.scope.const_in_file(owner, field).is_some() {
                         self.emit_const(owner, field, span);
                         return;
@@ -1711,7 +1843,10 @@ impl FnCompiler {
 
     fn struct_of(self, _ object: Expr, _ span: SourceSpan) -> Option<StructInfo> {
         if let Some(id) = self.type_id_of(object) {
-            if let Some(info) = self.scope.resolve_struct(id.owner, id.name) { return Option.Some(info); }
+            if let Some(info) = self.scope.resolve_struct(id.owner, id.name) {
+                return Option.Some(info);
+
+            }
         }
         self.error('field access on non-struct value', span);
         return Option.None;
@@ -1814,7 +1949,11 @@ impl FnCompiler {
                     return;
                 }
                 if let Some(fn_index) = self.scope.resolve_function(self.file, name) {
-                    let ordered = self.resolve_args(self.scope.units[fn_index].params, x.args, x.span);
+                    let ordered = self.resolve_args(
+                        self.scope.units[fn_index].params,
+                        x.args,
+                        x.span,
+                    );
                     self.emit_ordered_args(x.callee, x.args, ordered);
                     self.emit(Instr.Call(fn_index, ordered.len()));
                     return;
@@ -1857,7 +1996,10 @@ impl FnCompiler {
             Unresolved => false,
         };
         if !emitted {
-            self.error('no method "${field}" on ${self.type_of(obj).unwrap_or('unknown type')}', x.span);
+            self.error(
+                'no method "${field}" on ${self.type_of(obj).unwrap_or('unknown type')}',
+                x.span,
+            );
         }
     }
 
@@ -1896,7 +2038,10 @@ impl FnCompiler {
     fn emit_namespace_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         if let Ident(_, ns_name) = obj {
             if self.is_namespace(ns_name) {
-                if let Some(owner) = file_scope(self.scope.library, self.file).member_owner(ns_name, field) {
+                if let Some(owner) = file_scope(
+                    self.scope.library,
+                    self.file,
+                ).member_owner(ns_name, field) {
                     if let Some(native_sym) = self.scope.native_in_file(owner, field) {
                         for arg in x.args {
                             self.expr(arg.value);
@@ -1905,7 +2050,11 @@ impl FnCompiler {
                         return true;
                     }
                     if let Some(fn_idx) = self.scope.function_in_file(owner, field) {
-                        let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
+                        let ordered = self.resolve_args(
+                            self.scope.units[fn_idx].params,
+                            x.args,
+                            x.span,
+                        );
                         // Thread expected arg types (like the bare-call path), so a
                         // qualified call passing an un-annotated lambda types it
                         // bidirectionally — making `ns.fn(...)` byte-identical to `fn(...)`.
@@ -1989,7 +2138,9 @@ impl FnCompiler {
     fn emit_virtual_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         if field != 'display' && field != 'debug' {
             // A non-universal selector must be declared by a candidate interface.
-            let declared = match self.dispatch_interfaces(infer_expr(obj, self.type_scope, self.ctx, Option.None)) {
+            let declared = match self.dispatch_interfaces(
+                infer_expr(obj, self.type_scope, self.ctx, Option.None)
+            ) {
                 Some(ifaces) => {
                     let mut found = false;
                     for i in ifaces {
@@ -2017,7 +2168,9 @@ impl FnCompiler {
         let expected = expected_arg_types(x.callee, x.args, self.type_scope, self.ctx);
         for p in x.args.enumerate() {
             let exp = match expected {
-                Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
+                Some(eps) => if p.index < eps.len() {
+                    Option.Some(eps[p.index])
+                } else { Option.None },
                 None => Option.None,
             };
             self.expr_expecting(p.value.value, exp);
@@ -2114,11 +2267,18 @@ impl FnCompiler {
     // un-annotated parameters bidirectionally. `expected_param_types` returns one
     // entry per non-self parameter, aligned with `ordered` (`expected_arg_types`
     // is the call-ordered view — a reordered labeled call would misalign here).
-    fn emit_ordered_args(self, _ callee: Expr, _ args: List<CallArg>, _ ordered: List<Expr>) -> Void {
+    fn emit_ordered_args(
+        self,
+        _ callee: Expr,
+        _ args: List<CallArg>,
+        _ ordered: List<Expr>,
+    ) -> Void {
         let expected = expected_param_types(callee, args, self.type_scope, self.ctx);
         for p in ordered.enumerate() {
             let exp = match expected {
-                Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
+                Some(eps) => if p.index < eps.len() {
+                    Option.Some(eps[p.index])
+                } else { Option.None },
                 None => Option.None,
             };
             self.expr_expecting(p.value, exp);
@@ -2127,7 +2287,12 @@ impl FnCompiler {
 
     // Match call arguments to a callee's (non-self) parameters, returning the
     // value expressions in parameter order (named-argument + default resolution).
-    fn resolve_args(self, _ params: List<Param>, _ call_args: List<CallArg>, _ span: SourceSpan) -> List<Expr> {
+    fn resolve_args(
+        self,
+        _ params: List<Param>,
+        _ call_args: List<CallArg>,
+        _ span: SourceSpan,
+    ) -> List<Expr> {
         let positional: List<Expr> = [];
         let named: Map<String, Expr> = [:];
         for a in call_args {
@@ -2193,7 +2358,12 @@ impl FnCompiler {
 
     // --- dispatch helpers ---
 
-    fn interface_method(self, _ ty: Option<TypeId>, _ iface: TypeId, _ method: String) -> Option<Int> {
+    fn interface_method(
+        self,
+        _ ty: Option<TypeId>,
+        _ iface: TypeId,
+        _ method: String,
+    ) -> Option<Int> {
         if let Some(t) = ty {
             let implements = match self.scope.interface_impls.get(t) {
                 Some(info) => info.interfaces.has(iface),
@@ -2345,7 +2515,11 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
 // with its declared parameters applied (`List` -> `List<T>`). This is codegen's
 // inference-context construction; it matches the checker's `impl_self_type` so
 // the two infer a method body identically.
-fn named_self_type(_ name: String, _ library: element.LibraryElement, _ file: Option<String>) -> Type {
+fn named_self_type(
+    _ name: String,
+    _ library: element.LibraryElement,
+    _ file: Option<String>,
+) -> Type {
     if let Some(p) = primitive_type(name) {
         return p;
     }
@@ -2355,7 +2529,10 @@ fn named_self_type(_ name: String, _ library: element.LibraryElement, _ file: Op
     let fs = file_scope(library, file);
     let owner = fs.resolve_type_owner(name, Option.None);
     return match fs.resolve_type_def(TypeId { owner: owner, name: name }) {
-        Some(def) => Type.Interface(TypeId { owner: owner, name: name }, def.type_parameters.map((p) => Type.TypeParameter(p))),
+        Some(def) => Type.Interface(
+            TypeId { owner: owner, name: name },
+            def.type_parameters.map((p) => Type.TypeParameter(p)),
+        ),
         None => Type.Interface(TypeId { owner: '', name: name }, []),
     };
 }
@@ -2385,8 +2562,11 @@ fn self_type_param_names(_ t: Type) -> List<String> {
 
 // The checker's receiver type for a unit — the oracle's reference, kept separate
 // from codegen's `named_self_type` so the comparison is a genuine differential.
-fn checker_self_type(_ self_name: Option<String>, _ library: element.LibraryElement,
-    _ file: Option<String>) -> Option<Type> {
+fn checker_self_type(
+    _ self_name: Option<String>,
+    _ library: element.LibraryElement,
+    _ file: Option<String>,
+) -> Option<Type> {
     return match self_name {
         Some(n) => match primitive_type(n) {
             Some(p) => Option.Some(p),
@@ -2397,7 +2577,10 @@ fn checker_self_type(_ self_name: Option<String>, _ library: element.LibraryElem
                 let owner = fs.resolve_type_owner(n, Option.None);
                 match fs.resolve_type_def(TypeId { owner: owner, name: n }) {
                     Some(def) => Option.Some(
-                        Type.Interface(TypeId { owner: owner, name: n }, def.type_parameters.map((p) => Type.TypeParameter(p)))),
+                        Type.Interface(
+                            TypeId { owner: owner, name: n },
+                            def.type_parameters.map((p) => Type.TypeParameter(p)),
+                        )),
                     None => Option.Some(Type.Interface(TypeId { owner: '', name: n }, [])),
                 }
             },
@@ -2433,7 +2616,13 @@ fn run_infer_oracle(_ scope: ModuleScope) -> Void {
             // What codegen actually built (recorded during compilation) vs the
             // independent checker reference.
             let cg = describe_self(recorded_self(scope, p.index));
-            let ck = describe_self(checker_self_type(scope.unit_self_types[p.index], library, scope.unit_files[p.index]));
+            let ck = describe_self(
+                checker_self_type(
+                    scope.unit_self_types[p.index],
+                    library,
+                    scope.unit_files[p.index],
+                )
+            );
             if cg != ck {
                 diverged = diverged + 1;
                 eprintln('  ${name}  [${file_label(scope.unit_files[p.index])}]');
@@ -2761,7 +2950,10 @@ fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
 // an initializer cycle — a located compile error (cf. the cyclic-`const` guard).
 // Cross-module order falls out of registration order (imports before importers),
 // which the post-order preserves for globals with no edge between them.
-fn order_global_inits(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnostic>) -> List<GlobalInit> {
+fn order_global_inits(
+    _ scope: ModuleScope,
+    _ errors: List<diagnostic.Diagnostic>,
+) -> List<GlobalInit> {
     let ordered: List<GlobalInit> = [];
     let state: Map<String, Int> = [:]; // keyed like `global_key`; 1 = visiting, 2 = done
     let by_key: Map<String, GlobalInit> = [:];
@@ -2780,20 +2972,30 @@ fn global_key(_ g: GlobalInit) -> String {
     return type_key(element.file_key(g.file), g.name);
 }
 
-fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_key: Map<String, GlobalInit>,
-    _ state: Map<String, Int>, _ ordered: List<GlobalInit>, _ errors: List<diagnostic.Diagnostic>) -> Void {
+fn visit_global_init(
+    _ g: GlobalInit,
+    _ scope: ModuleScope,
+    _ by_key: Map<String, GlobalInit>,
+    _ state: Map<String, Int>,
+    _ ordered: List<GlobalInit>,
+    _ errors: List<diagnostic.Diagnostic>,
+) -> Void {
     let key = global_key(g);
     if let Some(s) = state.get(key) {
         if s == 1 {
             errors.push(diagnostic.at(
                 'module-level `let` initializer cycle through `${g.name}`',
-                g.span));
+                g.span,
+            ));
         }
         return; // already done, or a cycle just reported
     }
     state[key] = 1;
     for dep in global_init_deps(g, scope) {
-        if let Some(dg) = by_key.get(dep) { visit_global_init(dg, scope, by_key, state, ordered, errors); }
+        if let Some(dg) = by_key.get(dep) {
+            visit_global_init(dg, scope, by_key, state, ordered, errors);
+
+        }
     }
     state[key] = 2;
     ordered.push(g);
@@ -2889,7 +3091,9 @@ fn receiver_type_id(_ fs: FileScope, _ name: String, _ ns: Option<String>) -> Op
     // their types under it. The per-file def lookup disambiguates — a real miss
     // has no `''` table to hit.
     return match fs.resolve_type_def(id) {
-        Some(def) => if def.kind == element.TypeDefKind.Interface { Option.None } else { Option.Some(id) },
+        Some(def) => if def.kind == element.TypeDefKind.Interface { Option.None } else {
+            Option.Some(id)
+        },
         None => Option.None,
     };
 }

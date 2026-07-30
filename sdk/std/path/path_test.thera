@@ -124,12 +124,18 @@ fn test_relative() -> Result<Void, Error> {
     testing.assert_eq(actual: relative(from: '/a/b', to: '/a/c'), expected: Result.Ok('../c'))?;
     testing.assert_eq(actual: relative(from: '/a', to: '/a/b/c'), expected: Result.Ok('b/c'))?;
     testing.assert_eq(actual: relative(from: '/a/b/c', to: '/a/b'), expected: Result.Ok('..'))?;
-    testing.assert_eq(actual: relative(from: '/a/b', to: '/c/d'), expected: Result.Ok('../../c/d'))?;
+    testing.assert_eq(
+        actual: relative(from: '/a/b', to: '/c/d'),
+        expected: Result.Ok('../../c/d'),
+    )?;
     testing.assert_eq(actual: relative(from: '/a/b', to: '/a/b'), expected: Result.Ok('.'))?;
     // Relative inputs work too; the result joins back onto `from`.
     testing.assert_eq(actual: relative(from: 'x/y', to: 'x/z'), expected: Result.Ok('../z'))?;
     // Normalizes its inputs first.
-    testing.assert_eq(actual: relative(from: '/a/./b', to: '/a/c/../d'), expected: Result.Ok('../d'))?;
+    testing.assert_eq(
+        actual: relative(from: '/a/./b', to: '/a/c/../d'),
+        expected: Result.Ok('../d'),
+    )?;
     return Result.Ok(void);
 }
 

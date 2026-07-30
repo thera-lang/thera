@@ -196,7 +196,9 @@ fn header_names_are_lowercased() -> Result<Void, Error> {
 
 @test
 fn repeated_headers_are_comma_joined() -> Result<Void, Error> {
-    let req = parse_request('GET / HTTP/1.1\r\nAccept: text/html\r\nAccept: application/json\r\n\r\n')?;
+    let req = parse_request(
+        'GET / HTTP/1.1\r\nAccept: text/html\r\nAccept: application/json\r\n\r\n'
+    )?;
     let r = match req {
         Some(r) => r,
         None => { return Result.Err(error('expected a request')); },
@@ -343,7 +345,10 @@ fn an_unsupported_version_is_rejected() -> Result<Void, Error> {
 
 @test
 fn a_header_without_a_colon_is_rejected() -> Result<Void, Error> {
-    return testing.assert(is_protocol_error('GET / HTTP/1.1\r\nbogus\r\n\r\n'), message: 'no colon');
+    return testing.assert(
+        is_protocol_error('GET / HTTP/1.1\r\nbogus\r\n\r\n'),
+        message: 'no colon',
+    );
 }
 
 /// Whitespace between a header name and its colon is the classic smuggling trick:
@@ -371,7 +376,9 @@ fn obsolete_line_folding_is_rejected() -> Result<Void, Error> {
 @test
 fn both_framing_headers_at_once_is_rejected() -> Result<Void, Error> {
     return testing.assert(
-        is_protocol_error('POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nhello'),
+        is_protocol_error(
+            'POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nhello'
+        ),
         message: 'CL + TE together',
     );
 }
@@ -422,7 +429,9 @@ fn an_oversized_content_length_is_refused_before_reading() -> Result<Void, Error
 
 @test
 fn a_malformed_chunk_size_is_rejected() -> Result<Void, Error> {
-    let bad = match parse_response('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nhi\r\n') {
+    let bad = match parse_response(
+        'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nhi\r\n'
+    ) {
         Ok(_) => false,
         Err(e) => match e {
             Protocol(_) => true,

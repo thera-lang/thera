@@ -44,7 +44,11 @@ const KIND_CONSTANT: Int = 21;
 // priority source wins — locals shadow declarations shadow the bare surface)
 // and filtered by the partial identifier under the cursor. Deterministic:
 // items ride in source/derivation order, no client-specific ranking.
-pub fn complete_at(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> List<CompletionItem> {
+pub fn complete_at(
+    _ ctx: resolve.ResolveCtx,
+    _ text: String,
+    _ offset: Int,
+) -> List<CompletionItem> {
     let toks = resolve.primary_tokens(ctx, text);
     let cur = classify(toks, text, offset);
     let items = match cur.dot {
@@ -113,8 +117,12 @@ fn classify(_ toks: List<Token>, _ text: String, _ offset: Int) -> CursorCtx {
 
 // --- member completion ---
 
-fn member_items(_ ctx: resolve.ResolveCtx, _ toks: List<Token>, _ dot_idx: Int,
-    _ offset: Int) -> List<CompletionItem> {
+fn member_items(
+    _ ctx: resolve.ResolveCtx,
+    _ toks: List<Token>,
+    _ dot_idx: Int,
+    _ offset: Int,
+) -> List<CompletionItem> {
     let entries: List<resolve.MemberEntry> = match resolve.receiver_of_dot(toks, dot_idx) {
         NotMember => [],
         // `self.` — the enclosing impl/interface's type, instance surface.
@@ -147,8 +155,11 @@ fn member_items(_ ctx: resolve.ResolveCtx, _ toks: List<Token>, _ dot_idx: Int,
 // A plain named receiver, in `named_receiver_member`'s order: an import
 // namespace (`fs.`), a value binding on its committed type (`xs.`), else a
 // bare type name's static surface (`Color.`).
-fn named_receiver_entries(_ ctx: resolve.ResolveCtx, _ recv: String,
-    _ recv_span: SourceSpan) -> List<resolve.MemberEntry> {
+fn named_receiver_entries(
+    _ ctx: resolve.ResolveCtx,
+    _ recv: String,
+    _ recv_span: SourceSpan,
+) -> List<resolve.MemberEntry> {
     if let Some(surface) = resolve.namespace_surface(ctx, recv) {
         return resolve.namespace_entries(ctx, surface);
     }

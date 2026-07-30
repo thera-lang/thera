@@ -194,8 +194,10 @@ fn test_trailing_var_arg() -> Result<Void, Error> {
     // The first positional and everything after it (flags included) are captured
     // verbatim — no `--` separator, no "unknown flag" error.
     let m = testing.assert_ok(cmd.parse(['foo.thera', '--bar', '--baz=qux', '-v']))?;
-    testing.assert_eq(actual: m.positionals(),
-        expected: ['foo.thera', '--bar', '--baz=qux', '-v'])?;
+    testing.assert_eq(
+        actual: m.positionals(),
+        expected: ['foo.thera', '--bar', '--baz=qux', '-v'],
+    )?;
 
     // The command's own flags still parse when they precede the first positional.
     let m2 = testing.assert_ok(cmd.parse(['--help', 'foo.thera', '--bar']))?;

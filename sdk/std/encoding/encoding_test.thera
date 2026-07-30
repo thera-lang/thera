@@ -57,8 +57,10 @@ fn test_base64_decode_rejects_bad_input() -> Result<Void, Error> {
 @test
 fn test_hex_encode_decode() -> Result<Void, Error> {
     testing.assert_eq(actual: hex_encode('hi'.bytes()), expected: '6869')?;
-    testing.assert_eq(actual: hex_encode(Bytes.from_list([222, 173, 190, 239])?),
-        expected: 'deadbeef')?;
+    testing.assert_eq(
+        actual: hex_encode(Bytes.from_list([222, 173, 190, 239])?),
+        expected: 'deadbeef',
+    )?;
     testing.assert_eq(actual: hex_encode(''.bytes()), expected: '')?;
     // Decode is case-insensitive.
     testing.assert_eq(actual: hex_decode('DEADBEEF')?.to_list(), expected: [222, 173, 190, 239])?;

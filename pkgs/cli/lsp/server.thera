@@ -227,7 +227,12 @@ impl Server {
     // request is left open — see `open_pull` — with later changes streamed as
     // deltas; without one the report is the response, and the client re-pulls on
     // its own cadence.
-    fn start_workspace_scan(self, _ id: Json, _ prev_ids: Map<String, String>, _ token: Json) -> Void {
+    fn start_workspace_scan(
+        self,
+        _ id: Json,
+        _ prev_ids: Map<String, String>,
+        _ token: Json,
+    ) -> Void {
         // A new pull replaces a held-open one: settle the old request first, so
         // the client is never owed two workspace responses.
         self.settle_open_pull();
@@ -240,7 +245,10 @@ impl Server {
         self.scan_id = id;
         let gen = self.ws_generation;
         let worker = fiber.spawn(() => {
-            match self.analysis.workspace_report_interruptible(prev_ids, () => self.ws_generation == gen) {
+            match self.analysis.workspace_report_interruptible(
+                prev_ids,
+                () => self.ws_generation == gen,
+            ) {
                 Some(report) => {
                     if token.is_null() {
                         send_response(self.outbox, id, report);
@@ -270,8 +278,13 @@ impl Server {
     fn send_bail_error(self, _ id: Json) -> Void {
         match self.scan_bail {
             Cancelled => send_error(self.outbox, id, -32800, 'request cancelled'),
-            Superseded => send_error(self.outbox, id, -32802, 'server cancelled',
-                data: json.obj(['retriggerRequest': json.bool(false)])),
+            Superseded => send_error(
+                self.outbox,
+                id,
+                -32802,
+                'server cancelled',
+                data: json.obj(['retriggerRequest': json.bool(false)]),
+            ),
         }
     }
 
@@ -366,7 +379,9 @@ impl Server {
             self.analysis.set_roots(workspace_roots(params));
             self.client_refresh_support = client_supports_diagnostic_refresh(params);
             self.client_watch_support = client_supports_file_watching(params);
-            self.analysis.set_exclude(string_array(params.get('initializationOptions').get('exclude')));
+            self.analysis.set_exclude(
+                string_array(params.get('initializationOptions').get('exclude'))
+            );
             send_response(self.outbox, id, initialize_result());
             return true;
         }
@@ -412,54 +427,104 @@ impl Server {
         }
         if method == 'textDocument/didOpen' {
             let doc = params.get('textDocument');
-            self.update_document(doc.get('uri').as_string(), doc.get('text').as_string(),
-                doc.get('version').as_int());
+            self.update_document(
+                doc.get('uri').as_string(),
+                doc.get('text').as_string(),
+                doc.get('version').as_int(),
+            );
             return true;
         }
         if method == 'textDocument/didChange' {
             // Full sync: the last content change carries the whole document.
             let doc = params.get('textDocument');
-            self.update_document(doc.get('uri').as_string(),
-                last_change_text(params.get('contentChanges')), doc.get('version').as_int());
+            self.update_document(
+                doc.get('uri').as_string(),
+                last_change_text(params.get('contentChanges')),
+                doc.get('version').as_int(),
+            );
             return true;
         }
         if method == 'textDocument/documentSymbol' {
-            send_response(self.outbox, id, self.document_symbols(params.get('textDocument').get('uri').as_string()));
+            send_response(
+                self.outbox,
+                id,
+                self.document_symbols(params.get('textDocument').get('uri').as_string()),
+            );
             return true;
         }
         if method == 'textDocument/hover' {
-            send_response(self.outbox, id,
-                self.hover(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            send_response(
+                self.outbox,
+                id,
+                self.hover(
+                    params.get('textDocument').get('uri').as_string(),
+                    params.get('position'),
+                ),
+            );
             return true;
         }
         if method == 'textDocument/completion' {
-            send_response(self.outbox, id,
-                self.completion(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            send_response(
+                self.outbox,
+                id,
+                self.completion(
+                    params.get('textDocument').get('uri').as_string(),
+                    params.get('position'),
+                ),
+            );
             return true;
         }
         if method == 'textDocument/signatureHelp' {
-            send_response(self.outbox, id,
-                self.signature_help(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            send_response(
+                self.outbox,
+                id,
+                self.signature_help(
+                    params.get('textDocument').get('uri').as_string(),
+                    params.get('position'),
+                ),
+            );
             return true;
         }
         if method == 'textDocument/definition' {
-            send_response(self.outbox, id,
-                self.definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            send_response(
+                self.outbox,
+                id,
+                self.definition(
+                    params.get('textDocument').get('uri').as_string(),
+                    params.get('position'),
+                ),
+            );
             return true;
         }
         if method == 'textDocument/typeDefinition' {
-            send_response(self.outbox, id,
-                self.type_definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            send_response(
+                self.outbox,
+                id,
+                self.type_definition(
+                    params.get('textDocument').get('uri').as_string(),
+                    params.get('position'),
+                ),
+            );
             return true;
         }
         if method == 'textDocument/formatting' {
-            send_response(self.outbox, id, self.formatting(params.get('textDocument').get('uri').as_string()));
+            send_response(
+                self.outbox,
+                id,
+                self.formatting(params.get('textDocument').get('uri').as_string()),
+            );
             return true;
         }
         if method == 'textDocument/codeAction' {
-            send_response(self.outbox, id,
-                self.code_action(params.get('textDocument').get('uri').as_string(),
-                    params.get('range'), params.get('context')));
+            send_response(
+                self.outbox,
+                id,
+                self.code_action(
+                    params.get('textDocument').get('uri').as_string(),
+                    params.get('range'),
+                    params.get('context'),
+                ),
+            );
             return true;
         }
         if method == 'workspace/symbol' {
@@ -467,13 +532,24 @@ impl Server {
             return true;
         }
         if method == 'textDocument/references' {
-            send_response(self.outbox, id, self.references(params.get('textDocument').get('uri').as_string(),
-                params.get('position'), params.get('context')));
+            send_response(
+                self.outbox,
+                id,
+                self.references(
+                    params.get('textDocument').get('uri').as_string(),
+                    params.get('position'),
+                    params.get('context'),
+                ),
+            );
             return true;
         }
         if method == 'textDocument/rename' {
-            self.emit_rename(id, params.get('textDocument').get('uri').as_string(),
-                params.get('position'), params.get('newName').as_string());
+            self.emit_rename(
+                id,
+                params.get('textDocument').get('uri').as_string(),
+                params.get('position'),
+                params.get('newName').as_string(),
+            );
             return true;
         }
         // Pull-model diagnostics (LSP 3.17): the client asks for a document's or
@@ -481,16 +557,22 @@ impl Server {
         // diagnostic` is what makes diagnostics project-wide with no file open.
         if method == 'textDocument/diagnostic' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
-                send_response(self.outbox, id,
-                    self.analysis.document_report(uri, params.get('previousResultId').as_string()));
+                send_response(
+                    self.outbox,
+                    id,
+                    self.analysis.document_report(uri, params.get('previousResultId').as_string()),
+                );
             } else {
                 send_response(self.outbox, id, json.null());
             }
             return true;
         }
         if method == 'workspace/diagnostic' {
-            self.start_workspace_scan(id, previous_result_ids(params),
-                params.get('partialResultToken'));
+            self.start_workspace_scan(
+                id,
+                previous_result_ids(params),
+                params.get('partialResultToken'),
+            );
             return true;
         }
         // A cancel targets the only cancellable background ops — the in-flight
@@ -543,7 +625,12 @@ impl Server {
     // dirty for the next `flush` and evicts the file's cached parse so an
     // importer's next check re-sees the change. The refresh nudge is deferred (not
     // done here) so a burst of edits coalesces into one re-pull.
-    fn update_document(self, _ uri: Option<String>, _ text: Option<String>, _ version: Option<Int>) -> Void {
+    fn update_document(
+        self,
+        _ uri: Option<String>,
+        _ text: Option<String>,
+        _ version: Option<Int>,
+    ) -> Void {
         if let Some(u) = uri {
             if let Some(t) = text {
                 self.analysis.set_document(u, t, version);
@@ -624,7 +711,13 @@ impl Server {
         return match uri {
             Some(u) => match self.analysis.text(u) {
                 Some(text) => match self.analysis.parsed(u) {
-                    Some(program) => code_action.handle_code_action(u, program, text, range, context),
+                    Some(program) => code_action.handle_code_action(
+                        u,
+                        program,
+                        text,
+                        range,
+                        context,
+                    ),
                     None => json.arr([]),
                 },
                 None => json.arr([]),
@@ -665,8 +758,13 @@ impl Server {
     // collision (the new name is already bound in an affected scope — see
     // rename.collision). A collision is an error, not a null result, so the editor
     // shows the reason instead of silently doing nothing.
-    fn emit_rename(self, _ id: Json, _ uri: Option<String>,
-        _ position: Json, _ new_name: Option<String>) -> Void {
+    fn emit_rename(
+        self,
+        _ id: Json,
+        _ uri: Option<String>,
+        _ position: Json,
+        _ new_name: Option<String>,
+    ) -> Void {
         let outcome = match uri {
             Some(u) => match new_name {
                 Some(n) => self.analysis.rename_at(u, position, n),
@@ -771,11 +869,7 @@ impl Server {
 // --- JSON-RPC envelope helpers ---
 
 fn send_response(_ ob: outbox.Outbox, _ id: Json, _ result: Json) -> Void {
-    ob.send(json.obj([
-        'jsonrpc': json.str('2.0'),
-        'id': id,
-        'result': result,
-    ]));
+    ob.send(json.obj(['jsonrpc': json.str('2.0'), 'id': id, 'result': result]));
 }
 
 // A `$/progress` notification carrying `value` under the client-supplied `token`
@@ -784,10 +878,7 @@ fn send_progress(_ ob: outbox.Outbox, _ token: Json, _ value: Json) -> Void {
     ob.send(json.obj([
         'jsonrpc': json.str('2.0'),
         'method': json.str('$/progress'),
-        'params': json.obj([
-            'token': token,
-            'value': value,
-        ]),
+        'params': json.obj(['token': token, 'value': value]),
     ]));
 }
 
@@ -796,20 +887,18 @@ fn send_progress(_ ob: outbox.Outbox, _ token: Json, _ value: Json) -> Void {
 // extensions -32800 RequestCancelled / -32802 ServerCancelled / -32803
 // RequestFailed). A non-null `data` rides on the error object — e.g. the
 // diagnostic pulls' `DiagnosticServerCancellationData`.
-fn send_error(_ ob: outbox.Outbox, _ id: Json, _ code: Int, _ message: String,
-    data: Json = json.null()) -> Void {
-    let err: Map<String, Json> = [
-        'code': json.int(code),
-        'message': json.str(message),
-    ];
+fn send_error(
+    _ ob: outbox.Outbox,
+    _ id: Json,
+    _ code: Int,
+    _ message: String,
+    data: Json = json.null(),
+) -> Void {
+    let err: Map<String, Json> = ['code': json.int(code), 'message': json.str(message)];
     if !data.is_null() {
         err['data'] = data;
     }
-    ob.send(json.obj([
-        'jsonrpc': json.str('2.0'),
-        'id': id,
-        'error': json.obj(err),
-    ]));
+    ob.send(json.obj(['jsonrpc': json.str('2.0'), 'id': id, 'error': json.obj(err)]));
 }
 
 // --- LSP payloads ---
@@ -826,9 +915,7 @@ fn initialize_result() -> Json {
             'definitionProvider': json.bool(true),
             'typeDefinitionProvider': json.bool(true),
             // Member completion re-triggers on `.` (the `obj.` recovery hole).
-            'completionProvider': json.obj([
-                'triggerCharacters': json.arr([json.str('.')]),
-            ]),
+            'completionProvider': json.obj(['triggerCharacters': json.arr([json.str('.')])]),
             'signatureHelpProvider': json.obj([
                 'triggerCharacters': json.arr([json.str('('), json.str(',')]),
             ]),
@@ -846,10 +933,7 @@ fn initialize_result() -> Json {
                 'workspaceDiagnostics': json.bool(true),
             ]),
         ]),
-        'serverInfo': json.obj([
-            'name': json.str('thera'),
-            'version': json.str('0.1.0'),
-        ]),
+        'serverInfo': json.obj(['name': json.str('thera'), 'version': json.str('0.1.0')]),
     ]);
 }
 

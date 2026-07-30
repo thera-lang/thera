@@ -463,7 +463,12 @@ fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
 // trailing comment, or only groups already fully broken. Those lines are left
 // alone; no line breaking can shorten them.
 fn group_breaks_for_line(
-    _ pairs: List<Pair>, _ line: Int, _ from: Int, _ to: Int, _ chars: List<Int>, _ width: Int
+    _ pairs: List<Pair>,
+    _ line: Int,
+    _ from: Int,
+    _ to: Int,
+    _ chars: List<Int>,
+    _ width: Int,
 ) -> List<BreakEdit> {
     let on_line: List<Pair> = [];
     for p in pairs {

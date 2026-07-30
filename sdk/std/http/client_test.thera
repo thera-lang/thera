@@ -176,10 +176,7 @@ fn sends_a_default_user_agent() -> Result<Void, Error> {
 @test
 fn caller_headers_are_sent_and_win_over_the_defaults() -> Result<Void, Error> {
     let base = serving(echo)?;
-    let resp = http.get(base + '/x', headers: [
-        'X-Marker': 'mine',
-        'User-Agent': 'custom/9',
-    ])?;
+    let resp = http.get(base + '/x', headers: ['X-Marker': 'mine', 'User-Agent': 'custom/9'])?;
     // Names normalize to lowercase on the way out...
     testing.assert_eq(seen_header(resp, 'x-marker')?, 'mine')?;
     // ...and a caller who sets user-agent means it.

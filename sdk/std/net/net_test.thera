@@ -234,7 +234,10 @@ fn closing_a_socket_wakes_a_fiber_parked_on_it() -> Result<Void, Error> {
     };
     conn.close()?;
     listener.close()?;
-    return testing.assert(woke_with_error, message: 'expected the reader to wake with a closed error');
+    return testing.assert(
+        woke_with_error,
+        message: 'expected the reader to wake with a closed error',
+    );
 }
 
 // --- TLS ---

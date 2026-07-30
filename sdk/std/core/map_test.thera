@@ -58,8 +58,7 @@ fn test_get_or() -> Result<Void, Error> {
 @test
 fn test_keys_values_keep_insertion_order() -> Result<Void, Error> {
     let m = ['first': 10, 'second': 20, 'third': 30];
-    testing.assert_eq(actual: m.keys(),
-        expected: ['first', 'second', 'third'])?;
+    testing.assert_eq(actual: m.keys(), expected: ['first', 'second', 'third'])?;
     testing.assert_eq(actual: m.values(), expected: [10, 20, 30])?;
     return Result.Ok(void);
 }

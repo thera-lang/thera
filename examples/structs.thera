@@ -62,11 +62,7 @@ fn main() -> Result<Int, Error> {
     println('p: ${p}');
     println('q: ${q}');
 
-    let r = Rect {
-        top_left: Point { x: 10, y: 20 },
-        width: 100,
-        height: 50,
-    };
+    let r = Rect { top_left: Point { x: 10, y: 20 }, width: 100, height: 50 };
     println('rect: ${r}');
     println('area: ${r.area()}');
 

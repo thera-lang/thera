@@ -69,8 +69,7 @@ fn test_run_missing_command_is_not_found() -> Result<Void, Error> {
 fn test_env_is_passed() -> Result<Void, Error> {
     let env = [:];
     env['THERA_GREETING'] = 'hi-there';
-    let r = process.run('sh', args: ['-c', 'printf %s "$THERA_GREETING"'],
-        env: Option.Some(env))?;
+    let r = process.run('sh', args: ['-c', 'printf %s "$THERA_GREETING"'], env: Option.Some(env))?;
     testing.assert_eq(actual: r.stdout, expected: 'hi-there')?;
     return Result.Ok(void);
 }

@@ -307,11 +307,15 @@ fn test_eof_mid_call_and_signature_recover() -> Result<Void, Error> {
     // EOF inside a call closes the argument list; EOF inside a method signature
     // closes the parameter list. In both, the enclosing declaration survives.
     let call = parse_tokens(tokenize('fn f() -> Int { let x = foo(').tokens);
-    testing.assert_eq(actual: dump_program(call.program),
-        expected: 'fn f() -> Int\n  block\n    let x = foo()')?;
+    testing.assert_eq(
+        actual: dump_program(call.program),
+        expected: 'fn f() -> Int\n  block\n    let x = foo()',
+    )?;
     let sig = parse_tokens(tokenize('impl Foo { fn a() {} fn b(').tokens);
-    testing.assert_eq(actual: dump_program(sig.program),
-        expected: 'impl Foo\n  fn a()\n    block\n  fn b()')?;
+    testing.assert_eq(
+        actual: dump_program(sig.program),
+        expected: 'impl Foo\n  fn a()\n    block\n  fn b()',
+    )?;
     return Result.Ok(void);
 }
 
@@ -336,16 +340,24 @@ fn test_position_sensitive_holes() -> Result<Void, Error> {
     // A type-annotation hole, a parameter-type hole, an incomplete struct field,
     // an operator with no RHS, and an empty match all recover in place, leaving a
     // node the LSP can complete against. Each asserted structurally.
-    testing.assert_eq(actual: dump_str('struct User { let name:'),
-        expected: 'type User\n  field name: ')?;
-    testing.assert_eq(actual: dump_str('fn f(a: ) -> Int { return 0; }'),
-        expected: 'fn f(a: ) -> Int\n  block\n    return 0')?;
-    testing.assert_eq(actual: dump_str('fn f() -> Int { return match v { }; }'),
-        expected: 'fn f() -> Int\n  block\n    return match v {  }')?;
+    testing.assert_eq(
+        actual: dump_str('struct User { let name:'),
+        expected: 'type User\n  field name: ',
+    )?;
+    testing.assert_eq(
+        actual: dump_str('fn f(a: ) -> Int { return 0; }'),
+        expected: 'fn f(a: ) -> Int\n  block\n    return 0',
+    )?;
+    testing.assert_eq(
+        actual: dump_str('fn f() -> Int { return match v { }; }'),
+        expected: 'fn f() -> Int\n  block\n    return match v {  }',
+    )?;
     // A missing operator RHS is genuine confusion at the statement level, so the
     // statement becomes an `Expr.Error` placeholder and its siblings survive.
-    testing.assert_eq(actual: dump_str('fn f() -> Int { let x = a + ; return 0; }'),
-        expected: 'fn f() -> Int\n  block\n    expr <error>\n    return 0')?;
+    testing.assert_eq(
+        actual: dump_str('fn f() -> Int { let x = a + ; return 0; }'),
+        expected: 'fn f() -> Int\n  block\n    expr <error>\n    return 0',
+    )?;
     return Result.Ok(void);
 }
 

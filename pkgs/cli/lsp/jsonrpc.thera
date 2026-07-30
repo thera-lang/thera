@@ -90,7 +90,10 @@ fn extract_message(_ buf: Bytes) -> Extraction {
                             return Extraction { body: Option.None, rest: b }; // body still arriving
                         }
                         let body = bytes_to_string(b.slice(body_start, body_end));
-                        return Extraction { body: Option.Some(body), rest: b.slice(body_end, b.len()) };
+                        return Extraction {
+                            body: Option.Some(body),
+                            rest: b.slice(body_end, b.len()),
+                        };
                     },
                 }
             },

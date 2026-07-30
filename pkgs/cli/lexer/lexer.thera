@@ -224,10 +224,7 @@ impl Lexer {
             line: start_line,
             column: start_col,
         };
-        self.comments.push(Comment {
-            kind: classify_comment(self.span_text(span)),
-            span: span,
-        });
+        self.comments.push(Comment { kind: classify_comment(self.span_text(span)), span: span });
     }
 
     fn scan_token(self) -> Void {
@@ -476,8 +473,7 @@ impl Lexer {
             self.scan_unicode_escape(buf, o, l, c);
         } else {
             // An unrecognized escape is an error, not a silent pass-through.
-            self.error_at("unknown escape sequence: '\\${String.from_chars([e])}'",
-                o, l, c);
+            self.error_at("unknown escape sequence: '\\${String.from_chars([e])}'", o, l, c);
             push_literal(buf, e); // keep scanning; the error fails the parse
         }
     }
@@ -538,7 +534,9 @@ impl Lexer {
     fn scan_number(self) -> Void {
         // Hex integer literal: `0x` / `0X` then hex digits. The first digit (the
         // `0`) is already consumed; check the source for it.
-        if self.chars[self.ts_offset] == char.DIGIT_0 && (self.ch() == LOWER_X || self.ch() == UPPER_X) {
+        if self.chars[self.ts_offset] == char.DIGIT_0 && (
+            self.ch() == LOWER_X || self.ch() == UPPER_X
+        ) {
             self.advance(); // x / X
             let mut saw_digit = false;
             while !self.at_end() && char.is_hex_digit(self.ch()) {

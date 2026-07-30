@@ -27,10 +27,14 @@ fn test_struct_fields_resolve() -> Result<Void, Error> {
     match lib.type_defs.get('Point') {
         Some(pt) => {
             testing.assert_eq(actual: pt.kind, expected: TypeDefKind.Struct)?;
-            testing.assert_eq(actual: pt.fields.get('x'),
-                expected: Option.Some(Type.Primitive(Primitive.Int)))?;
-            testing.assert_eq(actual: pt.fields.get('y'),
-                expected: Option.Some(Type.Primitive(Primitive.Double)))?;
+            testing.assert_eq(
+                actual: pt.fields.get('x'),
+                expected: Option.Some(Type.Primitive(Primitive.Int)),
+            )?;
+            testing.assert_eq(
+                actual: pt.fields.get('y'),
+                expected: Option.Some(Type.Primitive(Primitive.Double)),
+            )?;
         },
         None => {
             testing.assert(false, message: 'Point not in type_defs')?;
@@ -45,11 +49,12 @@ fn test_function_signature_resolves() -> Result<Void, Error> {
         + 'fn origin(_ p: Point) -> Int { return p.x; }');
     match file_scope(lib, Option.None).resolve_function('origin') {
         Some(f) => {
-            testing.assert_eq(actual: f.return_type,
-                expected: Type.Primitive(Primitive.Int))?;
+            testing.assert_eq(actual: f.return_type, expected: Type.Primitive(Primitive.Int))?;
             testing.assert_eq(actual: f.parameters.len(), expected: 1)?;
-            testing.assert_eq(actual: f.parameters[0].ty,
-                expected: named_type(lib.type_defs, 'Point', []))?;
+            testing.assert_eq(
+                actual: f.parameters[0].ty,
+                expected: named_type(lib.type_defs, 'Point', []),
+            )?;
         },
         None => {
             testing.assert(false, message: 'origin not found')?;
@@ -64,8 +69,10 @@ fn test_generic_struct_field_is_type_parameter() -> Result<Void, Error> {
     match lib.type_defs.get('Box') {
         Some(b) => {
             testing.assert_eq(actual: b.type_parameters, expected: ['T'])?;
-            testing.assert_eq(actual: b.fields.get('value'),
-                expected: Option.Some(Type.TypeParameter('T')))?;
+            testing.assert_eq(
+                actual: b.fields.get('value'),
+                expected: Option.Some(Type.TypeParameter('T')),
+            )?;
         },
         None => {
             testing.assert(false, message: 'Box not found')?;
@@ -111,8 +118,10 @@ fn test_impl_methods_attach() -> Result<Void, Error> {
             match find_method(pt, 'x_of') {
                 Some(m) => {
                     testing.assert(!m.is_static, message: 'x_of has self')?;
-                    testing.assert_eq(actual: m.return_type,
-                        expected: Type.Primitive(Primitive.Int))?;
+                    testing.assert_eq(
+                        actual: m.return_type,
+                        expected: Type.Primitive(Primitive.Int),
+                    )?;
                 },
                 None => {
                     testing.assert(false, message: 'x_of not attached')?;
@@ -145,8 +154,10 @@ fn test_per_file_tables_populated() -> Result<Void, Error> {
         Some(types) => {
             testing.assert(types.has('Point'), message: 'Point recorded per-file')?;
             // Same object as the flat table (member fills are visible through both).
-            testing.assert_eq(actual: types.get('Point').is_some(),
-                expected: lib.type_defs.get('Point').is_some())?;
+            testing.assert_eq(
+                actual: types.get('Point').is_some(),
+                expected: lib.type_defs.get('Point').is_some(),
+            )?;
         },
         None => { testing.assert(false, message: 'no per-file types for anon program')?; },
     }
@@ -165,8 +176,12 @@ fn test_interface_inheritance_flattens() -> Result<Void, Error> {
     match lib.type_defs.get('Pretty') {
         Some(p) => {
             // The closure carries both supers; the methods are flattened in.
-            testing.assert(id_list_has(p.super_interfaces, TypeId { owner: '<anon>', name: 'Display' }))?;
-            testing.assert(id_list_has(p.super_interfaces, TypeId { owner: '<anon>', name: 'Debug' }))?;
+            testing.assert(
+                id_list_has(p.super_interfaces, TypeId { owner: '<anon>', name: 'Display' })
+            )?;
+            testing.assert(
+                id_list_has(p.super_interfaces, TypeId { owner: '<anon>', name: 'Debug' })
+            )?;
             testing.assert(match find_method(p, 'show') {
                 Some(_) => true,
                 None => false,
@@ -203,10 +218,16 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
             testing.assert(false, message: 'Result not in type_defs')?;
         },
     }
-    testing.assert(is_core_id(lib,
-        TypeId { owner: '/core/result.thera', name: 'Result' }, 'Result'))?;
-    testing.assert(!is_core_id(lib,
-        TypeId { owner: '/app/main.thera', name: 'Result' }, 'Result'))?;
+    testing.assert(is_core_id(
+        lib,
+        TypeId { owner: '/core/result.thera', name: 'Result' },
+        'Result',
+    ))?;
+    testing.assert(!is_core_id(
+        lib,
+        TypeId { owner: '/app/main.thera', name: 'Result' },
+        'Result',
+    ))?;
     // The user file's own table still holds its (illegal) declaration — only
     // the shared flat entry is protected.
     match lib.file_type_defs.get('/app/main.thera') {
@@ -265,8 +286,10 @@ fn test_reserved_pin_allows_same_owner_reregistration() -> Result<Void, Error> {
     }
     match lib.type_defs.get('Result') {
         Some(flat) => {
-            testing.assert(str_list_has(flat.own_methods, 'probe'),
-                message: 'flat entry must be the same object as the per-file one')?;
+            testing.assert(
+                str_list_has(flat.own_methods, 'probe'),
+                message: 'flat entry must be the same object as the per-file one',
+            )?;
         },
         None => { testing.assert(false, message: 'Result not in type_defs')?; },
     }
@@ -353,8 +376,10 @@ fn test_layered_build_matches_full_build() -> Result<Void, Error> {
     let layered_pt = layered.file_type_defs['/main.thera']['Point'];
     testing.assert_eq(actual: layered_pt.interfaces.len(), expected: full_pt.interfaces.len())?;
     testing.assert_eq(actual: layered_pt.methods.len(), expected: full_pt.methods.len())?;
-    testing.assert_eq(actual: layered_pt.interfaces[0],
-        expected: TypeId { owner: '/dep.thera', name: 'Greet' })?;
+    testing.assert_eq(
+        actual: layered_pt.interfaces[0],
+        expected: TypeId { owner: '/dep.thera', name: 'Greet' },
+    )?;
     // The flat registry agrees.
     testing.assert(layered.type_defs.has('Point'), message: 'flat has Point')?;
     testing.assert(layered.type_defs.has('Greet'), message: 'flat has Greet')?;
@@ -380,8 +405,10 @@ fn test_layer_primary_gates_foreign_impl() -> Result<Void, Error> {
     let second = layer_primary(base, prog_of(main_src, '/main.thera'), [:], surface);
     testing.assert(first.is_none(), message: 'foreign impl falls back')?;
     testing.assert(second.is_none(), message: 'falls back on repeat too')?;
-    testing.assert_eq(actual: base.file_type_defs['/dep.thera']['Point'].methods.len(),
-        expected: before)?;
+    testing.assert_eq(
+        actual: base.file_type_defs['/dep.thera']['Point'].methods.len(),
+        expected: before,
+    )?;
     return Result.Ok(void);
 }
 
@@ -414,7 +441,9 @@ fn test_layer_primary_flattens_into_primary_only() -> Result<Void, Error> {
     };
     let sub = layered.file_type_defs['/main.thera']['Sub'];
     testing.assert_eq(actual: sub.methods.len(), expected: 2)?; // extra + inherited root
-    testing.assert_eq(actual: base.file_type_defs['/dep.thera']['Base'].methods.len(),
-        expected: super_methods)?;
+    testing.assert_eq(
+        actual: base.file_type_defs['/dep.thera']['Base'].methods.len(),
+        expected: super_methods,
+    )?;
     return Result.Ok(void);
 }

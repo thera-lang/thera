@@ -21,9 +21,11 @@ fn test_parse_primitives() -> Result<Void, Error> {
 fn test_number_int_vs_double() -> Result<Void, Error> {
     // No '.'/'e' → Int; otherwise Double.
     testing.assert_eq(actual: parse('10')?.as_int(), expected: Option.Some(10))?;
-    testing.assert_eq(actual: parse('10.0')?.as_int(), expected: Option.Some(10))?; // integral double
+    testing.assert_eq(actual: parse('10.0')?.as_int(), expected: Option.Some(10))?;
+    // integral double
     testing.assert_eq(actual: parse('10.5')?.as_int(), expected: Option.None)?;
-    testing.assert_eq(actual: parse('10')?.as_double(), expected: Option.Some(10.0))?; // int widened
+    testing.assert_eq(actual: parse('10')?.as_double(), expected: Option.Some(10.0))?;
+    // int widened
     return Result.Ok(void);
 }
 
@@ -89,11 +91,7 @@ fn test_control_chars_in_strings_rejected() -> Result<Void, Error> {
 
 @test
 fn test_stringify_compact() -> Result<Void, Error> {
-    let doc = obj([
-        'a': int(1),
-        'b': arr([int(2), int(3)]),
-        'c': bool(true),
-    ]);
+    let doc = obj(['a': int(1), 'b': arr([int(2), int(3)]), 'c': bool(true)]);
     testing.assert_eq(actual: stringify(doc), expected: '{"a":1,"b":[2,3],"c":true}')?;
     return Result.Ok(void);
 }

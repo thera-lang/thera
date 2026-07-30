@@ -577,7 +577,12 @@ fn write_array(_ items: List<Json>, _ pretty: Bool, _ indent: Int, _ out: List<S
     return void;
 }
 
-fn write_object(_ fields: Map<String, Json>, _ pretty: Bool, _ indent: Int, _ out: List<String>) -> Void {
+fn write_object(
+    _ fields: Map<String, Json>,
+    _ pretty: Bool,
+    _ indent: Int,
+    _ out: List<String>,
+) -> Void {
     let keys = fields.keys();
     if keys.len() == 0 {
         out.push('{}');

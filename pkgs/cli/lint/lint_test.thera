@@ -108,7 +108,9 @@ fn wrap_res(_ body: String) -> String {
 
 @test
 fn flags_result_propagation() -> Result<Void, Error> {
-    let sugs = lint(wrap_res('    let x = match r { Ok(v) => v, Err(e) => return Result.Err(e) };'));
+    let sugs = lint(
+        wrap_res('    let x = match r { Ok(v) => v, Err(e) => return Result.Err(e) };')
+    );
     testing.assert_eq(actual: count_rule(sugs, 'match-to-question'), expected: 1)?;
     // The `?` shape must take precedence over `let … else`, not both.
     testing.assert_eq(actual: count_rule(sugs, 'match-to-let-else'), expected: 0)?;
@@ -128,7 +130,9 @@ fn flags_option_propagation() -> Result<Void, Error> {
 @test
 fn ignores_propagation_with_mismatched_error() -> Result<Void, Error> {
     // The error arm re-raises a *different* value, so it is not a `?`.
-    let sugs = lint(wrap_res('    let x = match r { Ok(v) => v, Err(e) => return Result.Err(other) };'));
+    let sugs = lint(
+        wrap_res('    let x = match r { Ok(v) => v, Err(e) => return Result.Err(other) };')
+    );
     testing.assert_eq(actual: count_rule(sugs, 'match-to-question'), expected: 0)?;
     return Result.Ok(void);
 }
@@ -177,7 +181,9 @@ fn ignores_unwrap_or_when_fallback_empty() -> Result<Void, Error> {
 
 @test
 fn flags_map() -> Result<Void, Error> {
-    let sugs = lint(wrap('    let x = match o { Some(v) => Option.Some(v), None => Option.None };'));
+    let sugs = lint(
+        wrap('    let x = match o { Some(v) => Option.Some(v), None => Option.None };')
+    );
     testing.assert_eq(actual: count_rule(sugs, 'match-to-map'), expected: 1)?;
     return Result.Ok(void);
 }

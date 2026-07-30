@@ -23,14 +23,22 @@ fn diag(_ line0: Int, _ severity: Int, _ message: String) -> Json {
 
 @test
 fn test_is_fixture_rel_scopes_to_tests_lang() -> Result<Void, Error> {
-    testing.assert(fixtures.is_fixture_rel('tests/lang/types/assign_type.thera'),
-        message: 'a file directly under tests/lang is a fixture')?;
-    testing.assert(fixtures.is_fixture_rel('sub/tests/lang/x.thera'),
-        message: 'tests/lang nested under the root still counts')?;
-    testing.assert(!fixtures.is_fixture_rel('pkgs/cli/lsp/analysis.thera'),
-        message: 'an ordinary source file is not a fixture')?;
-    testing.assert(!fixtures.is_fixture_rel('tests/langx/foo.thera'),
-        message: 'a sibling prefix does not count')?;
+    testing.assert(
+        fixtures.is_fixture_rel('tests/lang/types/assign_type.thera'),
+        message: 'a file directly under tests/lang is a fixture',
+    )?;
+    testing.assert(
+        fixtures.is_fixture_rel('sub/tests/lang/x.thera'),
+        message: 'tests/lang nested under the root still counts',
+    )?;
+    testing.assert(
+        !fixtures.is_fixture_rel('pkgs/cli/lsp/analysis.thera'),
+        message: 'an ordinary source file is not a fixture',
+    )?;
+    testing.assert(
+        !fixtures.is_fixture_rel('tests/langx/foo.thera'),
+        message: 'a sibling prefix does not count',
+    )?;
     return Result.Ok(void);
 }
 

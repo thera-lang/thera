@@ -84,9 +84,11 @@ fn to_fs_error(_ raw: String) -> FsError {
 pub enum FileKind { File, Dir, Symlink, Other }
 
 pub struct Metadata {
-    let size: Int;                       // size in bytes
+    let size: Int;
+    // size in bytes
     let kind: FileKind;
-    let modified: Option<time.DateTime>; // last-modified time (None if the platform can't report it)
+    let modified: Option<time.DateTime>;
+    // last-modified time (None if the platform can't report it)
 }
 
 /// One entry of a `read_dir`: a basename plus the kind the directory read

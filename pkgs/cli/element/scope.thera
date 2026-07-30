@@ -40,26 +40,39 @@ pub struct FileScope {
 
 // Resolve an optional type reference; a missing one (omitted annotation) is
 // Unknown.
-pub fn resolve_opt_in(_ ref: Option<TypeRef>, _ scope: FileScope,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+pub fn resolve_opt_in(
+    _ ref: Option<TypeRef>,
+    _ scope: FileScope,
+    _ type_params: Set<String>,
+    _ self_type: Option<Type>,
+) -> Type {
     return match ref {
         Some(r) => resolve_type_ref_in(r, scope, type_params, self_type),
         None => Type.Unknown,
     };
 }
 
-pub fn resolve_type_ref_in(_ ref: TypeRef, _ scope: FileScope,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+pub fn resolve_type_ref_in(
+    _ ref: TypeRef,
+    _ scope: FileScope,
+    _ type_params: Set<String>,
+    _ self_type: Option<Type>,
+) -> Type {
     return match ref {
         Named(nt) => resolve_named_in(nt, scope, type_params, self_type),
         Function(ft) => Type.Function(
             ft.params.map((p) => resolve_type_ref_in(p, scope, type_params, self_type)),
-            resolve_type_ref_in(ft.return_type, scope, type_params, self_type)),
+            resolve_type_ref_in(ft.return_type, scope, type_params, self_type),
+        ),
     };
 }
 
-fn resolve_named_in(_ nt: NamedType, _ scope: FileScope,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+fn resolve_named_in(
+    _ nt: NamedType,
+    _ scope: FileScope,
+    _ type_params: Set<String>,
+    _ self_type: Option<Type>,
+) -> Type {
     // A qualifier that isn't one of this file's namespaces resolves to
     // Unknown — never a bare-name fallback, which would mint a *different*
     // identity for the same spelling and cascade into a same-name type
@@ -168,7 +181,11 @@ impl FileScope {
         };
     }
 
-    pub fn resolve_qualified_function(self, _ ns: String, _ name: String) -> Option<FunctionElement> {
+    pub fn resolve_qualified_function(
+        self,
+        _ ns: String,
+        _ name: String,
+    ) -> Option<FunctionElement> {
         return match self.member_owner(ns, name) {
             Some(owner) => match self.library.file_functions.get(owner) {
                 Some(m) => m.get(name),
@@ -188,7 +205,11 @@ impl FileScope {
         };
     }
 
-    pub fn resolve_qualified_type_def(self, _ ns: String, _ name: String) -> Option<TypeDefElement> {
+    pub fn resolve_qualified_type_def(
+        self,
+        _ ns: String,
+        _ name: String,
+    ) -> Option<TypeDefElement> {
         return match self.member_owner(ns, name) {
             Some(owner) => match self.library.file_type_defs.get(owner) {
                 Some(m) => m.get(name),

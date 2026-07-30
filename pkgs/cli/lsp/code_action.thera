@@ -24,8 +24,13 @@ const REWRITE_KIND: String = 'refactor.rewrite';
 // The `CodeAction[]` for `range` in an already-parsed `program`/`text`. `uri` keys
 // the returned workspace edits; `context` is the request's `CodeActionContext`
 // (its `only` narrows the kinds). Purely syntactic — no import closure needed.
-pub fn handle_code_action(_ uri: String, _ program: Program, _ text: String,
-    _ range: json.Json, _ context: json.Json) -> json.Json {
+pub fn handle_code_action(
+    _ uri: String,
+    _ program: Program,
+    _ text: String,
+    _ range: json.Json,
+    _ context: json.Json,
+) -> json.Json {
     let actions: List<json.Json> = [];
     // Every action we produce is a `refactor.rewrite`; if the client filtered it
     // out, there is nothing to offer (and no need to walk the tree).
@@ -79,14 +84,14 @@ fn rewrite_action(_ uri: String, _ site: fix.FixSite) -> json.Json {
     return json.obj([
         'title': json.str(site.title),
         'kind': json.str(REWRITE_KIND),
-        'edit': json.obj([
-            'changes': json.obj(changes),
-        ]),
+        'edit': json.obj(['changes': json.obj(changes)]),
     ]);
 }
 
 fn pos_offset(_ text: String, _ pos: json.Json) -> Int {
-    return positions.position_to_offset(text,
+    return positions.position_to_offset(
+        text,
         pos.get('line').as_int().unwrap_or(0),
-        pos.get('character').as_int().unwrap_or(0));
+        pos.get('character').as_int().unwrap_or(0),
+    );
 }

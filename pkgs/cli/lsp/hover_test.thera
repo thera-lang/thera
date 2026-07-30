@@ -62,7 +62,10 @@ fn test_hover_self_field() -> Result<Void, Error> {
 fn test_hover_self_method() -> Result<Void, Error> {
     // `self.helper(...)` → the method signature.
     let code = rendered(SRC, at(SRC, 'self.helper(self', 5));
-    testing.assert(code.contains('fn helper(self, n: Int) -> Int'), message: 'shows the method signature')?;
+    testing.assert(
+        code.contains('fn helper(self, n: Int) -> Int'),
+        message: 'shows the method signature',
+    )?;
     return Result.Ok(void);
 }
 

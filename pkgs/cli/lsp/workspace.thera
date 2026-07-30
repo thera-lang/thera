@@ -44,8 +44,12 @@ pub fn no_prune(_ dir: String) -> Bool {
 // with a populated `runtime/target`: 1593ms of a 1608ms scan went to those stat
 // calls; reading all 377 `.thera` sources was 8ms of it. The client re-pulls
 // `workspace/diagnostic` every 2s forever, so that was paid continuously.)
-fn walk_dir(_ dir: String, _ seen: Set<String>, _ out: List<String>,
-    _ prune: (String) -> Bool) -> Void {
+fn walk_dir(
+    _ dir: String,
+    _ seen: Set<String>,
+    _ out: List<String>,
+    _ prune: (String) -> Bool,
+) -> Void {
     let entries = match fs.read_dir(dir) {
         Ok(es) => es,
         Err(_) => return,  // unreadable directory — skip its subtree

@@ -47,7 +47,10 @@ fn test_thera_files_walks_and_prunes() -> Result<Void, Error> {
     let found: Set<String> = Set.new();
     for f in files { found.add(f); }
     testing.assert(found.has(path.join(root, 'a.thera')), message: 'top-level source')?;
-    testing.assert(found.has(path.join(path.join(root, 'sub'), 'b.thera')), message: 'nested source')?;
+    testing.assert(
+        found.has(path.join(path.join(root, 'sub'), 'b.thera')),
+        message: 'nested source',
+    )?;
 
     fs.remove_dir_all(root)?;
     return Result.Ok(void);
@@ -62,8 +65,10 @@ fn test_thera_files_honors_caller_prune() -> Result<Void, Error> {
     fs.create_dir_all(path.join(path.join(root, 'skipped'), 'nested'))?;
     fs.write_text(path.join(path.join(root, 'keep'), 'a.thera'), 'fn a() {}')?;
     fs.write_text(path.join(path.join(root, 'skipped'), 'b.thera'), 'fn b() {}')?;
-    fs.write_text(path.join(path.join(path.join(root, 'skipped'), 'nested'), 'c.thera'),
-        'fn c() {}')?;
+    fs.write_text(
+        path.join(path.join(path.join(root, 'skipped'), 'nested'), 'c.thera'),
+        'fn c() {}',
+    )?;
 
     // Pruned by full path, and the whole subtree goes — `nested/c.thera` too.
     let files = thera_files([root], prune: (d) => path.basename(d) == 'skipped');

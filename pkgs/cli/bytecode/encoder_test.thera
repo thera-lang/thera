@@ -43,7 +43,13 @@ fn demo_module() -> Module {
             Instr.Simple(Op.Return),
         ],
     };
-    return Module { functions: [main_fn, double_fn], types: [], enums: [], dispatch: [], global_count: 0 };
+    return Module {
+        functions: [main_fn, double_fn],
+        types: [],
+        enums: [],
+        dispatch: [],
+        global_count: 0,
+    };
 }
 
 @test
@@ -68,8 +74,7 @@ fn test_demo_is_byte_identical_to_runtime() -> Result<Void, Error> {
         // entry: main index 0 (+1), no init
         6, 2, 1, 0,
     ];
-    testing.assert_eq(actual: encode_module(demo_module()).to_list(),
-        expected: expected)?;
+    testing.assert_eq(actual: encode_module(demo_module()).to_list(), expected: expected)?;
     return Result.Ok(void);
 }
 
@@ -143,7 +148,6 @@ fn test_double_bool_and_negative_int() -> Result<Void, Error> {
 fn test_empty_dispatch_section_is_omitted() -> Result<Void, Error> {
     // No dispatch rows → the dispatch section is omitted, leaving the exact
     // 112-byte demo output (the byte-for-byte test above pins its contents).
-    testing.assert_eq(actual: encode_module(demo_module()).to_list().len(),
-        expected: 112)?;
+    testing.assert_eq(actual: encode_module(demo_module()).to_list().len(), expected: 112)?;
     return Result.Ok(void);
 }

@@ -99,10 +99,11 @@ fn test_read_dir_reports_kinds() -> Result<Void, Error> {
     for e in entries {
         kinds[e.name] = e.kind;
     }
-    testing.assert_eq(actual: kinds.get('a.txt').unwrap_or(FileKind.Other),
-        expected: FileKind.File)?;
-    testing.assert_eq(actual: kinds.get('sub').unwrap_or(FileKind.Other),
-        expected: FileKind.Dir)?;
+    testing.assert_eq(
+        actual: kinds.get('a.txt').unwrap_or(FileKind.Other),
+        expected: FileKind.File,
+    )?;
+    testing.assert_eq(actual: kinds.get('sub').unwrap_or(FileKind.Other), expected: FileKind.Dir)?;
 
     fs.remove_dir_all(dir)?;
     return Result.Ok(void);

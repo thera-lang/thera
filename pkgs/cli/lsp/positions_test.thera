@@ -22,8 +22,14 @@ fn span_of(_ source: String, _ offset: Int, _ length: Int) -> SourceSpan {
             column = column + 1;
         }
     }
-    return SourceSpan { source: source, file: '', offset: offset, length: length,
-        line: line, column: column };
+    return SourceSpan {
+        source: source,
+        file: '',
+        offset: offset,
+        length: length,
+        line: line,
+        column: column,
+    };
 }
 
 // `span_to_range`'s JSON as a compact `line:char-line:char` string (0-based).

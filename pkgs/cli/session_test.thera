@@ -62,7 +62,10 @@ fn test_dependency_edit_rechecks_importers() -> Result<Void, Error> {
             c_flagged = true;
         }
     }
-    testing.assert(c_flagged, message: 'the importer c.thera is re-checked: ${second.len()} diags')?;
+    testing.assert(
+        c_flagged,
+        message: 'the importer c.thera is re-checked: ${second.len()} diags',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);
@@ -97,9 +100,7 @@ fn test_dependents_of_is_transitive() -> Result<Void, Error> {
 // the graph.
 @test
 fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
-    let dir = fixture_dir('sdk', [
-        'main.thera': 'fn main() -> Int { return 1; }\n',
-    ])?;
+    let dir = fixture_dir('sdk', ['main.thera': 'fn main() -> Int { return 1; }\n'])?;
     // A fake SDK: `<dir>/sdk/std/core/core.thera` (empty prelude is fine — the
     // loader just needs the layout).
     fs.create_dir_all('${dir}/sdk/std/core')?;
@@ -111,8 +112,10 @@ fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
     testing.assert_eq(actual: diags.len(), expected: 0)?;
 
     let cone = sess.dependents_of('${dir}/sdk/std/core/core.thera');
-    testing.assert(cone.contains(loader.canonical_path(main_path)),
-        message: 'an SDK edit invalidates the user file')?;
+    testing.assert(
+        cone.contains(loader.canonical_path(main_path)),
+        message: 'an SDK edit invalidates the user file',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);
@@ -123,22 +126,23 @@ fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
 // no SDK, nothing is an SDK file.
 @test
 fn test_is_sdk_file_classifies_by_std_root() -> Result<Void, Error> {
-    let dir = fixture_dir('is_sdk', [
-        'main.thera': 'fn main() -> Int { return 1; }\n',
-    ])?;
+    let dir = fixture_dir('is_sdk', ['main.thera': 'fn main() -> Int { return 1; }\n'])?;
     fs.create_dir_all('${dir}/sdk/std/core')?;
     fs.write_text('${dir}/sdk/std/core/core.thera', '// empty prelude\n')?;
 
     let sess = new_session(Option.Some('${dir}/sdk'));
-    testing.assert(sess.is_sdk_file('${dir}/sdk/std/core/core.thera'),
-        message: 'a file under std root is an SDK file')?;
-    testing.assert(!sess.is_sdk_file('${dir}/main.thera'),
-        message: 'a user file is not')?;
+    testing.assert(
+        sess.is_sdk_file('${dir}/sdk/std/core/core.thera'),
+        message: 'a file under std root is an SDK file',
+    )?;
+    testing.assert(!sess.is_sdk_file('${dir}/main.thera'), message: 'a user file is not')?;
 
     // No SDK configured: nothing classifies as SDK.
     let bare = new_session(Option.None);
-    testing.assert(!bare.is_sdk_file('${dir}/sdk/std/core/core.thera'),
-        message: 'no SDK → no SDK files')?;
+    testing.assert(
+        !bare.is_sdk_file('${dir}/sdk/std/core/core.thera'),
+        message: 'no SDK → no SDK files',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);
@@ -158,8 +162,10 @@ fn test_dependency_edit_refreshes_surfaces() -> Result<Void, Error> {
     let main_src = fs.read_text(main_path)?;
 
     testing.assert_eq(actual: sess.check(main_src, main_path).len(), expected: 0)?;
-    testing.assert(sess.surface_cache.has(loader.canonical_path(main_path)),
-        message: 'surfaces cached after a load')?;
+    testing.assert(
+        sess.surface_cache.has(loader.canonical_path(main_path)),
+        message: 'surfaces cached after a load',
+    )?;
 
     // Rename the export: main's bare surface (baked from util's) must refresh.
     sess.set_overlay('${dir}/util.thera', 'pub fn renamed() -> Int { return 1; }\n');
@@ -170,7 +176,10 @@ fn test_dependency_edit_refreshes_surfaces() -> Result<Void, Error> {
             helper_missing = true;
         }
     }
-    testing.assert(helper_missing, message: 'the stale bare surface was evicted: ${diags.len()} diags')?;
+    testing.assert(
+        helper_missing,
+        message: 'the stale bare surface was evicted: ${diags.len()} diags',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);
@@ -191,10 +200,14 @@ fn test_whitebox_surface_refreshes_on_dep_edit() -> Result<Void, Error> {
 
     testing.assert_eq(actual: sess.check(t_src, t_path).len(), expected: 0)?;
 
-    sess.set_overlay('${dir}/foo.thera',
-        'fn hidden() -> Int { return 1; }\npub fn go() -> Int { return hidden(); }\n');
-    testing.assert(sess.check(t_src, t_path).len() > 0,
-        message: 'renamed private name no longer resolves in the test file')?;
+    sess.set_overlay(
+        '${dir}/foo.thera',
+        'fn hidden() -> Int { return 1; }\npub fn go() -> Int { return hidden(); }\n',
+    );
+    testing.assert(
+        sess.check(t_src, t_path).len() > 0,
+        message: 'renamed private name no longer resolves in the test file',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);
@@ -250,10 +263,14 @@ fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
     testing.assert_eq(actual: sess.check(main_src, main_path).len(), expected: 0)?;
 
     // The interface gains a method the impl doesn't provide.
-    sess.set_overlay('${dir}/shape.thera',
-        'pub interface Shape { fn area(self) -> Int\n fn name(self) -> String }\n');
-    testing.assert(sess.check(main_src, main_path).len() > 0,
-        message: 'the stale base was evicted; the new interface is enforced')?;
+    sess.set_overlay(
+        '${dir}/shape.thera',
+        'pub interface Shape { fn area(self) -> Int\n fn name(self) -> String }\n',
+    );
+    testing.assert(
+        sess.check(main_src, main_path).len() > 0,
+        message: 'the stale base was evicted; the new interface is enforced',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);
@@ -317,8 +334,10 @@ fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
 
     // A *surface* edit (a new pub decl) evicts `m`'s records; with no overlay
     // for `m` there is nothing to answer from (no silent stale answers).
-    sess.set_overlay('${dir}/u.thera',
-        'pub fn num() -> Int { return 41; }\npub fn extra() -> Int { return 1; }\n');
+    sess.set_overlay(
+        '${dir}/u.thera',
+        'pub fn num() -> Int { return 41; }\npub fn extra() -> Int { return 1; }\n',
+    );
     testing.assert_eq(actual: render(sess.type_at(p, off)), expected: '<none>')?;
 
     // An open overlay for `m` repopulates on demand.
@@ -337,9 +356,7 @@ fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
 // otherwise cascade into `undefined name: y` after the root cause.
 @test
 fn test_broken_primary_reports_parse_errors_without_cascade() -> Result<Void, Error> {
-    let dir = fixture_dir('brokenprim', [
-        'm.thera': 'fn main() -> Int { return 1; }\n',
-    ])?;
+    let dir = fixture_dir('brokenprim', ['m.thera': 'fn main() -> Int { return 1; }\n'])?;
     let sess = new_session(Option.None);
     let p = '${dir}/m.thera';
     let broken = 'fn main() -> Int {\n'
@@ -349,8 +366,10 @@ fn test_broken_primary_reports_parse_errors_without_cascade() -> Result<Void, Er
     sess.set_overlay(p, broken);
     let diags = sess.check(broken, p);
     testing.assert_eq(actual: diags.len(), expected: 1)?;
-    testing.assert(diags[0].message.find('unexpected token').is_some(),
-        message: 'the root cause is the parse error: ${diags[0].message}')?;
+    testing.assert(
+        diags[0].message.find('unexpected token').is_some(),
+        message: 'the root cause is the parse error: ${diags[0].message}',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);
@@ -432,15 +451,16 @@ fn test_body_edit_keeps_dependents_checked() -> Result<Void, Error> {
     testing.assert(sess.checked.has(c_key), message: 'c checked clean before the edit')?;
 
     // Body-only: same signature, new body and comment.
-    sess.set_overlay('${dir}/b.thera',
-        '// a comment\npub fn helper() -> Int { return 2 + 3; }\n');
+    sess.set_overlay('${dir}/b.thera', '// a comment\npub fn helper() -> Int { return 2 + 3; }\n');
     testing.assert(!sess.checked.has(b_key), message: 'the edited file re-checks')?;
-    testing.assert(sess.checked.has(c_key), message: 'the importer c stays checked (surface unchanged)')?;
+    testing.assert(
+        sess.checked.has(c_key),
+        message: 'the importer c stays checked (surface unchanged)',
+    )?;
     testing.assert_eq(actual: sess.check(a_src, a_path).len(), expected: 0)?;
 
     // A body edit that *breaks the body* still surfaces in b's own re-check.
-    sess.set_overlay('${dir}/b.thera',
-        'pub fn helper() -> Int { return no_such(); }\n');
+    sess.set_overlay('${dir}/b.thera', 'pub fn helper() -> Int { return no_such(); }\n');
     let diags = sess.check(a_src, a_path);
     let mut b_flagged = false;
     for d in diags {
@@ -471,8 +491,10 @@ fn test_surface_edit_evicts_dependents() -> Result<Void, Error> {
     let c_key = loader.canonical_path('${dir}/c.thera');
 
     // Same body, new pub decl: a surface change — c must re-check.
-    sess.set_overlay('${dir}/b.thera',
-        'pub fn helper() -> Int { return 1; }\npub fn extra() -> Int { return 2; }\n');
+    sess.set_overlay(
+        '${dir}/b.thera',
+        'pub fn helper() -> Int { return 1; }\npub fn extra() -> Int { return 2; }\n',
+    );
     testing.assert(!sess.checked.has(c_key), message: 'a pub addition evicts the cone')?;
 
     cleanup(dir);
@@ -496,8 +518,10 @@ fn test_body_edit_still_rechecks_whitebox_sibling() -> Result<Void, Error> {
     testing.assert(sess.checked.has(t_key), message: 'the test checked clean')?;
 
     // Private signature change; public surface identical.
-    sess.set_overlay('${dir}/foo.thera',
-        'pub fn ff() -> Int { return inner(\'x\'); }\nfn inner(_ s: String) -> Int { return s.len(); }\n');
+    sess.set_overlay(
+        '${dir}/foo.thera',
+        'pub fn ff() -> Int { return inner(\'x\'); }\nfn inner(_ s: String) -> Int { return s.len(); }\n',
+    );
     testing.assert(!sess.checked.has(t_key), message: 'the white-box sibling re-checks')?;
     let diags = sess.check(t_src, t_path);
     let mut t_flagged = false;
@@ -506,7 +530,10 @@ fn test_body_edit_still_rechecks_whitebox_sibling() -> Result<Void, Error> {
             t_flagged = true;
         }
     }
-    testing.assert(t_flagged, message: 'the stale private call is diagnosed: ${diags.len()} diags')?;
+    testing.assert(
+        t_flagged,
+        message: 'the stale private call is diagnosed: ${diags.len()} diags',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);

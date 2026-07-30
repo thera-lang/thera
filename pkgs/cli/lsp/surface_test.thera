@@ -16,7 +16,8 @@ fn sig(_ src: String) -> String {
 fn test_body_change_keeps_signature() -> Result<Void, Error> {
     testing.assert_eq(
         actual: sig('fn f() -> Int { return 1; }'),
-        expected: sig('fn f() -> Int { let x = 40; return x + 2; }'))?;
+        expected: sig('fn f() -> Int { let x = 40; return x + 2; }'),
+    )?;
     return Result.Ok(void);
 }
 
@@ -30,22 +31,28 @@ fn test_method_body_change_keeps_signature() -> Result<Void, Error> {
 
 @test
 fn test_param_change_moves_signature() -> Result<Void, Error> {
-    testing.assert(sig('fn f() -> Int { return 1; }') != sig('fn f(_ n: Int) -> Int { return 1; }'),
-        message: 'adding a parameter changes the surface')?;
+    testing.assert(
+        sig('fn f() -> Int { return 1; }') != sig('fn f(_ n: Int) -> Int { return 1; }'),
+        message: 'adding a parameter changes the surface',
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_field_type_change_moves_signature() -> Result<Void, Error> {
-    testing.assert(sig('struct S { let n: Int; }') != sig('struct S { let n: String; }'),
-        message: 'a field type change changes the surface')?;
+    testing.assert(
+        sig('struct S { let n: Int; }') != sig('struct S { let n: String; }'),
+        message: 'a field type change changes the surface',
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_const_value_change_moves_signature() -> Result<Void, Error> {
     // A `const` inlines into its importers, so its value is part of the surface.
-    testing.assert(sig('pub const K: Int = 1;') != sig('pub const K: Int = 2;'),
-        message: 'a const value change changes the surface')?;
+    testing.assert(
+        sig('pub const K: Int = 1;') != sig('pub const K: Int = 2;'),
+        message: 'a const value change changes the surface',
+    )?;
     return Result.Ok(void);
 }
