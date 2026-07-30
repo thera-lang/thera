@@ -121,6 +121,53 @@ fn test_string_escapes() -> Result<Void, Error> {
 }
 
 @test
+fn test_raw_string() -> Result<Void, Error> {
+    // In `r'…'` a backslash is just a backslash — no escape decoding at all, so
+    // a regex or a Windows path survives verbatim, trailing backslash included.
+    // As with an ordinary literal, the captured value re-escapes a `\` or `$`
+    // for the splitter (so `\d` reads back as `\\d` here); the decoded text is
+    // observable in the parser tests and pinned end-to-end in tests/lang.
+    testing.assert_eq(actual: tokenize("r'\\d+'").tokens[0].lexeme(), expected: "\\\\d+")?;
+    testing.assert_eq(actual: tokenize("r'a\\'").tokens[0].lexeme(), expected: "a\\\\")?;
+    testing.assert_eq(actual: tokenize("r'\\n'").tokens[0].lexeme(), expected: "\\\\n")?;
+    // The token is an ordinary StringLiteral with no interpolations: `${…}` is
+    // literal text here, which is why raw content needs no escape hatch.
+    let toks = tokenize("r'\${HOME}'").tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
+    testing.assert_eq(actual: toks[0].interps.len(), expected: 0)?;
+    // Either quote style opens one, so the other can appear in the content.
+    testing.assert_eq(actual: tokenize("r\"it's\"").tokens[0].lexeme(), expected: "it's")?;
+    testing.assert_eq(
+        actual: tokenize("r'say \"hi\"'").tokens[0].lexeme(),
+        expected: "say \"hi\"",
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_raw_prefix_is_not_stolen_from_identifiers() -> Result<Void, Error> {
+    // Only an `r` directly against a quote is a prefix; `r` stays a usable name.
+    let toks = tokenize('r + regex').tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.Identifier)?;
+    testing.assert_eq(actual: toks[0].lexeme(), expected: 'r')?;
+    testing.assert_eq(actual: toks[2].lexeme(), expected: 'regex')?;
+    // A name merely ending in `r` is not a prefix either.
+    let two = tokenize("myr'x'").tokens;
+    testing.assert_eq(actual: two[0].kind, expected: TokenKind.Identifier)?;
+    testing.assert_eq(actual: two[0].lexeme(), expected: 'myr')?;
+    testing.assert_eq(actual: two[1].kind, expected: TokenKind.StringLiteral)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_unterminated_raw_string() -> Result<Void, Error> {
+    let r = tokenize("r'oops");
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message, expected: 'unterminated raw string literal')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_error_octal_escape() -> Result<Void, Error> {
     // `\0` is NUL; a following digit is much more likely a C-style octal escape
     // written from memory, so it is rejected rather than silently decoded.

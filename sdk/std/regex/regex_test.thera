@@ -15,7 +15,7 @@ fn compiled(_ pattern: String) -> Result<Regex, Error> {
 
 @test
 fn test_is_match() -> Result<Void, Error> {
-    let re = compiled('\\d+')?;
+    let re = compiled(r'\d+')?;
     testing.assert(re.is_match('abc123'))?;
     testing.assert(!re.is_match('abcdef'))?;
     return Result.Ok(void);
@@ -23,7 +23,7 @@ fn test_is_match() -> Result<Void, Error> {
 
 @test
 fn test_find() -> Result<Void, Error> {
-    let re = compiled('\\d+')?;
+    let re = compiled(r'\d+')?;
     match re.find('a12b345') {
         Some(m) => {
             testing.assert_eq(actual: m.text, expected: '12')?;
@@ -41,7 +41,7 @@ fn test_find() -> Result<Void, Error> {
 
 @test
 fn test_find_all() -> Result<Void, Error> {
-    let re = compiled('\\d+')?;
+    let re = compiled(r'\d+')?;
     let ms = re.find_all('a12b345c6');
     testing.assert_eq(actual: ms.len(), expected: 3)?;
     testing.assert_eq(actual: ms[0].text, expected: '12')?;
@@ -54,7 +54,7 @@ fn test_find_all() -> Result<Void, Error> {
 
 @test
 fn test_captures() -> Result<Void, Error> {
-    let re = compiled('(\\w+)@(\\w+)')?;
+    let re = compiled(r'(\w+)@(\w+)')?;
     match re.captures('a@b') {
         Some(c) => {
             testing.assert_eq(actual: c.len(), expected: 3)?;        // group 0 + two subgroups
@@ -84,7 +84,7 @@ fn test_captures_optional_group() -> Result<Void, Error> {
 
 @test
 fn test_replace() -> Result<Void, Error> {
-    let re = compiled('(\\w+)@(\\w+)')?;
+    let re = compiled(r'(\w+)@(\w+)')?;
     // Bare `$1`/`$2` are literal in a Thera string, group refs in the engine.
     testing.assert_eq(actual: re.replace('x@y and p@q', with: '$2-$1'), expected: 'y-x and p@q')?;
     testing.assert_eq(

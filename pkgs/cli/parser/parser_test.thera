@@ -594,6 +594,18 @@ fn test_describe_reescapes_string_text() -> Result<Void, Error> {
 }
 
 @test
+fn test_raw_string_decodes_to_one_text_part() -> Result<Void, Error> {
+    // A raw string reaches the parser in the same shape as an ordinary literal,
+    // so the splitter yields one text part: `r'\d+'` is the two characters `\d`
+    // then `+` (describe re-escapes the backslash, hence `\\d` below).
+    testing.assert_eq(actual: expr_str("r'\\d+'"), expected: "\"\\\\d+\"")?;
+    // `${…}` in a raw string is literal text, not an interpolation — the whole
+    // point of raw having no escape hatch.
+    testing.assert_eq(actual: expr_str("r'\${x}'"), expected: "\"\${x}\"")?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_import_path_interpolation_rejected() -> Result<Void, Error> {
     // An import path is a literal; interpolation is a parse error (PA9).
     let r = parse_src("import '\${x}/lib';");

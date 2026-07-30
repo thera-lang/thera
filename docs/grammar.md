@@ -81,6 +81,8 @@ FLOAT  = DIGIT+ '.' DIGIT+
 BOOL   = 'true' | 'false'
 UNIT   = 'void'                       // the single value of type Void
 STRING = "'" strChar* "'" | '"' strChar* '"'
+       | 'r' "'" (any char except "'")* "'"     // raw: no escapes, no interp
+       | 'r' '"' (any char except '"')* '"'
 strChar = escape | interpolation | (any char except the delimiter)
 escape  = '\' ('n' | 't' | 'r' | 'b' | 'f' | 'v' | '0' | '\' | "'" | '"' | '$')
         | '\x' hex hex                    // a byte, U+0000..U+00FF
@@ -101,6 +103,15 @@ pass-through). `\0` is NUL and nothing more: there are no octal escapes, so a
 digit after it (`'\012'`) is rejected rather than quietly read the C way.
 `${ … }` embeds an arbitrary expression; a bare `$` not followed by `{` is
 ordinary text (`\$` escapes a literal `${`).
+
+An `r` directly against a quote opens a **raw string** — `r'\d+'`, `r"…"` —
+where everything up to the closing quote is content: no escapes **and no
+interpolation**. Raw is the one place with no escape hatch, so an interpolating
+`${` would leave a literal `${` unwritable in exactly the patterns raw strings
+exist to hold. To carry the delimiter, switch quote styles (`r"it's"`); content
+with both quote characters needs an ordinary string. The prefix can't shadow a
+name — no Thera syntax juxtaposes an identifier and a string literal, so `r`
+stays an ordinary identifier everywhere else.
 
 ### Operators & punctuation
 
@@ -439,8 +450,9 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 - Integer bases & separators: `0b…`, `0o…` (binary/octal), digit separators
   (`1_000`); integer/float **exponents** (`1e9`); float shorthands `1.` and
   `.5`. (Hex `0x…` _is_ supported.)
-- String: raw or triple-quoted strings; `\a`, `\e`, and braceless `\uXXXX`.
-  (`\u{…}`, `\xNN`, and `\0`/`\b`/`\f`/`\v` _are_ supported.)
+- String: triple-quoted / indent-stripping block strings; hash-delimited raw
+  strings (`r#'…'#`); `\a`, `\e`, and braceless `\uXXXX`. (`\u{…}`, `\xNN`,
+  `\0`/`\b`/`\f`/`\v`, and raw `r'…'` _are_ supported.)
 - Tuple literals/types `(a, b)` — `(…)` is grouping or lambda params only.
 
 **Statements & control flow**

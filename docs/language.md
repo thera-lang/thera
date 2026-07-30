@@ -260,6 +260,22 @@ is an error rather than a silent pass-through, so a stray backslash can't change
 what a string means without saying so. `\0` is NUL alone — there are no octal
 escapes, and `'\012'` is rejected instead of being read the C way.
 
+An `r` prefix makes a **raw string**, where everything up to the closing quote is
+content — no escapes, no interpolation:
+
+```thera
+let re   = Regex.compile(r'(\w+)@(\w+)')?;  // not '(\\w+)@(\\w+)'
+let path = r'C:\Users\dev';                 // trailing `\` is fine too
+let tmpl = r'${HOME}/bin';                  // a literal ${…}, not interpolated
+```
+
+Raw is deliberately *fully* raw. It's the one string form with no escape hatch,
+so if `${` still interpolated there would be no way to write a literal `${` in a
+raw string — and shell-variable patterns are exactly what these strings hold.
+Either quote opens one, so the other can appear in the content (`r"it's"`); for
+content with both, use an ordinary string. Needing interpolation and raw content
+together is a sign they're two pieces: `r'\d+' + suffix`.
+
 Strings are UTF-8 and are **not** integer-indexable — `s[i]` is disallowed,
 since it would let code split a multi-byte character in half. Work in code
 points explicitly instead: `.chars()` yields the Unicode code points (as `Int`s

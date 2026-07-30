@@ -70,6 +70,17 @@ fn preserves_multiline_string() -> Result<Void, Error> {
 }
 
 @test
+fn preserves_raw_string_content() -> Result<Void, Error> {
+    // A raw string is one token like any other, so the code around it reindents
+    // while the content — backslashes, quote style, a literal `${…}` — is
+    // re-emitted from its span untouched.
+    return check(
+        'fn f() {\nlet re = r\'\\d+\';\nlet p = r"\${HOME}\\bin";\n}\n',
+        'fn f() {\n    let re = r\'\\d+\';\n    let p = r"\${HOME}\\bin";\n}\n',
+    );
+}
+
+@test
 fn collapses_blank_runs_and_trailing() -> Result<Void, Error> {
     return check('fn f() {\n\n\n\nx();\n}\n\n\n', 'fn f() {\n\n    x();\n}\n');
 }

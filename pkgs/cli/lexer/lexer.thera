@@ -339,6 +339,11 @@ impl Lexer {
             self.emit(TokenKind.Question);
         } else if c == char.DQUOTE || c == char.SQUOTE {
             self.scan_string(c);
+        } else if c == LOWER_R && (self.ch() == char.SQUOTE || self.ch() == char.DQUOTE) {
+            // `r` immediately against a quote opens a raw string. This can't
+            // shadow an identifier: no Thera syntax juxtaposes a name and a
+            // string literal, so `r'…'` was never anything else.
+            self.scan_raw_string(self.advance());
         } else if char.is_digit(c) {
             self.scan_number();
         } else if char.is_alpha(c) || c == char.UNDERSCORE {
@@ -378,6 +383,36 @@ impl Lexer {
             span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
             value: Option.Some(String.from_chars(buf)),
             interps: interps,
+        });
+    }
+
+    // A raw string — `r'…'` or `r"…"`, the opening quote already consumed.
+    // Everything up to the closing quote is content: no escapes, and no `${…}`
+    // interpolation. Raw is the one place with no escape hatch, so if `${` still
+    // opened an interpolation a literal `${` would be unwritable here — exactly
+    // the shell-variable patterns raw strings exist to hold. To carry the
+    // delimiter itself, switch quote styles (`r"it's"`); use an ordinary string
+    // for content with both.
+    //
+    // The content still goes through `push_literal`, which re-escapes `\` and
+    // `$`. That leaves the token in the same shape as an ordinary literal's, so
+    // the parser's splitter reads the whole thing back as a single text part
+    // and nothing downstream has to know a raw string was involved.
+    fn scan_raw_string(self, _ quote: Int) -> Void {
+        let buf: List<Int> = [];
+        while !self.at_end() && self.ch() != quote {
+            push_literal(buf, self.advance());
+        }
+        if self.at_end() {
+            self.error('unterminated raw string literal');
+        } else {
+            self.advance(); // closing quote
+        }
+        self.tokens.push(Token {
+            kind: TokenKind.StringLiteral,
+            span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
+            value: Option.Some(String.from_chars(buf)),
+            interps: [],
         });
     }
 
