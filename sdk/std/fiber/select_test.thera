@@ -41,10 +41,7 @@ fn select_prefers_the_lowest_ready_index() -> Result<Void, Error> {
 fn select_waits_for_a_later_send() -> Result<Void, Error> {
     let a = fiber.channel<Int>(1);
     let b = fiber.channel<Int>(1);
-    fiber.spawn(() => {
-        time.sleep(time.Duration.millis(20));
-        b.send(2);
-    });
+    fiber.spawn(() => { time.sleep(time.Duration.millis(20)); b.send(2); });
     testing.assert_eq(fiber.select([a, b]), 1)?;
     return testing.assert_eq(b.receive().unwrap_or(0), 2);
 }
@@ -76,7 +73,10 @@ fn select_wakes_on_a_deadline() -> Result<Void, Error> {
     let started = time.now_millis();
     testing.assert_eq(fiber.select([silent, fiber.after(time.Duration.millis(30))]), 1)?;
     let waited = time.now_millis() - started;
-    return testing.assert(waited >= 25, message: 'should have waited for the deadline, waited ' + waited.display());
+    return testing.assert(
+        waited >= 25,
+        message: 'should have waited for the deadline, waited ' + waited.display(),
+    );
 }
 
 @test
@@ -203,7 +203,10 @@ fn a_losing_source_does_not_disturb_a_later_park() -> Result<Void, Error> {
     let started = time.now_millis();
     time.sleep(time.Duration.millis(80));
     let slept = time.now_millis() - started;
-    return testing.assert(slept >= 70, message: 'a stale deadline cut the sleep short: ' + slept.display());
+    return testing.assert(
+        slept >= 70,
+        message: 'a stale deadline cut the sleep short: ' + slept.display(),
+    );
 }
 
 /// A fiber woken by one source must not be queued a second time by another. The

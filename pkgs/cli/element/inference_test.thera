@@ -35,35 +35,43 @@ fn mk_iface(_ ctx: InferCtx, _ name: String, _ args: List<Type>) -> Type {
 @test
 fn test_arithmetic_is_int() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
-    testing.assert_eq(actual: type_of('1 + 2', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(
+        actual: type_of('1 + 2', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_comparison_is_bool() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
-    testing.assert_eq(actual: type_of('1 < 2', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Bool))?;
+    testing.assert_eq(
+        actual: type_of('1 < 2', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Bool),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_list_literal_is_list_of_element() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
-    testing.assert_eq(actual: type_of('[1, 2, 3]', empty_scope(), ctx),
-        expected: mk_iface(ctx, 'List', [Type.Primitive(Primitive.Int)]))?;
+    testing.assert_eq(
+        actual: type_of('[1, 2, 3]', empty_scope(), ctx),
+        expected: mk_iface(ctx, 'List', [Type.Primitive(Primitive.Int)]),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_map_literal_is_map_of_key_value() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
-    testing.assert_eq(actual: type_of('[1: true]', empty_scope(), ctx),
+    testing.assert_eq(
+        actual: type_of('[1: true]', empty_scope(), ctx),
         expected: mk_iface(ctx, 'Map', [
             Type.Primitive(Primitive.Int),
             Type.Primitive(Primitive.Bool),
-        ]))?;
+        ]),
+    )?;
     return Result.Ok(void);
 }
 
@@ -72,40 +80,50 @@ fn test_identifier_from_scope() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     let scope = empty_scope();
     scope['x'] = Type.Primitive(Primitive.Double);
-    testing.assert_eq(actual: type_of('x', scope, ctx),
-        expected: Type.Primitive(Primitive.Double))?;
+    testing.assert_eq(
+        actual: type_of('x', scope, ctx),
+        expected: Type.Primitive(Primitive.Double),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_const_lookup() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('const MAX: Int = 100;'));
-    testing.assert_eq(actual: type_of('MAX', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(
+        actual: type_of('MAX', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_bare_enum_variant() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('enum Color { Red, Green, Blue }'));
-    testing.assert_eq(actual: type_of('Color.Red', empty_scope(), ctx),
-        expected: mk_iface(ctx, 'Color', []))?;
+    testing.assert_eq(
+        actual: type_of('Color.Red', empty_scope(), ctx),
+        expected: mk_iface(ctx, 'Color', []),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_generic_enum_construction_recovers_arg() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('enum Box<T> { Of(T), Empty }'));
-    testing.assert_eq(actual: type_of('Box.Of(5)', empty_scope(), ctx),
-        expected: mk_iface(ctx, 'Box', [Type.Primitive(Primitive.Int)]))?;
+    testing.assert_eq(
+        actual: type_of('Box.Of(5)', empty_scope(), ctx),
+        expected: mk_iface(ctx, 'Box', [Type.Primitive(Primitive.Int)]),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_generic_struct_literal_recovers_arg() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('struct Wrap<T> { let value: T; }'));
-    testing.assert_eq(actual: type_of('Wrap { value: true }', empty_scope(), ctx),
-        expected: mk_iface(ctx, 'Wrap', [Type.Primitive(Primitive.Bool)]))?;
+    testing.assert_eq(
+        actual: type_of('Wrap { value: true }', empty_scope(), ctx),
+        expected: mk_iface(ctx, 'Wrap', [Type.Primitive(Primitive.Bool)]),
+    )?;
     return Result.Ok(void);
 }
 
@@ -114,10 +132,11 @@ fn test_struct_field_access() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('struct Point { let x: Int; let y: Double; }'));
     let scope = empty_scope();
     scope['p'] = mk_iface(ctx, 'Point', []);
-    testing.assert_eq(actual: type_of('p.x', scope, ctx),
-        expected: Type.Primitive(Primitive.Int))?;
-    testing.assert_eq(actual: type_of('p.y', scope, ctx),
-        expected: Type.Primitive(Primitive.Double))?;
+    testing.assert_eq(actual: type_of('p.x', scope, ctx), expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(
+        actual: type_of('p.y', scope, ctx),
+        expected: Type.Primitive(Primitive.Double),
+    )?;
     return Result.Ok(void);
 }
 
@@ -127,8 +146,10 @@ fn test_method_return_type() -> Result<Void, Error> {
         + 'impl Point { pub fn sum(self) -> Int { return self.x + self.y; } }'));
     let scope = empty_scope();
     scope['p'] = mk_iface(ctx, 'Point', []);
-    testing.assert_eq(actual: type_of('p.sum()', scope, ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(
+        actual: type_of('p.sum()', scope, ctx),
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -138,16 +159,20 @@ fn test_generic_method_instantiates_from_receiver() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     let scope = empty_scope();
     scope['xs'] = mk_iface(ctx, 'List', [Type.Primitive(Primitive.Int)]);
-    testing.assert_eq(actual: type_of('xs[0]', scope, ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(
+        actual: type_of('xs[0]', scope, ctx),
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_free_function_call_return_type() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('fn twice(_ n: Int) -> Int { return n + n; }'));
-    testing.assert_eq(actual: type_of('twice(21)', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(
+        actual: type_of('twice(21)', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -159,7 +184,8 @@ fn test_match_arm_binds_variant_payload() -> Result<Void, Error> {
     scope['b'] = mk_iface(ctx, 'Box', [Type.Primitive(Primitive.Int)]);
     testing.assert_eq(
         actual: type_of('match b { Of(v) => v, Empty => 0 }', scope, ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -168,7 +194,8 @@ fn test_block_tail_sees_let_bindings() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('{ let n = 5; n }', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -184,7 +211,8 @@ fn test_forward_flow_empty_list_pinned_by_push() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('{ let xs = []; xs.push(5); xs[0] }', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -193,7 +221,8 @@ fn test_forward_flow_empty_list_pinned_by_reassignment() -> Result<Void, Error> 
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('{ let mut xs = []; xs = [1, 2]; xs[0] }', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -203,7 +232,8 @@ fn test_forward_flow_empty_map_pinned_by_index_assign() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('{ let m = [:]; m[\'a\'] = 10; m[\'a\'] }', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -213,9 +243,13 @@ fn test_forward_flow_none_pinned_by_reassignment() -> Result<Void, Error> {
     // `Opt<Int>`, so the matched payload `v` is `Int`.
     let ctx = new_ctx(lib_of('enum Opt<T> { Some(T), Nope }'));
     testing.assert_eq(
-        actual: type_of('{ let mut x = Opt.Nope; x = Opt.Some(5); match x { Some(v) => v, Nope => 0 } }',
-            empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+        actual: type_of(
+            '{ let mut x = Opt.Nope; x = Opt.Some(5); match x { Some(v) => v, Nope => 0 } }',
+            empty_scope(),
+            ctx,
+        ),
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -226,7 +260,8 @@ fn test_forward_flow_first_pinning_use_wins() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('{ let xs = []; xs.push(1); xs.push(\'a\'); xs[0] }', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -237,14 +272,20 @@ fn test_forward_flow_unpinned_stays_unknown() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('{ let xs = []; xs[0] }', empty_scope(), ctx),
-        expected: Type.Unknown)?;
+        expected: Type.Unknown,
+    )?;
     return Result.Ok(void);
 }
 
 // ---- enum construction recovers parameters from the expected type ----
 
 fn type_of_expecting(_ src: String, _ ctx: InferCtx, _ expected: Type) -> Type {
-    return infer_expr(parse_expression(tokenize(src).tokens), empty_scope(), ctx, Option.Some(expected));
+    return infer_expr(
+        parse_expression(tokenize(src).tokens),
+        empty_scope(),
+        ctx,
+        Option.Some(expected),
+    );
 }
 
 @test
@@ -253,7 +294,11 @@ fn test_enum_construction_recovers_param_from_expected() -> Result<Void, Error> 
     // parameter, which the payload can't determine) is recovered from the
     // expected type — the `Result.Ok(x)` -> `Result<T, Unknown>` precision gap.
     let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
-    let expected = mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)]);
+    let expected = mk_iface(
+        ctx,
+        'Res',
+        [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)],
+    );
     testing.assert_eq(actual: type_of_expecting('Res.Ok(0)', ctx, expected), expected: expected)?;
     return Result.Ok(void);
 }
@@ -264,9 +309,19 @@ fn test_enum_construction_payload_wins_over_expected() -> Result<Void, Error> {
     // is `Res<Int, _>` even if the expected `T` disagrees (the mismatch is a
     // separate diagnostic); only the un-determined `E` comes from the expected.
     let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
-    let expected = mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Str), Type.Primitive(Primitive.Bool)]);
-    testing.assert_eq(actual: type_of_expecting('Res.Ok(0)', ctx, expected),
-        expected: mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)]))?;
+    let expected = mk_iface(
+        ctx,
+        'Res',
+        [Type.Primitive(Primitive.Str), Type.Primitive(Primitive.Bool)],
+    );
+    testing.assert_eq(
+        actual: type_of_expecting('Res.Ok(0)', ctx, expected),
+        expected: mk_iface(
+            ctx,
+            'Res',
+            [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)],
+        ),
+    )?;
     return Result.Ok(void);
 }
 
@@ -275,8 +330,10 @@ fn test_enum_construction_without_expected_leaves_param_unknown() -> Result<Void
     // No expected type: the un-determined parameter stays `Unknown` (unchanged,
     // load-bearing behavior — see the roadmap's Unknown-hole finding).
     let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
-    testing.assert_eq(actual: type_of('Res.Ok(0)', empty_scope(), ctx),
-        expected: mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Int), Type.Unknown]))?;
+    testing.assert_eq(
+        actual: type_of('Res.Ok(0)', empty_scope(), ctx),
+        expected: mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Int), Type.Unknown]),
+    )?;
     return Result.Ok(void);
 }
 
@@ -289,8 +346,13 @@ fn test_forward_flow_pins_through_if_block() -> Result<Void, Error> {
     // if … { type_ann = Option.Some(…) }` shape that was the last `Unknown` hole.
     let ctx = new_ctx(lib_of('enum Opt<T> { Some(T), Nope }'));
     testing.assert_eq(
-        actual: type_of('{ let mut x = Opt.Nope; if true { x = Opt.Some(5); } x }', empty_scope(), ctx),
-        expected: mk_iface(ctx, 'Opt', [Type.Primitive(Primitive.Int)]))?;
+        actual: type_of(
+            '{ let mut x = Opt.Nope; if true { x = Opt.Some(5); } x }',
+            empty_scope(),
+            ctx,
+        ),
+        expected: mk_iface(ctx, 'Opt', [Type.Primitive(Primitive.Int)]),
+    )?;
     return Result.Ok(void);
 }
 
@@ -301,7 +363,8 @@ fn test_forward_flow_pins_through_for_loop_push() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('{ let xs = []; for i in 0..3 { xs.push(i); } xs[0] }', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     return Result.Ok(void);
 }
 
@@ -315,11 +378,14 @@ fn test_memo_hit_wins_regardless_of_expected() -> Result<Void, Error> {
     let types: Map<Int, Type> = [:];
     types[span_key(expr_span(expr))] = Type.Primitive(Primitive.Str);
     let ctx = new_ctx(lib_of(''), types: types);
-    testing.assert_eq(actual: infer_in(expr, empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Str))?;
+    testing.assert_eq(
+        actual: infer_in(expr, empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Str),
+    )?;
     testing.assert_eq(
         actual: infer_expr(expr, empty_scope(), ctx, Option.Some(Type.Primitive(Primitive.Int))),
-        expected: Type.Primitive(Primitive.Str))?;
+        expected: Type.Primitive(Primitive.Str),
+    )?;
     return Result.Ok(void);
 }
 
@@ -328,8 +394,10 @@ fn test_empty_memo_leaves_inference_untouched() -> Result<Void, Error> {
     // The codegen-safety pin: a default ctx has an empty record, inference
     // derives normally and never writes to it.
     let ctx = new_ctx(lib_of(''));
-    testing.assert_eq(actual: type_of('1 + 2', empty_scope(), ctx),
-        expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(
+        actual: type_of('1 + 2', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int),
+    )?;
     testing.assert_eq(actual: ctx.types.len(), expected: 0)?;
     return Result.Ok(void);
 }

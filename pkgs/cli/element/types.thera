@@ -49,7 +49,11 @@ pub enum Type {
 // type — so every construction of a given name shares one owner (keeping `==`
 // correct). Re-wrapping an already-resolved `Interface(id, _)` reuses its `id`
 // instead (the owner is already known); only *fresh from a name* goes here.
-pub fn named_type(_ type_defs: Map<String, TypeDefElement>, _ name: String, _ args: List<Type>) -> Type {
+pub fn named_type(
+    _ type_defs: Map<String, TypeDefElement>,
+    _ name: String,
+    _ args: List<Type>,
+) -> Type {
     let owner = match type_defs.get(name) {
         Some(d) => d.owner_file,
         None => '',
@@ -282,8 +286,12 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
 // arg. A generic impl records a `TypeParameter`, which stays lenient (its real
 // argument is bound elsewhere), and a bare-interface target (no args) or an
 // interface with no type parameters imposes no constraint.
-fn conformance_args_match(_ sdef: TypeDefElement, _ tid: TypeId,
-    _ targs: List<Type>, _ lib: LibraryElement) -> Bool {
+fn conformance_args_match(
+    _ sdef: TypeDefElement,
+    _ tid: TypeId,
+    _ targs: List<Type>,
+    _ lib: LibraryElement,
+) -> Bool {
     if targs.len() == 0 {
         return true;
     }
@@ -335,7 +343,8 @@ pub fn substitute(_ ty: Type, _ bindings: Map<String, Type>) -> Type {
         },
         Function(params, ret) => Type.Function(
             params.map((p) => substitute(p, bindings)),
-            substitute(ret, bindings)),
+            substitute(ret, bindings),
+        ),
         Primitive(_) => ty,
         Unknown => ty,
         Never => ty,

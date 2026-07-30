@@ -31,18 +31,12 @@ fn test_keywords_and_identifiers() -> Result<Void, Error> {
 @test
 fn test_every_keyword_lexes_as_its_kind() -> Result<Void, Error> {
     // A keyword spelled exactly is its keyword kind; a near-miss is an identifier.
-    testing.assert_eq(actual: kinds('match'),
-        expected: [TokenKind.KwMatch, TokenKind.Eof])?;
-    testing.assert_eq(actual: kinds('matches'),
-        expected: [TokenKind.Identifier, TokenKind.Eof])?;
-    testing.assert_eq(actual: kinds('struct'),
-        expected: [TokenKind.KwStruct, TokenKind.Eof])?;
-    testing.assert_eq(actual: kinds('break'),
-        expected: [TokenKind.KwBreak, TokenKind.Eof])?;
-    testing.assert_eq(actual: kinds('breaks'),
-        expected: [TokenKind.Identifier, TokenKind.Eof])?;
-    testing.assert_eq(actual: kinds('continue'),
-        expected: [TokenKind.KwContinue, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('match'), expected: [TokenKind.KwMatch, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('matches'), expected: [TokenKind.Identifier, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('struct'), expected: [TokenKind.KwStruct, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('break'), expected: [TokenKind.KwBreak, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('breaks'), expected: [TokenKind.Identifier, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('continue'), expected: [TokenKind.KwContinue, TokenKind.Eof])?;
     return Result.Ok(void);
 }
 
@@ -71,7 +65,8 @@ fn test_operators_single_and_multi_char() -> Result<Void, Error> {
             TokenKind.PipePipe, TokenKind.Bang, TokenKind.Amp, TokenKind.Pipe,
             TokenKind.Caret, TokenKind.Tilde, TokenKind.Arrow, TokenKind.FatArrow,
             TokenKind.DotDot, TokenKind.Eof,
-        ])?;
+        ],
+    )?;
     return Result.Ok(void);
 }
 
@@ -117,10 +112,8 @@ fn test_string_escapes() -> Result<Void, Error> {
     testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
     testing.assert_eq(actual: toks[0].lexeme(), expected: "a\nb\t'")?;
     // \xNN and \u{...} hex escapes (neither yields a `\` or `$` here).
-    testing.assert_eq(actual: tokenize("'\\x41'").tokens[0].lexeme(),
-        expected: 'A')?;
-    testing.assert_eq(actual: tokenize("'\\u{48}'").tokens[0].lexeme(),
-        expected: 'H')?;
+    testing.assert_eq(actual: tokenize("'\\x41'").tokens[0].lexeme(), expected: 'A')?;
+    testing.assert_eq(actual: tokenize("'\\u{48}'").tokens[0].lexeme(), expected: 'H')?;
     return Result.Ok(void);
 }
 
@@ -182,8 +175,10 @@ fn test_comment_kinds() -> Result<Void, Error> {
         CommentKind.Line, CommentKind.Doc, CommentKind.ModuleDoc, CommentKind.Line,
     ])?;
     // The token stream is just the trailing identifier + Eof.
-    testing.assert_eq(actual: res.tokens.map((t) => t.kind),
-        expected: [TokenKind.Identifier, TokenKind.Eof])?;
+    testing.assert_eq(
+        actual: res.tokens.map((t) => t.kind),
+        expected: [TokenKind.Identifier, TokenKind.Eof],
+    )?;
     return Result.Ok(void);
 }
 
@@ -199,8 +194,7 @@ fn test_comment_span_position() -> Result<Void, Error> {
 
 @test
 fn test_no_comments_empty_list() -> Result<Void, Error> {
-    testing.assert_eq(actual: tokenize('fn f() -> Int { return 0; }').comments.len(),
-        expected: 0)?;
+    testing.assert_eq(actual: tokenize('fn f() -> Int { return 0; }').comments.len(), expected: 0)?;
     return Result.Ok(void);
 }
 
@@ -217,8 +211,7 @@ fn test_line_and_column_tracking() -> Result<Void, Error> {
 
 @test
 fn test_underscore_vs_identifier() -> Result<Void, Error> {
-    testing.assert_eq(actual: kinds('_'),
-        expected: [TokenKind.Underscore, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('_'), expected: [TokenKind.Underscore, TokenKind.Eof])?;
     let toks = tokenize('_foo').tokens;
     testing.assert_eq(actual: toks[0].kind, expected: TokenKind.Identifier)?;
     testing.assert_eq(actual: toks[0].lexeme(), expected: '_foo')?;
@@ -229,8 +222,7 @@ fn test_underscore_vs_identifier() -> Result<Void, Error> {
 fn test_error_unterminated_string() -> Result<Void, Error> {
     let r = tokenize("'abc");
     testing.assert(r.has_errors())?;
-    testing.assert_eq(actual: r.errors[0].message,
-        expected: 'unterminated string literal')?;
+    testing.assert_eq(actual: r.errors[0].message, expected: 'unterminated string literal')?;
     return Result.Ok(void);
 }
 
@@ -238,8 +230,7 @@ fn test_error_unterminated_string() -> Result<Void, Error> {
 fn test_error_unexpected_character() -> Result<Void, Error> {
     let r = tokenize('`');
     testing.assert(r.has_errors())?;
-    testing.assert_eq(actual: r.errors[0].message,
-        expected: 'unexpected character: `')?;
+    testing.assert_eq(actual: r.errors[0].message, expected: 'unexpected character: `')?;
     return Result.Ok(void);
 }
 
@@ -247,8 +238,10 @@ fn test_error_unexpected_character() -> Result<Void, Error> {
 fn test_error_bad_hex_literal() -> Result<Void, Error> {
     let r = tokenize('0x');
     testing.assert(r.has_errors())?;
-    testing.assert_eq(actual: r.errors[0].message,
-        expected: 'hex literal needs at least one digit after 0x')?;
+    testing.assert_eq(
+        actual: r.errors[0].message,
+        expected: 'hex literal needs at least one digit after 0x',
+    )?;
     return Result.Ok(void);
 }
 
@@ -256,8 +249,7 @@ fn test_error_bad_hex_literal() -> Result<Void, Error> {
 fn test_error_unknown_escape() -> Result<Void, Error> {
     let r = tokenize("'\\d'");
     testing.assert(r.has_errors())?;
-    testing.assert_eq(actual: r.errors[0].message,
-        expected: "unknown escape sequence: '\\d'")?;
+    testing.assert_eq(actual: r.errors[0].message, expected: "unknown escape sequence: '\\d'")?;
     return Result.Ok(void);
 }
 
@@ -265,8 +257,7 @@ fn test_error_unknown_escape() -> Result<Void, Error> {
 fn test_error_bad_hex_escape() -> Result<Void, Error> {
     let r = tokenize("'\\xZZ'");
     testing.assert(r.has_errors())?;
-    testing.assert_eq(actual: r.errors[0].message,
-        expected: "'\\x' needs exactly two hex digits")?;
+    testing.assert_eq(actual: r.errors[0].message, expected: "'\\x' needs exactly two hex digits")?;
     return Result.Ok(void);
 }
 

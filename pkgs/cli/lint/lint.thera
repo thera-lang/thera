@@ -265,10 +265,7 @@ pub fn match_question(_ m: MatchExpr) -> Option<QuestionMatch> {
         return Option.None;
     }
     if is_question_shape(m) {
-        return Option.Some(QuestionMatch {
-            match_span: m.span,
-            subject: m.subject,
-        });
+        return Option.Some(QuestionMatch { match_span: m.span, subject: m.subject });
     }
     return Option.None;
 }
@@ -375,7 +372,12 @@ pub fn match_let_else(_ l: LetStmt) -> Option<LetElseMatch> {
     };
 }
 
-fn let_else_site(_ l: LetStmt, _ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<LetElseMatch> {
+fn let_else_site(
+    _ l: LetStmt,
+    _ m: MatchExpr,
+    _ a: MatchArm,
+    _ b: MatchArm,
+) -> Option<LetElseMatch> {
     let ctor = ctor_name(a.pattern)?;
     let v = ctor_binding(a.pattern)?;
     if !body_yields_var(a.body, v) || !body_diverges(b.body) || !pattern_binds_nothing(b.pattern) {
@@ -729,7 +731,11 @@ fn is_qual_field(_ e: Expr, _ ns: String, _ member: String) -> Bool {
 // `ns.member(arg)` as a one-argument call (`Result.Err(e)`).
 fn is_qual_call1(_ e: Expr, _ ns: String, _ member: String, _ arg: String) -> Bool {
     return match e {
-        Call(c) => is_qual_field(c.callee, ns, member) && c.args.len() == 1 && match c.args[0].value {
+        Call(c) => is_qual_field(
+            c.callee,
+            ns,
+            member,
+        ) && c.args.len() == 1 && match c.args[0].value {
             Ident(_, n) => n == arg,
             _ => false,
         },

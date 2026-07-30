@@ -24,7 +24,11 @@ pub struct SignatureInfo {
 // The signature at `offset`, or None when the cursor is in no call's argument
 // list (or the callee doesn't resolve). `self` is dropped from the parameter
 // list, so an instance call's first argument is parameter 0.
-pub fn signature_help_at(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Option<SignatureInfo> {
+pub fn signature_help_at(
+    _ ctx: resolve.ResolveCtx,
+    _ text: String,
+    _ offset: Int,
+) -> Option<SignatureInfo> {
     // An unterminated call's span ends at its last real token, so a cursor in
     // the trailing whitespace (`add(1, `) sits past every AST span — snap it
     // back onto code before the lookup.
@@ -80,9 +84,7 @@ pub fn handle_signature_help(_ ctx: resolve.ResolveCtx, _ text: String, _ offset
         Some(info) => json.obj([
             'signatures': json.arr([json.obj([
                 'label': json.str(info.label),
-                'parameters': json.arr(info.params.map((p) => json.obj([
-                    'label': json.str(p),
-                ]))),
+                'parameters': json.arr(info.params.map((p) => json.obj(['label': json.str(p)]))),
             ])]),
             'activeSignature': json.int(0),
             'activeParameter': json.int(info.active_param),

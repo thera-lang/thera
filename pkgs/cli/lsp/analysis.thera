@@ -326,7 +326,12 @@ impl Analysis {
 
     // `report_result` on pre-stringified items — the workspace passes stringify
     // once and share the string with their `ws_emitted` bookkeeping.
-    fn report_result_content(self, _ canon: String, _ content: String, _ prev: Option<String>) -> ReportResult {
+    fn report_result_content(
+        self,
+        _ canon: String,
+        _ content: String,
+        _ prev: Option<String>,
+    ) -> ReportResult {
         if let Some(stored) = self.diag_reports.get(canon) {
             if stored.content == content {
                 let client_has_it = match prev {
@@ -469,8 +474,7 @@ impl Analysis {
     // the entry for the parse-only requests (document symbols, code actions,
     // workspace symbols), which used to re-tokenize the buffer per request.
     pub fn parsed(self, _ uri: String) -> Option<Program> {
-        return self.docs.get(uri).map((text) =>
-            self.session.parse(text, paths.uri_to_path(uri)));
+        return self.docs.get(uri).map((text) => self.session.parse(text, paths.uri_to_path(uri)));
     }
 
     // The owner-correct resolution context for `text` as the file at `path`: its
@@ -615,9 +619,11 @@ impl Analysis {
             Some(u) => match self.docs.get(u) {
                 Some(text) => match self.doc_ctx(u) {
                     Some(ctx) => {
-                        let offset = positions.position_to_offset(text,
+                        let offset = positions.position_to_offset(
+                            text,
                             position.get('line').as_int().unwrap_or(0),
-                            position.get('character').as_int().unwrap_or(0));
+                            position.get('character').as_int().unwrap_or(0),
+                        );
                         Option.Some(DocAnalysis { ctx: ctx, text: text, offset: offset })
                     },
                     None => Option.None,
@@ -647,7 +653,14 @@ impl Analysis {
         };
         let out: List<Json> = [];
         for f in self.cone_files(target) {
-            references.collect_in(self.ctx_for(f.path, f.text), f.text, f.uri, target, include_decl, out);
+            references.collect_in(
+                self.ctx_for(f.path, f.text),
+                f.text,
+                f.uri,
+                target,
+                include_decl,
+                out,
+            );
         }
         return arr(out);
     }
@@ -720,8 +733,10 @@ impl Analysis {
     pub fn diagnostics(self, _ uri: String, _ text: String) -> Json {
         let p = paths.uri_to_path(uri);
         self.session.force_recheck(p);
-        return diagnostics.render_diagnostics(self.session.check(text, p),
-            loader.canonical_path(p));
+        return diagnostics.render_diagnostics(
+            self.session.check(text, p),
+            loader.canonical_path(p),
+        );
     }
 
     // A `DocumentDiagnosticReport` (LSP pull model) for one document — the answer
@@ -776,8 +791,11 @@ impl Analysis {
     // `prev_ids` maps each URI to the resultId the client last holds for it; a file
     // whose current items match returns a light `unchanged` item (LSP 3.17 pull
     // caching) instead of re-sending, so a re-pull re-emits only changed files.
-    pub fn workspace_report_interruptible(self, _ prev_ids: Map<String, String>,
-        _ still_current: () -> Bool) -> Option<Json> {
+    pub fn workspace_report_interruptible(
+        self,
+        _ prev_ids: Map<String, String>,
+        _ still_current: () -> Bool,
+    ) -> Option<Json> {
         // Bail before even scanning if a newer pull/cancel already won — so a
         // superseded worker never touches the disk, and an empty workspace (no
         // files to loop over) still honors supersession.
@@ -908,8 +926,11 @@ impl Analysis {
     // closure re-walked, only for `check_files` to skip nearly all of it.
     //
     // None when a newer pull or a cancel superseded this scan.
-    fn scan_by_file(self, _ files: List<ScanFile>,
-        _ still_current: () -> Bool) -> Option<Map<String, List<Json>>> {
+    fn scan_by_file(
+        self,
+        _ files: List<ScanFile>,
+        _ still_current: () -> Bool,
+    ) -> Option<Map<String, List<Json>>> {
         if let Some(cached) = self.reusable_by_file(files) {
             return Option.Some(cached);
         }
@@ -936,8 +957,12 @@ impl Analysis {
             // importer's check; the emit loop drops those by skipping excluded
             // owners.)
             if !self.session.is_sdk_file(f.path) && !self.is_excluded(f.path) {
-                diagnostics.group_by_file(self.session.check(f.text, f.path),
-                    loader.canonical_path(f.path), by_file, seen);
+                diagnostics.group_by_file(
+                    self.session.check(f.text, f.path),
+                    loader.canonical_path(f.path),
+                    by_file,
+                    seen,
+                );
             }
             // Cede between files so the dispatch loop can service hover/edits while
             // a large workspace is still being checked (checking one file is the
@@ -1021,10 +1046,5 @@ impl Analysis {
 // the client's diagnostics for the file; carrying no resultId makes the client
 // drop its stored id too, so the uri stops appearing in `previousResultIds`.
 fn retraction_item(_ uri: String) -> Json {
-    return obj([
-        'kind': str('full'),
-        'uri': str(uri),
-        'version': null(),
-        'items': arr([]),
-    ]);
+    return obj(['kind': str('full'), 'uri': str(uri), 'version': null(), 'items': arr([])]);
 }

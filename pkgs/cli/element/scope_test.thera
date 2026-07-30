@@ -101,14 +101,27 @@ fn test_is_builtin_type() -> Result<Void, Error> {
 
 @test
 fn test_namespace_queries() -> Result<Void, Error> {
-    let lib = lib_with_namespace('fn main() -> Int { return 0; }', 'fs', ['read_text', 'write_text']);
+    let lib = lib_with_namespace(
+        'fn main() -> Int { return 0; }',
+        'fs',
+        ['read_text', 'write_text'],
+    );
     let scope = file_scope(lib, Option.None);
     testing.assert(scope.is_namespace('fs'), message: 'fs is a namespace')?;
     testing.assert(!scope.is_namespace('nope'), message: 'nope is not a namespace')?;
     testing.assert(scope.namespace_exposes('fs', 'read_text'), message: 'fs exposes read_text')?;
-    testing.assert(!scope.namespace_exposes('fs', 'private'), message: 'fs does not expose private')?;
-    testing.assert(!scope.namespace_exposes('nope', 'read_text'), message: 'unknown ns exposes nothing')?;
-    testing.assert_eq(actual: scope.qualifying_namespace('read_text'), expected: Option.Some('fs'))?;
+    testing.assert(
+        !scope.namespace_exposes('fs', 'private'),
+        message: 'fs does not expose private',
+    )?;
+    testing.assert(
+        !scope.namespace_exposes('nope', 'read_text'),
+        message: 'unknown ns exposes nothing',
+    )?;
+    testing.assert_eq(
+        actual: scope.qualifying_namespace('read_text'),
+        expected: Option.Some('fs'),
+    )?;
     testing.assert_eq(actual: scope.qualifying_namespace('unexposed'), expected: Option.None)?;
     return Result.Ok(void);
 }

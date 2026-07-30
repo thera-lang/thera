@@ -86,8 +86,5 @@ pub fn span_to_range(_ span: SourceSpan) -> Json {
 }
 
 fn position(_ line: Int, _ character: Int) -> Json {
-    return json.obj([
-        'line': json.int(line),
-        'character': json.int(character),
-    ]);
+    return json.obj(['line': json.int(line), 'character': json.int(character)]);
 }

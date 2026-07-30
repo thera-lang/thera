@@ -25,7 +25,9 @@ pub fn describe_expr(_ e: Expr) -> String {
         } else {
             '[' + describe_entries(entries) + ']'
         },
-        Struct(x) => '${describe_qualifier(x.namespace)}${x.type_name} { ${describe_field_inits(x.fields)} }',
+        Struct(
+            x
+        ) => '${describe_qualifier(x.namespace)}${x.type_name} { ${describe_field_inits(x.fields)} }',
         Ident(_, name) => name,
         Call(x) => describe_expr(x.callee) + describe_type_args(x.type_args)
             + '(' + describe_args(x.args) + ')',

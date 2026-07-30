@@ -22,7 +22,11 @@
 /// testing.assert(x > 0)?;
 /// testing.assert(x > 0, message: 'must be positive')?;
 /// ```
-pub fn assert(_ condition: Bool, message: String = 'assertion failed', at: SourceLoc = #loc) -> Result<Void, Error> {
+pub fn assert(
+    _ condition: Bool,
+    message: String = 'assertion failed',
+    at: SourceLoc = #loc,
+) -> Result<Void, Error> {
     if !condition {
         throw error('${at}: ${message}');
     }
@@ -34,9 +38,15 @@ pub fn assert(_ condition: Bool, message: String = 'assertion failed', at: Sourc
 /// ```thera
 /// testing.assert_eq(actual: result, expected: 5)?;
 /// ```
-pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T, at: SourceLoc = #loc) -> Result<Void, Error> {
+pub fn assert_eq<T: Eq + Debug>(
+    actual: T,
+    expected: T,
+    at: SourceLoc = #loc,
+) -> Result<Void, Error> {
     if actual != expected {
-        throw error('${at}: assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}');
+        throw error(
+            '${at}: assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}'
+        );
     }
     return Result.Ok(void);
 }
@@ -46,7 +56,11 @@ pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T, at: SourceLoc = #loc) ->
 /// ```thera
 /// testing.assert_ne(actual: result, unexpected: 0)?;
 /// ```
-pub fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T, at: SourceLoc = #loc) -> Result<Void, Error> {
+pub fn assert_ne<T: Eq + Debug>(
+    actual: T,
+    unexpected: T,
+    at: SourceLoc = #loc,
+) -> Result<Void, Error> {
     if actual == unexpected {
         throw error('${at}: assert_ne failed: both values were ${actual.debug()}');
     }

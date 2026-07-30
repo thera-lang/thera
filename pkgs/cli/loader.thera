@@ -406,21 +406,29 @@ impl Loader {
                         // other files stay legal (the cache breaks them).
                         if element.file_key(Option.Some(file)) == importer {
                             self.diagnostics.push(diagnostic.in_file(
-                                'a file cannot import itself', x.span, importer));
+                                'a file cannot import itself',
+                                x.span,
+                                importer,
+                            ));
                         } else {
                             match self.source_for(file) {
                                 Ok(child) => { into.imports[x.path] = child; },
                                 Err(msg) => {
                                     self.diagnostics.push(diagnostic.in_file(
                                         'cannot read import \'${x.path}\': ${msg}',
-                                        x.span, importer));
+                                        x.span,
+                                        importer,
+                                    ));
                                 },
                             }
                         }
                     },
                     None => {
                         self.diagnostics.push(diagnostic.in_file(
-                            self.unresolved_message(x.path), x.span, importer));
+                            self.unresolved_message(x.path),
+                            x.span,
+                            importer,
+                        ));
                     },
                 }
             }
@@ -455,10 +463,14 @@ impl Loader {
 // and a bare `thera run root.thera` resolves its imports against the invocation
 // directory (the pre-canonical `dirname('root.thera')` was `''`, which sent
 // imports to the filesystem root).
-pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<String>,
+pub fn load_imports(
+    _ entry: String,
+    _ program: Program,
+    _ sdk_root: Option<String>,
     parse_cache: Map<String, ParsedFile> = [:],
     overlays: Map<String, String> = [:],
-    surface_cache: Map<String, FileSurface> = [:]) -> LoadedImports {
+    surface_cache: Map<String, FileSurface> = [:],
+) -> LoadedImports {
     let canon = canonical_path(entry);
     program.file_path = Option.Some(canon);
     let loader = Loader {
@@ -574,7 +586,11 @@ pub struct FileSurface {
 // `file_imports`. Powers the LSP's workspace edge index — the references/rename
 // dependency cone — without paying for every file's closure. `entry` is the
 // importing file's path; a specifier that resolves to no file is dropped.
-pub fn import_edges(_ entry: String, _ program: Program, _ sdk_root: Option<String>) -> List<String> {
+pub fn import_edges(
+    _ entry: String,
+    _ program: Program,
+    _ sdk_root: Option<String>,
+) -> List<String> {
     let probe = Loader {
         sdk_root: sdk_root,
         order: [],
@@ -626,7 +642,11 @@ impl Loader {
     // import, and — for a `foo_test.thera` — the *full* surface (incl. private)
     // of the `foo` it imports (the white-box test exception; the filenames
     // match). A `Loader` method for the surface memo.
-    fn bare_surface_of(self, _ root: LibrarySource, _ core_names: Map<String, String>) -> Map<String, String> {
+    fn bare_surface_of(
+        self,
+        _ root: LibrarySource,
+        _ core_names: Map<String, String>,
+    ) -> Map<String, String> {
         // name -> owning file (key). The prelude names own to std.core; an `as _`
         // import's public names own to that import's file; a `foo_test.thera`'s
         // white-box view owns to `foo.thera`.
@@ -683,7 +703,11 @@ impl Loader {
 // here: a file's *own* declarations may shadow the prelude (soft-reserved),
 // and the existing insertion order implements that precedence.
 impl Loader {
-    fn collect_collisions(self, _ src: LibrarySource, _ diags: List<diagnostic.Diagnostic>) -> Void {
+    fn collect_collisions(
+        self,
+        _ src: LibrarySource,
+        _ diags: List<diagnostic.Diagnostic>,
+    ) -> Void {
         let file = element.file_key(src.program.file_path);
         // name -> origin file, for the barrel (public) and bare (`as _`) surfaces.
         let exposed: Map<String, String> = [:];
@@ -699,13 +723,17 @@ impl Loader {
                     if x.is_pub {
                         let surf = self.surface_of(child);
                         for n in surf.names.to_list() {
-                            let origin = surf.origin.get(n).unwrap_or(element.file_key(child.program.file_path));
+                            let origin = surf.origin.get(n).unwrap_or(
+                                element.file_key(child.program.file_path)
+                            );
                             match exposed.get(n) {
                                 Some(prior) => {
                                     if prior != origin {
                                         diags.push(diagnostic.in_file(
                                             'this `pub import` re-exposes `${n}`, which the barrel already exposes; a barrel must expose each public name from one file',
-                                            x.span, file));
+                                            x.span,
+                                            file,
+                                        ));
                                     }
                                 },
                                 None => { exposed[n] = origin; },
@@ -715,13 +743,17 @@ impl Loader {
                     if x.unqualified {
                         let surf = self.surface_of(child);
                         for n in surf.names.to_list() {
-                            let origin = surf.origin.get(n).unwrap_or(element.file_key(child.program.file_path));
+                            let origin = surf.origin.get(n).unwrap_or(
+                                element.file_key(child.program.file_path)
+                            );
                             match bare.get(n) {
                                 Some(prior) => {
                                     if prior != origin {
                                         diags.push(diagnostic.in_file(
                                             'two `import … as _` imports expose `${n}` unqualified; import one of them with a namespace',
-                                            x.span, file));
+                                            x.span,
+                                            file,
+                                        ));
                                     }
                                 },
                                 None => { bare[n] = origin; },
@@ -739,7 +771,10 @@ impl Loader {
         let result: Map<String, element.LibraryNamespace> = [:];
         for decl in root.program.decls {
             if let Import(x) = decl {
-                if let Some(child) = root.imports.get(x.path) { result[namespace_of(x)] = self.surface_of(child); }
+                if let Some(child) = root.imports.get(x.path) {
+                    result[namespace_of(x)] = self.surface_of(child);
+
+                }
             }
         }
         return result;
@@ -801,7 +836,10 @@ pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNames
     let result: Map<String, element.LibraryNamespace> = [:];
     for decl in root.program.decls {
         if let Import(x) = decl {
-            if let Some(child) = root.imports.get(x.path) { result[namespace_of(x)] = public_surface_of(child); }
+            if let Some(child) = root.imports.get(x.path) {
+                result[namespace_of(x)] = public_surface_of(child);
+
+            }
         }
     }
     return result;
@@ -819,8 +857,13 @@ pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
 }
 
 // Cycle detection keys on the program's `file_path` (Thera has no object identity).
-fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: Set<String>,
-    _ origin: Map<String, String>, _ visited: Set<String>) -> Void {
+fn collect_surface(
+    _ source: LibrarySource,
+    _ names: Set<String>,
+    _ collisions: Set<String>,
+    _ origin: Map<String, String>,
+    _ visited: Set<String>,
+) -> Void {
     let key = element.file_key(source.program.file_path);
     if visited.has(key) {
         return;
@@ -842,7 +885,10 @@ fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: 
     for decl in source.program.decls {
         if let Import(x) = decl {
             if x.is_pub {
-                if let Some(child) = source.imports.get(x.path) { collect_surface(child, names, collisions, origin, visited); }
+                if let Some(child) = source.imports.get(x.path) {
+                    collect_surface(child, names, collisions, origin, visited);
+
+                }
             }
         }
     }
@@ -1012,8 +1058,12 @@ fn scc_ids(_ units: List<String>, _ adj: Map<String, List<String>>) -> Map<Strin
 // The cycle message for a participating edge `from → to`: the edge itself,
 // then a shortest path from `to` back to `from` inside their shared component
 // (BFS restricted to it) — `a → b/ → a`. Same component ⇒ the path exists.
-fn cycle_path(_ from: String, _ to: String, _ adj: Map<String, List<String>>,
-    _ comp: Map<String, Int>) -> String {
+fn cycle_path(
+    _ from: String,
+    _ to: String,
+    _ adj: Map<String, List<String>>,
+    _ comp: Map<String, Int>,
+) -> String {
     let cid = comp.get(from).unwrap_or(-1);
     let parent: Map<String, String> = [:];
     let queue: List<String> = [to];
@@ -1061,8 +1111,11 @@ fn cycle_path(_ from: String, _ to: String, _ adj: Map<String, List<String>>,
 // participating cross-unit import at its own span. Runs per closure load — the
 // graph pass is linear in the closure's edges; `thera check`'s printed-line
 // dedupe collapses the repeats across a multi-file run.
-fn detect_import_cycles(_ cache: Map<String, LibrarySource>,
-    _ file_imports: Map<String, List<String>>, _ diags: List<diagnostic.Diagnostic>) -> Void {
+fn detect_import_cycles(
+    _ cache: Map<String, LibrarySource>,
+    _ file_imports: Map<String, List<String>>,
+    _ diags: List<diagnostic.Diagnostic>,
+) -> Void {
     // The unit graph: cross-unit edges from non-test files, deduped.
     let dir_cache: Map<String, Bool> = [:];
     let adj: Map<String, List<String>> = [:];
@@ -1104,7 +1157,9 @@ fn detect_import_cycles(_ cache: Map<String, LibrarySource>,
                             && comp.get(uf).unwrap_or(-1) == comp.get(ut).unwrap_or(-2) {
                             diags.push(diagnostic.in_file(
                                 'import cycle between libraries: ${cycle_path(uf, ut, adj, comp)}',
-                                x.span, file));
+                                x.span,
+                                file,
+                            ));
                         }
                     }
                 }
@@ -1127,8 +1182,10 @@ fn detect_import_cycles(_ cache: Map<String, LibrarySource>,
 // Report every import that resolves to a non-barrel file inside a directory
 // library the importer is not itself in. Runs per closure load, beside the
 // cycle pass; `thera check`'s printed-line dedupe collapses multi-run repeats.
-fn detect_deep_imports(_ cache: Map<String, LibrarySource>,
-    _ diags: List<diagnostic.Diagnostic>) -> Void {
+fn detect_deep_imports(
+    _ cache: Map<String, LibrarySource>,
+    _ diags: List<diagnostic.Diagnostic>,
+) -> Void {
     let dir_cache: Map<String, Bool> = [:];
     for file in cache.keys() {
         let src = cache[file];
@@ -1143,7 +1200,9 @@ fn detect_deep_imports(_ cache: Map<String, LibrarySource>,
                         && target != barrel_path(target_dir) {
                         diags.push(diagnostic.in_file(
                             '\'${x.path}\' resolves inside the library \'${display_path(target_dir)}/\'; import its barrel instead',
-                            x.span, file));
+                            x.span,
+                            file,
+                        ));
                     }
                 }
             }

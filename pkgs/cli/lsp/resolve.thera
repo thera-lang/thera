@@ -279,7 +279,12 @@ pub fn primary_tokens(_ ctx: ResolveCtx, _ text: String) -> List<Token> {
 // A member on a plain named receiver: the receiver is an import namespace
 // (`fs.read_text`), a type this file sees bare (`Color.Red`, `Set.new`), or a
 // value binding — resolved on its committed (inferred) type (`xs.map`).
-fn named_receiver_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv: String, _ recv_span: SourceSpan) -> Option<Resolved> {
+fn named_receiver_member(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ recv: String,
+    _ recv_span: SourceSpan,
+) -> Option<Resolved> {
     if let Some(surface) = namespace_surface(ctx, recv) {
         return ns_member(ctx, ref, surface);
     }
@@ -341,7 +346,12 @@ pub fn member_target(_ ctx: ResolveCtx, _ ty: element.Type) -> Option<element.Ty
 // against the interfaces it is bound by (`T: Weighted` -> Weighted's methods).
 // The enclosing generic declaration carries the bound names; each resolves as a
 // bare type in this file's scope, and the member is looked up owner-correct.
-fn type_param_member(_ ctx: ResolveCtx, _ ref: NameRef, _ tpname: String, _ recv_span: SourceSpan) -> Option<Resolved> {
+fn type_param_member(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ tpname: String,
+    _ recv_span: SourceSpan,
+) -> Option<Resolved> {
     if let Some(tp) = enclosing_type_param(ctx.program, tpname, recv_span.offset) {
         for bound in tp.bounds {
             if let Some(owner) = bare_owner_key(ctx, bound) {
@@ -367,11 +377,17 @@ fn computed_member(_ ctx: ResolveCtx, _ ref: NameRef, _ offset: Int) -> Option<R
 
 // `ns.member`: the member must be on `ns`'s public surface; its origin map
 // names the declaring file.
-fn ns_member(_ ctx: ResolveCtx, _ ref: NameRef, _ surface: element.LibraryNamespace) -> Option<Resolved> {
+fn ns_member(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ surface: element.LibraryNamespace,
+) -> Option<Resolved> {
     return match surface.origin.get(ref.name) {
         Some(owner) => match program_of_key(ctx, owner) {
             Some(p) => match find_decl_in(p, ref.name) {
-                Some(d) => Option.Some(decl_resolved(ref, DeclSite { decl: d, file: paths.program_path(p) })),
+                Some(d) => Option.Some(
+                    decl_resolved(ref, DeclSite { decl: d, file: paths.program_path(p) })
+                ),
                 None => Option.None,
             },
             None => Option.None,
@@ -382,7 +398,12 @@ fn ns_member(_ ctx: ResolveCtx, _ ref: NameRef, _ surface: element.LibraryNamesp
 
 // A member of the type (`owner`, `type_name`): an enum variant, else a method
 // from an impl/interface (owner-aware, LS8).
-fn type_member(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ type_name: String) -> Option<Resolved> {
+fn type_member(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ owner: String,
+    _ type_name: String,
+) -> Option<Resolved> {
     if let Some(res) = variant_resolved(ctx, ref, owner, type_name) {
         return Option.Some(res);
     }
@@ -660,13 +681,19 @@ fn enclosing_ctx(_ program: Program, _ offset: Int) -> Enclosing {
             Impl(i) => {
                 if span_covers(i.span, offset) {
                     let st = SelfType { name: i.type_name, display: impl_type_label(i) };
-                    return Enclosing { self_type: Option.Some(st), fn_decl: method_at(i.methods, offset) };
+                    return Enclosing {
+                        self_type: Option.Some(st),
+                        fn_decl: method_at(i.methods, offset),
+                    };
                 }
             },
             Interface(it) => {
                 if span_covers(it.span, offset) {
                     let st = SelfType { name: it.name, display: it.name };
-                    return Enclosing { self_type: Option.Some(st), fn_decl: method_at(it.methods, offset) };
+                    return Enclosing {
+                        self_type: Option.Some(st),
+                        fn_decl: method_at(it.methods, offset),
+                    };
                 }
             },
             _ => void,
@@ -738,7 +765,12 @@ fn member_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ type_name: String) -> Op
 // A method (navigable) or field (renderable) of the type identified by
 // (`owner`, `type_name`) — the shared body behind `self.member` and an
 // inferred value receiver's member.
-fn member_on_owner(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ type_name: String) -> Option<Resolved> {
+fn member_on_owner(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ owner: String,
+    _ type_name: String,
+) -> Option<Resolved> {
     if let Some(ms) = find_method_site(ctx, owner, type_name, ref.name) {
         return Option.Some(method_resolved(ref, ms));
     }
@@ -764,7 +796,12 @@ fn field_resolved(_ ref: NameRef, _ fs: FieldSite) -> Resolved {
     };
 }
 
-fn variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ enum_name: String) -> Option<Resolved> {
+fn variant_resolved(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ owner: String,
+    _ enum_name: String,
+) -> Option<Resolved> {
     return match find_variant_site(ctx, owner, enum_name, ref.name) {
         Some(vs) => Option.Some(Resolved {
             ref_span: ref.span,
@@ -816,7 +853,9 @@ pub fn local_binding_at(_ fn_decl: FnDecl, _ ref: NameRef) -> Option<BindingSite
     for site in local_bindings_at(fn_decl, ref.span.offset) {
         if site.name == ref.name && site.span.offset <= ref.span.offset {
             best = match best {
-                Some(b) => if site.span.offset >= b.span.offset { Option.Some(site) } else { Option.Some(b) },
+                Some(b) => if site.span.offset >= b.span.offset {
+                    Option.Some(site)
+                } else { Option.Some(b) },
                 None => Option.Some(site),
             };
         }
@@ -1094,7 +1133,10 @@ fn member_receiver_in_stmt(_ st: Stmt, _ offset: Int) -> Option<SourceSpan> {
         Throw(_, value) => member_receiver_in_expr(value, offset),
         If(x) => {
             if let Some(s) = member_receiver_in_expr(x.condition, offset) { return Option.Some(s); }
-            if let Some(s) = member_receiver_in_block(x.then_block, offset) { return Option.Some(s); }
+            if let Some(s) = member_receiver_in_block(x.then_block, offset) {
+                return Option.Some(s);
+
+            }
             match x.else_block {
                 Some(eb) => member_receiver_in_block(eb, offset),
                 None => Option.None,
@@ -1150,7 +1192,10 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
         Block(_, b) => member_receiver_in_block(b, offset),
         If(x) => {
             if let Some(s) = member_receiver_in_expr(x.condition, offset) { return Option.Some(s); }
-            if let Some(s) = member_receiver_in_block(x.then_block, offset) { return Option.Some(s); }
+            if let Some(s) = member_receiver_in_block(x.then_block, offset) {
+                return Option.Some(s);
+
+            }
             match x.else_block {
                 Some(eb) => member_receiver_in_block(eb, offset),
                 None => Option.None,
@@ -1159,7 +1204,10 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
         Match(x) => {
             if let Some(s) = member_receiver_in_expr(x.subject, offset) { return Option.Some(s); }
             for arm in x.arms {
-                if let Some(s) = member_receiver_in_expr(arm.body, offset) { return Option.Some(s); }
+                if let Some(s) = member_receiver_in_expr(arm.body, offset) {
+                    return Option.Some(s);
+
+                }
             }
             Option.None
         },
@@ -1179,7 +1227,10 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
         MapLit(_, entries) => {
             for en in entries {
                 if let Some(s) = member_receiver_in_expr(en.key, offset) { return Option.Some(s); }
-                if let Some(s) = member_receiver_in_expr(en.value, offset) { return Option.Some(s); }
+                if let Some(s) = member_receiver_in_expr(en.value, offset) {
+                    return Option.Some(s);
+
+                }
             }
             Option.None
         },
@@ -1425,7 +1476,12 @@ fn field_def_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ f: FieldDef) -> Resol
 // An enum variant at its own declaration (`Low` in `enum Priority { Low }`):
 // renders the qualified variant — the same form a use site (`Priority.Low`) shows
 // — and lands on itself.
-fn variant_def_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ enum_name: String, _ v: EnumVariant) -> Resolved {
+fn variant_def_resolved(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ enum_name: String,
+    _ v: EnumVariant,
+) -> Resolved {
     return Resolved {
         ref_span: ref.span,
         render: variant_render(enum_name, v),
@@ -1440,7 +1496,12 @@ fn variant_def_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ enum_name: String, 
 
 // A `S { field: … }` initializer name: the field `fi.name` of the constructed
 // type, resolved to its declaration (owner-correct) and rendered like any field.
-fn lit_field_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ sx: StructExpr, _ fi: FieldInit) -> Option<Resolved> {
+fn lit_field_resolved(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ sx: StructExpr,
+    _ fi: FieldInit,
+) -> Option<Resolved> {
     return match struct_owner(ctx, sx) {
         Some(owner) => match find_field(ctx, owner, sx.type_name, fi.name) {
             Some(fs) => Option.Some(field_resolved(ref, fs)),
@@ -1464,7 +1525,12 @@ fn struct_owner(_ ctx: ResolveCtx, _ sx: StructExpr) -> Option<String> {
 
 // A call-argument label (`f(name: …)`): resolve the callee to its declaration,
 // then the parameter whose external label is `ref.name`.
-fn call_label_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ call: CallExpr, _ arg: CallArg) -> Option<Resolved> {
+fn call_label_resolved(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ call: CallExpr,
+    _ arg: CallArg,
+) -> Option<Resolved> {
     return match callee_fn_site(ctx, call.callee) {
         Some(cs) => match param_with_label(cs.fn_decl, ref.name) {
             Some(p) => Option.Some(param_resolved(ref, p, cs.file)),
@@ -1481,7 +1547,11 @@ fn call_label_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ call: CallExpr, _ ar
 // pattern still spans) misses here and the caller falls through to local
 // resolution. A subject whose type isn't a known enum (Unknown, a primitive)
 // resolves nothing rather than guessing.
-fn match_variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ subject_span: SourceSpan) -> Option<Resolved> {
+fn match_variant_resolved(
+    _ ctx: ResolveCtx,
+    _ ref: NameRef,
+    _ subject_span: SourceSpan,
+) -> Option<Resolved> {
     return match recorded_type_at(ctx, subject_span) {
         Some(ty) => match ty {
             Interface(id, _) => variant_resolved(ctx, ref, id.owner, id.name),
@@ -1805,7 +1875,10 @@ fn enclosing_type_param(_ program: Program, _ name: String, _ offset: Int) -> Op
                 if span_covers(i.span, offset) {
                     for m in i.methods {
                         if span_covers(m.span, offset) {
-                            if let Some(tp) = type_param_of(m.type_params, name) { return Option.Some(tp); }
+                            if let Some(tp) = type_param_of(m.type_params, name) {
+                                return Option.Some(tp);
+
+                            }
                         }
                     }
                     if let Some(tp) = type_param_of(i.type_params, name) { return Option.Some(tp); }
@@ -1815,10 +1888,16 @@ fn enclosing_type_param(_ program: Program, _ name: String, _ offset: Int) -> Op
                 if span_covers(it.span, offset) {
                     for m in it.methods {
                         if span_covers(m.span, offset) {
-                            if let Some(tp) = type_param_of(m.type_params, name) { return Option.Some(tp); }
+                            if let Some(tp) = type_param_of(m.type_params, name) {
+                                return Option.Some(tp);
+
+                            }
                         }
                     }
-                    if let Some(tp) = type_param_of(it.type_params, name) { return Option.Some(tp); }
+                    if let Some(tp) = type_param_of(it.type_params, name) {
+                        return Option.Some(tp);
+
+                    }
                 }
             },
             _ => void,
@@ -1847,7 +1926,12 @@ pub struct MethodSite {
 // impl blocks whose *own view* of `type_name` resolves to the same owner (a
 // cross-file impl still binds to the type its file sees), plus interface decls
 // (which own their methods). Owner-aware, not first-name-wins (LS8).
-fn find_method_site(_ ctx: ResolveCtx, _ owner: String, _ type_name: String, _ method: String) -> Option<MethodSite> {
+fn find_method_site(
+    _ ctx: ResolveCtx,
+    _ owner: String,
+    _ type_name: String,
+    _ method: String,
+) -> Option<MethodSite> {
     if let Some(m) = methods_of(ctx, ctx.program, owner, type_name, method) {
         return Option.Some(MethodSite { fn_decl: m, file: paths.program_path(ctx.program) });
     }
@@ -1859,12 +1943,21 @@ fn find_method_site(_ ctx: ResolveCtx, _ owner: String, _ type_name: String, _ m
     return Option.None;
 }
 
-fn methods_of(_ ctx: ResolveCtx, _ p: Program, _ owner: String, _ type_name: String,
-    _ method: String) -> Option<FnDecl> {
+fn methods_of(
+    _ ctx: ResolveCtx,
+    _ p: Program,
+    _ owner: String,
+    _ type_name: String,
+    _ method: String,
+) -> Option<FnDecl> {
     for decl in p.decls {
         let methods = match decl {
             Impl(i) => if i.type_name == type_name
-                && owner_key_from(ctx, p, type_name) == Option.Some(owner) { i.methods } else { [] },
+                && owner_key_from(
+                    ctx,
+                    p,
+                    type_name,
+                ) == Option.Some(owner) { i.methods } else { [] },
             Interface(it) => if it.name == type_name
                 && element.file_key(p.file_path) == owner { it.methods } else { [] },
             _ => [],
@@ -1886,7 +1979,12 @@ struct FieldSite {
 // A struct field lives with its type's declaration — the owner file only. The
 // owning file's path rides along so a field access can navigate to the field's
 // name (a `FieldDef` carries a real `name_span`).
-fn find_field(_ ctx: ResolveCtx, _ owner: String, _ type_name: String, _ field: String) -> Option<FieldSite> {
+fn find_field(
+    _ ctx: ResolveCtx,
+    _ owner: String,
+    _ type_name: String,
+    _ field: String,
+) -> Option<FieldSite> {
     if let Some(p) = program_of_key(ctx, owner) {
         for decl in p.decls {
             if let Type(t) = decl {
@@ -1909,14 +2007,21 @@ struct VariantSite {
 }
 
 // An enum's variants live with its declaration — the owner file only.
-fn find_variant_site(_ ctx: ResolveCtx, _ owner: String, _ enum_name: String, _ variant: String) -> Option<VariantSite> {
+fn find_variant_site(
+    _ ctx: ResolveCtx,
+    _ owner: String,
+    _ enum_name: String,
+    _ variant: String,
+) -> Option<VariantSite> {
     if let Some(p) = program_of_key(ctx, owner) {
         for decl in p.decls {
             if let Enum(e) = decl {
                 if e.name == enum_name {
                     for v in e.variants {
                         if v.name == variant {
-                            return Option.Some(VariantSite { variant: v, file: paths.program_path(p) });
+                            return Option.Some(
+                                VariantSite { variant: v, file: paths.program_path(p) }
+                            );
                         }
                     }
                 }
@@ -1939,8 +2044,12 @@ pub struct MemberEntry {
 // file — the "list" dual of `find_method_site`/`find_field`/`find_variant_site`.
 // `instance` selects the value-receiver surface (fields + `self` methods);
 // otherwise the type-receiver surface (enum variants + static methods).
-pub fn type_members(_ ctx: ResolveCtx, _ owner: String, _ type_name: String,
-    instance: Bool) -> List<MemberEntry> {
+pub fn type_members(
+    _ ctx: ResolveCtx,
+    _ owner: String,
+    _ type_name: String,
+    instance: Bool,
+) -> List<MemberEntry> {
     let out: List<MemberEntry> = [];
     if let Some(p) = program_of_key(ctx, owner) {
         for decl in p.decls {
@@ -1948,8 +2057,11 @@ pub fn type_members(_ ctx: ResolveCtx, _ owner: String, _ type_name: String,
                 if let Type(t) = decl {
                     if t.name == type_name {
                         for f in t.fields {
-                            out.push(MemberEntry { name: f.name, kind: SymbolKind.Field,
-                                detail: '${f.name}: ${describe_type(f.type_ann)}' });
+                            out.push(MemberEntry {
+                                name: f.name,
+                                kind: SymbolKind.Field,
+                                detail: '${f.name}: ${describe_type(f.type_ann)}',
+                            });
                         }
                     }
                 }
@@ -1957,8 +2069,11 @@ pub fn type_members(_ ctx: ResolveCtx, _ owner: String, _ type_name: String,
                 if let Enum(e) = decl {
                     if e.name == type_name {
                         for v in e.variants {
-                            out.push(MemberEntry { name: v.name, kind: SymbolKind.Variant,
-                                detail: variant_render(type_name, v) });
+                            out.push(MemberEntry {
+                                name: v.name,
+                                kind: SymbolKind.Variant,
+                                detail: variant_render(type_name, v),
+                            });
                         }
                     }
                 }
@@ -1978,12 +2093,23 @@ pub fn type_members(_ ctx: ResolveCtx, _ owner: String, _ type_name: String,
 // selection as `methods_of`. A method from another file must be `pub`
 // (suggesting an uncallable private method is noise); the primary's own are
 // always offered.
-fn method_entries(_ ctx: ResolveCtx, _ p: Program, _ owner: String, _ type_name: String,
-    _ instance: Bool, _ primary_key: String, _ out: List<MemberEntry>) -> Void {
+fn method_entries(
+    _ ctx: ResolveCtx,
+    _ p: Program,
+    _ owner: String,
+    _ type_name: String,
+    _ instance: Bool,
+    _ primary_key: String,
+    _ out: List<MemberEntry>,
+) -> Void {
     for decl in p.decls {
         let methods = match decl {
             Impl(i) => if i.type_name == type_name
-                && owner_key_from(ctx, p, type_name) == Option.Some(owner) { i.methods } else { [] },
+                && owner_key_from(
+                    ctx,
+                    p,
+                    type_name,
+                ) == Option.Some(owner) { i.methods } else { [] },
             Interface(it) => if it.name == type_name
                 && element.file_key(p.file_path) == owner { it.methods } else { [] },
             _ => [],
@@ -1991,8 +2117,11 @@ fn method_entries(_ ctx: ResolveCtx, _ p: Program, _ owner: String, _ type_name:
         let same_file = element.file_key(p.file_path) == primary_key;
         for m in methods {
             if method_has_self(m) == instance && (m.is_pub || same_file) {
-                out.push(MemberEntry { name: m.name, kind: SymbolKind.Method,
-                    detail: describe_fn(m) });
+                out.push(MemberEntry {
+                    name: m.name,
+                    kind: SymbolKind.Method,
+                    detail: describe_fn(m),
+                });
             }
         }
     }
@@ -2010,14 +2139,20 @@ fn method_has_self(_ m: FnDecl) -> Bool {
 
 // The namespace's public surface as completion entries (`ns.` →), each name
 // resolved to its declaring file for its kind and detail.
-pub fn namespace_entries(_ ctx: ResolveCtx, _ surface: element.LibraryNamespace) -> List<MemberEntry> {
+pub fn namespace_entries(
+    _ ctx: ResolveCtx,
+    _ surface: element.LibraryNamespace,
+) -> List<MemberEntry> {
     let out: List<MemberEntry> = [];
     for name in surface.origin.keys() {
         if let Some(owner) = surface.origin.get(name) {
             if let Some(p) = program_of_key(ctx, owner) {
                 if let Some(d) = find_decl_in(p, name) {
-                    out.push(MemberEntry { name: name, kind: decl_symbol_kind(d),
-                        detail: describe_decl(d) });
+                    out.push(MemberEntry {
+                        name: name,
+                        kind: decl_symbol_kind(d),
+                        detail: describe_decl(d),
+                    });
                 }
             }
         }

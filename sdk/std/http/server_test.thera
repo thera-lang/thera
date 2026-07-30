@@ -140,7 +140,10 @@ fn serves_many_connections_concurrently() -> Result<Void, Error> {
     // they genuinely overlap rather than lining up.
     for i in 0..12 {
         let conn = net.connect_addr(addr)?;
-        io.write_all(to: conn, ('GET /n' + i.display() + ' HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n').bytes())?;
+        io.write_all(
+            to: conn,
+            ('GET /n' + i.display() + ' HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n').bytes(),
+        )?;
         pending.push(conn);
     }
     for p in pending.enumerate() {

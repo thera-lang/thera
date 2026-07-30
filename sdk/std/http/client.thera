@@ -124,7 +124,9 @@ fn port_of(_ authority: String, _ fallback: Int) -> Result<Int, wire.HttpError> 
                 match digits.to_int() {
                     Some(n) => {
                         if n < 0 || n > 65535 {
-                            Result.Err(wire.HttpError.Connect('port out of range: "' + digits + '"'))
+                            Result.Err(
+                                wire.HttpError.Connect('port out of range: "' + digits + '"')
+                            )
                         } else {
                             Result.Ok(n)
                         }
@@ -139,7 +141,10 @@ fn port_of(_ authority: String, _ fallback: Int) -> Result<Int, wire.HttpError> 
 // --- requests ---
 
 /// GET `url`.
-pub fn get(_ url: String, headers: Map<String, String> = [:]) -> Result<wire.Response, wire.HttpError> {
+pub fn get(
+    _ url: String,
+    headers: Map<String, String> = [:],
+) -> Result<wire.Response, wire.HttpError> {
     return send(wire.Request { method: 'GET', url: url, headers: headers, body: Bytes.empty() });
 }
 

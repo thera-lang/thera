@@ -85,7 +85,10 @@ fn test_generic_delims_ignores_comparison() -> Result<Void, Error> {
     // `a < b` is a comparison, not a generic — its `<` must not be recorded.
     let src = 'fn f(_ a: Int, _ b: Int) -> Bool { return a < b; }';
     let d = parse_src(src).generic_delims;
-    testing.assert(!d.opens.has(offset_of(src, '<')), message: 'comparison `<` is not a generic open')?;
+    testing.assert(
+        !d.opens.has(offset_of(src, '<')),
+        message: 'comparison `<` is not a generic open',
+    )?;
     testing.assert_eq(actual: d.opens.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -105,8 +108,10 @@ fn test_generic_delims_nested_closes_are_separate() -> Result<Void, Error> {
 fn test_generic_delims_type_params_and_generic_call() -> Result<Void, Error> {
     // Type parameters (`<T>`) and a generic static call (`Set<String>.new()`).
     let params = parse_src('fn f<T>(_ x: T) -> T { return x; }').generic_delims;
-    testing.assert(params.opens.has(offset_of('fn f<T>(_ x: T) -> T { return x; }', '<')),
-        message: 'type-param `<` recorded')?;
+    testing.assert(
+        params.opens.has(offset_of('fn f<T>(_ x: T) -> T { return x; }', '<')),
+        message: 'type-param `<` recorded',
+    )?;
     testing.assert_eq(actual: params.opens.len(), expected: 1)?;
 
     let src = 'fn f() -> Int { let s = Set<String>.new(); return s.len(); }';
@@ -115,7 +120,10 @@ fn test_generic_delims_type_params_and_generic_call() -> Result<Void, Error> {
     // delimiter, so exactly one open and one close.
     testing.assert_eq(actual: call.opens.len(), expected: 1)?;
     testing.assert_eq(actual: call.closes.len(), expected: 1)?;
-    testing.assert(call.opens.has(offset_of(src, 'Set<') + 3), message: 'generic-call `<` recorded')?;
+    testing.assert(
+        call.opens.has(offset_of(src, 'Set<') + 3),
+        message: 'generic-call `<` recorded',
+    )?;
     return Result.Ok(void);
 }
 
@@ -129,14 +137,11 @@ fn test_arithmetic_precedence() -> Result<Void, Error> {
 
 @test
 fn test_logical_and_bitwise_precedence() -> Result<Void, Error> {
-    testing.assert_eq(actual: expr_str('a || b && c'),
-        expected: '(a || (b && c))')?;
+    testing.assert_eq(actual: expr_str('a || b && c'), expected: '(a || (b && c))')?;
     // C-family bitwise: | looser than ^ looser than &, all looser than equality
     // (the classic C gotcha: `&` binds looser than `==`).
-    testing.assert_eq(actual: expr_str('1 | 2 ^ 3 & 4'),
-        expected: '(1 | (2 ^ (3 & 4)))')?;
-    testing.assert_eq(actual: expr_str('a == b & c'),
-        expected: '((a == b) & c)')?;
+    testing.assert_eq(actual: expr_str('1 | 2 ^ 3 & 4'), expected: '(1 | (2 ^ (3 & 4)))')?;
+    testing.assert_eq(actual: expr_str('a == b & c'), expected: '((a == b) & c)')?;
     return Result.Ok(void);
 }
 
@@ -147,8 +152,7 @@ fn test_unary_and_shift() -> Result<Void, Error> {
     testing.assert_eq(actual: expr_str('~b'), expected: '(~b)')?;
     // Adjacent `<`/`>` combine into shift operators.
     testing.assert_eq(actual: expr_str('1 << 2'), expected: '(1 << 2)')?;
-    testing.assert_eq(actual: expr_str('a >> b >>> c'),
-        expected: '((a >> b) >>> c)')?;
+    testing.assert_eq(actual: expr_str('a >> b >>> c'), expected: '((a >> b) >>> c)')?;
     return Result.Ok(void);
 }
 
@@ -156,15 +160,12 @@ fn test_unary_and_shift() -> Result<Void, Error> {
 fn test_postfix_chains() -> Result<Void, Error> {
     testing.assert_eq(actual: expr_str('a.b.c'), expected: 'a.b.c')?;
     testing.assert_eq(actual: expr_str('f(a, b)'), expected: 'f(a, b)')?;
-    testing.assert_eq(actual: expr_str('obj.method(x)'),
-        expected: 'obj.method(x)')?;
+    testing.assert_eq(actual: expr_str('obj.method(x)'), expected: 'obj.method(x)')?;
     testing.assert_eq(actual: expr_str('xs[0]'), expected: 'xs[0]')?;
     testing.assert_eq(actual: expr_str('compute()?'), expected: 'compute()?')?;
     // A labeled call argument and a generic call.
-    testing.assert_eq(actual: expr_str('f(x: 1, y: 2)'),
-        expected: 'f(x: 1, y: 2)')?;
-    testing.assert_eq(actual: expr_str('parse<Int>(s)'),
-        expected: 'parse<Int>(s)')?;
+    testing.assert_eq(actual: expr_str('f(x: 1, y: 2)'), expected: 'f(x: 1, y: 2)')?;
+    testing.assert_eq(actual: expr_str('parse<Int>(s)'), expected: 'parse<Int>(s)')?;
     return Result.Ok(void);
 }
 
@@ -177,29 +178,26 @@ fn test_range() -> Result<Void, Error> {
 @test
 fn test_collections_and_struct() -> Result<Void, Error> {
     testing.assert_eq(actual: expr_str('[1, 2, 3]'), expected: '[1, 2, 3]')?;
-    testing.assert_eq(actual: expr_str('Point { x: 1, y: 2 }'),
-        expected: 'Point { x: 1, y: 2 }')?;
+    testing.assert_eq(actual: expr_str('Point { x: 1, y: 2 }'), expected: 'Point { x: 1, y: 2 }')?;
     // A namespace-qualified construction of an imported type.
-    testing.assert_eq(actual: expr_str('geo.Point { x: 1, y: 2 }'),
-        expected: 'geo.Point { x: 1, y: 2 }')?;
+    testing.assert_eq(
+        actual: expr_str('geo.Point { x: 1, y: 2 }'),
+        expected: 'geo.Point { x: 1, y: 2 }',
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_bracket_map_literals() -> Result<Void, Error> {
     // The map-literal forms: `[k: v]` and the empty `[:]`.
-    testing.assert_eq(actual: expr_str("['a': 1, 'b': 2]"),
-        expected: '["a": 1, "b": 2]')?;
+    testing.assert_eq(actual: expr_str("['a': 1, 'b': 2]"), expected: '["a": 1, "b": 2]')?;
     testing.assert_eq(actual: expr_str('[:]'), expected: '[:]')?;
     // No key restriction: an arbitrary expression key commits on the `:`.
     testing.assert_eq(actual: expr_str('[k: 1]'), expected: '[k: 1]')?;
-    testing.assert_eq(actual: expr_str("[f(x): g(y)]"),
-        expected: '[f(x): g(y)]')?;
+    testing.assert_eq(actual: expr_str("[f(x): g(y)]"), expected: '[f(x): g(y)]')?;
     // Nesting composes both ways.
-    testing.assert_eq(actual: expr_str("['xs': [1, 2]]"),
-        expected: '["xs": [1, 2]]')?;
-    testing.assert_eq(actual: expr_str("[['a': 1], [:]]"),
-        expected: '[["a": 1], [:]]')?;
+    testing.assert_eq(actual: expr_str("['xs': [1, 2]]"), expected: '["xs": [1, 2]]')?;
+    testing.assert_eq(actual: expr_str("[['a': 1], [:]]"), expected: '[["a": 1], [:]]')?;
     // A later entry missing its `:` is a parse error, not a silent list.
     let bad = parse_src("fn f() -> Void { let m = [1: 'a', 2]; }");
     testing.assert(bad.has_errors(), message: 'entry without `:` is rejected')?;
@@ -213,12 +211,16 @@ fn test_brace_map_rejected_with_hint() -> Result<Void, Error> {
     // non-literal key (caught at the `:` after an expression statement).
     let lit = parse_src("fn f() -> Void { let m = {'a': 1}; }");
     testing.assert(lit.has_errors(), message: 'literal-key brace map is rejected')?;
-    testing.assert(lit.errors[0].message.contains('[k: v]'),
-        message: 'the error points at the bracket form')?;
+    testing.assert(
+        lit.errors[0].message.contains('[k: v]'),
+        message: 'the error points at the bracket form',
+    )?;
     let vkey = parse_src('fn f(_ k: String) -> Void { let m = {k: 1}; }');
     testing.assert(vkey.has_errors(), message: 'variable-key brace map is rejected')?;
-    testing.assert(vkey.errors[0].message.contains('[k: v]'),
-        message: 'the error points at the bracket form')?;
+    testing.assert(
+        vkey.errors[0].message.contains('[k: v]'),
+        message: 'the error points at the bracket form',
+    )?;
     // An empty `{}` is an empty block (value Void), not a map and not an error.
     let empty = parse_src('fn f() -> Void { let x = {}; }');
     testing.assert(!empty.has_errors(), message: '`{}` is an empty block')?;
@@ -227,28 +229,29 @@ fn test_brace_map_rejected_with_hint() -> Result<Void, Error> {
 
 @test
 fn test_lambdas() -> Result<Void, Error> {
-    testing.assert_eq(actual: expr_str('n => n + 1'),
-        expected: 'n => (n + 1)')?;
+    testing.assert_eq(actual: expr_str('n => n + 1'), expected: 'n => (n + 1)')?;
     testing.assert_eq(actual: expr_str('(a, b) => a'), expected: '(a, b) => a')?;
-    testing.assert_eq(actual: expr_str('(a: Int) => a'),
-        expected: '(a: Int) => a')?;
+    testing.assert_eq(actual: expr_str('(a: Int) => a'), expected: '(a: Int) => a')?;
     return Result.Ok(void);
 }
 
 @test
 fn test_match_and_if_expr() -> Result<Void, Error> {
-    testing.assert_eq(actual: expr_str('match x { Some(n) => n, None => 0 }'),
-        expected: 'match x { Some(n) => n, None => 0 }')?;
-    testing.assert_eq(actual: expr_str('if a { 1 } else { 2 }'),
-        expected: 'if a {...} else {...}')?;
+    testing.assert_eq(
+        actual: expr_str('match x { Some(n) => n, None => 0 }'),
+        expected: 'match x { Some(n) => n, None => 0 }',
+    )?;
+    testing.assert_eq(
+        actual: expr_str('if a { 1 } else { 2 }'),
+        expected: 'if a {...} else {...}',
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_string_interpolation() -> Result<Void, Error> {
     // The text/interp segments split; the interpolated expression is parsed.
-    testing.assert_eq(actual: expr_str("'a' + 'b'"),
-        expected: '("a" + "b")')?;
+    testing.assert_eq(actual: expr_str("'a' + 'b'"), expected: '("a" + "b")')?;
     let parsed = expr_str("'n = ${1 + 2}!'");
     testing.assert_eq(actual: parsed, expected: '"n = ${(1 + 2)}!"')?;
     return Result.Ok(void);
@@ -278,19 +281,23 @@ fn test_escaped_dollar_is_literal() -> Result<Void, Error> {
     //   '${x}'  → interpolation of x
     testing.assert_eq(
         actual: parts_desc(String.from_chars([39, 36, 123, 120, 125, 39])),
-        expected: 'I:x')?;
+        expected: 'I:x',
+    )?;
     //   '\${x}' → the literal text "${x}" (the `\$` genuinely escapes)
     testing.assert_eq(
         actual: parts_desc(String.from_chars([39, 92, 36, 123, 120, 125, 39])),
-        expected: 'T:' + String.from_chars([36, 123, 120, 125]))?;
+        expected: 'T:' + String.from_chars([36, 123, 120, 125]),
+    )?;
     //   'a\$b'  → literal text "a$b" (escaped dollar, not before a brace)
     testing.assert_eq(
         actual: parts_desc(String.from_chars([39, 97, 92, 36, 98, 39])),
-        expected: 'T:a$b')?;
+        expected: 'T:a$b',
+    )?;
     //   'a\\b'  → literal text "a\b" (escaped backslash)
     testing.assert_eq(
         actual: parts_desc(String.from_chars([39, 97, 92, 92, 98, 39])),
-        expected: 'T:a\\b')?;
+        expected: 'T:a\\b',
+    )?;
     return Result.Ok(void);
 }
 
@@ -387,7 +394,9 @@ fn test_match_arm_comma_required_after_expr_arm() -> Result<Void, Error> {
     let r = parse_src("fn f(_ x: Int) -> String { return match x { 1 => 'one' _ => 'other' }; }");
     testing.assert(r.has_errors(), message: 'comma-less expression arms are rejected')?;
     // …but optional after a `{…}` block arm and before the closing `}`.
-    let ok = parse_src("fn f(_ x: Int) -> String { return match x { 1 => { 'one' } _ => 'other' }; }");
+    let ok = parse_src(
+        "fn f(_ x: Int) -> String { return match x { 1 => { 'one' } _ => 'other' }; }"
+    );
     testing.assert(!ok.has_errors(), message: 'a block arm needs no comma')?;
     let last = parse_src("fn f(_ x: Int) -> String { return match x { _ => 'other' }; }");
     testing.assert(!last.has_errors(), message: 'the last arm needs no trailing comma')?;
@@ -528,7 +537,8 @@ fn test_binary_precedence_ladder() -> Result<Void, Error> {
     // `parse_binary` precedence match produces.
     testing.assert_eq(
         actual: expr_str('a || b && c | d ^ e & f == g < h + i * j'),
-        expected: '(a || (b && (c | (d ^ (e & (f == (g < (h + (i * j)))))))))')?;
+        expected: '(a || (b && (c | (d ^ (e & (f == (g < (h + (i * j)))))))))',
+    )?;
     return Result.Ok(void);
 }
 
@@ -542,8 +552,10 @@ fn test_import_alias_and_unqualified() -> Result<Void, Error> {
     match unq.program.decls[0] {
         Import(x) => {
             testing.assert(x.unqualified, message: 'as _ should set unqualified')?;
-            testing.assert(match x.alias { Some(_) => false, None => true },
-                message: 'as _ leaves alias None')?;
+            testing.assert(
+                match x.alias { Some(_) => false, None => true },
+                message: 'as _ leaves alias None',
+            )?;
         },
         _ => { testing.assert(false, message: 'expected an import decl')?; },
     }
@@ -586,8 +598,10 @@ fn test_import_path_interpolation_rejected() -> Result<Void, Error> {
     // An import path is a literal; interpolation is a parse error (PA9).
     let r = parse_src("import '\${x}/lib';");
     testing.assert(r.has_errors(), message: 'interpolated import should error')?;
-    testing.assert_eq(actual: r.errors[0].message,
-        expected: 'an import path cannot be interpolated')?;
+    testing.assert_eq(
+        actual: r.errors[0].message,
+        expected: 'an import path cannot be interpolated',
+    )?;
     return Result.Ok(void);
 }
 
@@ -617,24 +631,29 @@ fn test_name_spans_recorded() -> Result<Void, Error> {
     testing.assert(!r.has_errors(), message: 'fixture should parse')?;
     if let Import(im) = r.program.decls[0] {
         testing.assert_eq(actual: im.path_span.text(), expected: 'std.fs')?;
-        testing.assert_eq(actual: im.alias_span.map((s) => s.text()),
-            expected: Option.Some('f'))?;
+        testing.assert_eq(actual: im.alias_span.map((s) => s.text()), expected: Option.Some('f'))?;
     }
     if let Type(td) = r.program.decls[1] {
         testing.assert_eq(actual: td.type_params[0].bound_spans[0].text(), expected: 'Display')?;
         testing.assert_eq(actual: td.fields[0].name_span.text(), expected: 'x')?;
         if let Named(nt) = td.fields[0].type_ann {
-            testing.assert_eq(actual: nt.namespace_span.map((s) => s.text()),
-                expected: Option.Some('fs'))?;
+            testing.assert_eq(
+                actual: nt.namespace_span.map((s) => s.text()),
+                expected: Option.Some('fs'),
+            )?;
         }
     }
     if let Interface(idecl) = r.program.decls[2] {
-        testing.assert_eq(actual: idecl.super_spans.map((s) => s.text()),
-            expected: ['Display', 'Debug'])?;
+        testing.assert_eq(
+            actual: idecl.super_spans.map((s) => s.text()),
+            expected: ['Display', 'Debug'],
+        )?;
     }
     if let Impl(imp) = r.program.decls[3] {
-        testing.assert_eq(actual: imp.interface_name_span.map((s) => s.text()),
-            expected: Option.Some('Display'))?;
+        testing.assert_eq(
+            actual: imp.interface_name_span.map((s) => s.text()),
+            expected: Option.Some('Display'),
+        )?;
     }
     // A member access carries the member's own Identifier span.
     if let Field(_, _, member) = parse_expression(tokenize('obj.value').tokens) {
@@ -702,8 +721,7 @@ fn test_plain_assign_has_no_op() -> Result<Void, Error> {
 // and the block is marked synthetic (PA6).
 @test
 fn test_if_let_desugar_spans_are_synthetic() -> Result<Void, Error> {
-    if let Some(s) = first_body_stmt(
-        'fn f(_ o: Option<Int>) { if let Some(v) = o { g(v); } }') {
+    if let Some(s) = first_body_stmt('fn f(_ o: Option<Int>) { if let Some(v) = o { g(v); } }') {
         if let Expr(_, e) = s {
             if let Match(m) = e {
                 testing.assert_eq(actual: m.arms.len(), expected: 2)?;
@@ -745,20 +763,22 @@ fn test_let_else_desugar_spans_are_synthetic() -> Result<Void, Error> {
 // `else { if … }` is not (PA8 — the marker replaces span sniffing).
 @test
 fn test_else_if_wrapper_is_synthetic() -> Result<Void, Error> {
-    if let Some(s) = first_body_stmt(
-        'fn f(_ a: Bool, _ b: Bool) { if a { } else if b { } }') {
+    if let Some(s) = first_body_stmt('fn f(_ a: Bool, _ b: Bool) { if a { } else if b { } }') {
         if let If(x) = s {
-            testing.assert_eq(actual: x.else_block.map((b) => b.synthetic),
-                expected: Option.Some(true))?;
+            testing.assert_eq(
+                actual: x.else_block.map((b) => b.synthetic),
+                expected: Option.Some(true),
+            )?;
         } else {
             return Result.Err(error('expected an If stmt'));
         }
     }
-    if let Some(s) = first_body_stmt(
-        'fn f(_ a: Bool, _ b: Bool) { if a { } else { if b { } } }') {
+    if let Some(s) = first_body_stmt('fn f(_ a: Bool, _ b: Bool) { if a { } else { if b { } } }') {
         if let If(x) = s {
-            testing.assert_eq(actual: x.else_block.map((b) => b.synthetic),
-                expected: Option.Some(false))?;
+            testing.assert_eq(
+                actual: x.else_block.map((b) => b.synthetic),
+                expected: Option.Some(false),
+            )?;
             return Result.Ok(void);
         }
     }

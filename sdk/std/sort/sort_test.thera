@@ -6,11 +6,12 @@ import std.sort;
 @test
 fn test_sorted_primitives() -> Result<Void, Error> {
     testing.assert_eq(actual: sort.sorted([3, 1, 2]), expected: [1, 2, 3])?;
-    testing.assert_eq(actual: sort.sorted(['banana', 'apple', 'cherry']),
-        expected: ['apple', 'banana', 'cherry'])?;
+    testing.assert_eq(
+        actual: sort.sorted(['banana', 'apple', 'cherry']),
+        expected: ['apple', 'banana', 'cherry'],
+    )?;
     testing.assert_eq(actual: sort.sorted([2.5, 1.5, 2.0]), expected: [1.5, 2.0, 2.5])?;
-    testing.assert_eq(actual: sort.sorted([true, false, true]),
-        expected: [false, true, true])?;
+    testing.assert_eq(actual: sort.sorted([true, false, true]), expected: [false, true, true])?;
     let empty: List<Int> = [];
     testing.assert_eq(actual: sort.sorted(empty), expected: empty)?;
     return Result.Ok(void);
@@ -19,8 +20,7 @@ fn test_sorted_primitives() -> Result<Void, Error> {
 @test
 fn test_sorted_desc() -> Result<Void, Error> {
     testing.assert_eq(actual: sort.sorted_desc([3, 1, 2]), expected: [3, 2, 1])?;
-    testing.assert_eq(actual: sort.sorted_desc(['a', 'c', 'b']),
-        expected: ['c', 'b', 'a'])?;
+    testing.assert_eq(actual: sort.sorted_desc(['a', 'c', 'b']), expected: ['c', 'b', 'a'])?;
     return Result.Ok(void);
 }
 

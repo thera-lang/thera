@@ -45,7 +45,10 @@ fn assert_has(_ ls: List<String>, _ name: String) -> Result<Void, Error> {
 }
 
 fn assert_lacks(_ ls: List<String>, _ name: String) -> Result<Void, Error> {
-    return testing.assert(!ls.contains(name), message: 'expected no `${name}` in [${ls.join(', ')}]');
+    return testing.assert(
+        !ls.contains(name),
+        message: 'expected no `${name}` in [${ls.join(', ')}]',
+    );
 }
 
 const SELF_SRC: String = 'struct S { let count: Int; }\n'

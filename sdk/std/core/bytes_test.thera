@@ -95,14 +95,12 @@ fn test_write_fixed_little_endian() -> Result<Void, Error> {
 
     let b2 = BytesBuilder.new();
     b2.write_u64_le(0x0807060504030201);
-    testing.assert_eq(actual: b2.finish().to_list(),
-        expected: [1, 2, 3, 4, 5, 6, 7, 8])?;
+    testing.assert_eq(actual: b2.finish().to_list(), expected: [1, 2, 3, 4, 5, 6, 7, 8])?;
 
     // 1.0 == 0x3FF0000000000000, little-endian.
     let b3 = BytesBuilder.new();
     b3.write_f64_le(1.0);
-    testing.assert_eq(actual: b3.finish().to_list(),
-        expected: [0, 0, 0, 0, 0, 0, 0xF0, 0x3F])?;
+    testing.assert_eq(actual: b3.finish().to_list(), expected: [0, 0, 0, 0, 0, 0, 0xF0, 0x3F])?;
 
     // write_u16_le takes the low 16 bits, least-significant byte first.
     let b4 = BytesBuilder.new();
@@ -126,14 +124,12 @@ fn test_write_fixed_big_endian() -> Result<Void, Error> {
 
     let b64 = BytesBuilder.new();
     b64.write_u64_be(0x0102030405060708);
-    testing.assert_eq(actual: b64.finish().to_list(),
-        expected: [1, 2, 3, 4, 5, 6, 7, 8])?;
+    testing.assert_eq(actual: b64.finish().to_list(), expected: [1, 2, 3, 4, 5, 6, 7, 8])?;
 
     // 1.0 == 0x3FF0000000000000, big-endian (the reverse of the LE bytes).
     let bf = BytesBuilder.new();
     bf.write_f64_be(1.0);
-    testing.assert_eq(actual: bf.finish().to_list(),
-        expected: [0x3F, 0xF0, 0, 0, 0, 0, 0, 0])?;
+    testing.assert_eq(actual: bf.finish().to_list(), expected: [0x3F, 0xF0, 0, 0, 0, 0, 0, 0])?;
     return Result.Ok(void);
 }
 
@@ -164,8 +160,7 @@ fn test_write_ivarint() -> Result<Void, Error> {
     bb.write_ivarint(63);
     bb.write_ivarint(-128);
     // 0 → [0x00]; -1 → [0x7F]; 63 → [0x3F]; -128 → [0x80, 0x7F].
-    testing.assert_eq(actual: bb.finish().to_list(),
-        expected: [0x00, 0x7F, 0x3F, 0x80, 0x7F])?;
+    testing.assert_eq(actual: bb.finish().to_list(), expected: [0x00, 0x7F, 0x3F, 0x80, 0x7F])?;
     return Result.Ok(void);
 }
 
@@ -194,8 +189,7 @@ fn test_reader_u8_and_bytes() -> Result<Void, Error> {
     testing.assert_eq(actual: r.read_u8(), expected: Option.Some(10))?;
     let chunk = r.read_bytes(2);
     testing.assert(chunk.is_some())?;
-    testing.assert_eq(actual: chunk.unwrap_or(Bytes.empty()).to_list(),
-        expected: [20, 30])?;
+    testing.assert_eq(actual: chunk.unwrap_or(Bytes.empty()).to_list(), expected: [20, 30])?;
     testing.assert(r.is_empty())?;
     testing.assert_eq(actual: r.read_u8(), expected: Option.None)?; // exhausted
     testing.assert_eq(actual: r.read_bytes(1), expected: Option.None)?; // not enough left

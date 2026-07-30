@@ -255,8 +255,12 @@ impl Session {
     // an SDK file checked as the primary, or an import cycle through the
     // root; or a primary `impl` targets a type the primary doesn't declare) —
     // the caller then runs the full uncached build.
-    fn library_for(self, _ program: Program, _ canon: String,
-        _ loaded: loader.LoadedImports) -> Option<element.LibraryElement> {
+    fn library_for(
+        self,
+        _ program: Program,
+        _ canon: String,
+        _ loaded: loader.LoadedImports,
+    ) -> Option<element.LibraryElement> {
         let keys: List<String> = [];
         for p in loaded.programs {
             let k = element.file_key(p.file_path);
@@ -289,8 +293,11 @@ impl Session {
                 if self.library_cache.len() >= LIBRARY_CACHE_CAP {
                     self.evict_lru_library();
                 }
-                let built = element.build_import_library(loaded.programs,
-                    loaded.file_namespaces, loaded.file_bare_surface);
+                let built = element.build_import_library(
+                    loaded.programs,
+                    loaded.file_namespaces,
+                    loaded.file_bare_surface,
+                );
                 let members: Set<String> = Set.new();
                 for k in keys {
                     members.add(k);
@@ -299,7 +306,12 @@ impl Session {
                 built
             },
         };
-        return element.layer_primary(base, program, loaded.file_namespaces, loaded.file_bare_surface);
+        return element.layer_primary(
+            base,
+            program,
+            loaded.file_namespaces,
+            loaded.file_bare_surface,
+        );
     }
 
     // `p` (canonicalized) plus every file that transitively imports it, per
@@ -424,8 +436,14 @@ impl Session {
     // queries (hover, definition).
     pub fn load_closure(self, _ text: String, _ p: String) -> Closure {
         let pf = self.parsed_primary(loader.canonical_path(p), text);
-        let loaded = loader.load_imports(p, pf.program, self.sdk_root,
-            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
+        let loaded = loader.load_imports(
+            p,
+            pf.program,
+            self.sdk_root,
+            parse_cache: self.parse_cache,
+            overlays: self.overlays,
+            surface_cache: self.surface_cache,
+        );
         self.record_graph(loaded);
         return Closure { program: pf.program, tokens: pf.tokens, loaded: loaded };
     }
@@ -444,8 +462,14 @@ impl Session {
         let canon = loader.canonical_path(p);
         let pf = self.parsed_primary(canon, source);
         let program = pf.program;
-        let loaded = loader.load_imports(canon, program, self.sdk_root,
-            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
+        let loaded = loader.load_imports(
+            canon,
+            program,
+            self.sdk_root,
+            parse_cache: self.parse_cache,
+            overlays: self.overlays,
+            surface_cache: self.surface_cache,
+        );
         self.record_graph(loaded);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // Lex/parse errors from imported files first (root causes) — minus files
@@ -456,9 +480,14 @@ impl Session {
                 out.push(d);
             }
         }
-        let result = checker.check_files(program, loaded.programs,
-            loaded.file_namespaces, loaded.file_bare_surface, skip: skip,
-            prebuilt: self.library_for(program, canon, loaded));
+        let result = checker.check_files(
+            program,
+            loaded.programs,
+            loaded.file_namespaces,
+            loaded.file_bare_surface,
+            skip: skip,
+            prebuilt: self.library_for(program, canon, loaded),
+        );
         for d in result.errors {
             out.push(d);
         }
@@ -497,17 +526,28 @@ impl Session {
             return failed(pf.diagnostics);
         }
         let program = pf.program;
-        let loaded = loader.load_imports(canon, program, self.sdk_root,
-            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
+        let loaded = loader.load_imports(
+            canon,
+            program,
+            self.sdk_root,
+            parse_cache: self.parse_cache,
+            overlays: self.overlays,
+            surface_cache: self.surface_cache,
+        );
         self.record_graph(loaded);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // An imported file that failed to lex/parse/resolve leaves the closure
         // incomplete, so its diagnostics (root causes) block codegen alongside
         // any check errors.
         let import_diags = loaded.diagnostics;
-        let result = checker.check_files(program, loaded.programs,
-            loaded.file_namespaces, loaded.file_bare_surface, skip: skip,
-            prebuilt: self.library_for(program, canon, loaded));
+        let result = checker.check_files(
+            program,
+            loaded.programs,
+            loaded.file_namespaces,
+            loaded.file_bare_surface,
+            skip: skip,
+            prebuilt: self.library_for(program, canon, loaded),
+        );
         self.store_records(result.records);
         // Warnings ride the same list but don't gate compilation — only
         // error-severity diagnostics (and import-closure failures) block.
@@ -518,7 +558,12 @@ impl Session {
             return failed(import_diags);
         }
         mark_checked_clean(self.checked, canon, loaded.programs, skip, []);
-        let cg = codegen.compile_program(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
+        let cg = codegen.compile_program(
+            program,
+            loaded.programs,
+            loaded.file_namespaces,
+            loaded.file_bare_surface,
+        );
         if cg.errors.len() > 0 {
             return failed(cg.errors);
         }
@@ -658,8 +703,12 @@ fn failed(_ diagnostics: List<diagnostic.Diagnostic>) -> CompileOutcome {
 // user program) plus everything already checked clean this run. The primary —
 // the file explicitly asked about — is exempt from the SDK skip (checking an
 // SDK file directly must still check it), but not from `checked`.
-fn skip_keys(_ primary_key: String, _ programs: List<Program>, _ sdk_root: Option<String>,
-    _ checked: Set<String>) -> Set<String> {
+fn skip_keys(
+    _ primary_key: String,
+    _ programs: List<Program>,
+    _ sdk_root: Option<String>,
+    _ checked: Set<String>,
+) -> Set<String> {
     let skip: Set<String> = Set.new();
     if let Some(prefix) = sdk_prefix(sdk_root) {
         for p in programs {
@@ -689,8 +738,13 @@ fn sdk_prefix(_ sdk_root: Option<String>) -> Option<String> {
 // Record which closure files checked *clean* this run: every non-skipped file
 // with no diagnostic attributed to it (an unattributed diagnostic is the
 // primary's, conservatively). Skipped files keep their existing state.
-fn mark_checked_clean(_ checked: Set<String>, _ primary_key: String,
-    _ programs: List<Program>, _ skip: Set<String>, _ diags: List<diagnostic.Diagnostic>) -> Void {
+fn mark_checked_clean(
+    _ checked: Set<String>,
+    _ primary_key: String,
+    _ programs: List<Program>,
+    _ skip: Set<String>,
+    _ diags: List<diagnostic.Diagnostic>,
+) -> Void {
     let error_files: Set<String> = Set.new();
     let mut primary_dirty = false;
     for d in diags {
@@ -750,19 +804,25 @@ fn surface_signature(_ p: Program) -> String {
             Type(x) => {
                 if x.is_pub {
                     let fields = x.fields.map((f) => field_sig(f));
-                    lines.push('type ${x.name}${type_params_sig(x.type_params)} { ${fields.join('; ')} }');
+                    lines.push(
+                        'type ${x.name}${type_params_sig(x.type_params)} { ${fields.join('; ')} }'
+                    );
                 }
             },
             Enum(x) => {
                 if x.is_pub {
                     let vs = x.variants.map((v) => variant_sig(v));
-                    lines.push('enum ${x.name}${type_params_sig(x.type_params)} { ${vs.join(' | ')} }');
+                    lines.push(
+                        'enum ${x.name}${type_params_sig(x.type_params)} { ${vs.join(' | ')} }'
+                    );
                 }
             },
             Interface(x) => {
                 if x.is_pub {
                     let ms = x.methods.map((m) => fn_sig(m));
-                    lines.push('interface ${x.name}${type_params_sig(x.type_params)}: ${x.super_interfaces.join('+')} { ${ms.join('; ')} }');
+                    lines.push(
+                        'interface ${x.name}${type_params_sig(x.type_params)}: ${x.super_interfaces.join('+')} { ${ms.join('; ')} }'
+                    );
                 }
             },
             Const(x) => {
@@ -785,7 +845,9 @@ fn surface_signature(_ p: Program) -> String {
                     None => '',
                 };
                 let ms = x.methods.filter((m) => m.is_pub).map((m) => fn_sig(m));
-                lines.push('impl${type_params_sig(x.type_params)} ${iface}for ${x.type_name} { ${ms.join('; ')} }');
+                lines.push(
+                    'impl${type_params_sig(x.type_params)} ${iface}for ${x.type_name} { ${ms.join('; ')} }'
+                );
             },
             Import(x) => {
                 if x.is_pub {

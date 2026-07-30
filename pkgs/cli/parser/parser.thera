@@ -234,12 +234,7 @@ impl Parser {
         } else {
             synthetic_span(self.current().span)
         };
-        return Token {
-            kind: kind,
-            span: anchor,
-            value: Option.Some(''),
-            interps: [],
-        };
+        return Token { kind: kind, span: anchor, value: Option.Some(''), interps: [] };
     }
 
     // Records an error and enters panic mode, to be unwound at the declaration
@@ -527,8 +522,7 @@ impl Parser {
             // The old struct form `type Name = { … }` is gone — structs are now
             // `struct Name { … }`. (`native type` is handled above; a transparent
             // `type X = Y` alias may take this branch later.)
-            self.fail('struct definitions use `struct Name { … }`, '
-                + 'not `type Name = { … }`');
+            self.fail('struct definitions use `struct Name { … }`, ' + 'not `type Name = { … }`');
             // Recovery (`parse_decl_or_recover` → `sync_to_decl`) skips past this
             // `type` — it is no longer a decl-sync point (see `starts_decl`), so
             // there is no risk of re-entering this branch in a loop.
@@ -652,8 +646,13 @@ impl Parser {
         });
     }
 
-    fn parse_fn_decl(self, _ decorators: List<Decorator>, _ is_native: Bool,
-        _ is_pub: Bool, _ start: SourceSpan) -> FnDecl {
+    fn parse_fn_decl(
+        self,
+        _ decorators: List<Decorator>,
+        _ is_native: Bool,
+        _ is_pub: Bool,
+        _ start: SourceSpan,
+    ) -> FnDecl {
         if is_native {
             self.advance(); // 'native'
         }
@@ -872,8 +871,11 @@ impl Parser {
             self.expect(TokenKind.Colon, ':');
             let ftype = self.parse_type_ref();
             fields.push(FieldDef {
-                is_mut: is_mut, name: fname_tok.lexeme(), name_span: fname_tok.span,
-                type_ann: ftype, span: start.cover(type_span(ftype)),
+                is_mut: is_mut,
+                name: fname_tok.lexeme(),
+                name_span: fname_tok.span,
+                type_ann: ftype,
+                span: start.cover(type_span(ftype)),
             });
             // A field is *terminated* by `;` (not separated by `,`). A dedicated
             // message points a `,` at the target form.
@@ -905,7 +907,10 @@ impl Parser {
         let mut first_tok = self.expect(TokenKind.Identifier, 'type or interface name');
         if self.match_kind(TokenKind.Dot) {
             first_ns = Option.Some(first_tok.lexeme());
-            first_tok = self.expect(TokenKind.Identifier, 'type or interface name after "${first_tok.lexeme()}."');
+            first_tok = self.expect(
+                TokenKind.Identifier,
+                'type or interface name after "${first_tok.lexeme()}."',
+            );
         }
         // The `<…>` after the first name is ambiguous until we see `for`: it is
         // either the interface's type arguments (full type refs, possibly nested
@@ -947,7 +952,8 @@ impl Parser {
                 if !bare {
                     self.fail_at(
                         'an impl type parameter must be a bare name (`impl ${type_name}<T>`), found `${type_span(ref).text()}`',
-                        type_span(ref));
+                        type_span(ref),
+                    );
                     return self.err_decl();
                 }
             }
@@ -1179,8 +1185,10 @@ impl Parser {
         // state, and the LSP wants `E` to resolve so variant completion has an
         // anchor. Non-fatal, so a following declaration still parses. §3/§5.
         if variants.len() == 0 {
-            self.record_error('an enum must declare at least one variant',
-                start.cover(rbrace.span));
+            self.record_error(
+                'an enum must declare at least one variant',
+                start.cover(rbrace.span),
+            );
         }
         return Decl.Enum(EnumDecl {
             span: start.cover(rbrace.span),
@@ -1226,7 +1234,10 @@ impl Parser {
         if self.match_kind(TokenKind.Dot) {
             namespace = Option.Some(first_tok.lexeme());
             namespace_span = Option.Some(first_tok.span);
-            name_tok = self.expect(TokenKind.Identifier, 'type name after "${first_tok.lexeme()}."');
+            name_tok = self.expect(
+                TokenKind.Identifier,
+                'type name after "${first_tok.lexeme()}."',
+            );
         }
         let args: List<TypeRef> = [];
         let mut end = name_tok.span;
@@ -1611,7 +1622,8 @@ impl Parser {
         if !block_diverges(else_block) {
             self.fail_at(
                 'the `else` of a `let … else` must exit the block (end in `return` or `throw`)',
-                block_span(else_block));
+                block_span(else_block),
+            );
         }
         let span = start.span.cover(block_span(else_block));
         // The wildcard is fabricated (no `_` in source): a synthetic zero-length
@@ -1626,7 +1638,8 @@ impl Parser {
         if binds.len() > 1 {
             self.fail_at(
                 '`let … else` binds a single variable; use `match` for multiple bindings',
-                span);
+                span,
+            );
         }
         if binds.len() == 0 {
             // Assertion form: refute-or-diverge, binding nothing. The empty
@@ -1637,12 +1650,18 @@ impl Parser {
                 span: pattern_span(pattern),
                 pattern: pattern,
                 body: Expr.Block(ok_span, Block {
-                    start_span: ok_span, end_span: ok_span, stmts: [], tail: Option.None,
+                    start_span: ok_span,
+                    end_span: ok_span,
+                    stmts: [],
+                    tail: Option.None,
                     synthetic: true,
                 }),
             };
             return Stmt.Expr(span, Expr.Match(MatchExpr {
-                span: span, origin: MatchOrigin.LetElse, subject: subject, arms: [ok_arm, else_arm],
+                span: span,
+                origin: MatchOrigin.LetElse,
+                subject: subject,
+                arms: [ok_arm, else_arm],
             }));
         }
         // Single binding: `let v = match subject { PATTERN => v, _ => { else } };`
@@ -1666,7 +1685,10 @@ impl Parser {
             name_span: name_span,
             type_ann: Option.None,
             value: Expr.Match(MatchExpr {
-                span: span, origin: MatchOrigin.LetElse, subject: subject, arms: [ok_arm, else_arm],
+                span: span,
+                origin: MatchOrigin.LetElse,
+                subject: subject,
+                arms: [ok_arm, else_arm],
             }),
         });
     }
@@ -1780,8 +1802,7 @@ impl Parser {
                 else_block = Option.Some(eb);
             }
         } else if require_else {
-            self.fail_at('an `if` used as a value needs an `else` branch',
-                block_span(then_block));
+            self.fail_at('an `if` used as a value needs an `else` branch', block_span(then_block));
             return self.err_expr();
         }
         return Expr.If(IfExpr {
@@ -1820,8 +1841,7 @@ impl Parser {
                 else_expr = Option.Some(Expr.Block(block_span(eb), eb));
             }
         } else if require_else {
-            self.fail_at('an `if` used as a value needs an `else` branch',
-                block_span(then_block));
+            self.fail_at('an `if` used as a value needs an `else` branch', block_span(then_block));
             return self.err_expr();
         }
         let span = start.span.cover(end);
@@ -2054,7 +2074,9 @@ impl Parser {
     }
 
     fn parse_unary(self, _ allow_struct: Bool) -> Expr {
-        if self.check(TokenKind.Bang) || self.check(TokenKind.Minus) || self.check(TokenKind.Tilde) {
+        if self.check(TokenKind.Bang) || self.check(
+            TokenKind.Minus
+        ) || self.check(TokenKind.Tilde) {
             let op = self.advance();
             let operand = self.parse_unary(allow_struct);
             return Expr.Unary(op.span.cover(expr_span(operand)), op.span.text(), operand);
@@ -2069,8 +2091,11 @@ impl Parser {
             if self.check(TokenKind.Dot) {
                 self.advance();
                 let field = self.expect(TokenKind.Identifier, 'field or method name');
-                expr = Expr.Field(expr_span(expr).cover(field.span), expr,
-                    Identifier { name: field.lexeme(), span: field.span });
+                expr = Expr.Field(
+                    expr_span(expr).cover(field.span),
+                    expr,
+                    Identifier { name: field.lexeme(), span: field.span },
+                );
             } else if self.check(TokenKind.LParen) {
                 let args = self.parse_call_args();
                 let end = self.prev_span();
@@ -2099,10 +2124,18 @@ impl Parser {
                     // The `<...>` binds the receiver type's parameters; the method
                     // name (and any method-own `<...>`) follow.
                     self.advance(); // .
-                    let method = self.expect(TokenKind.Identifier, 'method name after `Type<...>.`');
-                    let callee = Expr.Field(expr_span(expr).cover(method.span), expr,
-                        Identifier { name: method.lexeme(), span: method.span });
-                    let method_type_args = if self.check(TokenKind.Lt) && self.looks_like_type_arg_list() {
+                    let method = self.expect(
+                        TokenKind.Identifier,
+                        'method name after `Type<...>.`',
+                    );
+                    let callee = Expr.Field(
+                        expr_span(expr).cover(method.span),
+                        expr,
+                        Identifier { name: method.lexeme(), span: method.span },
+                    );
+                    let method_type_args = if self.check(
+                        TokenKind.Lt
+                    ) && self.looks_like_type_arg_list() {
                         self.parse_type_arg_list()
                     } else {
                         []
@@ -2296,7 +2329,9 @@ impl Parser {
                         span = name_tok.span.cover(type_span(ty));
                         type_ann = Option.Some(ty);
                     }
-                    params.push(LambdaParam { span: span, name: name_tok.lexeme(), type_ann: type_ann });
+                    params.push(
+                        LambdaParam { span: span, name: name_tok.lexeme(), type_ann: type_ann }
+                    );
                     if !self.match_kind(TokenKind.Comma) {
                         going = false;
                     }
@@ -2478,7 +2513,12 @@ impl Parser {
         return Expr.MapLit(start.span.cover(rbracket.span), entries);
     }
 
-    fn parse_struct_literal(self, _ namespace: Option<String>, _ type_name: String, _ start: SourceSpan) -> Expr {
+    fn parse_struct_literal(
+        self,
+        _ namespace: Option<String>,
+        _ type_name: String,
+        _ start: SourceSpan,
+    ) -> Expr {
         self.advance(); // {
         let fields: List<FieldInit> = [];
         let mut going = true;
@@ -2487,7 +2527,9 @@ impl Parser {
             self.expect(TokenKind.Colon, ':');
             let fval = self.parse_expr();
             fields.push(FieldInit {
-                name: fname_tok.lexeme(), name_span: fname_tok.span, value: fval,
+                name: fname_tok.lexeme(),
+                name_span: fname_tok.span,
+                value: fval,
             });
             if !self.match_kind(TokenKind.Comma) {
                 going = false;
@@ -2634,7 +2676,9 @@ impl Parser {
                 let expr_source = String.from_chars(cps.slice(interp_start, i - 1));
                 let lex_result = tokenize(expr_source);
                 for le in lex_result.errors {
-                    self.errors.push(diagnostic.at(le.message, rebase_span(le.span, expr_source, region)));
+                    self.errors.push(
+                        diagnostic.at(le.message, rebase_span(le.span, expr_source, region))
+                    );
                 }
                 if lex_result.tokens.len() > 1 {
                     let sub = Parser {
@@ -2653,7 +2697,8 @@ impl Parser {
                     if !sub.panicking && !sub.current().is_eof() {
                         self.errors.push(diagnostic.at(
                             'unexpected token after interpolated expression: "${sub.current().span.text()}"',
-                            sub.current().span));
+                            sub.current().span,
+                        ));
                     }
                     parts.push(StringPart.Interp(region, expr));
                 } else {

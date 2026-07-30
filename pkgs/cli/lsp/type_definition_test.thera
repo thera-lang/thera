@@ -53,16 +53,17 @@ fn point_decl() -> Int {
 @test
 fn test_inferred_local_at_a_use_site() -> Result<Void, Error> {
     // `return p` — the use-site ident's committed (inferred) type is `Point`.
-    testing.assert_eq(actual: target_offset(SRC, at(SRC, 'return p; }', 7)),
-        expected: point_decl())?;
+    testing.assert_eq(
+        actual: target_offset(SRC, at(SRC, 'return p; }', 7)),
+        expected: point_decl(),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_inferred_local_at_its_let_name() -> Result<Void, Error> {
     // The `p` of `let p = …` — the checker stamps the `let` name.
-    testing.assert_eq(actual: target_offset(SRC, at(SRC, 'let p =', 4)),
-        expected: point_decl())?;
+    testing.assert_eq(actual: target_offset(SRC, at(SRC, 'let p =', 4)), expected: point_decl())?;
     return Result.Ok(void);
 }
 
@@ -70,15 +71,19 @@ fn test_inferred_local_at_its_let_name() -> Result<Void, Error> {
 fn test_annotated_param_at_its_declaration() -> Result<Void, Error> {
     // The `pt` of `_ pt: Point` — no use-site record at a parameter's own
     // name, so the written annotation's named head answers.
-    testing.assert_eq(actual: target_offset(SRC, at(SRC, '_ pt: Point', 2)),
-        expected: point_decl())?;
+    testing.assert_eq(
+        actual: target_offset(SRC, at(SRC, '_ pt: Point', 2)),
+        expected: point_decl(),
+    )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_annotated_param_at_a_use_site() -> Result<Void, Error> {
-    testing.assert_eq(actual: target_offset(SRC, at(SRC, 'return pt;', 7)),
-        expected: point_decl())?;
+    testing.assert_eq(
+        actual: target_offset(SRC, at(SRC, 'return pt;', 7)),
+        expected: point_decl(),
+    )?;
     return Result.Ok(void);
 }
 
@@ -86,8 +91,10 @@ fn test_annotated_param_at_a_use_site() -> Result<Void, Error> {
 fn test_a_type_name_is_its_own_type() -> Result<Void, Error> {
     // The `Point` of `-> Point {` — an annotation's type name behaves like
     // go-to-definition, so the request is also useful on annotations.
-    testing.assert_eq(actual: target_offset(SRC, at(SRC, '-> Point {', 3)),
-        expected: point_decl())?;
+    testing.assert_eq(
+        actual: target_offset(SRC, at(SRC, '-> Point {', 3)),
+        expected: point_decl(),
+    )?;
     return Result.Ok(void);
 }
 
@@ -95,8 +102,10 @@ fn test_a_type_name_is_its_own_type() -> Result<Void, Error> {
 fn test_self_resolves_to_the_impl_type() -> Result<Void, Error> {
     let src = 'struct S { let n: Int; }\n'
         + 'impl S { fn get(self) -> Int { return self.n; } }\n';
-    testing.assert_eq(actual: target_offset(src, at(src, 'return self', 7)),
-        expected: at(src, 'struct S', 7))?;
+    testing.assert_eq(
+        actual: target_offset(src, at(src, 'return self', 7)),
+        expected: at(src, 'struct S', 7),
+    )?;
     return Result.Ok(void);
 }
 

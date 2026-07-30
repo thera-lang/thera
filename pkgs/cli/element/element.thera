@@ -129,28 +129,49 @@ pub struct TypeDefElement {
 
 // --- constructors for skeleton elements (resolver pass 1) ---
 
-pub fn new_struct(_ owner: String, _ name: String, _ type_params: List<String>,
-    name_span: SourceSpan = no_span()) -> TypeDefElement {
+pub fn new_struct(
+    _ owner: String,
+    _ name: String,
+    _ type_params: List<String>,
+    name_span: SourceSpan = no_span(),
+) -> TypeDefElement {
     return empty_def(owner, name, TypeDefKind.Struct, type_params, name_span);
 }
 
-pub fn new_enum(_ owner: String, _ name: String, _ type_params: List<String>,
-    name_span: SourceSpan = no_span()) -> TypeDefElement {
+pub fn new_enum(
+    _ owner: String,
+    _ name: String,
+    _ type_params: List<String>,
+    name_span: SourceSpan = no_span(),
+) -> TypeDefElement {
     return empty_def(owner, name, TypeDefKind.Enum, type_params, name_span);
 }
 
-pub fn new_interface(_ owner: String, _ name: String, _ type_params: List<String>,
-    name_span: SourceSpan = no_span()) -> TypeDefElement {
+pub fn new_interface(
+    _ owner: String,
+    _ name: String,
+    _ type_params: List<String>,
+    name_span: SourceSpan = no_span(),
+) -> TypeDefElement {
     return empty_def(owner, name, TypeDefKind.Interface, type_params, name_span);
 }
 
-pub fn new_builtin(_ owner: String, _ name: String, _ type_params: List<String>,
-    name_span: SourceSpan = no_span()) -> TypeDefElement {
+pub fn new_builtin(
+    _ owner: String,
+    _ name: String,
+    _ type_params: List<String>,
+    name_span: SourceSpan = no_span(),
+) -> TypeDefElement {
     return empty_def(owner, name, TypeDefKind.Builtin, type_params, name_span);
 }
 
-fn empty_def(_ owner: String, _ name: String, _ kind: TypeDefKind, _ type_params: List<String>,
-    _ name_span: SourceSpan) -> TypeDefElement {
+fn empty_def(
+    _ owner: String,
+    _ name: String,
+    _ kind: TypeDefKind,
+    _ type_params: List<String>,
+    _ name_span: SourceSpan,
+) -> TypeDefElement {
     return TypeDefElement {
         name: name,
         name_span: name_span,
@@ -269,7 +290,10 @@ pub struct LibraryElement {
 }
 
 // The namespaces visible in `file` — the import bindings of that file alone.
-pub fn namespaces_in(_ lib: LibraryElement, _ file: Option<String>) -> Map<String, LibraryNamespace> {
+pub fn namespaces_in(
+    _ lib: LibraryElement,
+    _ file: Option<String>,
+) -> Map<String, LibraryNamespace> {
     if let Some(m) = lib.file_namespaces.get(file_key(file)) { return m; }
     // A file absent from the table (e.g. an in-process build with no closure) has
     // no namespaces — an empty map. (`{}` here as a bare arm would be a block, so

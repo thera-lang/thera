@@ -36,30 +36,56 @@ pub fn build_symbols(_ program: Program) -> Json {
     for decl in program.decls {
         match decl {
             Fn(d) => {
-                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
+                symbols.push(
+                    make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None)
+                );
             },
             Type(d) => {
-                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
+                symbols.push(
+                    make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None)
+                );
             },
             Const(d) => {
-                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
+                symbols.push(
+                    make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None)
+                );
             },
             Let(d) => {
-                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
+                symbols.push(
+                    make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None)
+                );
             },
             Enum(d) => {
-                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span,
-                    Option.Some(variant_symbols(d.variants))));
+                symbols.push(make_symbol(
+                    d.name,
+                    decl_kind(decl),
+                    d.is_pub,
+                    d.span,
+                    d.name_span,
+                    Option.Some(variant_symbols(d.variants)),
+                ));
             },
             Interface(d) => {
-                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span,
-                    Option.Some(method_symbols(d.methods))));
+                symbols.push(make_symbol(
+                    d.name,
+                    decl_kind(decl),
+                    d.is_pub,
+                    d.span,
+                    d.name_span,
+                    Option.Some(method_symbols(d.methods)),
+                ));
             },
             Impl(d) => {
                 // An impl isn't `pub`-able; its name is `Iface for Type` (or just
                 // `Type` for an inherent impl), and its methods are children.
-                symbols.push(make_symbol(impl_label(d), decl_kind(decl), false, d.span, d.name_span,
-                    Option.Some(method_symbols(d.methods))));
+                symbols.push(make_symbol(
+                    impl_label(d),
+                    decl_kind(decl),
+                    false,
+                    d.span,
+                    d.name_span,
+                    Option.Some(method_symbols(d.methods)),
+                ));
             },
             Import(_) => void,
         }
@@ -92,8 +118,14 @@ fn variant_symbols(_ variants: List<EnumVariant>) -> List<Json> {
 
 // One `DocumentSymbol`: `detail` is "pub" when `is_pub`; `children` is present
 // only for container symbols (enums/interfaces/impls).
-fn make_symbol(_ name: String, _ kind: Int, _ is_pub: Bool, _ range_span: SourceSpan,
-    _ sel_span: SourceSpan, _ children: Option<List<Json>>) -> Json {
+fn make_symbol(
+    _ name: String,
+    _ kind: Int,
+    _ is_pub: Bool,
+    _ range_span: SourceSpan,
+    _ sel_span: SourceSpan,
+    _ children: Option<List<Json>>,
+) -> Json {
     let m: Map<String, Json> = [
         'name': json.str(name),
         'kind': json.int(kind),

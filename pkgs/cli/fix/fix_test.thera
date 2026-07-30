@@ -20,7 +20,8 @@ fn check(_ src: String, _ want: String) -> Result<Void, Error> {
 fn rewrites_some_none_on_one_line() -> Result<Void, Error> {
     return check(
         'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => { return v; }, None => {} }\n    return 0;\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n');
+        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n',
+    );
 }
 
 @test
@@ -48,7 +49,8 @@ fn wraps_a_bare_body_in_braces() -> Result<Void, Error> {
     // `if let` needs a block; a bare-expression arm is wrapped.
     return check(
         'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => process(v), _ => {} }\n    return 0;\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { process(v) }\n    return 0;\n}\n');
+        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { process(v) }\n    return 0;\n}\n',
+    );
 }
 
 @test
@@ -57,7 +59,8 @@ fn wraps_a_bare_return_body_as_a_statement() -> Result<Void, Error> {
     // a block's tail expression (unlike a value body, which can).
     return check(
         'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => return v, None => {} }\n    return 0;\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n');
+        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n',
+    );
 }
 
 @test
@@ -152,7 +155,8 @@ fn handles_a_complex_subject() -> Result<Void, Error> {
     // The scrutinee is sliced verbatim, however complex.
     return check(
         'fn f(_ m: Map<String, Int>) -> Int {\n    match m.get(name) { Some(v) => { return v; }, None => {} }\n    return 0;\n}\n',
-        'fn f(_ m: Map<String, Int>) -> Int {\n    if let Some(v) = m.get(name) { return v; }\n    return 0;\n}\n');
+        'fn f(_ m: Map<String, Int>) -> Int {\n    if let Some(v) = m.get(name) { return v; }\n    return 0;\n}\n',
+    );
 }
 
 @test
@@ -165,7 +169,8 @@ fn rewrites_every_site() -> Result<Void, Error> {
         'fn f(_ a: Option<Int>, _ b: Option<Int>) -> Int {\n'
         + '    if let Some(v) = a { return v; }\n'
         + '    if let Some(w) = b { return w; }\n'
-        + '    return 0;\n}\n');
+        + '    return 0;\n}\n',
+    );
 }
 
 // --- unwrap_or / unwrap_or_else ---
@@ -176,7 +181,8 @@ fn unwrap_or_eager_for_a_cheap_fallback() -> Result<Void, Error> {
     // behavior-preserving.
     return check(
         'fn f(_ o: Option<Int>) -> Int {\n    return match o { Some(v) => v, None => 0 };\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    return o.unwrap_or(0);\n}\n');
+        'fn f(_ o: Option<Int>) -> Int {\n    return o.unwrap_or(0);\n}\n',
+    );
 }
 
 @test
@@ -185,7 +191,8 @@ fn unwrap_or_else_for_a_computed_fallback() -> Result<Void, Error> {
     // case — so it becomes `unwrap_or_else`.
     return check(
         'fn f(_ o: Option<Int>) -> Int {\n    return match o { Some(v) => v, None => compute() };\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    return o.unwrap_or_else(() => compute());\n}\n');
+        'fn f(_ o: Option<Int>) -> Int {\n    return o.unwrap_or_else(() => compute());\n}\n',
+    );
 }
 
 @test
@@ -194,14 +201,16 @@ fn unwrap_or_else_threads_the_error_binding() -> Result<Void, Error> {
     // that uses `e` carries it through.
     return check(
         'fn f(_ r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(e) => recover(e) };\n}\n',
-        'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or_else((e) => recover(e));\n}\n');
+        'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or_else((e) => recover(e));\n}\n',
+    );
 }
 
 @test
 fn unwrap_or_eager_for_a_discarded_result_error() -> Result<Void, Error> {
     return check(
         'fn f(_ r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(_) => fallback };\n}\n',
-        'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or(fallback);\n}\n');
+        'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or(fallback);\n}\n',
+    );
 }
 
 // --- ? (error propagation) ---
@@ -214,7 +223,8 @@ fn rewrites_result_propagation_to_question() -> Result<Void, Error> {
         + '    return Result.Ok(v);\n}\n',
         'fn f(_ r: Result<Int, Error>) -> Result<Int, Error> {\n'
         + '    let v = r?;\n'
-        + '    return Result.Ok(v);\n}\n');
+        + '    return Result.Ok(v);\n}\n',
+    );
 }
 
 @test
@@ -225,7 +235,8 @@ fn rewrites_option_propagation_to_question() -> Result<Void, Error> {
         + '    return Option.Some(v);\n}\n',
         'fn f(_ o: Option<Int>) -> Option<Int> {\n'
         + '    let v = o?;\n'
-        + '    return Option.Some(v);\n}\n');
+        + '    return Option.Some(v);\n}\n',
+    );
 }
 
 @test
@@ -235,7 +246,8 @@ fn question_parenthesizes_a_loose_subject() -> Result<Void, Error> {
         'fn f(_ a: Result<Int, Error>) -> Result<Int, Error> {\n'
         + '    return match a + b { Ok(x) => x, Err(e) => return Result.Err(e) };\n}\n',
         'fn f(_ a: Result<Int, Error>) -> Result<Int, Error> {\n'
-        + '    return (a + b)?;\n}\n');
+        + '    return (a + b)?;\n}\n',
+    );
 }
 
 // --- map ---
@@ -244,7 +256,8 @@ fn question_parenthesizes_a_loose_subject() -> Result<Void, Error> {
 fn rewrites_a_some_rewrap_to_map() -> Result<Void, Error> {
     return check(
         'fn f(_ o: Option<Int>) -> Option<Int> {\n    return match o { Some(v) => Option.Some(v + 1), None => Option.None };\n}\n',
-        'fn f(_ o: Option<Int>) -> Option<Int> {\n    return o.map((v) => v + 1);\n}\n');
+        'fn f(_ o: Option<Int>) -> Option<Int> {\n    return o.map((v) => v + 1);\n}\n',
+    );
 }
 
 // --- let … else ---
@@ -253,7 +266,8 @@ fn rewrites_a_some_rewrap_to_map() -> Result<Void, Error> {
 fn rewrites_a_let_bound_match_to_let_else() -> Result<Void, Error> {
     return check(
         'fn f(_ o: Option<Int>) -> Int {\n    let x = match o { Some(v) => v, None => { return 0; } };\n    return x;\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    let Some(x) = o else { return 0; };\n    return x;\n}\n');
+        'fn f(_ o: Option<Int>) -> Int {\n    let Some(x) = o else { return 0; };\n    return x;\n}\n',
+    );
 }
 
 @test
@@ -283,7 +297,9 @@ fn only_filter_restricts_to_named_rules() -> Result<Void, Error> {
         + '    match o { Some(v) => { return v; }, None => {} }\n'
         + '    return 0;\n}\n';
     testing.assert_eq(actual: fix_source(src, ['match-to-unwrap-or']), expected: src)?;
-    testing.assert(fix_source(src, ['match-to-if-let']).contains('if let Some(v) = o'),
-        message: 'the named rule is applied')?;
+    testing.assert(
+        fix_source(src, ['match-to-if-let']).contains('if let Some(v) = o'),
+        message: 'the named rule is applied',
+    )?;
     return Result.Ok(void);
 }

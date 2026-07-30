@@ -136,7 +136,10 @@ fn test_signature_help_on_string_receiver() -> Result<Void, Error> {
     };
     match signature_help_at(ctx, src, at(src, 's.slice(0, ', 11)) {
         Some(info) => {
-            testing.assert_eq(actual: info.label, expected: 'fn slice(self, start: Int, end: Int) -> String')?;
+            testing.assert_eq(
+                actual: info.label,
+                expected: 'fn slice(self, start: Int, end: Int) -> String',
+            )?;
             testing.assert_eq(actual: info.params.join('; '), expected: 'start: Int; end: Int')?;
             testing.assert_eq(actual: info.active_param, expected: 1)?;
         },
@@ -150,8 +153,10 @@ fn test_signature_help_on_string_receiver() -> Result<Void, Error> {
 fn test_no_signature_help_on_the_callee_name() -> Result<Void, Error> {
     let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
         + 'fn f() -> Int { return add(1, 2); }\n';
-    testing.assert(help_at(src, at(src, 'return add(1', 8)).is_none(),
-        message: 'no help on the callee name')?;
+    testing.assert(
+        help_at(src, at(src, 'return add(1', 8)).is_none(),
+        message: 'no help on the callee name',
+    )?;
     return Result.Ok(void);
 }
 

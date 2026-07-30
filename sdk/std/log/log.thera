@@ -58,11 +58,7 @@ struct Config {
     let mut format: Format;
 }
 
-let config: Config = Config {
-    default_level: Level.Info,
-    filters: [:],
-    format: Format.Text,
-};
+let config: Config = Config { default_level: Level.Info, filters: [:], format: Format.Text };
 
 // --- level ranks ---
 
@@ -235,7 +231,12 @@ pub fn named(_ name: String) -> Logger {
 /// `sink`, rendered as `format`. Independent of the global config — the
 /// capability form to pass into testable logic (point it at a `StringWriter` and
 /// assert on the output), or to log to a file.
-pub fn to_writer(_ name: String, _ sink: io.Writer, _ min_level: Level, _ format: Format) -> Logger {
+pub fn to_writer(
+    _ name: String,
+    _ sink: io.Writer,
+    _ min_level: Level,
+    _ format: Format,
+) -> Logger {
     return WriterLogger { name: name, sink: sink, min_level: min_level, format: format };
 }
 
@@ -323,7 +324,9 @@ fn apply_spec(_ spec: String) -> Void {
 fn apply_directive(_ directive: String) -> Void {
     let fields = directive.split('=');
     if fields.len() == 2 {
-        if let Some(level) = parse_level(fields[1].trim()) { set_level_for(fields[0].trim(), level) };
+        if let Some(level) = parse_level(fields[1].trim()) {
+            set_level_for(fields[0].trim(), level)
+        };
     } else {
         if let Some(level) = parse_level(directive) { set_level(level) };
     }

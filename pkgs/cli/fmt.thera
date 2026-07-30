@@ -1,9 +1,23 @@
 // The `thera fmt` command.
 //
-// A line-preserving formatter: it keeps every line break the author chose (no
-// automatic line breaking or joining — see docs/roadmap.md) and normalizes the
-// vertical layout — re-indents each line, collapses runs of blank lines to one,
-// trims trailing whitespace, and ensures a single final newline.
+// A canonical formatter: the layout is a function of the token stream, so the
+// same code always looks the same however it was typed. [format_source] is the
+// whole of it, in two halves.
+//
+// **Line breaking** (`reflow/`) decides where the breaks go: a group over the
+// margin is split, one that fits is joined, and a comma list is laid out
+// all-or-nothing. This half owns line breaks, and is the only part that edits a
+// token rather than whitespace (the trailing comma a split list gains and a
+// joined one loses).
+//
+// **Line layout** ([format_lines]) owns everything within and between lines,
+// and is what the breaking half drives — it runs on the source before, and
+// again after every round of edits, so a break offset never has to reason about
+// indentation. It is also useful alone, and the rest of this file is it.
+//
+// It preserves every line break it is given and normalizes the vertical layout —
+// re-indents each line, collapses runs of blank lines to one, trims trailing
+// whitespace, and ensures a single final newline.
 //
 // Indentation uses a stack of **content-indent levels**, one per open bracket. A
 // `{` block indents its body one level past the statement it belongs to; a `(` or
@@ -36,17 +50,16 @@ import 'reflow';
 
 const INDENT: String = '    ';
 
-// How many split rounds `format_source_reflow` will run. Each round splits at
-// most one group per over-width line, so a deeply nested line needs several; the
-// cap is a backstop against an input that somehow never settles (the loop's own
-// exit is "no over-width line has a splittable group left").
+// How many split rounds [format_source] will run. Each round splits at most one
+// group per over-width line, so a deeply nested line needs several; the cap is a
+// backstop against an input that somehow never settles (the loop's own exit is
+// "no over-width line has a splittable group left").
 const MAX_REFLOW_ROUNDS: Int = 12;
 
 // Format a single file in place. Returns `true` if the file was modified.
-// With `wrap`, over-width lines are also split (`thera fmt --reflow`).
-pub fn format_file(_ path: String, wrap: Bool = false) -> Result<Bool, Error> {
+pub fn format_file(_ path: String) -> Result<Bool, Error> {
     let source = fs.read_text(path)?;
-    let formatted = formatted_text(source, wrap, path);
+    let formatted = formatted_text(source, path);
     if formatted == source {
         return Result.Ok(false);
     }
@@ -56,55 +69,59 @@ pub fn format_file(_ path: String, wrap: Bool = false) -> Result<Bool, Error> {
 
 // Whether `path` needs formatting — `true` if formatting would change it. The
 // read-only counterpart to `format_file` (writes nothing), for `fmt --check`.
-pub fn check_file(_ path: String, wrap: Bool = false) -> Result<Bool, Error> {
+pub fn check_file(_ path: String) -> Result<Bool, Error> {
     let source = fs.read_text(path)?;
-    return Result.Ok(formatted_text(source, wrap, path) != source);
+    return Result.Ok(formatted_text(source, path) != source);
 }
 
-// The formatted form of `source` — with line reflow when `wrap`, else the
-// line-preserving format. The single place the two entry points branch, so
-// `format_file` and `check_file` can never disagree about what "formatted" is.
-fn formatted_text(_ source: String, _ wrap: Bool, _ path: String) -> String {
-    if wrap {
-        let outcome = reflow_outcome(source);
-        if outcome.fell_back {
-            eprintln('thera fmt: ${path}: reflow skipped (result was not token-identical)');
-        }
-        return outcome.text;
+// The formatted form of `source`, reporting a guard rejection against `path`.
+// The single place both entry points go through, so `format_file` and
+// `check_file` can never disagree about what "formatted" is.
+fn formatted_text(_ source: String, _ path: String) -> String {
+    let outcome = format_outcome(source, reflow.DEFAULT_WIDTH);
+    if outcome.fell_back {
+        eprintln('thera fmt: ${path}: line breaking skipped (result was not token-identical)');
     }
-    return format_source(source);
+    return outcome.text;
 }
 
-// Format with line reflow (`thera fmt --reflow`) — the canonical format, with
-// groups joined onto one line where they fit and split where they don't, so
-// layout follows the token stream rather than how the code was typed (see
-// docs/roadmap.md → Reflowing formatter).
+// The canonical format: groups joined onto one line where they fit and split
+// where they don't, so layout follows the token stream rather than how the code
+// was typed.
 //
 // Each round joins what fits, then splits what is still over `width`, then
-// re-formats to re-indent; it settles when a round changes nothing. Joining only
+// re-lays-out the lines; it settles when a round changes nothing. Joining only
 // ever yields lines within the margin, so the two passes cannot trade a line back
 // and forth. A line with no splittable group on it — one long string literal, a
 // long trailing comment — is left over-width.
 //
 // Guarded: unless the result is the same code as the input (token-identical
-// modulo an inert trailing comma) and still parses, the plain `format_source`
-// output is returned instead.
-pub fn format_source_reflow(_ source: String, width: Int = reflow.DEFAULT_WIDTH) -> String {
-    return reflow_outcome(source, width: width).text;
+// modulo an inert trailing comma) and still parses, the [format_lines] output is
+// returned instead.
+pub fn format_source(_ source: String) -> String {
+    return format_outcome(source, reflow.DEFAULT_WIDTH).text;
 }
 
-// The reflowed text, plus whether the guard rejected it and fell back to the
-// plain format. The flag matters because a rejection is **silent** by
-// construction — the output is simply un-reflowed, which looks exactly like
-// "nothing needed doing", so a bug in this pass hides as a no-op. Callers
+// The canonical format at a margin other than [reflow.DEFAULT_WIDTH]. `thera
+// fmt` has no width option — the formatter is not configurable by design (see
+// docs/architecture.md) — so this is for tests, which pin shapes at small widths
+// to keep their fixtures readable, and for the width study in docs/roadmap.md.
+pub fn format_source_at(_ source: String, _ width: Int) -> String {
+    return format_outcome(source, width).text;
+}
+
+// The formatted text, plus whether the guard rejected the line breaking and fell
+// back to line layout alone. The flag matters because a rejection is **silent**
+// by construction — the output is simply un-broken, which looks exactly like
+// "nothing needed doing", so a bug in that pass hides as a no-op. Callers
 // surface it instead.
-pub struct ReflowOutcome {
+pub struct FormatOutcome {
     let text: String;
     let fell_back: Bool;
 }
 
-pub fn reflow_outcome(_ source: String, width: Int = reflow.DEFAULT_WIDTH) -> ReflowOutcome {
-    let base = format_source(source);
+pub fn format_outcome(_ source: String, _ width: Int) -> FormatOutcome {
+    let base = format_lines(source);
     let mut cur = base;
     let mut round = 0;
     while round < MAX_REFLOW_ROUNDS {
@@ -116,7 +133,7 @@ pub fn reflow_outcome(_ source: String, width: Int = reflow.DEFAULT_WIDTH) -> Re
         let next = if edits.len() == 0 {
             joined
         } else {
-            format_source(apply_break_edits(joined, edits))
+            format_lines(apply_break_edits(joined, edits))
         };
         if next == cur {
             round = MAX_REFLOW_ROUNDS;
@@ -126,13 +143,13 @@ pub fn reflow_outcome(_ source: String, width: Int = reflow.DEFAULT_WIDTH) -> Re
         }
     }
     let text = reflow_guarded(source, cur, base);
-    return ReflowOutcome { text: text, fell_back: cur != base && text != cur };
+    return FormatOutcome { text: text, fell_back: cur != base && text != cur };
 }
 
 // Collapse the interior line breaks of every group `reflow` says should be
 // joined, then re-format so the result is re-indented and its intra-line spacing
-// re-normalized (joining leaves a single space where a newline was, which Stage A
-// then tightens — `g(\n a\n)` becomes `g( a )` and then `g(a)`).
+// re-normalized (joining leaves a single space where a newline was, which the
+// spacing pass then tightens — `g(\n a\n)` becomes `g( a )` and then `g(a)`).
 fn apply_joins(_ text: String, _ width: Int) -> String {
     let spans = reflow.join_spans(text, width);
     if spans.len() == 0 {
@@ -183,7 +200,7 @@ fn apply_joins(_ text: String, _ width: Int) -> String {
             i = i + 1;
         }
     }
-    return format_source(String.from_chars(out));
+    return format_lines(String.from_chars(out));
 }
 
 fn is_layout_space(_ c: Int) -> Bool {
@@ -279,9 +296,11 @@ fn is_closing(_ k: TokenKind) -> Bool {
     };
 }
 
-// Format a string of source code. Idempotent: formatting formatted source is a
-// no-op.
-pub fn format_source(_ source: String) -> String {
+// Lay out `source` a line at a time, preserving every line break in it — the
+// half of the formatter that owns everything within and between lines. The
+// breaking half drives it (see the file header); it is also what a caller wants
+// when the input is a fragment rather than a whole file. Idempotent.
+pub fn format_lines(_ source: String) -> String {
     // Stage A (intra-line spacing) then Stage B (indentation). A is a no-op on
     // source that doesn't parse (e.g. a fix fragment), so B still runs.
     let spaced = space_intra_line(source);
@@ -294,8 +313,13 @@ pub fn format_source(_ source: String) -> String {
 }
 
 // Format `text` as a standalone fragment and re-indent it to sit at `indent` (a
-// leading-whitespace prefix). The fragment is formatted at base level (canonical
-// internal layout, derived from bracket depth), then every line *after the first*
+// leading-whitespace prefix). Line layout only: a fragment frequently does not
+// parse on its own, which is exactly what the breaking half needs, and a code
+// fix should be a localized edit rather than a reflow of the construct it
+// replaces. The next `thera fmt` canonicalizes it along with the file.
+//
+// The fragment is laid out at base level (internal indentation derived from
+// bracket depth), then every line *after the first*
 // is prefixed with `indent`; the first line inherits the surrounding indentation
 // already present at the splice point (a code fix replaces a construct mid-line,
 // e.g. starting at its `match` keyword). Blank lines are left un-prefixed. Lets a
@@ -304,7 +328,7 @@ pub fn format_source(_ source: String) -> String {
 pub fn format_fragment(_ text: String, _ indent: String) -> String {
     let out: List<String> = [];
     let mut first = true;
-    for line in format_source(text).lines() {
+    for line in format_lines(text).lines() {
         if first {
             out.push(line);
             first = false;
@@ -445,8 +469,12 @@ fn compute_prefix_unary(_ toks: List<Token>, _ delims: parser.GenericDelims) -> 
 // Zero when `a` binds tightly to what follows or `b` binds tightly to what
 // precedes; one otherwise (the fusion-safe default — two word-ish tokens are
 // never tight, and the round-trip check backs it up).
-fn space_between(_ a: Token, _ b: Token, _ a_prefix_unary: Bool,
-    _ delims: parser.GenericDelims) -> Int {
+fn space_between(
+    _ a: Token,
+    _ b: Token,
+    _ a_prefix_unary: Bool,
+    _ delims: parser.GenericDelims,
+) -> Int {
     // An empty brace pair is tight (`{}`, `Foo {}`, `=> {}`) — a non-empty one
     // spaces its interior (`Foo { x }`), which the default 1 already gives.
     if a.kind == TokenKind.LBrace && b.kind == TokenKind.RBrace {
@@ -616,8 +644,11 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
                 // Only a multi-line string pins its lines verbatim; a single-line
                 // string (nl == 0) is just a token and its line formats normally.
                 if tok.kind == TokenKind.StringLiteral {
-                    let nl = count_newlines(chars, tok.span.offset,
-                        tok.span.offset + tok.span.length);
+                    let nl = count_newlines(
+                        chars,
+                        tok.span.offset,
+                        tok.span.offset + tok.span.length,
+                    );
                     if nl > 0 {
                         let mut k = 0;
                         while k <= nl {

@@ -419,7 +419,11 @@ impl Wire {
     /// The body, framed per the headers: chunked if `transfer-encoding` says so,
     /// else `content-length`, else empty — or, when `until_eof`, everything left
     /// (a response on a connection that closes to delimit).
-    fn read_body(self, _ headers: Map<String, String>, until_eof: Bool) -> Result<Bytes, HttpError> {
+    fn read_body(
+        self,
+        _ headers: Map<String, String>,
+        until_eof: Bool,
+    ) -> Result<Bytes, HttpError> {
         // `transfer-encoding` wins over `content-length` (RFC 9110 §6.3), and a
         // message bearing both is an outright smuggling attempt.
         let te = header(headers, 'transfer-encoding');

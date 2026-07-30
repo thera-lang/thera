@@ -35,12 +35,19 @@ fn core_scope() -> Result<FileScope, Error> {
     // pass vacuously.
     let root = match find_sdk_root() {
         Some(r) => r,
-        None => return Result.Err(error('no SDK found — cannot guard the floor against real std.core')),
+        None => return Result.Err(
+            error('no SDK found — cannot guard the floor against real std.core')
+        ),
     };
     let entry = '/thera_floor_guard/main.thera';  // not under `std/`, so std.core auto-imports
     let prog = parse('fn _probe() -> Void { }\n');
     let loaded = load_imports(entry, prog, Option.Some(root));
-    let lib = build_library(prog, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
+    let lib = build_library(
+        prog,
+        loaded.programs,
+        loaded.file_namespaces,
+        loaded.file_bare_surface,
+    );
     return Result.Ok(file_scope(lib, Option.None));
 }
 
@@ -66,11 +73,15 @@ fn test_floor_generics_match_real_core_arity() -> Result<Void, Error> {
         };
         // The linked core def must be the real one, not the floor falling through
         // — proof the prelude closure actually shadowed the floor.
-        testing.assert(core_def.owner_file != BUILTIN_OWNER,
-            message: '${name} resolved to the <builtin> floor, not real std.core (prelude not linked?)')?;
+        testing.assert(
+            core_def.owner_file != BUILTIN_OWNER,
+            message: '${name} resolved to the <builtin> floor, not real std.core (prelude not linked?)',
+        )?;
         // The drift check: floor and core must ascribe the same generic arity.
-        testing.assert_eq(actual: core_def.type_parameters.len(),
-            expected: floor_def.type_parameters.len())?;
+        testing.assert_eq(
+            actual: core_def.type_parameters.len(),
+            expected: floor_def.type_parameters.len(),
+        )?;
     }
     return Result.Ok(void);
 }
@@ -85,8 +96,10 @@ fn test_floor_scalars_exist_in_real_core() -> Result<Void, Error> {
             Some(d) => d,
             None => return Result.Err(error('real std.core lacks ${name}')),
         };
-        testing.assert(def.owner_file != BUILTIN_OWNER,
-            message: '${name} did not resolve to real std.core')?;
+        testing.assert(
+            def.owner_file != BUILTIN_OWNER,
+            message: '${name} did not resolve to real std.core',
+        )?;
     }
     return Result.Ok(void);
 }

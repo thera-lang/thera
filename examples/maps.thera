@@ -7,12 +7,7 @@
 
 fn main() -> Result<Int, Error> {
     // Map literal — insertion order is preserved.
-    let keywords = [
-        'fn': 1,
-        'let': 2,
-        'return': 3,
-        'if': 4,
-    ];
+    let keywords = ['fn': 1, 'let': 2, 'return': 3, 'if': 4];
 
     println('len: ${keywords.len()}');
     println('has fn: ${keywords.has('fn')}');

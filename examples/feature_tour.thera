@@ -137,10 +137,7 @@ struct Policy {
     let overrides: Map<String, Priority>;   // per-task overrides; content mutates in place
 }
 
-let POLICY: Policy = Policy {
-    default_priority: Priority.Medium,
-    overrides: [:],
-};
+let POLICY: Policy = Policy { default_priority: Priority.Medium, overrides: [:] };
 
 // ---------------------------------------------------------------------------
 // Generics with a bound, and interface-typed parameters — dynamic dispatch on
@@ -213,10 +210,7 @@ fn main() -> Result<Int, Error> {
     println('${flipped.first} <- ${flipped.second}');
 
     // --- generic recursive enum ---
-    let tree = Tree.Node(
-        Tree.Node(Tree.Leaf(1), Tree.Leaf(2)),
-        Tree.Leaf(3),
-    );
+    let tree = Tree.Node(Tree.Node(Tree.Leaf(1), Tree.Leaf(2)), Tree.Leaf(3));
     println('leaves: ${tree.leaf_count()}');
 
     // --- domain model, interface dispatch, Display ---
@@ -227,12 +221,7 @@ fn main() -> Result<Int, Error> {
             tags: Set.from(['release', 'urgent']),
             due: Option.Some(3),
         },
-        Task {
-            title: 'write docs',
-            priority: Priority.Low,
-            tags: Set.from([]),
-            due: Option.None,
-        },
+        Task { title: 'write docs', priority: Priority.Low, tags: Set.from([]), due: Option.None },
     ];
     for task in tasks {
         println('- ${task}');                // Display dispatch through ${}

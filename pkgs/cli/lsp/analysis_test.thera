@@ -41,13 +41,18 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
     // see the buffer, not the stale disk content.
     analysis.set_document(b_uri, 'pub fn renamed() -> Int { return 1; }\n', Option.None);
     let stale = analysis.diagnostics(a_uri, a_text);
-    testing.assert(stale.as_array().map((xs) => xs.len()).unwrap_or(0) > 0,
-        message: 'a sees b\'s unsaved edit (helper gone)')?;
+    testing.assert(
+        stale.as_array().map((xs) => xs.len()).unwrap_or(0) > 0,
+        message: 'a sees b\'s unsaved edit (helper gone)',
+    )?;
 
     // Close `b` (buffer discarded): back to the disk content — clean again.
     analysis.close_document(b_uri);
     let reverted = analysis.diagnostics(a_uri, a_text);
-    testing.assert_eq(actual: reverted.as_array().map((xs) => xs.len()).unwrap_or(-1), expected: 0)?;
+    testing.assert_eq(
+        actual: reverted.as_array().map((xs) => xs.len()).unwrap_or(-1),
+        expected: 0,
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
@@ -152,8 +157,14 @@ fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
     }
     testing.assert_eq(actual: refs.len(), expected: 2)?;
     testing.assert(uris.has(a_uri), message: 'includes the declaration in a.thera')?;
-    testing.assert(uris.has(b_uri), message: 'includes the closed importer b.thera (cone is complete)')?;
-    testing.assert(!uris.has(d_uri), message: 'excludes d.thera (a same-named symbol outside the cone)')?;
+    testing.assert(
+        uris.has(b_uri),
+        message: 'includes the closed importer b.thera (cone is complete)',
+    )?;
+    testing.assert(
+        !uris.has(d_uri),
+        message: 'excludes d.thera (a same-named symbol outside the cone)',
+    )?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);

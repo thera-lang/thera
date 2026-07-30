@@ -210,8 +210,13 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
 }
 
 impl ModuleScope {
-    fn add_unit(self, _ decl: FnDecl, _ name: String, _ self_type: Option<String>,
-        _ file: Option<String>) -> Void {
+    fn add_unit(
+        self,
+        _ decl: FnDecl,
+        _ name: String,
+        _ self_type: Option<String>,
+        _ file: Option<String>,
+    ) -> Void {
         self.units.push(decl);
         self.unit_names.push(name);
         self.unit_self_types.push(self_type);
@@ -315,10 +320,7 @@ impl ModuleScope {
             self.structs[owner] = [:];
         }
         if let Some(m) = self.structs.get(owner) {
-            m[decl.name] = StructInfo {
-                index: self.types.len(),
-                field_names: field_names,
-            };
+            m[decl.name] = StructInfo { index: self.types.len(), field_names: field_names };
         }
         self.types.push(TypeDef {
             name: decl.name,
@@ -534,7 +536,11 @@ impl ModuleScope {
     pub fn add_interface_impl(self, _ owner: String, _ type_name: String, _ iface: TypeId) -> Void {
         let key = TypeId { owner: owner, name: type_name };
         if !self.interface_impls.has(key) {
-            self.interface_impls[key] = ImplInfo { owner: owner, type_name: type_name, interfaces: Set.new() };
+            self.interface_impls[key] = ImplInfo {
+                owner: owner,
+                type_name: type_name,
+                interfaces: Set.new(),
+            };
         }
         if let Some(info) = self.interface_impls.get(key) {
             info.interfaces.add(iface);
@@ -546,7 +552,13 @@ impl ModuleScope {
     // interface's own `TypeId`), so same-named types/interfaces in two libraries
     // keep distinct method sets. `type_name` (unqualified) backs the unit's
     // mangled name and its `self` type, resolved owner-correct at compile time.
-    pub fn add_method(self, _ key: TypeId, _ type_name: String, _ method: FnDecl, _ file: Option<String>) -> Void {
+    pub fn add_method(
+        self,
+        _ key: TypeId,
+        _ type_name: String,
+        _ method: FnDecl,
+        _ file: Option<String>,
+    ) -> Void {
         let self_type = if has_self_param(method.params) {
             Option.Some(type_name)
         } else {
@@ -576,18 +588,30 @@ impl ModuleScope {
         }
     }
 
-    pub fn add_dispatch(self, _ owner: String, _ type_name: String, _ selector: String,
-        _ span: SourceSpan) -> Void {
-        self.pending_dispatch.push(PendingDispatch { owner: owner, type_name: type_name, selector: selector, span: span });
+    pub fn add_dispatch(
+        self,
+        _ owner: String,
+        _ type_name: String,
+        _ selector: String,
+        _ span: SourceSpan,
+    ) -> Void {
+        self.pending_dispatch.push(
+            PendingDispatch { owner: owner, type_name: type_name, selector: selector, span: span }
+        );
     }
 
     // Register a lifted lambda as a synthetic top-level unit; returns its
     // function-table index. `boxed_params` names the leading (capture) params
     // that hold a boxed cell; `param_types` types every parameter so the lambda
     // body can be inferred when compiled.
-    pub fn add_lambda(self, _ decl: FnDecl, _ boxed: Set<String>,
-        _ param_types: Map<String, Type>, _ bounds: Map<String, List<TypeId>>,
-        _ file: Option<String>) -> Int {
+    pub fn add_lambda(
+        self,
+        _ decl: FnDecl,
+        _ boxed: Set<String>,
+        _ param_types: Map<String, Type>,
+        _ bounds: Map<String, List<TypeId>>,
+        _ file: Option<String>,
+    ) -> Int {
         let index = self.units.len();
         self.add_unit(decl, '__lambda_${index}', Option.None, file);
         if boxed.len() > 0 {
@@ -685,7 +709,13 @@ impl ModuleScope {
 
     // Point the type's dispatch for `method` at the shared default `unit`, unless
     // the type already provides (overrides) that method. The type is owner-keyed.
-    fn wire_one_default(self, _ owner: String, _ type_name: String, _ method: String, _ unit: Option<Int>) -> Void {
+    fn wire_one_default(
+        self,
+        _ owner: String,
+        _ type_name: String,
+        _ method: String,
+        _ unit: Option<Int>,
+    ) -> Void {
         if let Some(idx) = unit {
             let key = TypeId { owner: owner, name: type_name };
             if !self.method_table.has(key) {
@@ -717,17 +747,26 @@ impl ModuleScope {
         let entries: List<DispatchEntry> = [];
         let unresolved: List<PendingDispatch> = [];
         for row in self.pending_dispatch {
-            let func = match self.method_table.get(TypeId { owner: row.owner, name: row.type_name }) {
+            let func = match self.method_table.get(
+                TypeId { owner: row.owner, name: row.type_name }
+            ) {
                 Some(m) => m.get(row.selector),
                 None => Option.None,
             };
             let type_id = match self.resolve_struct(row.owner, row.type_name) {
                 Some(si) => Option.Some(si.index),
-                None => self.resolve_enum(row.owner, row.type_name).map((ei) => ENUM_DISPATCH_BASE | ei.ty),
+                None => self.resolve_enum(row.owner, row.type_name).map(
+                    (ei) => ENUM_DISPATCH_BASE | ei.ty
+                ),
             };
             if let Some(tid) = type_id {
                 match func {
-                    Some(f) => { entries.push(DispatchEntry { type_id: tid, selector: row.selector, func: f }); },
+                    Some(f) => {
+                        entries.push(
+                            DispatchEntry { type_id: tid, selector: row.selector, func: f }
+                        );
+
+                    },
                     None => { unresolved.push(row); },
                 }
             }

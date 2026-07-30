@@ -12,10 +12,11 @@ every production in EBNF — is in [grammar.md](grammar.md). For the _why_ see
 ## Style
 
 - **Indent:** 4 spaces (no tabs).
-- **Line length:** 100 characters, as an authoring guideline. The formatter
-  never reflows lines — it keeps every line break the author chose and
-  normalizes only indentation and intra-line spacing (see
-  [architecture.md](architecture.md) §The formatter).
+- **Line length:** 100 characters. `thera fmt` enforces it — it breaks a line
+  over the margin and rejoins one that fits, so line breaks are the formatter's
+  rather than the author's (see [architecture.md](architecture.md) §The
+  formatter). A line no break can shorten, such as one long string literal, is
+  left as it is.
 
 ---
 

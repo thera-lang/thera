@@ -17,10 +17,8 @@ fn test_plain_path_round_trips() -> Result<Void, Error> {
 @test
 fn test_space_is_percent_encoded() -> Result<Void, Error> {
     let path = '/tmp/my project/a b.thera';
-    testing.assert_eq(actual: path_to_uri(path),
-        expected: 'file:///tmp/my%20project/a%20b.thera')?;
-    testing.assert_eq(actual: uri_to_path('file:///tmp/my%20project/a%20b.thera'),
-        expected: path)?;
+    testing.assert_eq(actual: path_to_uri(path), expected: 'file:///tmp/my%20project/a%20b.thera')?;
+    testing.assert_eq(actual: uri_to_path('file:///tmp/my%20project/a%20b.thera'), expected: path)?;
     return Result.Ok(void);
 }
 

@@ -232,6 +232,31 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 
 ### Compiler & front-end
 
+- **A default parameter value is resolved in the caller's scope.** A call that
+  omits an argument materializes its default expression where the *call* is, not
+  where the function is declared, so any default that is not resolvable from the
+  caller's file fails to compile:
+
+  ```thera
+  // lib.thera
+  import 'sub';
+  pub const L: Int = 7;
+  pub fn f(_ s: String, w: Int = sub.W) -> Int { … }   // or `= L`
+
+  // caller.thera — does not import `sub`, cannot see `L`
+  lib.f('x')     // `field access on non-struct value` / `undefined name: L`
+  ```
+
+  Passing the argument explicitly is fine, as is defaulting it from inside
+  `lib.thera` itself, and a literal default (`= false`, `= [:]`) or one naming a
+  prelude type (`= Option.None`, `= Set.new()`) resolves anywhere — which is why
+  the corpus has not hit it. **`thera check` does not catch it**: the error
+  surfaces only from `emit`, so a check-clean program fails to compile, which is
+  its own gap worth closing alongside. Found writing `fmt.format_source`, whose
+  `width: Int = reflow.DEFAULT_WIDTH` the LSP could not call; the workaround
+  there was to drop the parameter, which is the better API anyway (the formatter
+  is not configurable). A conformance test under `tests/lang/` should pin it.
+
 - **Faithful syntax nodes for `if let` / `let … else` / `else if`.** The parser
   **desugars** all three into a `MatchExpr` (`parse_if_let` / `parse_let_else`),
   leaving `MatchOrigin` and `Block.synthetic` behind as provenance so consumers
@@ -580,35 +605,22 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   refactorings_: the doc says what's idiomatic, the lint enforces it
   mechanically.
 
-- **Reflowing formatter — remaining work.** `thera fmt --reflow` splits and
-  joins bracket groups, hugs a multi-line argument rather than prying the call
-  apart around it, and lays out every comma list all-or-nothing (see
-  _Changelog_). Two things are left.
-
-  - **Make it the default.** Drop the `--reflow` flag, retire
-    [fmt.thera](../pkgs/cli/fmt.thera)'s Stage A (intra-line spacing, subsumed —
-    the reflow path emits it) and Stage B (indentation, subsumed by group
-    indent), fold `reflow/` into a `fmt/` barrel, and reformat the corpus in one
-    sweep — 103 files, +5156/−2106 at width 100. `bin/test.sh`'s `fmt --check`
-    gate updates in the same commit.
-
-  - **Then choose the width empirically.** 100 is inherited from the authoring
-    guideline ([language.md](language.md#style)), not measured. Once the
-    formatter is canonical the question becomes directly answerable: reflow the
-    corpus at **80 / 88 / 90 / 92 / 94 / 100** and compare — total line count,
-    how many lines crowd the margin, how many constructs are forced apart that
-    read better whole, and how much irreducible tail (long string literals)
-    survives at each. Take a natural knee if one shows up; keep 100 if none
-    does.
-    - Context for the call: the reflowing formatters spread across 77–100 (OCaml
-      77, Dart 80, Prettier 80, Black 88, Elixir 98, rustfmt 100), and —
-      tellingly — **Go and Zig, the two strongest enforced-formatting
-      traditions, both decline to take a position on line length**, on the
-      grounds that where to break is a semantic judgment about what groups with
-      what. From the LLM side the concern is **pathological** lines, since
-      agents navigate through line-addressed interfaces (grep output,
-      `file:line:col`, patch hunks) — which argues for a ceiling against
-      outliers, not for tight wrapping.
+- **Choose the formatter's width empirically.** 100 is inherited from the
+  authoring guideline ([language.md](language.md#style)), not measured. Now that
+  the formatter is canonical the question is directly answerable: reformat the
+  corpus at **80 / 88 / 90 / 92 / 94 / 100** (`format_source_at` in
+  [fmt.thera](../pkgs/cli/fmt.thera) takes the margin) and compare — total line
+  count, how many lines crowd the margin, how many constructs are forced apart
+  that read better whole, and how much irreducible tail (long string literals)
+  survives at each. Take a natural knee if one shows up; keep 100 if none does.
+  - Context for the call: the reflowing formatters spread across 77–100 (OCaml
+    77, Dart 80, Prettier 80, Black 88, Elixir 98, rustfmt 100), and —
+    tellingly — **Go and Zig, the two strongest enforced-formatting traditions,
+    both decline to take a position on line length**, on the grounds that where
+    to break is a semantic judgment about what groups with what. From the LLM
+    side the concern is **pathological** lines, since agents navigate through
+    line-addressed interfaces (grep output, `file:line:col`, patch hunks) —
+    which argues for a ceiling against outliers, not for tight wrapping.
 
 ### Language
 
@@ -949,12 +961,30 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
-- **Reflowing formatter — `thera fmt --reflow`** (2026-07). `thera fmt` was
-  line-preserving by design; it now breaks and joins lines too, behind a flag
-  while the corpus migration is pending (what is left is under _Developer
-  tooling_). Corpus effect at width 100: over-width lines **545 → 138**, of which
-  127 are single long string literals and 5 are multi-line help text — nothing a
-  wrapper can break — leaving 2 genuine cases (long boolean chains).
+- **`thera fmt` owns line breaks** (2026-07). The reflowing pass below is now
+  what `thera fmt` does — the `--reflow` flag is gone, the LSP's
+  `textDocument/formatting` returns the same layout, and the corpus was swept in
+  one commit alongside `bin/test.sh`'s `fmt --check` gate. Layout is a function
+  of the token stream: the same code comes out the same however it was typed.
+  - **Stage A and Stage B were not retired**, as the plan assumed they would be.
+    They were written against a full `Doc`-renderer design that was declined;
+    the pass that shipped computes break *offsets* and re-runs the existing
+    layout passes after each round, so they are the engine, not dead weight.
+    What the split needed was honest names — `format_lines` for the line-layout
+    half, `format_source` for the whole formatter.
+  - **`format_source` takes no width.** The formatter is not configurable by
+    design, and a `width` parameter on the public entry point said otherwise;
+    `format_source_at` carries the margin for tests and the width study. Forced
+    by a front-end bug found here — a defaulted `width: Int =
+    reflow.DEFAULT_WIDTH` could not be called from the LSP, since a default is
+    resolved in the *caller's* scope (see _Compiler & front-end_).
+  - Sweep: **103 files, +5156/−2106**. Over-width lines **545 → 139**, of which
+    all but a handful are single long string literals and multi-line help text —
+    nothing a break can shorten.
+
+- **Reflowing formatter — the pass** (2026-07). `thera fmt` was line-preserving
+  by design; this is the work that taught it to break and join lines, developed
+  behind a `--reflow` flag until the corpus migration above.
   - **A token backbone, not an AST pretty-printer.** A bracket pair is a group;
     its break points are after the opener, after each top-level separator, and
     before the closer, taken **all-or-nothing** (packing would make one added
@@ -986,7 +1016,7 @@ conformance specs. Newest first.
   - **Guarded, and no longer silently.** Unless the result is the same code and
     still parses, the plain format is returned. That fallback is indistinguishable
     from "nothing to do" and hid two real bugs during development (a double comma,
-    and generic-argument commas counted as a block's own), so `--reflow` now
+    and generic-argument commas counted as a block's own), so `thera fmt` now
     reports each skipped file.
   - **A split has to pay for itself** — the second pass, and what makes a call
     hug a multi-line argument. Outermost-first was handing each over-width line
@@ -1027,7 +1057,7 @@ conformance specs. Newest first.
       +2335/−927 across 89 files to **+5156/−2106 across 103**. Reading the
       extra churn, it is almost entirely hand-wrapped parameter lists
       (`fn check(_ program: Program, _ imports: …,⏎ …)` → one per line), which
-      is what `fmt --reflow` already produces when the margin triggers the
+      is what the formatter already produces when the margin triggers the
       split — so the sweep is what makes the corpus agree with the pass's own
       rule. Two long string literals end up over the margin that were not
       before, having gained an indent level from the call around them.

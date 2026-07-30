@@ -39,7 +39,11 @@ struct TestCounts {
 // `thera run <file> [args]` — compile `file`, then execute it on the runtime,
 // passing `program_args` through to the program's `main`. Returns the child's
 // exit code (or a non-zero code if compilation or spawning failed).
-pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+pub fn run_file(
+    _ file: String,
+    _ program_args: List<String>,
+    _ sdk_root: Option<String>,
+) -> Result<Int, Error> {
     match compile_or_report(file, sdk_root) {
         None => {
             return Result.Ok(1);
@@ -74,8 +78,12 @@ pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option
 // tokens for green tests). `verbose` (or `show_output`, which needs the
 // per-test lines to hang output on) restores the per-file/per-test report.
 // Returns 0 when every file passed, 1 otherwise.
-pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>, show_output: Bool = false,
-    verbose: Bool = false) -> Result<Int, Error> {
+pub fn test_paths(
+    _ targets: List<String>,
+    _ sdk_root: Option<String>,
+    show_output: Bool = false,
+    verbose: Bool = false,
+) -> Result<Int, Error> {
     match find_runtime_binary(sdk_root) {
         None => {
             eprintln(runtime_missing_message());
@@ -136,8 +144,13 @@ pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>, show_outp
 // trailer, so it can't inherit stdio). Each test's stdout is captured and shown
 // only on failure (or always, when `show_output`). Returns the counts, or None
 // if the file failed to read/parse/compile (already reported).
-fn run_test_file(_ path_str: String, _ runtime: String, _ show_output: Bool,
-    _ verbose: Bool, _ sess: session.Session) -> Option<TestCounts> {
+fn run_test_file(
+    _ path_str: String,
+    _ runtime: String,
+    _ show_output: Bool,
+    _ verbose: Bool,
+    _ sess: session.Session,
+) -> Option<TestCounts> {
     let source = match fs.read_text(path_str) {
         Ok(s) => s,
         Err(e) => {
@@ -165,7 +178,9 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ show_output: Bool,
         if verbose {
             println('  (no @test functions)');
         }
-        return Option.Some(TestCounts { total: 0, failed_tests: 0, failed: false, printed: verbose });
+        return Option.Some(
+            TestCounts { total: 0, failed_tests: 0, failed: false, printed: verbose }
+        );
     }
 
     // Recompile the source plus a synthesized driver `main` that runs each test.
@@ -382,7 +397,12 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
 // (`--entry NAME`); None runs `main`. The child inherits this process's
 // stdin/stdout/stderr (output streams live), and we return its exit code. The
 // temp dir is removed afterwards.
-fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<Int, Error> {
+fn run_bytecode(
+    _ runtime: String,
+    _ bytes: Bytes,
+    _ entry: Option<String>,
+    _ program_args: List<String>,
+) -> Result<Int, Error> {
     let dir = temp_dir_unique('thera')?;
     let out = path.join(dir, 'out.thera-bc');
     if let Err(e) = fs.write_bytes(out, bytes) {

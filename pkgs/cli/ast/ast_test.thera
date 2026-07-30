@@ -67,13 +67,19 @@ fn test_recursive_expr_and_pattern() -> Result<Void, Error> {
     // exercising the directly-recursive enum arms (Binary holds Expr; Constructor
     // holds List<Pattern>).
     let e = Expr.Binary(sp(), Expr.Int(sp(), 1), '+', Expr.Int(sp(), 2));
-    testing.assert_eq(actual: e,
-        expected: Expr.Binary(sp(), Expr.Int(sp(), 1), '+', Expr.Int(sp(), 2)))?;
-    testing.assert_ne(actual: e,
-        unexpected: Expr.Binary(sp(), Expr.Int(sp(), 1), '-', Expr.Int(sp(), 2)))?;
+    testing.assert_eq(
+        actual: e,
+        expected: Expr.Binary(sp(), Expr.Int(sp(), 1), '+', Expr.Int(sp(), 2)),
+    )?;
+    testing.assert_ne(
+        actual: e,
+        unexpected: Expr.Binary(sp(), Expr.Int(sp(), 1), '-', Expr.Int(sp(), 2)),
+    )?;
 
     let p = Pattern.Constructor(sp(), 'Some', [Pattern.Ident(sp(), 'x')]);
-    testing.assert_eq(actual: p,
-        expected: Pattern.Constructor(sp(), 'Some', [Pattern.Ident(sp(), 'x')]))?;
+    testing.assert_eq(
+        actual: p,
+        expected: Pattern.Constructor(sp(), 'Some', [Pattern.Ident(sp(), 'x')]),
+    )?;
     return Result.Ok(void);
 }
