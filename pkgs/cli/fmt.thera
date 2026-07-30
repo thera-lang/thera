@@ -46,7 +46,7 @@ const MAX_REFLOW_ROUNDS: Int = 12;
 // With `wrap`, over-width lines are also split (`thera fmt --reflow`).
 pub fn format_file(_ path: String, wrap: Bool = false) -> Result<Bool, Error> {
     let source = fs.read_text(path)?;
-    let formatted = formatted_text(source, wrap);
+    let formatted = formatted_text(source, wrap, path);
     if formatted == source {
         return Result.Ok(false);
     }
@@ -58,35 +58,52 @@ pub fn format_file(_ path: String, wrap: Bool = false) -> Result<Bool, Error> {
 // read-only counterpart to `format_file` (writes nothing), for `fmt --check`.
 pub fn check_file(_ path: String, wrap: Bool = false) -> Result<Bool, Error> {
     let source = fs.read_text(path)?;
-    return Result.Ok(formatted_text(source, wrap) != source);
+    return Result.Ok(formatted_text(source, wrap, path) != source);
 }
 
 // The formatted form of `source` — with line reflow when `wrap`, else the
 // line-preserving format. The single place the two entry points branch, so
 // `format_file` and `check_file` can never disagree about what "formatted" is.
-fn formatted_text(_ source: String, _ wrap: Bool) -> String {
+fn formatted_text(_ source: String, _ wrap: Bool, _ path: String) -> String {
     if wrap {
-        return format_source_reflow(source);
+        let outcome = reflow_outcome(source);
+        if outcome.fell_back {
+            eprintln('thera fmt: ${path}: reflow skipped (result was not token-identical)');
+        }
+        return outcome.text;
     }
     return format_source(source);
 }
 
-// Format with line reflow (`thera fmt --reflow`) — the canonical format, plus
-// line breaks *added* to relieve lines wider than `width`. Split-only: every
-// line break the author wrote survives, so this can only shorten lines, never
-// rearrange code that already fits (see docs/roadmap.md → Canonical
-// (line-wrapping) formatter; joining is Stage 2).
+// Format with line reflow (`thera fmt --reflow`) — the canonical format, with
+// groups joined onto one line where they fit and split where they don't, so
+// layout follows the token stream rather than how the code was typed (see
+// docs/roadmap.md → Canonical (line-wrapping) formatter).
 //
-// Each round asks `reflow` for the breaks that would relieve the currently
-// over-width lines, inserts them, and re-formats to re-indent. Rounds are
-// monotone — breaks are only ever added — so the loop settles when no over-width
-// line has a splittable group left (a long string literal or a long trailing
-// comment has none, and is left alone).
+// Each round joins what fits, then splits what is still over `width`, then
+// re-formats to re-indent; it settles when a round changes nothing. Joining only
+// ever yields lines within the margin, so the two passes cannot trade a line back
+// and forth. A line with no splittable group on it — one long string literal, a
+// long trailing comment — is left over-width.
 //
-// Guarded like every other path here: if the result is not token-identical to
-// the input, or no longer parses, the plain `format_source` output is returned
-// instead. So `--reflow` can never change what the code means.
+// Guarded: unless the result is the same code as the input (token-identical
+// modulo an inert trailing comma) and still parses, the plain `format_source`
+// output is returned instead.
 pub fn format_source_reflow(_ source: String, width: Int = reflow.DEFAULT_WIDTH) -> String {
+    return reflow_outcome(source, width: width).text;
+}
+
+// The reflowed text, plus whether the guard rejected it and fell back to the
+// plain format. The flag matters because a rejection is **silent** by
+// construction — the output is simply un-reflowed, which looks exactly like
+// "nothing needed doing", so a bug in this pass hides as a no-op. Callers
+// surface it instead.
+pub struct ReflowOutcome {
+    let text: String;
+    let fell_back: Bool;
+}
+
+pub fn reflow_outcome(_ source: String, width: Int = reflow.DEFAULT_WIDTH) -> ReflowOutcome {
     let base = format_source(source);
     let mut cur = base;
     let mut round = 0;
@@ -108,7 +125,8 @@ pub fn format_source_reflow(_ source: String, width: Int = reflow.DEFAULT_WIDTH)
             round = round + 1;
         }
     }
-    return reflow_guarded(source, cur, base);
+    let text = reflow_guarded(source, cur, base);
+    return ReflowOutcome { text: text, fell_back: cur != base && text != cur };
 }
 
 // Collapse the interior line breaks of every group `reflow` says should be

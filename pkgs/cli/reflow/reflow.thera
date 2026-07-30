@@ -101,7 +101,7 @@ pub fn join_spans(_ source: String, _ width: Int) -> List<FlatSpan> {
     let starts = line_start_offsets(chars);
 
     let candidates: List<Pair> = [];
-    for p in bracket_pairs(lex.tokens) {
+    for p in bracket_pairs(lex.tokens, parsed.generic_delims) {
         if p.open_line == p.close_line {
             continue; // already on one line
         }
@@ -230,7 +230,14 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
     if lex.errors.len() > 0 {
         return [];
     }
-    let pairs = bracket_pairs(lex.tokens);
+    // The parse is needed only for its generic-delimiter side channel: a comma
+    // inside `Map<String, Site>` is not a top-level comma of the enclosing group,
+    // and mistaking it for one puts a stray `,` in a statement block.
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return [];
+    }
+    let pairs = bracket_pairs(lex.tokens, parsed.generic_delims);
     let chars = source.chars();
     let out: List<BreakEdit> = [];
     for line in over_width_lines(source, width) {
@@ -253,27 +260,51 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
 }
 
 // Ascending, duplicates removed.
+// Ascending, with edits at the same offset **merged** rather than one dropped.
+// A trailing comma and the closer's own line break routinely coincide — `gamma)`
+// has no space between them — and the result must be `,\n`, not one or the other.
 fn sorted_unique(_ xs: List<BreakEdit>) -> List<BreakEdit> {
     let out: List<BreakEdit> = [];
     for x in xs.sort((a, b) => a.offset < b.offset) {
-        if out.len() == 0 || out[out.len() - 1].offset != x.offset {
+        if out.len() > 0 && out[out.len() - 1].offset == x.offset {
+            let merged = merge_text(out[out.len() - 1].text, x.text);
+            out[out.len() - 1] = BreakEdit { offset: x.offset, text: merged };
+        } else {
             out.push(x);
         }
     }
     return out;
 }
 
+// The comma always precedes the break.
+fn merge_text(_ a: String, _ b: String) -> String {
+    let mut t = '';
+    if a.contains(',') || b.contains(',') {
+        t = ',';
+    }
+    if a.contains('\n') || b.contains('\n') {
+        t = t + '\n';
+    }
+    return t;
+}
+
 // Match every bracket in the token stream, recording each pair's break points.
 // An unbalanced stream (which a clean lex shouldn't produce) yields the pairs
 // matched so far rather than failing.
-fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
+fn bracket_pairs(_ tokens: List<Token>, _ delims: parser.GenericDelims) -> List<Pair> {
     let out: List<Pair> = [];
     // Parallel stacks: the open token, and the break offsets accumulated for it.
     let open_toks: List<Token> = [];
     let open_breaks: List<List<Int>> = [];
     let open_commas: List<Bool> = []; // did this group see a top-level `,`?
     let mut prev_kind = TokenKind.Eof; // the kind before the current token
+    let mut angle = 0; // nesting depth inside generic `<…>`
     for t in tokens {
+        if delims.opens.has(t.span.offset) {
+            angle = angle + 1;
+        } else if delims.closes.has(t.span.offset) {
+            angle = angle - 1;
+        }
         if is_opener(t.kind) {
             open_toks.push(t);
             // A newline may follow the opener itself.
@@ -307,7 +338,10 @@ fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
             // recorded against the innermost open bracket only.
             if open_breaks.len() > 0 {
                 open_breaks[open_breaks.len() - 1].push(t.span.offset + 1);
-                if t.kind == TokenKind.Comma {
+                // Only a comma outside any generic argument list makes this
+                // group a comma list. `Map<String, Site>` inside a block would
+                // otherwise mark the *block* as one, earning it a stray `,`.
+                if t.kind == TokenKind.Comma && angle == 0 {
                     open_commas[open_commas.len() - 1] = true;
                 }
             }
@@ -391,7 +425,7 @@ fn group_breaks_for_line(
             } else {
                 p.breaks
             };
-            best = to_edits(p, offsets);
+            best = to_edits(p, offsets, chars);
             best_width = p.close - p.open;
         }
     }
@@ -401,12 +435,13 @@ fn group_breaks_for_line(
 // Turn chosen break offsets into edits. The break that puts the closer on its own
 // line also carries the trailing comma, where the group is a comma list that
 // doesn't already end in one.
-fn to_edits(_ p: Pair, _ offsets: List<Int>) -> List<BreakEdit> {
-    let wants_comma = p.has_comma && !p.trailing_comma;
+fn to_edits(_ p: Pair, _ offsets: List<Int>, _ chars: List<Int>) -> List<BreakEdit> {
     let out: List<BreakEdit> = [];
+    if p.has_comma && !p.trailing_comma {
+        out.push(BreakEdit { offset: end_of_last_element(chars, p), text: ',' });
+    }
     for o in offsets {
-        let text = if wants_comma && o == p.close { ',\n' } else { '\n' };
-        out.push(BreakEdit { offset: o, text: text });
+        out.push(BreakEdit { offset: o, text: '\n' });
     }
     return out;
 }
