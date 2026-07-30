@@ -391,19 +391,28 @@ so a project never spends effort choosing or arguing a style. The goal is to
 **eliminate essentially all formatting discussion from code review** — layout is
 the formatter's output, not a thing humans diff over.
 
-What it normalizes is deliberately bounded. It fixes **vertical layout** (line
-indentation, blank-run collapsing, trailing whitespace) and **intra-line
-spacing** (`fn  foo( a:Int )` → `fn foo(a: Int)`). It does **not**, for the most
-part, reflow across line boundaries — it keeps every line break the author
-chose, and does not join short lines or insert breaks into long ones. That
-restraint is partly implementation simplicity (reflow is where formatter
-complexity lives), but also a readability call: where a line breaks often
-carries intent (a grouped argument list, an aligned match, a chain the author
-split for clarity), and mechanically canonicalizing it tends to hurt readability
-as often as it helps. So the author owns line breaks; the formatter owns
-everything within and between them. It moves only whole lines and rewrites only
-inter-token whitespace, so it **never changes what the code means** (a
-token-equality + re-parse guard enforces this) — running it is always safe.
+It owns **line breaks** as well as everything within and between lines, so the
+layout is a function of the token stream: the same code comes out the same
+however it was typed. A bracket group over the 100-column margin is split, one
+that fits is joined back, and a comma list is laid out all-or-nothing — every
+element on its own line, or all on one. Splitting adds the trailing comma and
+joining removes it, so adding an argument later is a one-line diff.
+
+Two deliberate limits on that. A split has to **pay for itself** — a group whose
+split would leave the line over the margin anyway is passed over in favour of an
+inner one that can help, which is what makes a call hug a multi-line argument
+rather than pry itself apart around it. And a line no break can shorten (one
+long string literal, a long trailing comment) is left over the margin rather
+than mangled; the margin is a target, not a guarantee.
+
+The author does keep one lever: **a multi-line string is emitted verbatim**, and
+where a scalar `[…]` wraps is packed rather than exploded one element per line.
+Everything else is the formatter's.
+
+Except for that trailing comma, it rewrites only whitespace — so it **never
+changes what the code means**. A token-equality and re-parse guard enforces this
+on every file, and falls back to layout-only (reporting the file) if a result
+ever fails it, so running the formatter is always safe.
 
 ## Options considered and rejected
 

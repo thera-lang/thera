@@ -1,16 +1,21 @@
-// Tests for the line-preserving formatter. Each case pins the reindented output
-// for a representative shape, plus the cross-cutting properties: multi-line
-// strings are untouched, blank runs collapse, and formatting is idempotent.
+// Tests for `thera fmt`. Each case pins the output for a representative shape,
+// plus the cross-cutting properties: multi-line strings are untouched, blank
+// runs collapse, and formatting is idempotent.
+//
+// Split in two, as the formatter is. [check] drives `format_lines` alone — the
+// line-layout half, which preserves the breaks it is given — so those cases pin
+// indentation and intra-line spacing without line breaking in the way.
+// [check_canonical] drives the whole of `format_source`.
 
 import std.testing;
 
 import 'fmt' as _;
 
-// Format twice and assert the result equals `want` *and* is idempotent.
+// Lay out twice and assert the result equals `want` *and* is idempotent.
 fn check(_ src: String, _ want: String) -> Result<Void, Error> {
-    let once = format_source(src);
+    let once = format_lines(src);
     testing.assert_eq(actual: once, expected: want)?;
-    testing.assert_eq(actual: format_source(once), expected: want)?;
+    testing.assert_eq(actual: format_lines(once), expected: want)?;
     return Result.Ok(void);
 }
 
@@ -74,7 +79,7 @@ fn trims_trailing_whitespace() -> Result<Void, Error> {
     return check('fn f() {   \n    x();  \n}\n', 'fn f() {\n    x();\n}\n');
 }
 
-// --- Stage A: intra-line spacing ---
+// --- intra-line spacing ---
 
 @test
 fn spaces_signature_and_comparison() -> Result<Void, Error> {
@@ -120,13 +125,13 @@ fn keeps_shift_operators_tight() -> Result<Void, Error> {
         + '    let m: Map<K, List<Int>> = [:];\n}\n');
 }
 
-// --- reflow (`fmt --reflow`) ---
+// --- line breaking (the whole formatter) ---
 
-// Reflow at `width` and assert the result equals `want` *and* is idempotent.
-fn check_reflow(_ src: String, _ want: String, _ width: Int) -> Result<Void, Error> {
-    let once = format_source_reflow(src, width: width);
+// Format at `width` and assert the result equals `want` *and* is idempotent.
+fn check_canonical(_ src: String, _ want: String, _ width: Int) -> Result<Void, Error> {
+    let once = format_source_at(src, width);
     testing.assert_eq(actual: once, expected: want)?;
-    testing.assert_eq(actual: format_source_reflow(once, width: width), expected: want)?;
+    testing.assert_eq(actual: format_source_at(once, width), expected: want)?;
     return Result.Ok(void);
 }
 
@@ -134,7 +139,7 @@ fn check_reflow(_ src: String, _ want: String, _ width: Int) -> Result<Void, Err
 fn reflow_splits_an_over_width_call() -> Result<Void, Error> {
     // All-or-nothing: every argument goes to its own line, rather than packing
     // as many as fit (packing makes one added argument rewrap its neighbours).
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    g(alpha, beta, gamma);\n}\n',
         'fn f() {\n    g(\n        alpha,\n        beta,\n        gamma,\n    );\n}\n',
         20);
@@ -142,7 +147,7 @@ fn reflow_splits_an_over_width_call() -> Result<Void, Error> {
 
 @test
 fn reflow_splits_a_parameter_list() -> Result<Void, Error> {
-    return check_reflow(
+    return check_canonical(
         'fn some_function(_ a: Int, _ b: Int) -> Int {\n    return a;\n}\n',
         'fn some_function(\n    _ a: Int,\n    _ b: Int,\n) -> Int {\n    return a;\n}\n',
         30);
@@ -152,7 +157,7 @@ fn reflow_splits_a_parameter_list() -> Result<Void, Error> {
 fn reflow_joins_a_group_that_fits() -> Result<Void, Error> {
     // Stage 2: an author break inside a group that fits is *removed*, so the
     // layout is a function of the token stream rather than of how it was typed.
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    g(\n        a,\n        b);\n}\n',
         'fn f() {\n    g(a, b);\n}\n',
         100);
@@ -163,14 +168,14 @@ fn reflow_keeps_a_block_split() -> Result<Void, Error> {
     // A statement block never joins, however short — collapsing bodies onto one
     // line is legal and almost never wanted.
     let src = 'fn f() {\n    if a {\n        b();\n    }\n}\n';
-    return check_reflow(src, src, 100);
+    return check_canonical(src, src, 100);
 }
 
 @test
 fn reflow_keeps_a_match_body_split() -> Result<Void, Error> {
     let src = 'fn f() -> Int {\n    return match x {\n        Some(v) => 1,\n'
         + '        None => 2,\n    };\n}\n';
-    return check_reflow(src, src, 100);
+    return check_canonical(src, src, 100);
 }
 
 @test
@@ -178,7 +183,7 @@ fn reflow_joins_a_struct_literal() -> Result<Void, Error> {
     // The one `{` that does join. It cannot be told from a block by tokens
     // alone (`impl Foo {` and `Point {` read alike), so this is the single
     // place the AST is consulted.
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    let p = Point {\n        x: 1\n    };\n}\n',
         'fn f() {\n    let p = Point { x: 1 };\n}\n',
         100);
@@ -189,7 +194,7 @@ fn reflow_deletes_a_trailing_comma_when_joining() -> Result<Void, Error> {
     // The comma is optional in every comma list (docs/grammar.md), so the join
     // removes it rather than leaving `g(a, b, )` — and a trailing comma no
     // longer silently pins a group open.
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    g(\n        a,\n        b,\n    );\n}\n',
         'fn f() {\n    g(a, b);\n}\n',
         100);
@@ -201,7 +206,7 @@ fn reflow_deletes_a_nested_trailing_comma_when_joining() -> Result<Void, Error> 
     // the last of several. The struct literal's comma is a trailing comma too
     // once the join puts it on one line — testing only against the span's end
     // left it stranded as `…, span: span, });`.
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    push(Comment {\n        kind: k,\n        span: span,\n    });\n}\n',
         'fn f() {\n    push(Comment { kind: k, span: span });\n}\n',
         100);
@@ -211,7 +216,7 @@ fn reflow_deletes_a_nested_trailing_comma_when_joining() -> Result<Void, Error> 
 fn reflow_adds_a_trailing_comma_when_splitting() -> Result<Void, Error> {
     // The symmetric half: a split comma list ends in a comma, so adding an
     // element later is a one-line diff instead of two.
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    g(alphaaaaaa, betaaaaaa);\n}\n',
         'fn f() {\n    g(\n        alphaaaaaa,\n        betaaaaaa,\n    );\n}\n',
         20);
@@ -224,7 +229,7 @@ fn reflow_completes_a_half_split_comma_list() -> Result<Void, Error> {
     // keeps its hand-wrapping forever while the same call with a shorter middle
     // argument comes out one per line — layout deciding itself on how long an
     // argument happens to be.
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    g(aaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbb,\n        cccc);\n}\n',
         'fn f() {\n    g(\n        aaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbb,\n'
         + '        cccc,\n    );\n}\n',
@@ -237,7 +242,7 @@ fn reflow_keeps_a_hugged_list_whole() -> Result<Void, Error> {
     // taken — it is multi-line because an argument is. That is the hugging
     // shape, so all-or-nothing must not read it as a half-finished split.
     let src = 'fn f() {\n    g(a, hh(\n        xxxxxxxxxxxx,\n        y,\n    ));\n}\n';
-    return check_reflow(src, src, 24);
+    return check_canonical(src, src, 24);
 }
 
 @test
@@ -246,7 +251,7 @@ fn reflow_comment_keeps_a_half_split_list() -> Result<Void, Error> {
     // comment's line and commenting it out. A group holding a comment is left
     // exactly as written.
     let src = 'fn f() {\n    g(a, // why\n        bbbbbbbbbbbbbbbbbbbbbbbb,\n        c);\n}\n';
-    return check_reflow(src, src, 20);
+    return check_canonical(src, src, 20);
 }
 
 @test
@@ -256,14 +261,14 @@ fn reflow_keeps_a_scalar_list_packed() -> Result<Void, Error> {
     // exemption a byte fixture would go to one element per line.
     let src = 'fn f() {\n    let xs = [\n        1, 2, 3, 4, 5,\n'
         + '        6, 7, 8, 9, 10,\n    ];\n}\n';
-    return check_reflow(src, src, 24);
+    return check_canonical(src, src, 24);
 }
 
 @test
 fn reflow_never_commas_a_grouping_paren() -> Result<Void, Error> {
     // `(a + b,)` is a parse error, so a paren with no top-level comma is split
     // like any other group but never gains a trailing comma.
-    return check_reflow(
+    return check_canonical(
         'fn f() -> Int {\n    return (aaaaaaaaaaaa + bbbbbbbbbbbb);\n}\n',
         'fn f() -> Int {\n    return (\n        aaaaaaaaaaaa + bbbbbbbbbbbb\n    );\n}\n',
         30);
@@ -273,7 +278,7 @@ fn reflow_never_commas_a_grouping_paren() -> Result<Void, Error> {
 fn reflow_comment_keeps_a_group_split() -> Result<Void, Error> {
     // Joining would pull `b` onto the comment's line and comment it out.
     let src = 'fn f() {\n    g(\n        a, // why\n        b);\n}\n';
-    return check_reflow(src, src, 100);
+    return check_canonical(src, src, 100);
 }
 
 @test
@@ -282,7 +287,7 @@ fn reflow_leaves_a_line_it_cannot_split() -> Result<Void, Error> {
     // literal is left over-width rather than mangled. The enclosing block is not
     // a candidate either — its own break points are already taken.
     let src = 'fn f() {\n    let s = \'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\';\n}\n';
-    return check_reflow(src, src, 20);
+    return check_canonical(src, src, 20);
 }
 
 @test
@@ -290,7 +295,7 @@ fn reflow_hugs_a_chain_argument() -> Result<Void, Error> {
     // `sub(…)` covers the over-width line, but its only break there is the one
     // before its closer — splitting it sheds a `)`. `.flag(…)` breaks where it
     // counts, so the chain keeps its shape instead of being pried apart.
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    a.sub(b.new(\'x\')\n'
         + '        .flag(\'one\', help: \'yyyyyyyyyyyyyyyyyyyy\'));\n}\n',
         'fn f() {\n    a.sub(b.new(\'x\')\n        .flag(\n            \'one\',\n'
@@ -306,14 +311,14 @@ fn reflow_leaves_an_unbreakable_string_argument() -> Result<Void, Error> {
     // would go on prying the chain apart a group per round.
     let src = 'fn f() {\n    a.sub(b.new(\'x\')\n        .details(\n'
         + '\'a very long line of prose that runs past the margin\nand more\'));\n}\n';
-    return check_reflow(src, src, 40);
+    return check_canonical(src, src, 40);
 }
 
 @test
 fn reflow_splits_the_outermost_group_first() -> Result<Void, Error> {
     // `g(...)` encloses `h(...)`; the outer call breaks so the split reveals the
     // call structure instead of burying it inside the argument.
-    return check_reflow(
+    return check_canonical(
         'fn f() {\n    g(h(a, b), c);\n}\n',
         'fn f() {\n    g(\n        h(a, b),\n        c,\n    );\n}\n',
         16);

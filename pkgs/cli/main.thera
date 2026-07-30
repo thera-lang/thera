@@ -79,7 +79,7 @@ The default output is quiet: a block per failing test (`<name>: failed` with the
         .subcommand(cli.Command.new('fmt')
             .about('format source files in place')
             .details(
-'Rewrites each target (a file, or *.thera under a directory) to the canonical format, in place.
+'Rewrites each target (a file, or *.thera under a directory) to the canonical format, in place. Layout is a function of the code, not of how it was typed: lines are broken at 100 columns and rejoined where they fit, so the same code always comes out the same. There are no options to configure it.
 
 With --check, no file is modified: the unformatted files are listed instead, one per line, and the exit code reports whether any were found (for CI / pre-commit).
 
@@ -87,7 +87,6 @@ With --check, no file is modified: the unformatted files are listed instead, one
 - stderr: per-file errors
 - exit code: 0; 2 when a target is missing or any file cannot be read or written (the rest are still processed). With --check: 0 when all files are formatted, 1 when some need formatting, 2 on a read/target error')
             .flag('check', help: 'do not write; list files that need formatting and exit non-zero if any')
-            .flag('reflow', help: 'also split lines wider than 100 columns (experimental; adds line breaks, never removes one)')
             .positional('target', help: 'a .thera file or directory to format'))
         .subcommand(cli.Command.new('lint')
             .about('report non-idiomatic code shapes; --fix applies the rewrites')
@@ -182,7 +181,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             eprintln('thera fmt: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return do_fmt(positionals, check: sub.flag('check'), wrap: sub.flag('reflow'));
+        return do_fmt(positionals, check: sub.flag('check'));
     }
     if name == 'lint' {
         if sub.flag('fix') {
@@ -337,7 +336,7 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>,
 
 // `thera fmt <file|dir>...` — format each target in place, or (with `check`) list
 // the unformatted files without touching them.
-fn do_fmt(_ targets: List<String>, check: Bool = false, wrap: Bool = false) -> Result<Int, Error> {
+fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
     let files: List<String> = [];
     let mut missing = false;
     for target in targets {
@@ -367,7 +366,7 @@ fn do_fmt(_ targets: List<String>, check: Bool = false, wrap: Bool = false) -> R
         let mut unformatted = 0;
         let mut unreadable = false;
         for file in runner.sort_dedup(files) {
-            match fmt.check_file(file, wrap: wrap) {
+            match fmt.check_file(file) {
                 Ok(needs) => {
                     if needs {
                         println(file);
@@ -393,7 +392,7 @@ fn do_fmt(_ targets: List<String>, check: Bool = false, wrap: Bool = false) -> R
     // the exit code (it used to swallow it and exit 0 — LD12).
     let mut failed = false;
     for file in runner.sort_dedup(files) {
-        match fmt.format_file(file, wrap: wrap) {
+        match fmt.format_file(file) {
             Ok(changed) => {
                 if changed {
                     println('Formatted ${file}');

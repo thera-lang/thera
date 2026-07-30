@@ -1,5 +1,5 @@
-//! Line breaking for `thera fmt --reflow` (docs/roadmap.md → Developer tooling
-//! → Reflowing formatter).
+//! Line breaking for `thera fmt` — the half of the formatter that decides where
+//! the breaks go, driven by `fmt.thera`'s `format_source`.
 //!
 //! The unit of breaking is a **bracket group**: a matched `(`/`[`/`{` pair. Its
 //! break points are the positions a newline may be inserted — after the opener,
@@ -39,7 +39,7 @@ import '../source' as _; // Comment
 import '../parser/parser';
 import 'groups';
 
-// The margin `thera fmt --reflow` targets. Provisional — see docs/roadmap.md.
+// The margin `thera fmt` targets. Provisional — see docs/roadmap.md.
 pub const DEFAULT_WIDTH: Int = 100;
 
 // A matched bracket pair and the offsets at which it may be broken.

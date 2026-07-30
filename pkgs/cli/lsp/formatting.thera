@@ -1,4 +1,6 @@
-// LSP document formatting: formats a document using the built-in formatter.
+// LSP document formatting: formats a document using the built-in formatter —
+// the same canonical layout `thera fmt` writes, so format-on-save and the CI
+// `fmt --check` gate can never disagree.
 //
 // The LSP `textDocument/formatting` request returns a list of `TextEdit`s. We
 // replace the entire document content with the formatted version.
