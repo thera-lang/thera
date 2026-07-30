@@ -278,6 +278,32 @@ fn reflow_keeps_a_scalar_list_packed() -> Result<Void, Error> {
 }
 
 @test
+fn reflow_packs_a_flat_scalar_list() -> Result<Void, Error> {
+    // The other direction: a list still on one line is packed to the margin, one
+    // row at a time, rather than one element per line.
+    return check_canonical(
+        'fn f() {\n    let xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];\n}\n',
+        'fn f() {\n    let xs = [\n        1, 2, 3, 4, 5, 6, 7,\n'
+        + '        8, 9, 10, 11, 12, 13,\n        14, 15,\n    ];\n}\n',
+        30,
+    );
+}
+
+@test
+fn reflow_keeps_a_packed_scalar_list_at_a_narrower_margin() -> Result<Void, Error> {
+    // Rows packed to a *wider* margin than the one now in force stay as they are.
+    // Re-packing would mean deleting the row breaks and laying them out again,
+    // which a pass that only inserts cannot do — it would add rows on top of the
+    // existing ones and shred the list. Leaving the rows over the margin is the
+    // honest outcome, and this is the case that regressed a whole byte fixture to
+    // one element per line: `is_scalar_list` was asked about the breaks left to
+    // take, which skip every row boundary, so the list read as non-scalar.
+    let src = 'fn f() {\n    let xs = [\n        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,\n'
+        + '        11, 12, 13, 14, 15,\n    ];\n}\n';
+    return check_canonical(src, src, 30);
+}
+
+@test
 fn reflow_never_commas_a_grouping_paren() -> Result<Void, Error> {
     // `(a + b,)` is a parse error, so a paren with no top-level comma is split
     // like any other group but never gains a trailing comma.

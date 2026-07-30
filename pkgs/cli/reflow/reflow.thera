@@ -529,16 +529,42 @@ fn group_breaks_for_line(
             continue;
         }
         if p.close - p.open > best_width {
-            let offsets = if is_scalar_list(p, chars) {
-                fill_breaks(p, chars, width)
-            } else {
-                p.breaks
-            };
+            // Classify against the group's **own** break points, not the ones
+            // left to take. `p.breaks` here holds only the untaken ones, and on a
+            // list that is already filled those skip every row boundary — so the
+            // segment between two of them spans a newline, which reads as "not a
+            // scalar element" and abandons the fill. Re-filling a byte fixture at
+            // a narrower margin then put all 90 elements on their own lines.
+            let orig = original_of(p, on_line);
+            let scalar = is_scalar_list(orig, chars);
+            // A scalar list is packed only while it is still flat. Re-packing one
+            // that is already in rows would mean *deleting* its row breaks and
+            // laying them out again, and this pass can only insert — adding rows
+            // on top of the existing ones just shreds it. So a packed list keeps
+            // the packing it has, and its rows stay as wide as the margin they
+            // were packed to. That only shows if the margin changes, and a
+            // mis-packed row reads far better than one element per line.
+            if scalar && p.breaks.len() != orig.breaks.len() {
+                continue;
+            }
+            let offsets = if scalar { fill_breaks(p, chars, width) } else { p.breaks };
             best = to_edits(p, offsets, chars);
             best_width = p.close - p.open;
         }
     }
     return best;
+}
+
+// The unfiltered pair `p` was narrowed from — the one whose `breaks` are every
+// break point of the group rather than only those still untaken. Matched on the
+// opening offset, which is unique per group.
+fn original_of(_ p: Pair, _ all: List<Pair>) -> Pair {
+    for o in all {
+        if o.open == p.open {
+            return o;
+        }
+    }
+    return p;
 }
 
 // Turn chosen break offsets into edits. The break that puts the closer on its own
