@@ -148,9 +148,17 @@ fn apply_joins(_ text: String, _ width: Int) -> String {
             si = si + 1;
         }
         let inside = si < spans.len() && i > spans[si].start && i < spans[si].end;
-        // The join deletes a trailing comma: `g(a, b,)` would otherwise become
-        // `g(a, b, )`. Safe because the grammar makes it optional in every list.
-        if inside && chars[i] == COMMA && only_space_until(chars, i + 1, spans[si].end) {
+        // The join deletes every trailing comma it collapses onto the line:
+        // `g(a, b,)` would otherwise become `g(a, b, )`. Safe because the grammar
+        // makes the comma optional in every list.
+        //
+        // "Directly before a closer", not "last in the joined span" — a span is
+        // the *outermost* group that fits ([join_spans] drops the ones it
+        // contains), so its own closer is only the last of several. A nested
+        // group's comma is just as much a trailing comma once the join puts it on
+        // one line, and testing only against the span's end left it stranded:
+        // `push(Comment {⏎ …,⏎ span: span,⏎ });` joined to `…, span: span, });`.
+        if inside && chars[i] == COMMA && closer_follows(chars, i + 1, spans[si].end) {
             i = i + 1;
         } else if inside && is_layout_space(chars[i]) {
             // Collapse this whitespace run to one space, but only if it holds a
@@ -182,20 +190,26 @@ fn is_layout_space(_ c: Int) -> Bool {
     return c == char.SPACE || c == char.TAB || c == char.CR || c == char.LF;
 }
 
-// Whether `[from, to)` holds nothing but whitespace — used to spot the comma that
-// sits last in a group.
-fn only_space_until(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
+// Whether the first non-whitespace character in `[from, to]` closes a bracket —
+// i.e. the comma just before `from` is a trailing comma, whichever group it
+// belongs to. Bounded by `to` (the joined span's own closer) so the scan cannot
+// run past the region being collapsed.
+fn closer_follows(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
     let mut i = from;
-    while i < to && i < chars.len() {
-        if !is_layout_space(chars[i]) {
-            return false;
+    while i <= to && i < chars.len() {
+        let c = chars[i];
+        if !is_layout_space(c) {
+            return c == RPAREN || c == RBRACKET || c == RBRACE;
         }
         i = i + 1;
     }
-    return true;
+    return false;
 }
 
 const COMMA: Int = 44;
+const RPAREN: Int = 41;
+const RBRACKET: Int = 93;
+const RBRACE: Int = 125;
 
 // Apply each edit's text at its offset (ascending). Offsets index code points,
 // as token spans do.

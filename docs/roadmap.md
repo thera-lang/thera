@@ -599,12 +599,12 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
     an element is, and that is exactly the hugging shape, which must survive.
     - Measured at ~30 lines to write and **+6652/−2121 across 103 files** on the
       sweep, against +2335/−927 across 89 without it — a 2.4× jump, because it
-      canonicalizes hand-wrapping the pass currently leaves alone. It also
-      surfaces a latent [apply_joins](../pkgs/cli/fmt.thera) bug: joining an
-      outer group leaves an inner group's trailing comma stranded (`Comment {
-      … span: span, }`), since the delete only fires for the comma last within
-      the *joined* span. Fix that first. Do the whole item **before** the corpus
-      sweep, since it is a corpus-wide reshape.
+      canonicalizes hand-wrapping the pass currently leaves alone. Read a sample
+      of that extra churn before committing to it: the number is the cost of
+      canonical form, but it is worth confirming the shapes it produces are the
+      ones wanted. Do the item **before** the corpus sweep, since it is a
+      corpus-wide reshape.
+    - The `apply_joins` bug this depended on is **fixed** (see _Changelog_).
 
   - **Make it the default.** Drop the `--reflow` flag, retire
     [fmt.thera](../pkgs/cli/fmt.thera)'s Stage A (intra-line spacing, subsumed —
@@ -1032,6 +1032,15 @@ conformance specs. Newest first.
     block — enough to produce `let names: Map<String,⏎List<NameSite>> = [:];`.
     It was already excluded from making a group a comma list; now it is excluded
     from the break list too.
+  - **A join deletes every trailing comma it collapses**, not just the one last
+    in the joined span. A span is the *outermost* group that fits ([join_spans]
+    drops the ones it contains), so its own closer is only the last of several,
+    and a nested group's comma is just as much a trailing comma once the join
+    puts it on one line: `push(Comment {⏎ …,⏎ span: span,⏎ });` came out as
+    `…, span: span, });`. The rule is now "a comma directly before any closer".
+    Reachable today but not triggered by the corpus at width 100 — the sweep is
+    byte-identical either way; it blocks the all-or-nothing item under
+    _Developer tooling_, which creates the trailing commas that hit it.
   - **Verified** by reflowing the whole corpus: `bin/test.sh` green and
     `bin/build_sdk.sh` still byte-for-byte — the front-end compiled from reflowed
     sources compiles itself to the same bytes.

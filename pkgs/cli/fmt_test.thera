@@ -196,6 +196,18 @@ fn reflow_deletes_a_trailing_comma_when_joining() -> Result<Void, Error> {
 }
 
 @test
+fn reflow_deletes_a_nested_trailing_comma_when_joining() -> Result<Void, Error> {
+    // A joined span is the *outermost* group that fits, so its own closer is only
+    // the last of several. The struct literal's comma is a trailing comma too
+    // once the join puts it on one line — testing only against the span's end
+    // left it stranded as `…, span: span, });`.
+    return check_reflow(
+        'fn f() {\n    push(Comment {\n        kind: k,\n        span: span,\n    });\n}\n',
+        'fn f() {\n    push(Comment { kind: k, span: span });\n}\n',
+        100);
+}
+
+@test
 fn reflow_adds_a_trailing_comma_when_splitting() -> Result<Void, Error> {
     // The symmetric half: a split comma list ends in a comma, so adding an
     // element later is a one-line diff instead of two.
