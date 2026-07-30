@@ -70,6 +70,29 @@ fn preserves_multiline_string() -> Result<Void, Error> {
 }
 
 @test
+fn reindents_a_text_block_opener_but_not_its_content() -> Result<Void, Error> {
+    // A text block's value comes from its content lines and its closing
+    // delimiter, never from the column the opening `'''` sits at — so the
+    // opening line reindents like ordinary code while everything inside is
+    // emitted verbatim. (An ordinary multi-line string carries value from its
+    // opening line, so that line stays put; see preserves_multiline_string.)
+    let src = 'fn f() {\nreturn \'\'\'\n    body\n      more\n    \'\'\';\n}\n';
+    let want = 'fn f() {\n    return \'\'\'\n    body\n      more\n    \'\'\';\n}\n';
+    return check(src, want);
+}
+
+@test
+fn preserves_raw_string_content() -> Result<Void, Error> {
+    // A raw string is one token like any other, so the code around it reindents
+    // while the content — backslashes, quote style, a literal `${…}` — is
+    // re-emitted from its span untouched.
+    return check(
+        'fn f() {\nlet re = r\'\\d+\';\nlet p = r"\${HOME}\\bin";\n}\n',
+        'fn f() {\n    let re = r\'\\d+\';\n    let p = r"\${HOME}\\bin";\n}\n',
+    );
+}
+
+@test
 fn collapses_blank_runs_and_trailing() -> Result<Void, Error> {
     return check('fn f() {\n\n\n\nx();\n}\n\n\n', 'fn f() {\n\n    x();\n}\n');
 }

@@ -114,6 +114,159 @@ fn test_string_escapes() -> Result<Void, Error> {
     // \xNN and \u{...} hex escapes (neither yields a `\` or `$` here).
     testing.assert_eq(actual: tokenize("'\\x41'").tokens[0].lexeme(), expected: 'A')?;
     testing.assert_eq(actual: tokenize("'\\u{48}'").tokens[0].lexeme(), expected: 'H')?;
+    // The control-character escapes: backspace, form feed, vertical tab, NUL.
+    let ctrl = tokenize("'\\b\\f\\v\\0'").tokens;
+    testing.assert_eq(actual: ctrl[0].lexeme().chars(), expected: [8, 12, 11, 0])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_raw_string() -> Result<Void, Error> {
+    // In `r'…'` a backslash is just a backslash — no escape decoding at all, so
+    // a regex or a Windows path survives verbatim, trailing backslash included.
+    // As with an ordinary literal, the captured value re-escapes a `\` or `$`
+    // for the splitter (so `\d` reads back as `\\d` here); the decoded text is
+    // observable in the parser tests and pinned end-to-end in tests/lang.
+    testing.assert_eq(actual: tokenize("r'\\d+'").tokens[0].lexeme(), expected: "\\\\d+")?;
+    testing.assert_eq(actual: tokenize("r'a\\'").tokens[0].lexeme(), expected: "a\\\\")?;
+    testing.assert_eq(actual: tokenize("r'\\n'").tokens[0].lexeme(), expected: "\\\\n")?;
+    // The token is an ordinary StringLiteral with no interpolations: `${…}` is
+    // literal text here, which is why raw content needs no escape hatch.
+    let toks = tokenize("r'\${HOME}'").tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
+    testing.assert_eq(actual: toks[0].interps.len(), expected: 0)?;
+    // Either quote style opens one, so the other can appear in the content.
+    testing.assert_eq(actual: tokenize("r\"it's\"").tokens[0].lexeme(), expected: "it's")?;
+    testing.assert_eq(
+        actual: tokenize("r'say \"hi\"'").tokens[0].lexeme(),
+        expected: "say \"hi\"",
+    )?;
+    return Result.Ok(void);
+}
+
+// A text block's source, assembled from lines so the test reads like the code it
+// lexes rather than like one long escape run.
+fn block(_ lines: List<String>) -> String {
+    return lines.join('\n');
+}
+
+@test
+fn test_text_block_strips_the_common_margin() -> Result<Void, Error> {
+    // The margin is the least-indented non-blank line and the closing
+    // delimiter's line; indentation beyond it is content, and the closer on its
+    // own line supplies the final newline.
+    let src = block(["'''", '    one', '      two', '', '    three', "    '''"]);
+    testing.assert_eq(
+        actual: tokenize(src).tokens[0].lexeme(),
+        expected: 'one\n  two\n\nthree\n',
+    )?;
+    // A line indented less than the closer lowers the margin rather than erroring.
+    let ragged = block(["'''", '        deep', '    shallow', "        '''"]);
+    testing.assert_eq(
+        actual: tokenize(ragged).tokens[0].lexeme(),
+        expected: '    deep\nshallow\n',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_text_block_trailing_whitespace_and_closer() -> Result<Void, Error> {
+    // Incidental trailing whitespace goes; an escaped space survives, since
+    // escapes are decoded after the whitespace is measured.
+    let src = block(["'''", '    ab   ', '    c\\x20', "    '''"]);
+    testing.assert_eq(actual: tokenize(src).tokens[0].lexeme(), expected: 'ab\nc \n')?;
+    // The closer on a content line ends the value there — no final newline.
+    let tight = block(["'''", "    one line'''"]);
+    testing.assert_eq(actual: tokenize(tight).tokens[0].lexeme(), expected: 'one line')?;
+    // An empty block is the empty string.
+    testing.assert_eq(
+        actual: tokenize(block(["'''", "    '''"])).tokens[0].lexeme(),
+        expected: '',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_text_block_keeps_escapes_and_interpolation() -> Result<Void, Error> {
+    // A text block is an ordinary string in every respect but whitespace: a
+    // lone quote is content, and `${…}` is captured for the parser as usual.
+    let src = block(["'''", "    it's \${x} \\t.", "    '''"]);
+    let toks = tokenize(src).tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
+    testing.assert_eq(actual: toks[0].interps.len(), expected: 1)?;
+    testing.assert_eq(actual: toks[0].lexeme(), expected: "it's \${x} \t.\n")?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_text_block_content_on_opening_line() -> Result<Void, Error> {
+    let r = tokenize(block(["'''oops", "    '''"]));
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(
+        actual: r.errors[0].message,
+        expected: "a text block's content starts on the line after '''",
+    )?;
+    // Whitespace after the opening delimiter is fine.
+    testing.assert(!tokenize(block(["'''   ", '    x', "    '''"])).has_errors())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_unterminated_text_block() -> Result<Void, Error> {
+    let r = tokenize(block(["'''", '    x']));
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message, expected: 'unterminated text block')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_raw_text_block_is_named() -> Result<Void, Error> {
+    // `r'''…'''` is a plausible reach; lexing it as an empty raw string plus
+    // whatever follows would cascade, so the gap is named instead.
+    let r = tokenize(block(["r'''", '    x', "    '''"]));
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(
+        actual: r.errors[0].message,
+        expected: "a raw text block is not supported; use a text block or r'…'",
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_raw_prefix_is_not_stolen_from_identifiers() -> Result<Void, Error> {
+    // Only an `r` directly against a quote is a prefix; `r` stays a usable name.
+    let toks = tokenize('r + regex').tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.Identifier)?;
+    testing.assert_eq(actual: toks[0].lexeme(), expected: 'r')?;
+    testing.assert_eq(actual: toks[2].lexeme(), expected: 'regex')?;
+    // A name merely ending in `r` is not a prefix either.
+    let two = tokenize("myr'x'").tokens;
+    testing.assert_eq(actual: two[0].kind, expected: TokenKind.Identifier)?;
+    testing.assert_eq(actual: two[0].lexeme(), expected: 'myr')?;
+    testing.assert_eq(actual: two[1].kind, expected: TokenKind.StringLiteral)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_unterminated_raw_string() -> Result<Void, Error> {
+    let r = tokenize("r'oops");
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message, expected: 'unterminated raw string literal')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_octal_escape() -> Result<Void, Error> {
+    // `\0` is NUL; a following digit is much more likely a C-style octal escape
+    // written from memory, so it is rejected rather than silently decoded.
+    let r = tokenize("'\\012'");
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(
+        actual: r.errors[0].message,
+        expected: "'\\0' is NUL, not an octal escape; use '\\xNN' for a byte",
+    )?;
+    // A non-digit after `\0` is fine — that is just NUL followed by text.
+    testing.assert(!tokenize("'\\0x'").has_errors())?;
     return Result.Ok(void);
 }
 

@@ -6,5 +6,9 @@ fn main() -> Int {
     println('\x41\x42');       // expect: AB
     println('a\\b');           // expect: a\b
     println('it\'s');          // expect: it's
+    // The control escapes, shown by code point rather than by their (invisible)
+    // rendering. NUL is a character like any other, not a terminator.
+    println('${'\b\f\v\0'.chars()}');  // expect: [8, 12, 11, 0]
+    println('${'x\0y'.len()}');        // expect: 3
     return 0;
 }

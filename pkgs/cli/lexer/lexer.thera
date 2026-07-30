@@ -28,6 +28,19 @@ impl LexResult {
     }
 }
 
+// One physical line of a text block, split where the dedent applies. `ws` is the
+// line's raw leading whitespace — measured on *source* characters, so a leading
+// `\t` escape is content rather than indentation — and `text` is the decoded
+// rest. `keep` is `text`'s length as of the last significant character, so the
+// incidental trailing whitespace after it can be dropped without also dropping a
+// deliberate `\x20`. `keep == 0` marks a blank line: it sets no margin and emits
+// nothing.
+struct TextLine {
+    let ws: List<Int>;
+    let text: List<Int>;
+    let mut keep: Int;
+}
+
 // A cursor over the source's code points, accumulating tokens and errors. The
 // `ts_*` fields hold the start of the token currently being scanned, so `emit`
 // and `error` can form its span without threading the start through every call.
@@ -102,6 +115,14 @@ impl Lexer {
     fn peek(self) -> Int {
         if self.pos + 1 < self.chars.len() {
             return self.chars[self.pos + 1];
+        }
+        return char.NUL;
+    }
+
+    // The code point two past the cursor, or NUL if there isn't one.
+    fn peek2(self) -> Int {
+        if self.pos + 2 < self.chars.len() {
+            return self.chars[self.pos + 2];
         }
         return char.NUL;
     }
@@ -338,7 +359,26 @@ impl Lexer {
         } else if c == char.QUESTION {
             self.emit(TokenKind.Question);
         } else if c == char.DQUOTE || c == char.SQUOTE {
-            self.scan_string(c);
+            // Three quotes open a text block; one opens an ordinary string.
+            if self.ch() == c && self.peek() == c {
+                self.advance();
+                self.advance();
+                self.scan_text_block(c);
+            } else {
+                self.scan_string(c);
+            }
+        } else if c == LOWER_R && (self.ch() == char.SQUOTE || self.ch() == char.DQUOTE) {
+            // `r` immediately against a quote opens a raw string. This can't
+            // shadow an identifier: no Thera syntax juxtaposes a name and a
+            // string literal, so `r'…'` was never anything else.
+            let q = self.ch();
+            if self.peek() == q && self.peek2() == q {
+                // `r'''…'''` is a plausible thing to reach for, and lexing it as
+                // an empty raw string plus whatever follows would cascade into
+                // nonsense. Name the gap instead.
+                self.error('a raw text block is not supported; use a text block or r\'…\'');
+            }
+            self.scan_raw_string(self.advance());
         } else if char.is_digit(c) {
             self.scan_number();
         } else if char.is_alpha(c) || c == char.UNDERSCORE {
@@ -378,6 +418,161 @@ impl Lexer {
             span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
             value: Option.Some(String.from_chars(buf)),
             interps: interps,
+        });
+    }
+
+    // A text block — `'''…'''` or `"""…"""`, the three opening quotes already
+    // consumed. Escapes and `${…}` work exactly as in an ordinary string; what a
+    // text block adds is that the indentation used to keep the source readable
+    // is not part of the value.
+    //
+    // The margin stripped from every line is the smallest indentation across the
+    // non-blank content lines *and* the closing delimiter's own line, so lining
+    // the closing `'''` up where the left edge belongs is how you say where it
+    // is. Trailing whitespace goes per line (see `TextLine.keep`), which keeps
+    // the value independent of characters nobody can see — `\x20` forces one.
+    //
+    // The closing delimiter on its own line contributes the final newline; on a
+    // content line it ends the value there.
+    fn scan_text_block(self, _ quote: Int) -> Void {
+        let interps: List<SourceSpan> = [];
+        // The opening delimiter owns its line — only whitespace may follow it.
+        while !self.at_end() && self.ch() != char.LF && char.is_whitespace(self.ch()) {
+            self.advance();
+        }
+        if self.at_end() || self.ch() != char.LF {
+            self.error("a text block's content starts on the line after '''");
+        } else {
+            self.advance(); // the newline that opens the content
+        }
+
+        let lines: List<TextLine> = [];
+        let mut cur = TextLine { ws: [], text: [], keep: 0 };
+        let mut in_indent = true;
+        let mut closed = false;
+        let mut own_line = false; // the closing delimiter sits on a line of its own
+        while !self.at_end() && !closed {
+            let c = self.ch();
+            if c == quote && self.peek() == quote && self.peek2() == quote {
+                self.advance();
+                self.advance();
+                self.advance();
+                closed = true;
+                // Nothing significant on this line means the delimiter has the
+                // line to itself: it sets a margin and adds the final newline.
+                own_line = cur.keep == 0;
+                if !own_line {
+                    lines.push(cur);
+                }
+            } else if c == char.LF {
+                self.advance();
+                lines.push(cur);
+                cur = TextLine { ws: [], text: [], keep: 0 };
+                in_indent = true;
+            } else if in_indent && (c == char.SPACE || c == char.TAB) {
+                cur.ws.push(self.advance());
+            } else {
+                in_indent = false;
+                if c == char.BACKSLASH {
+                    let eo = self.pos;
+                    let el = self.line;
+                    let ec = self.col;
+                    self.advance();
+                    if !self.at_end() {
+                        self.scan_string_escape(cur.text, eo, el, ec);
+                    }
+                    cur.keep = cur.text.len(); // decoded, so never incidental
+                } else if c == char.DOLLAR && self.peek() == char.LBRACE {
+                    self.scan_interpolation(cur.text, interps);
+                    cur.keep = cur.text.len();
+                } else {
+                    push_literal(cur.text, c);
+                    self.advance();
+                    if !char.is_whitespace(c) {
+                        cur.keep = cur.text.len();
+                    }
+                }
+            }
+        }
+        if !closed {
+            self.error('unterminated text block');
+            lines.push(cur);
+        }
+
+        // The margin: the least-indented non-blank line, and the closing
+        // delimiter's line when it has one to itself.
+        let mut margin = -1;
+        for ln in lines {
+            if ln.keep > 0 && (margin < 0 || ln.ws.len() < margin) {
+                margin = ln.ws.len();
+            }
+        }
+        if closed && own_line && (margin < 0 || cur.ws.len() < margin) {
+            margin = cur.ws.len();
+        }
+        if margin < 0 {
+            margin = 0;
+        }
+
+        let buf: List<Int> = [];
+        let mut first = true;
+        for ln in lines {
+            if !first {
+                buf.push(char.LF);
+            }
+            first = false;
+            if ln.keep > 0 {
+                let mut k = margin;
+                while k < ln.ws.len() {
+                    buf.push(ln.ws[k]);
+                    k = k + 1;
+                }
+                let mut j = 0;
+                while j < ln.keep {
+                    buf.push(ln.text[j]);
+                    j = j + 1;
+                }
+            }
+        }
+        if closed && own_line && lines.len() > 0 {
+            buf.push(char.LF);
+        }
+
+        self.tokens.push(Token {
+            kind: TokenKind.StringLiteral,
+            span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
+            value: Option.Some(String.from_chars(buf)),
+            interps: interps,
+        });
+    }
+
+    // A raw string — `r'…'` or `r"…"`, the opening quote already consumed.
+    // Everything up to the closing quote is content: no escapes, and no `${…}`
+    // interpolation. Raw is the one place with no escape hatch, so if `${` still
+    // opened an interpolation a literal `${` would be unwritable here — exactly
+    // the shell-variable patterns raw strings exist to hold. To carry the
+    // delimiter itself, switch quote styles (`r"it's"`); use an ordinary string
+    // for content with both.
+    //
+    // The content still goes through `push_literal`, which re-escapes `\` and
+    // `$`. That leaves the token in the same shape as an ordinary literal's, so
+    // the parser's splitter reads the whole thing back as a single text part
+    // and nothing downstream has to know a raw string was involved.
+    fn scan_raw_string(self, _ quote: Int) -> Void {
+        let buf: List<Int> = [];
+        while !self.at_end() && self.ch() != quote {
+            push_literal(buf, self.advance());
+        }
+        if self.at_end() {
+            self.error('unterminated raw string literal');
+        } else {
+            self.advance(); // closing quote
+        }
+        self.tokens.push(Token {
+            kind: TokenKind.StringLiteral,
+            span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
+            value: Option.Some(String.from_chars(buf)),
+            interps: [],
         });
     }
 
@@ -459,6 +654,27 @@ impl Lexer {
             push_literal(buf, char.TAB);
         } else if e == LOWER_R {
             push_literal(buf, char.CR);
+        } else if e == LOWER_B {
+            push_literal(buf, char.BS);
+        } else if e == LOWER_F {
+            push_literal(buf, char.FF);
+        } else if e == LOWER_V {
+            push_literal(buf, char.VT);
+        } else if e == char.DIGIT_0 {
+            // `\0` is the NUL character, not the start of an octal escape. A
+            // following digit is far more likely a C-style `\012` written from
+            // memory than an intended NUL-then-digit, so reject it rather than
+            // silently decoding to something else.
+            if !self.at_end() && char.is_digit(self.ch()) {
+                self.error_at(
+                    "'\\0' is NUL, not an octal escape; use '\\xNN' for a byte",
+                    o,
+                    l,
+                    c,
+                );
+                return;
+            }
+            push_literal(buf, char.NUL);
         } else if e == char.BACKSLASH {
             push_literal(buf, char.BACKSLASH);
         } else if e == char.SQUOTE {
@@ -600,10 +816,13 @@ impl Lexer {
 }
 
 const UPPER_X: Int = 88;
+const LOWER_B: Int = 98;
+const LOWER_F: Int = 102;
 const LOWER_N: Int = 110;
 const LOWER_R: Int = 114;
 const LOWER_T: Int = 116;
 const LOWER_U: Int = 117;
+const LOWER_V: Int = 118;
 const LOWER_X: Int = 120;
 
 // Append a decoded text code point to a string-literal buffer, re-escaping a

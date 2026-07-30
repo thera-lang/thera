@@ -1,0 +1,24 @@
+//! spec: lex-string-raw
+//! mode: run
+
+fn main() -> Int {
+    // A raw string has no escape processing: a backslash is a backslash, so a
+    // regex or a Windows path survives verbatim.
+    println(r'\d+');              // expect: \d+
+    println(r'C:\Users\dev');     // expect: C:\Users\dev
+    // Including one at the very end — there is no escape to swallow the quote.
+    println(r'ends\');            // expect: ends\
+    // `\n` is the two characters, not a newline.
+    println('${r'\n'.chars().len()}');  // expect: 2
+    // No interpolation either: `${...}` is literal text. This is why raw is
+    // fully raw — with no escape hatch, an interpolating `${` would make a
+    // literal one unwritable in exactly the strings that need it.
+    println(r'${HOME}/bin');      // expect: ${HOME}/bin
+    // Either quote opens a raw string, so the other one can sit in the content.
+    println(r"it's");             // expect: it's
+    println(r'say "hi"');         // expect: say "hi"
+    // An `r` not against a quote is still an ordinary name.
+    let r = 7;
+    println('${r}');              // expect: 7
+    return 0;
+}

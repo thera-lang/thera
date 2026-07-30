@@ -33,7 +33,9 @@ and [grammar.md](grammar.md) (syntax).
 | `parse-recovery-sync` | Parsing / Recovery      | error recovery resyncs at a top-level declaration boundary, brace-aware — no phantom declarations or cascades            | ✓      |
 | `lex-int`             | Literals                | decimal + `0x` hex; hex wraps into signed `Int`                                                                          | ✓      |
 | `lex-float`           | Literals                | digits both sides of `.`; no `1.` / `.5` / exponent                                                                      | ✓      |
-| `lex-string-escape`   | Literals                | the 7 escapes + `\xNN` + `\u{…}`; unknown escape = error                                                                 | ✓      |
+| `lex-string-escape`   | Literals                | the 11 escapes + `\xNN` + `\u{…}`; unknown escape = error                                                                | ✓      |
+| `lex-string-raw`      | Literals                | raw strings `r'…'` / `r"…"` — no escapes, no interpolation                                                               | ✓      |
+| `lex-string-block`    | Literals                | text blocks `'''…'''`: margin stripped, trailing whitespace dropped, escapes + interpolation live                        | ✓      |
 | `lex-string-interp`   | Literals                | `${expr}` interpolation                                                                                                  | ✓      |
 | `lex-bool-unit`       | Literals                | `true` / `false` / `void` keywords in expression position                                                                | ✓      |
 

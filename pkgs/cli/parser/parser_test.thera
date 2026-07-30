@@ -594,6 +594,40 @@ fn test_describe_reescapes_string_text() -> Result<Void, Error> {
 }
 
 @test
+fn test_text_block_splits_and_keeps_real_spans() -> Result<Void, Error> {
+    // A text block splits into parts like any other string, dedent already
+    // applied by the lexer.
+    let src = ["'''", '    a: \${1 + 2}', '    b', "    '''"].join('\n');
+    testing.assert_eq(actual: parts_desc(src), expected: 'T:a: |I:(1 + 2)|T:\nb\n')?;
+    // The interpolation's sub-parse is rebased onto its real source region, so a
+    // diagnostic inside `${…}` still points at the file (PA2) — the dedent must
+    // not shift it. `1 +` is incomplete, and the error lands on line 2.
+    let bad = [
+        'fn f() -> Void {',
+        "    let s = '''",
+        '        x \${1 +}',
+        "        ''';",
+        '}',
+    ].join('\n');
+    let r = parse_tokens(tokenize(bad).tokens);
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].span.line, expected: 3)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_raw_string_decodes_to_one_text_part() -> Result<Void, Error> {
+    // A raw string reaches the parser in the same shape as an ordinary literal,
+    // so the splitter yields one text part: `r'\d+'` is the two characters `\d`
+    // then `+` (describe re-escapes the backslash, hence `\\d` below).
+    testing.assert_eq(actual: expr_str("r'\\d+'"), expected: "\"\\\\d+\"")?;
+    // `${…}` in a raw string is literal text, not an interpolation — the whole
+    // point of raw having no escape hatch.
+    testing.assert_eq(actual: expr_str("r'\${x}'"), expected: "\"\${x}\"")?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_import_path_interpolation_rejected() -> Result<Void, Error> {
     // An import path is a literal; interpolation is a parse error (PA9).
     let r = parse_src("import '\${x}/lib';");

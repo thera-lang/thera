@@ -1,7 +1,10 @@
 //! std.regex — regular expressions.
 //!
 //! Import as: import std.regex
-//! Usage:     let re = regex.Regex.compile('\\d+')?;
+//! Usage:     let re = regex.Regex.compile(r'\d+')?;
+//!
+//! Write patterns as **raw strings** (`r'…'`) — no escape processing, so the
+//! pattern reads as the regex engine sees it and backslashes need no doubling.
 //!
 //! Compile a pattern once, then match / find / capture / replace against text.
 //! Backed by the Rust `regex` crate — RE2 syntax, **linear-time** (no
@@ -99,7 +102,7 @@ impl Regex {
     /// Compile `pattern`. An invalid pattern is a `RegexError.Syntax`.
     ///
     /// ```thera
-    /// let re = regex.Regex.compile('(\\w+)@(\\w+)')?;
+    /// let re = regex.Regex.compile(r'(\w+)@(\w+)')?;
     /// ```
     pub fn compile(_ pattern: String) -> Result<Regex, RegexError> {
         return match _compile(pattern) {

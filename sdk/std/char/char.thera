@@ -15,8 +15,11 @@
 // --- ASCII control characters ---
 
 pub const NUL: Int = 0;
+pub const BS: Int = 8;           // backspace
 pub const TAB: Int = 9;
 pub const LF: Int = 10;
+pub const VT: Int = 11;          // vertical tab
+pub const FF: Int = 12;          // form feed
 pub const CR: Int = 13;
 pub const ESC: Int = 27;
 
