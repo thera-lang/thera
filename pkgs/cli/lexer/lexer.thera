@@ -459,6 +459,27 @@ impl Lexer {
             push_literal(buf, char.TAB);
         } else if e == LOWER_R {
             push_literal(buf, char.CR);
+        } else if e == LOWER_B {
+            push_literal(buf, char.BS);
+        } else if e == LOWER_F {
+            push_literal(buf, char.FF);
+        } else if e == LOWER_V {
+            push_literal(buf, char.VT);
+        } else if e == char.DIGIT_0 {
+            // `\0` is the NUL character, not the start of an octal escape. A
+            // following digit is far more likely a C-style `\012` written from
+            // memory than an intended NUL-then-digit, so reject it rather than
+            // silently decoding to something else.
+            if !self.at_end() && char.is_digit(self.ch()) {
+                self.error_at(
+                    "'\\0' is NUL, not an octal escape; use '\\xNN' for a byte",
+                    o,
+                    l,
+                    c,
+                );
+                return;
+            }
+            push_literal(buf, char.NUL);
         } else if e == char.BACKSLASH {
             push_literal(buf, char.BACKSLASH);
         } else if e == char.SQUOTE {
@@ -600,10 +621,13 @@ impl Lexer {
 }
 
 const UPPER_X: Int = 88;
+const LOWER_B: Int = 98;
+const LOWER_F: Int = 102;
 const LOWER_N: Int = 110;
 const LOWER_R: Int = 114;
 const LOWER_T: Int = 116;
 const LOWER_U: Int = 117;
+const LOWER_V: Int = 118;
 const LOWER_X: Int = 120;
 
 // Append a decoded text code point to a string-literal buffer, re-escaping a

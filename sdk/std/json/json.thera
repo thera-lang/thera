@@ -394,9 +394,9 @@ impl Scanner {
         } else if e == char.SLASH {
             out.push(char.SLASH);
         } else if e == 98 {
-            out.push(8); // \b
+            out.push(char.BS); // \b
         } else if e == 102 {
-            out.push(12); // \f
+            out.push(char.FF); // \f
         } else if e == 110 {
             out.push(char.LF); // \n
         } else if e == 114 {
@@ -630,10 +630,10 @@ fn quote(_ s: String) -> String {
         } else if c == char.BACKSLASH {
             out.push(char.BACKSLASH);
             out.push(char.BACKSLASH);
-        } else if c == 8 {
+        } else if c == char.BS {
             out.push(char.BACKSLASH);
             out.push(98); // \b
-        } else if c == 12 {
+        } else if c == char.FF {
             out.push(char.BACKSLASH);
             out.push(102); // \f
         } else if c == char.LF {

@@ -254,6 +254,12 @@ let greeting = 'Hello, ${name}!';
 let path = dir + '/' + name + '.thera';
 ```
 
+The escapes are `\n \t \r \b \f \v \0` and `\\ \' \" \$`, plus `\xNN` for a byte
+and `\u{…}` (1–6 hex digits) for a Unicode scalar value. An unrecognized escape
+is an error rather than a silent pass-through, so a stray backslash can't change
+what a string means without saying so. `\0` is NUL alone — there are no octal
+escapes, and `'\012'` is rejected instead of being read the C way.
+
 Strings are UTF-8 and are **not** integer-indexable — `s[i]` is disallowed,
 since it would let code split a multi-byte character in half. Work in code
 points explicitly instead: `.chars()` yields the Unicode code points (as `Int`s

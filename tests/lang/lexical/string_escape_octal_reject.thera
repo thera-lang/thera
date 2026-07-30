@@ -1,0 +1,11 @@
+//! spec: lex-string-escape
+//! mode: check
+
+fn main() -> Int {
+    // `\0` is NUL, full stop. A following digit is far more likely a C-style
+    // octal escape written from memory than an intended NUL-then-digit, so it
+    // is rejected rather than silently decoding to something else.
+    let s = '\012';      // expect error: octal escape
+    println(s);
+    return 0;
+}

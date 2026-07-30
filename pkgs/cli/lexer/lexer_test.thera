@@ -114,6 +114,24 @@ fn test_string_escapes() -> Result<Void, Error> {
     // \xNN and \u{...} hex escapes (neither yields a `\` or `$` here).
     testing.assert_eq(actual: tokenize("'\\x41'").tokens[0].lexeme(), expected: 'A')?;
     testing.assert_eq(actual: tokenize("'\\u{48}'").tokens[0].lexeme(), expected: 'H')?;
+    // The control-character escapes: backspace, form feed, vertical tab, NUL.
+    let ctrl = tokenize("'\\b\\f\\v\\0'").tokens;
+    testing.assert_eq(actual: ctrl[0].lexeme().chars(), expected: [8, 12, 11, 0])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_octal_escape() -> Result<Void, Error> {
+    // `\0` is NUL; a following digit is much more likely a C-style octal escape
+    // written from memory, so it is rejected rather than silently decoded.
+    let r = tokenize("'\\012'");
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(
+        actual: r.errors[0].message,
+        expected: "'\\0' is NUL, not an octal escape; use '\\xNN' for a byte",
+    )?;
+    // A non-digit after `\0` is fine — that is just NUL followed by text.
+    testing.assert(!tokenize("'\\0x'").has_errors())?;
     return Result.Ok(void);
 }
 

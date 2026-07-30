@@ -82,7 +82,7 @@ BOOL   = 'true' | 'false'
 UNIT   = 'void'                       // the single value of type Void
 STRING = "'" strChar* "'" | '"' strChar* '"'
 strChar = escape | interpolation | (any char except the delimiter)
-escape  = '\' ('n' | 't' | 'r' | '\' | "'" | '"' | '$')
+escape  = '\' ('n' | 't' | 'r' | 'b' | 'f' | 'v' | '0' | '\' | "'" | '"' | '$')
         | '\x' hex hex                    // a byte, U+0000..U+00FF
         | '\u{' hex (1..6 times) '}'       // a Unicode scalar value
 interpolation = '${' expr '}'
@@ -93,9 +93,12 @@ literal is read as an unsigned 64-bit pattern wrapped into the signed `Int`, so
 `0x9E3779B97F4A7C15` is a (negative) constant. No binary/octal, digit separators
 (`_`), exponents, or sign (a leading `-` is the unary operator). Floats require
 digits on both sides of the `.` (`1.0`, not `1.` or `.5`), with no exponent.
-Strings use `'` or `"` (single quotes by convention). Escapes are the seven
-simple ones plus `\xNN` (a byte) and `\u{…}` (1–6 hex digits naming a Unicode
-scalar value); an unrecognized escape is an **error** (no silent pass-through).
+Strings use `'` or `"` (single quotes by convention). Escapes are the eleven
+simple ones — `\n \t \r \b \f \v \0` and `\\ \' \" \$`, the JavaScript/C set
+less the obsolete `\a` — plus `\xNN` (a byte) and `\u{…}` (1–6 hex digits naming
+a Unicode scalar value); an unrecognized escape is an **error** (no silent
+pass-through). `\0` is NUL and nothing more: there are no octal escapes, so a
+digit after it (`'\012'`) is rejected rather than quietly read the C way.
 `${ … }` embeds an arbitrary expression; a bare `$` not followed by `{` is
 ordinary text (`\$` escapes a literal `${`).
 
@@ -436,8 +439,8 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 - Integer bases & separators: `0b…`, `0o…` (binary/octal), digit separators
   (`1_000`); integer/float **exponents** (`1e9`); float shorthands `1.` and
   `.5`. (Hex `0x…` _is_ supported.)
-- String: `\0` escape, raw or triple-quoted strings. (`\u{…}` and `\xNN` _are_
-  supported.)
+- String: raw or triple-quoted strings; `\a`, `\e`, and braceless `\uXXXX`.
+  (`\u{…}`, `\xNN`, and `\0`/`\b`/`\f`/`\v` _are_ supported.)
 - Tuple literals/types `(a, b)` — `(…)` is grouping or lambda params only.
 
 **Statements & control flow**

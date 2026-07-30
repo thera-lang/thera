@@ -4,6 +4,7 @@
 //! today (`thera check`). String's methods are in the auto-imported core prelude,
 //! so they're used unqualified — no sibling import needed.
 
+import std.char;
 import std.testing;
 
 @test
@@ -141,6 +142,19 @@ fn test_numeric_escapes() -> Result<Void, Error> {
     testing.assert_eq(actual: '\u{48}\u{69}', expected: 'Hi')?;
     testing.assert_eq(actual: '\u{1F600}'.chars(), expected: [128512])?; // 😀
     testing.assert_eq(actual: '\u{FFFD}'.chars(), expected: [65533])?;   // replacement char
+    return Result.Ok(void);
+}
+
+@test
+fn test_control_escapes() -> Result<Void, Error> {
+    // The named control escapes agree with their std.char constants.
+    testing.assert_eq(actual: '\b'.chars(), expected: [char.BS])?;
+    testing.assert_eq(actual: '\f'.chars(), expected: [char.FF])?;
+    testing.assert_eq(actual: '\v'.chars(), expected: [char.VT])?;
+    testing.assert_eq(actual: '\0'.chars(), expected: [char.NUL])?;
+    // NUL is a character like any other, not a terminator.
+    testing.assert_eq(actual: 'a\0b'.len(), expected: 3)?;
+    testing.assert_eq(actual: '\b', expected: '\x08')?;
     return Result.Ok(void);
 }
 

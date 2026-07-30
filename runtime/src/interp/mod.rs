@@ -2030,7 +2030,7 @@ impl<'a> Vm<'a> {
             // Clone the object out so the recursion into nested handles below
             // doesn't hold a heap borrow.
             Value::Ref(h) => match heap::clone_obj(*h) {
-                Obj::Str(s) => format!("'{}'", s.replace('\\', r"\\").replace('\'', r"\'")),
+                Obj::Str(s) => quote_str(&s),
                 Obj::Bytes(b) => format!("Bytes[{}]", hex_join(&b)),
                 Obj::BytesBuilder(b) => format!("BytesBuilder[{}]", hex_join(&b)),
                 Obj::List(items) => format!("[{}]", self.debug_list(module, &items)?),
@@ -2157,6 +2157,38 @@ fn pop_two_double(stack: &mut Vec<Value>, module: &Module) -> Result<(f64, f64),
     let b = pop_double(stack, module)?;
     let a = pop_double(stack, module)?;
     Ok((a, b))
+}
+
+/// The debug rendering of a string: single-quoted, with the characters that
+/// would not survive being pasted back into source re-escaped. Uses the
+/// language's own escape set, so the result is a valid Thera string literal.
+/// Control characters with no named escape go to `\u{...}`.
+fn quote_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    let mut it = s.chars().peekable();
+    while let Some(ch) = it.next() {
+        match ch {
+            '\\' => out.push_str(r"\\"),
+            '\'' => out.push_str(r"\'"),
+            // Only a `$` that opens an interpolation needs escaping; a bare `$`
+            // is ordinary text, and escaping every one would be noise.
+            '$' if it.peek() == Some(&'{') => out.push_str(r"\$"),
+            '\n' => out.push_str(r"\n"),
+            '\t' => out.push_str(r"\t"),
+            '\r' => out.push_str(r"\r"),
+            '\u{8}' => out.push_str(r"\b"),
+            '\u{c}' => out.push_str(r"\f"),
+            '\u{b}' => out.push_str(r"\v"),
+            '\0' => out.push_str(r"\0"),
+            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
+                out.push_str(&format!("\\u{{{:x}}}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('\'');
+    out
 }
 
 /// Space-separated two-digit hex of `bytes` — the debug rendering of a byte
@@ -3855,6 +3887,21 @@ mod tests {
             super::run(&m, 0, &[Value::new_str("hi")]),
             Ok(Value::new_str("'hi'"))
         );
+    }
+
+    /// Debug output has to be pasteable back into source, so every character
+    /// that would not survive the round trip is re-escaped.
+    #[test]
+    fn structural_debug_escapes_a_string_back_to_a_literal() {
+        let m = debug_module();
+        let dbg = |s: &str| super::run(&m, 0, &[Value::new_str(s)]);
+        assert_eq!(dbg("a\nb\tc"), Ok(Value::new_str(r"'a\nb\tc'")));
+        assert_eq!(dbg("\u{8}\u{c}\u{b}\0"), Ok(Value::new_str(r"'\b\f\v\0'")));
+        assert_eq!(dbg("q'\\"), Ok(Value::new_str(r"'q\'\\'")));
+        // A control character with no named escape falls back to `\u{...}`.
+        assert_eq!(dbg("\u{1b}\u{7f}"), Ok(Value::new_str(r"'\u{1b}\u{7f}'")));
+        // Only an interpolating `$` is escaped; a bare one is ordinary text.
+        assert_eq!(dbg("$5 ${x}"), Ok(Value::new_str(r"'$5 \${x}'")));
     }
 
     #[test]
