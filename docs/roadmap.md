@@ -581,36 +581,15 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   mechanically.
 
 - **Reflowing formatter — remaining work.** `thera fmt --reflow` splits and
-  joins bracket groups, and hugs a multi-line argument rather than prying the
-  call apart around it (see _Changelog_). Two things stand between it and being
-  the default, plus one gap that hugging exposed.
-
-  - **All-or-nothing for a half-split comma list.** A comma list broken at
-    *some* of its break points keeps that shape: `add_error(errors,⏎ '…',⏎
-    span);` whose message is too long to ever fit is never completed to one
-    argument per line, while the same call with a shorter message is. Layout
-    therefore still depends on how long an argument happens to be — the
-    author-dependent layout the pass exists to remove. **Fix:** in
-    [break_edits](../pkgs/cli/reflow/reflow.thera), take every remaining break
-    of a comma list that already has one taken, exempting a group that holds a
-    line comment (a break before it would swallow the code after) and a scalar
-    `[…]` (packed to the margin by design). The condition is "some of its own
-    breaks taken", *not* "spans several lines" — a group is also multi-line when
-    an element is, and that is exactly the hugging shape, which must survive.
-    - Measured at ~30 lines to write and **+6652/−2121 across 103 files** on the
-      sweep, against +2335/−927 across 89 without it — a 2.4× jump, because it
-      canonicalizes hand-wrapping the pass currently leaves alone. Read a sample
-      of that extra churn before committing to it: the number is the cost of
-      canonical form, but it is worth confirming the shapes it produces are the
-      ones wanted. Do the item **before** the corpus sweep, since it is a
-      corpus-wide reshape.
-    - The `apply_joins` bug this depended on is **fixed** (see _Changelog_).
+  joins bracket groups, hugs a multi-line argument rather than prying the call
+  apart around it, and lays out every comma list all-or-nothing (see
+  _Changelog_). Two things are left.
 
   - **Make it the default.** Drop the `--reflow` flag, retire
     [fmt.thera](../pkgs/cli/fmt.thera)'s Stage A (intra-line spacing, subsumed —
     the reflow path emits it) and Stage B (indentation, subsumed by group
     indent), fold `reflow/` into a `fmt/` barrel, and reformat the corpus in one
-    sweep — 89 files, +2335/−927 at width 100. `bin/test.sh`'s `fmt --check`
+    sweep — 103 files, +5156/−2106 at width 100. `bin/test.sh`'s `fmt --check`
     gate updates in the same commit.
 
   - **Then choose the width empirically.** 100 is inherited from the authoring
@@ -1032,6 +1011,26 @@ conformance specs. Newest first.
     block — enough to produce `let names: Map<String,⏎List<NameSite>> = [:];`.
     It was already excluded from making a group a comma list; now it is excluded
     from the break list too.
+  - **All-or-nothing is an invariant, not just how a split is taken.** A comma
+    list broken at *some* of its break points is now broken at all of them,
+    independently of width. Without that, a hand-wrapped
+    `add_error(errors,⏎ '…',⏎ span);` whose message is too long to ever fit kept
+    that shape forever while the same call with a shorter message came out one
+    argument per line — layout deciding itself on how long an argument happens
+    to be, which is the author-dependent layout the pass exists to remove. The
+    condition is "some of its **own** breaks taken", not "spans several lines":
+    a group is also multi-line when an *element* is, and that is exactly the
+    hugging shape, which has to survive. Exempt: a group holding a line comment
+    (a break before it would swallow the code after) and a scalar `[…]` (packed
+    to the margin by design).
+    - Cost, and the reason it landed on its own: the sweep goes from
+      +2335/−927 across 89 files to **+5156/−2106 across 103**. Reading the
+      extra churn, it is almost entirely hand-wrapped parameter lists
+      (`fn check(_ program: Program, _ imports: …,⏎ …)` → one per line), which
+      is what `fmt --reflow` already produces when the margin triggers the
+      split — so the sweep is what makes the corpus agree with the pass's own
+      rule. Two long string literals end up over the margin that were not
+      before, having gained an indent level from the call around them.
   - **A join deletes every trailing comma it collapses**, not just the one last
     in the joined span. A span is the *outermost* group that fits ([join_spans]
     drops the ones it contains), so its own closer is only the last of several,

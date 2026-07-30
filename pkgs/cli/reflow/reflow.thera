@@ -257,12 +257,41 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
             out.push(e);
         }
     }
-    // Independently of width: any comma list already split across lines should
-    // carry a trailing comma, so the split form is canonical however it arose.
+    // Independently of width: a comma list broken at *some* of its break points
+    // is broken at all of them, and ends in a trailing comma. All-or-nothing was
+    // already how a group splits when the margin selects it; stating it as an
+    // invariant is what makes the split form a function of the tokens rather than
+    // of how the code arrived. Without it a hand-wrapped
+    // `add_error(errors,⏎ '…',⏎ span);` whose message is too long to ever fit
+    // keeps that shape forever, while the same call with a shorter message comes
+    // out one argument per line — layout depending on how long an argument
+    // happens to be, which is author-dependent layout in another guise.
+    //
+    // "Some of its *own* breaks taken", not "spans several lines": a group is
+    // also multi-line when an element is, and there none of its own breaks are
+    // taken. That distinction is what lets a call hug a multi-line argument —
+    // `.subcommand(cli.Command.new('test')⏎ .about(…))` and `f(a, g(⏎ x,⏎ ))`
+    // leave every break of the outer group untaken, and both stay as written.
+    //
+    // Two exemptions. A group holding a line comment is left exactly as it is: a
+    // break inserted before the comment would swallow the code after it. And a
+    // scalar `[…]` is packed to the margin by design ([fill_breaks]), so its
+    // half-taken breaks are the intended layout, not a half-finished split.
     for p in pairs {
-        if p.open_line != p.close_line && p.has_comma && !p.trailing_comma
-            && at_line_boundary(chars, p.close) {
-            out.push(BreakEdit { offset: end_of_last_element(chars, p), text: ',' });
+        if !p.has_comma {
+            continue; // a grouping paren or a `;` block, not a comma list
+        }
+        let left = usable_breaks(p, chars);
+        if left.len() == p.breaks.len() {
+            continue; // none of its own breaks taken: flat, or hugging
+        }
+        if is_scalar_list(p, chars) || spans_comment(lex.comments, p) {
+            continue;
+        }
+        // With no break left this contributes the trailing comma alone, which is
+        // how an already-split list that lacks one acquires it.
+        for e in to_edits(p, left, chars) {
+            out.push(e);
         }
     }
     // A partially-broken group's later break points lie on lines below the one
@@ -540,6 +569,12 @@ fn is_scalar_list(_ p: Pair, _ chars: List<Int>) -> Bool {
 
 // An element is scalar when its text is one unbroken run — no bracket (so no
 // call or nested literal) and no interior space (so no operator or `key: value`).
+//
+// A blank segment passes. The only way to get one is a trailing comma, whose
+// segment runs from the comma to the closer with nothing in between, and that is
+// punctuation rather than an element — rejecting it would make every scalar list
+// that had already been given its trailing comma look non-scalar, which is to
+// say every one the reflow pass has already touched.
 fn is_scalar_element(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
     let mut seen = false;
     let mut i = from;
@@ -557,7 +592,7 @@ fn is_scalar_element(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
         }
         i = i + 1;
     }
-    return seen;
+    return true;
 }
 
 // Break points that pack a scalar list into rows within `width`, rather than one
