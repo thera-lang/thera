@@ -1,0 +1,3 @@
+// Support library for `defaultlib` — a namespace the *caller* does not import.
+
+pub const FACTOR: Int = 3;

@@ -255,7 +255,38 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   its own gap worth closing alongside. Found writing `fmt.format_source`, whose
   `width: Int = reflow.DEFAULT_WIDTH` the LSP could not call; the workaround
   there was to drop the parameter, which is the better API anyway (the formatter
-  is not configurable). A conformance test under `tests/lang/` should pin it.
+  is not configurable).
+
+  **The fix has to satisfy `#loc` at the same time**, and that is the part most
+  likely to go wrong. A default parameter value needs *two* contexts at once:
+  its names belong to the declaring file, while `#loc` must stamp the **call**
+  site — which is what gives `std.testing` assertions the failing test's
+  location, via codegen's `relocate_loc_default`. Today's caller-scope resolution is exactly
+  what makes that work, so the two are the same mechanism.
+
+  ```thera
+  // lib.thera
+  pub fn tag(_ at: SourceLoc) -> Int { return at.line; }
+  pub fn caller_line(at: Int = tag(#loc)) -> Int { return at; }
+  //                          ^^^ declaring scope   ^^^^ call site
+  ```
+
+  Neither extreme works. Resolving the whole default in the caller's scope is
+  today's bug. Hoisting it into a thunk compiled in `lib.thera` — the tidiest
+  fix for the scope half — would silently break `#loc`, which would then report
+  `lib.thera` instead of the caller, and every assertion in the corpus would
+  point at [assert.thera](../sdk/std/testing/assert.thera). So: **resolve names
+  at the declaration, keep expanding the default per call site.** The work is
+  threading the declaring file's scope through to where the caller's unit lowers
+  the default, which is presumably why it resolves in the caller's scope now.
+
+  Both halves are pinned as `xfail` conformance tests under
+  `fn-default-params` — `tests/lang/functions/default_arg_scope.thera` (the
+  plain case, with the
+  check/emit divergence) and `default_arg_loc.thera` (the composite above) —
+  so the harness reports XPASS when a fix lands. `expr-loc`'s existing
+  `loc_metaconstant.thera` covers `#loc` alone and would not have caught a fix
+  that broke the composite.
 
 - **Faithful syntax nodes for `if let` / `let … else` / `else if`.** The parser
   **desugars** all three into a `MatchExpr` (`parse_if_let` / `parse_let_else`),
@@ -605,22 +636,71 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   refactorings_: the doc says what's idiomatic, the lint enforces it
   mechanically.
 
-- **Choose the formatter's width empirically.** 100 is inherited from the
-  authoring guideline ([language.md](language.md#style)), not measured. Now that
-  the formatter is canonical the question is directly answerable: reformat the
-  corpus at **80 / 88 / 90 / 92 / 94 / 100** (`format_source_at` in
-  [fmt.thera](../pkgs/cli/fmt.thera) takes the margin) and compare — total line
-  count, how many lines crowd the margin, how many constructs are forced apart
-  that read better whole, and how much irreducible tail (long string literals)
-  survives at each. Take a natural knee if one shows up; keep 100 if none does.
-  - Context for the call: the reflowing formatters spread across 77–100 (OCaml
-    77, Dart 80, Prettier 80, Black 88, Elixir 98, rustfmt 100), and —
-    tellingly — **Go and Zig, the two strongest enforced-formatting traditions,
-    both decline to take a position on line length**, on the grounds that where
-    to break is a semantic judgment about what groups with what. From the LLM
-    side the concern is **pathological** lines, since agents navigate through
-    line-addressed interfaces (grep output, `file:line:col`, patch hunks) —
-    which argues for a ceiling against outliers, not for tight wrapping.
+- **Width: keeping 100, and the reason is not that the data chose it.** The
+  study ran — the corpus reformatted at 80 / 88 / 90 / 92 / 94 / 96 / 98 / 100 /
+  110, via `format_source_at` in [fmt.thera](../pkgs/cli/fmt.thera). Comments
+  are excluded from the code columns (the formatter does not rewrap them yet);
+  the irreducible column is lines dominated by one long string literal, and
+  unbroken is the rest of what stayed over the margin.
+
+  | width | lines  | vs 100 | irreducible | unbroken | split groups | crowding margin | code p90 |
+  | ----: | -----: | -----: | ----------: | -------: | -----------: | --------------: | -------: |
+  |    80 | 64,689 | +10.4% |         357 |       90 |       11,705 |           1,375 |       64 |
+  |    88 | 61,613 |  +5.2% |         226 |       31 |       10,775 |             836 |       68 |
+  |    90 | 60,967 |  +4.1% |         202 |       26 |       10,576 |             741 |       68 |
+  |    92 | 60,458 |  +3.2% |         187 |       24 |       10,408 |             639 |       69 |
+  |    94 | 59,891 |  +2.2% |         164 |       23 |       10,240 |             628 |       70 |
+  |    96 | 59,423 |  +1.4% |         144 |       22 |       10,098 |             560 |       71 |
+  |    98 | 59,060 |  +0.8% |         130 |       19 |        9,988 |             516 |       71 |
+  |   100 | 58,576 |      — |         116 |       19 |        9,840 |             518 |       72 |
+  |   110 | 57,637 |  −1.6% |          64 |       15 |        9,568 |             145 |       73 |
+
+  - **There is no knee between 88 and 110.** Every column decays smoothly; the
+    per-column line cost drifts from ~380 at the narrow end to ~100 at the wide
+    end with no step anywhere. So the corpus does not pick a number, and any
+    choice in that range is a judgment call rather than a measurement.
+  - **80 is the one width the data does rule out.** Lines the formatter cannot
+    break rise to 90 (3–4× every other width), crowding nearly doubles against
+    88, and separately **2,009 comment lines already exceed 80** — the corpus's
+    prose is hand-wrapped at p75 = 80, p99 = 84. Until doc-comment reflow lands
+    those would simply sit over the margin.
+  - **The margin governs only the top decile.** Code p90 moves 64 → 73 across
+    the whole 80–110 range: nine columns for thirty. Half the corpus's code
+    lines are under 30 columns wide. Whatever this choice is worth, it is not
+    worth much.
+  - **Two false signals, both worth recording.** An apparent cliff at 98 → 100
+    (962 lines/column against ~180 either side) was a formatter bug, not a
+    property of the corpus — a scalar list already packed into rows was
+    misclassified and exploded to one element per line (fixed; see _Changelog_).
+    And the residual "unbroken" rise below 100 is 37–58 packed scalar rows that
+    keep the width they were packed to, an artifact of measuring from a
+    100-formatted corpus rather than from scratch.
+
+  So the tiebreak is not empirical. **Keep 100**: it is what the corpus is
+  already formatted to (any change is another ~5,000-line sweep), it is what
+  [language.md](language.md#style) already tells authors, and it is where the
+  statically-typed cluster sits — rustfmt, google-java-format, swift-format and
+  ktfmt all default to 100, and the Linux kernel moved 80 → 100 in 2020.
+  Thera's shape is that cluster's: qualified paths and generic types like
+  `Map<String, Map<String, LibraryNamespace>>` are what consume the columns.
+
+  - Context, unchanged by the study: enforced formatters split into a **~80
+    cluster** (ocamlformat 77, Prettier 80, `dart format` 80, PEP 8's 79) and a
+    **~100 cluster** (rustfmt, google-java-format, swift-format, ktfmt), with
+    Black's 88 deliberately between — "80 plus 10%". Tellingly, **Go and Zig,
+    the two strongest one-true-format traditions, decline to take a position on
+    line length at all**, on the grounds that where to break is a semantic
+    judgment about what groups with what. From the LLM side the concern is
+    **pathological** lines, since agents navigate through line-addressed
+    interfaces (grep output, `file:line:col`, patch hunks) — an argument for a
+    ceiling against outliers, not for tight wrapping. The outliers here are the
+    116 irreducible string literals, and no width in the range touches them.
+  - **Prose should get its own, narrower width** when _Reflowing doc comments_
+    lands, rather than inheriting 100. The corpus already votes for it —
+    comments sit at p75 = 80, p90 = 82, p99 = 84, with six over 88, written that
+    way by hand against a 100-column guideline. PEP 8 codifies the same split
+    (79 for code, 72 for prose), and it is the one place these measurements
+    point somewhere definite.
 
 ### Language
 
@@ -960,6 +1040,22 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Formatter width settled at 100** (2026-07). The empirical study ran (see
+  _Developer tooling_ for the table); it found **no knee between 88 and 110**,
+  so 100 stays on the non-empirical grounds — the corpus is already there, it is
+  what the authoring guideline says, and it is where the statically-typed
+  cluster (rustfmt, google-java-format, swift-format, ktfmt) sits. 80 is the one
+  width the data rules out. Two findings did come out of it: **prose wants its
+  own narrower width** (~80, which is where the corpus's comments already sit)
+  when doc-comment reflow lands, and a **scalar list packed into rows was
+  misclassified** — `is_scalar_list` was asked about the break points still
+  untaken, which skip every row boundary, so an already-filled list read as non-
+  scalar and exploded to one element per line. Unreachable at width 100, where
+  the corpus is a fixpoint; it cost a byte fixture 1,358 lines at every other
+  margin and faked a cliff in the first run of the study. A packed list is now
+  left as packed — re-packing means *deleting* row breaks, which a pass that
+  only inserts cannot do.
 
 - **`thera fmt` owns line breaks** (2026-07). The reflowing pass below is now
   what `thera fmt` does — the `--reflow` flag is gone, the LSP's
