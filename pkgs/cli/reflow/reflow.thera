@@ -48,7 +48,24 @@ struct Pair {
     // cannot delete it, and joining would yield `[a, b, ]`, so a trailing comma
     // reads as "keep this split" — the same meaning Prettier and Dart give it.
     let trailing_comma: Bool;
+    // Whether the group holds at least one top-level `,` — i.e. it is a comma
+    // list rather than a grouping paren or a statement block. Only such a group
+    // may be given a trailing comma when it splits: `(a + b,)` is a parse error.
+    let has_comma: Bool;
     let breaks: List<Int>; // newline-insertion offsets, ascending
+}
+
+// Text to insert at an offset: `'\n'` for a plain break, `',\n'` for a break that
+// also closes a comma list, or `','` alone to give an already-split comma list
+// the trailing comma it lacks.
+//
+// The comma is what makes adding an element later a one-line diff instead of
+// two, and it is safe to add only where a top-level `,` already exists — a
+// grouping paren rejects it (`(a + b,)` is a parse error), and a statement block
+// is `;`-separated.
+pub struct BreakEdit {
+    let offset: Int;
+    let text: String;
 }
 
 // A bracket pair whose interior line breaks should collapse to single spaces.
@@ -66,9 +83,10 @@ pub struct FlatSpan {
 // the safe answer is to change nothing.
 //
 // A group is held back — left split however well it would fit — when it contains
-// a line comment (joining would swallow the code after it), when it contains a
-// multi-line string literal (whose newlines are content, not layout), or when it
-// ends in a trailing comma.
+// a line comment (joining would swallow the code after it) or a multi-line string
+// literal (whose newlines are content, not layout). A trailing comma is no longer
+// a blocker: the join deletes it, since `g(a, b, )` is not an acceptable result
+// and the grammar makes the comma optional in every list.
 pub fn join_spans(_ source: String, _ width: Int) -> List<FlatSpan> {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
@@ -87,7 +105,7 @@ pub fn join_spans(_ source: String, _ width: Int) -> List<FlatSpan> {
         if p.open_line == p.close_line {
             continue; // already on one line
         }
-        if !is_fit(p, fit_braces) || p.trailing_comma {
+        if !is_fit(p, fit_braces) {
             continue;
         }
         if spans_comment(lex.comments, p) || spans_multiline_string(lex.tokens, chars, p) {
@@ -207,17 +225,25 @@ fn line_end_at(_ starts: List<Int>, _ chars: List<Int>, _ line: Int) -> Int {
 // One round: each over-width line contributes at most one group. The caller
 // re-formats and calls again until this returns empty, so a line needing two
 // levels of splitting gets them on successive rounds.
-pub fn break_offsets(_ source: String, _ width: Int) -> List<Int> {
+pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
         return [];
     }
     let pairs = bracket_pairs(lex.tokens);
     let chars = source.chars();
-    let out: List<Int> = [];
+    let out: List<BreakEdit> = [];
     for line in over_width_lines(source, width) {
-        for b in group_breaks_for_line(pairs, line, chars, width) {
-            out.push(b);
+        for e in group_breaks_for_line(pairs, line, chars, width) {
+            out.push(e);
+        }
+    }
+    // Independently of width: any comma list already split across lines should
+    // carry a trailing comma, so the split form is canonical however it arose.
+    for p in pairs {
+        if p.open_line != p.close_line && p.has_comma && !p.trailing_comma
+            && at_line_boundary(chars, p.close) {
+            out.push(BreakEdit { offset: end_of_last_element(chars, p), text: ',' });
         }
     }
     // A partially-broken group's later break points lie on lines below the one
@@ -227,10 +253,10 @@ pub fn break_offsets(_ source: String, _ width: Int) -> List<Int> {
 }
 
 // Ascending, duplicates removed.
-fn sorted_unique(_ xs: List<Int>) -> List<Int> {
-    let out: List<Int> = [];
-    for x in xs.sort((a, b) => a < b) {
-        if out.len() == 0 || out[out.len() - 1] != x {
+fn sorted_unique(_ xs: List<BreakEdit>) -> List<BreakEdit> {
+    let out: List<BreakEdit> = [];
+    for x in xs.sort((a, b) => a.offset < b.offset) {
+        if out.len() == 0 || out[out.len() - 1].offset != x.offset {
             out.push(x);
         }
     }
@@ -245,6 +271,7 @@ fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
     // Parallel stacks: the open token, and the break offsets accumulated for it.
     let open_toks: List<Token> = [];
     let open_breaks: List<List<Int>> = [];
+    let open_commas: List<Bool> = []; // did this group see a top-level `,`?
     let mut prev_kind = TokenKind.Eof; // the kind before the current token
     for t in tokens {
         if is_opener(t.kind) {
@@ -253,11 +280,13 @@ fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
             let bs: List<Int> = [];
             bs.push(t.span.offset + 1);
             open_breaks.push(bs);
+            open_commas.push(false);
         } else if is_closer(t.kind) {
             // The stacks are maintained in step, so the breaks pop succeeds
             // whenever the token pop does.
             if let Some(ot) = open_toks.pop() {
                 let bs = open_breaks.pop().unwrap_or([]);
+                let had_comma = open_commas.pop().unwrap_or(false);
                 if matches(ot.kind, t.kind) {
                     // …and one before the closer, so it lands on its own line.
                     bs.push(t.span.offset);
@@ -268,6 +297,7 @@ fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
                         close_line: t.span.line,
                         kind: ot.kind,
                         trailing_comma: prev_kind == TokenKind.Comma,
+                        has_comma: had_comma,
                         breaks: bs,
                     });
                 }
@@ -277,6 +307,9 @@ fn bracket_pairs(_ tokens: List<Token>) -> List<Pair> {
             // recorded against the innermost open bracket only.
             if open_breaks.len() > 0 {
                 open_breaks[open_breaks.len() - 1].push(t.span.offset + 1);
+                if t.kind == TokenKind.Comma {
+                    open_commas[open_commas.len() - 1] = true;
+                }
             }
         }
         prev_kind = t.kind;
@@ -313,7 +346,7 @@ fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
 // alone; no line breaking can shorten them.
 fn group_breaks_for_line(
     _ pairs: List<Pair>, _ line: Int, _ chars: List<Int>, _ width: Int
-) -> List<Int> {
+) -> List<BreakEdit> {
     let on_line: List<Pair> = [];
     for p in pairs {
         // Any group covering the line is a candidate, not just one opening on
@@ -340,27 +373,42 @@ fn group_breaks_for_line(
                 close_line: p.close_line,
                 kind: p.kind,
                 trailing_comma: p.trailing_comma,
+                has_comma: p.has_comma,
                 breaks: breaks,
             });
         }
     }
     // Outermost first, widest among those.
-    let mut best: List<Int> = [];
+    let mut best: List<BreakEdit> = [];
     let mut best_width = -1;
     for p in usable {
         if contained_in_another(p, usable) {
             continue;
         }
         if p.close - p.open > best_width {
-            best = if is_scalar_list(p, chars) {
+            let offsets = if is_scalar_list(p, chars) {
                 fill_breaks(p, chars, width)
             } else {
                 p.breaks
             };
+            best = to_edits(p, offsets);
             best_width = p.close - p.open;
         }
     }
     return best;
+}
+
+// Turn chosen break offsets into edits. The break that puts the closer on its own
+// line also carries the trailing comma, where the group is a comma list that
+// doesn't already end in one.
+fn to_edits(_ p: Pair, _ offsets: List<Int>) -> List<BreakEdit> {
+    let wants_comma = p.has_comma && !p.trailing_comma;
+    let out: List<BreakEdit> = [];
+    for o in offsets {
+        let text = if wants_comma && o == p.close { ',\n' } else { '\n' };
+        out.push(BreakEdit { offset: o, text: text });
+    }
+    return out;
 }
 
 // Whether this is a `[…]` of plain scalars — every element a single bare token,
@@ -500,6 +548,17 @@ fn at_line_boundary(_ chars: List<Int>, _ off: Int) -> Bool {
         j = j - 1;
     }
     return false;
+}
+
+// The offset just past the last content character before the closer — where a
+// trailing comma belongs. Inserting at the closer itself would land *after* the
+// indentation, giving `\n    ,)`.
+fn end_of_last_element(_ chars: List<Int>, _ p: Pair) -> Int {
+    let mut i = p.close;
+    while i > p.open + 1 && is_layout(chars[i - 1]) {
+        i = i - 1;
+    }
+    return i;
 }
 
 fn contained_in_another(_ p: Pair, _ others: List<Pair>) -> Bool {

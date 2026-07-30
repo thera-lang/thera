@@ -95,11 +95,11 @@ pub fn format_source_reflow(_ source: String, width: Int = reflow.DEFAULT_WIDTH)
         // margin, so the split pass never immediately undoes it, and the two
         // cannot trade a line back and forth.
         let joined = apply_joins(cur, width);
-        let breaks = reflow.break_offsets(joined, width);
-        let next = if breaks.len() == 0 {
+        let edits = reflow.break_edits(joined, width);
+        let next = if edits.len() == 0 {
             joined
         } else {
-            format_source(insert_newlines(joined, breaks))
+            format_source(apply_break_edits(joined, edits))
         };
         if next == cur {
             round = MAX_REFLOW_ROUNDS;
@@ -130,7 +130,11 @@ fn apply_joins(_ text: String, _ width: Int) -> String {
             si = si + 1;
         }
         let inside = si < spans.len() && i > spans[si].start && i < spans[si].end;
-        if inside && is_layout_space(chars[i]) {
+        // The join deletes a trailing comma: `g(a, b,)` would otherwise become
+        // `g(a, b, )`. Safe because the grammar makes it optional in every list.
+        if inside && chars[i] == COMMA && only_space_until(chars, i + 1, spans[si].end) {
+            i = i + 1;
+        } else if inside && is_layout_space(chars[i]) {
             // Collapse this whitespace run to one space, but only if it holds a
             // newline — a run that doesn't is already correct intra-line spacing.
             let mut j = i;
@@ -160,38 +164,87 @@ fn is_layout_space(_ c: Int) -> Bool {
     return c == char.SPACE || c == char.TAB || c == char.CR || c == char.LF;
 }
 
-// Insert a newline at each offset (ascending, duplicates tolerated). Offsets
-// index code points, as token spans do.
-fn insert_newlines(_ text: String, _ offsets: List<Int>) -> String {
+// Whether `[from, to)` holds nothing but whitespace — used to spot the comma that
+// sits last in a group.
+fn only_space_until(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
+    let mut i = from;
+    while i < to && i < chars.len() {
+        if !is_layout_space(chars[i]) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+const COMMA: Int = 44;
+
+// Apply each edit's text at its offset (ascending). Offsets index code points,
+// as token spans do.
+fn apply_break_edits(_ text: String, _ edits: List<reflow.BreakEdit>) -> String {
     let parts: List<String> = [];
     let mut prev = 0;
-    for off in offsets {
-        if off < prev || off > text.len() {
+    for e in edits {
+        if e.offset < prev || e.offset > text.len() {
             continue; // out of order or past the end: ignore rather than corrupt
         }
-        parts.push(text.slice(prev, off));
-        parts.push('\n');
-        prev = off;
+        parts.push(text.slice(prev, e.offset));
+        parts.push(e.text);
+        prev = e.offset;
     }
     parts.push(text.slice(prev, text.len()));
     return parts.join('');
 }
 
-// `candidate` if it is token-for-token the same code as `original` and still
-// parses, else `fallback`. The same contract Stage A holds itself to.
+// `candidate` if it is the same code as `original` and still parses, else
+// `fallback`.
+//
+// "The same code" is exact token equality **modulo a trailing comma before a
+// closer**, which reflow adds when it splits a list and deletes when it joins
+// one. The grammar declares that comma optional in every comma-separated list,
+// so dropping it from both streams before comparing keeps the check exact while
+// letting the one intended token edit through. Nothing else may differ.
 fn reflow_guarded(_ original: String, _ candidate: String, _ fallback: String) -> String {
     let before = tokenize(original);
     let after = tokenize(candidate);
     if before.errors.len() > 0 || after.errors.len() > 0 {
         return fallback;
     }
-    if !same_tokens(before.tokens, original.chars(), after.tokens, candidate.chars()) {
+    let a = without_inert_commas(before.tokens);
+    let b = without_inert_commas(after.tokens);
+    if !same_tokens(a, original.chars(), b, candidate.chars()) {
         return fallback;
     }
     if parser.parse_tokens(after.tokens).errors.len() > 0 {
         return fallback;
     }
     return candidate;
+}
+
+// `tokens` without any `,` that immediately precedes a closing bracket. Such a
+// comma is syntactically optional everywhere Thera allows one (docs/grammar.md),
+// so it carries no meaning and reflow is allowed to add or remove it.
+fn without_inert_commas(_ tokens: List<Token>) -> List<Token> {
+    let out: List<Token> = [];
+    let mut i = 0;
+    while i < tokens.len() {
+        let t = tokens[i];
+        let next_closes = i + 1 < tokens.len() && is_closing(tokens[i + 1].kind);
+        if !(t.kind == TokenKind.Comma && next_closes) {
+            out.push(t);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+fn is_closing(_ k: TokenKind) -> Bool {
+    return match k {
+        RParen => true,
+        RBracket => true,
+        RBrace => true,
+        _ => false,
+    };
 }
 
 // Format a string of source code. Idempotent: formatting formatted source is a

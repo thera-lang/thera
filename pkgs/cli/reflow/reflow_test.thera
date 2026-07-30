@@ -7,9 +7,13 @@ import std.testing;
 
 import 'reflow' as _;
 
-// The offsets `break_offsets` picks for `src` at `width`.
+// The offsets `break_edits` picks for `src` at `width`.
 fn breaks_for(_ src: String, _ width: Int) -> List<Int> {
-    return break_offsets(src, width);
+    let out: List<Int> = [];
+    for e in break_edits(src, width) {
+        out.push(e.offset);
+    }
+    return out;
 }
 
 @test
@@ -59,10 +63,19 @@ fn offsets_are_ascending_and_unique() -> Result<Void, Error> {
 
 @test
 fn skips_a_break_that_already_exists() -> Result<Void, Error> {
-    // The call is already fully split, so a second round has nothing to add —
-    // this is what makes `format_source_reflow`'s loop terminate.
-    let src = 'fn f() {\n    g(\n        alpha,\n        beta\n    );\n}\n';
+    // The call is already fully split *and* carries its trailing comma, so
+    // there is nothing left to add — this is what makes the reflow loop
+    // terminate.
+    let src = 'fn f() {\n    g(\n        alpha,\n        beta,\n    );\n}\n';
     return testing.assert_eq(actual: breaks_for(src, 10).len(), expected: 0);
+}
+
+@test
+fn adds_the_trailing_comma_an_already_split_list_lacks() -> Result<Void, Error> {
+    // Split by hand without a trailing comma: one edit, the comma alone — no
+    // new line break, since the layout is already right.
+    let src = 'fn f() {\n    g(\n        alpha,\n        beta\n    );\n}\n';
+    return testing.assert_eq(actual: breaks_for(src, 100).len(), expected: 1);
 }
 
 @test
