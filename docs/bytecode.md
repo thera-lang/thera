@@ -482,8 +482,12 @@ direct `call`.
 **String interpolation** — for a user type, `${v}` calls the `Display` method as
 a statically resolved direct `call` (the concrete type is known at the site);
 for a primitive (`Int`/`Double`/`Bool`, whose `Display` is built in), it calls a
-stringify intrinsic (`call.native`). The pieces are then joined with a
-`str_concat` intrinsic (`call.native`).
+stringify intrinsic (`call.native`). The pieces are then joined with a **single
+variadic** `str_concat` intrinsic (`call.native`) over all of them — `str_concat`
+allocates a fresh string per call, so folding pairwise would recopy the growing
+prefix at each step (measured 2× on a 7-piece literal). `argc` is a byte on the
+wire, so a literal with more pieces than that folds in chunks, each carrying the
+running result as its first argument.
 
 ## Garbage collection
 
