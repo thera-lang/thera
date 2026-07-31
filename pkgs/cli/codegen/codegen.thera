@@ -67,17 +67,35 @@ struct SavedScope {
 }
 
 // The compiler's full per-position context, saved when compilation crosses into
-// another file's code mid-unit (a const initializer inlined at a use site):
-// the file bare references resolve against, the inference context (whose
-// `current_file` must move in tandem with `file` — this and `enter_file_context`
-// are the one seam that moves them), and the lexical maps and type-parameter
-// bounds, which a top-level initializer must not see.
+// another file's code mid-unit (a const initializer inlined at a use site, a
+// parameter default expanded at a call): the file bare references resolve
+// against, the inference context (whose `current_file` must move in tandem with
+// `file` — this and `enter_file_context` are the one seam that moves them), the
+// lexical maps and type-parameter bounds, which a top-level initializer must not
+// see, and the `#loc` site, which belongs to the code being left behind.
 struct FileContext {
     let file: Option<String>;
     let ctx: InferCtx;
     let slots: Map<String, Int>;
     let types: Map<String, Type>;
     let bounds: Map<String, List<TypeId>>;
+    let loc_span: Option<SourceSpan>;
+}
+
+// Where an argument value came from — which decides the scope it compiles in.
+// `Caller` is a value the call wrote, compiled here. `Default` is one
+// materialized from the callee's parameter default: that expression is the
+// *declaring* file's code, so its names resolve there (payload: that file, and
+// the call's span for `#loc`).
+enum ArgSite {
+    Caller,
+    Default(Option<String>, SourceSpan),
+}
+
+// One call argument in parameter order, as `resolve_args` produces it.
+struct OrderedArg {
+    let value: Expr;
+    let site: ArgSite;
 }
 
 // --- entry point ---
@@ -290,6 +308,10 @@ pub struct FnCompiler {
     // The file this unit was declared in — the scope a bare free-function
     // reference resolves against (same-file-first).
     let mut file: Option<String>;
+    // The call's span, set while a parameter default is expanded at that call: a
+    // `#loc` reached inside the default reports it instead of its own site. A
+    // span carries its own file, so this is the whole of what `#loc` needs.
+    let mut loc_span: Option<SourceSpan>;
     let errors: List<diagnostic.Diagnostic>;
 }
 
@@ -311,6 +333,7 @@ pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnosti
         loops: [],
         ctx: new_ctx(scope.library),
         file: Option.None,
+        loc_span: Option.None,
         errors: errors,
     };
 }
@@ -575,8 +598,11 @@ impl FnCompiler {
 
     // Enter the top-level compile context of `file` — the scope a declaration
     // belonging to `file` compiles in when reached mid-unit (a const initializer
-    // inlined at a use site): no locals, no type params, no self. Keeps
-    // `self.file` and `ctx.current_file` in tandem.
+    // inlined at a use site, a parameter default expanded at a call): no locals,
+    // no type params, no self. Keeps `self.file` and `ctx.current_file` in
+    // tandem. The `#loc` site is cleared too — crossing into another file's code
+    // means a `#loc` written there is its own site again, unless the caller
+    // re-establishes one (as the default-argument path does).
     fn enter_file_context(self, _ file: Option<String>) -> FileContext {
         let saved = FileContext {
             file: self.file,
@@ -584,6 +610,7 @@ impl FnCompiler {
             slots: self.slots,
             types: self.type_scope,
             bounds: self.type_param_bounds,
+            loc_span: self.loc_span,
         };
         self.file = file;
         let ctx = new_ctx(self.scope.library);
@@ -592,6 +619,7 @@ impl FnCompiler {
         self.slots = [:];
         self.type_scope = [:];
         self.type_param_bounds = [:];
+        self.loc_span = Option.None;
         return saved;
     }
 
@@ -601,6 +629,7 @@ impl FnCompiler {
         self.slots = saved.slots;
         self.type_scope = saved.types;
         self.type_param_bounds = saved.bounds;
+        self.loc_span = saved.loc_span;
     }
 
     fn ends_in_return(self) -> Bool {
@@ -1139,23 +1168,25 @@ impl FnCompiler {
     }
 
     // Lower the `#loc` metaconstant to a `SourceLoc { file, line, column }` value.
-    // `span` is the location to report: for a `#loc` written directly, its own
-    // site; for one materialized from a default parameter, the call site (the span
-    // `resolve_args` stamps in). The file is the unit currently being compiled —
-    // which, for a default expanded at a call, is the *caller's* file.
+    // A `#loc` written directly reports its own span; one inside a parameter
+    // default expanded at a call reports the *call's* (`loc_span`) — the default
+    // is the callee's code and compiles in the callee's file context, but its
+    // `#loc` still names where the call was written. The span carries the file,
+    // falling back to the unit's for a span with no file (a hermetic parse).
     fn emit_source_loc(self, _ span: SourceSpan) -> Void {
-        let file = self.file.unwrap_or('');
+        let at = self.loc_span.unwrap_or(span);
+        let file = if at.file != '' { at.file } else { self.file.unwrap_or('') };
         let fields: List<FieldInit> = [
             FieldInit {
                 name: 'file',
-                name_span: span,
-                value: Expr.Str(span, [StringPart.Text(span, file)]),
+                name_span: at,
+                value: Expr.Str(at, [StringPart.Text(at, file)]),
             },
-            FieldInit { name: 'line', name_span: span, value: Expr.Int(span, span.line) },
-            FieldInit { name: 'column', name_span: span, value: Expr.Int(span, span.column) },
+            FieldInit { name: 'line', name_span: at, value: Expr.Int(at, at.line) },
+            FieldInit { name: 'column', name_span: at, value: Expr.Int(at, at.column) },
         ];
         self.struct_expr(StructExpr {
-            span: span,
+            span: at,
             type_name: 'SourceLoc',
             namespace: Option.None,
             fields: fields,
@@ -1973,6 +2004,7 @@ impl FnCompiler {
                         self.scope.units[fn_index].params,
                         x.args,
                         x.span,
+                        self.scope.unit_files[fn_index],
                     );
                     self.emit_ordered_args(x.callee, x.args, ordered);
                     self.emit(Instr.Call(fn_index, ordered.len()));
@@ -2074,6 +2106,7 @@ impl FnCompiler {
                             self.scope.units[fn_idx].params,
                             x.args,
                             x.span,
+                            self.scope.unit_files[fn_idx],
                         );
                         // Thread expected arg types (like the bare-call path), so a
                         // qualified call passing an un-annotated lambda types it
@@ -2104,7 +2137,12 @@ impl FnCompiler {
         }
         match self.resolve_method(obj, field) {
             Some(idx) => {
-                let ordered = self.resolve_args(self.scope.units[idx].params, x.args, x.span);
+                let ordered = self.resolve_args(
+                    self.scope.units[idx].params,
+                    x.args,
+                    x.span,
+                    self.scope.unit_files[idx],
+                );
                 self.emit_ordered_args(x.callee, x.args, ordered);
                 self.emit(Instr.Call(idx, ordered.len()));
                 return true;
@@ -2139,7 +2177,12 @@ impl FnCompiler {
         match self.resolve_method(obj, field) {
             Some(idx) => {
                 self.expr(obj); // self → local slot 0 of the callee
-                let ordered = self.resolve_args(self.scope.units[idx].params, x.args, x.span);
+                let ordered = self.resolve_args(
+                    self.scope.units[idx].params,
+                    x.args,
+                    x.span,
+                    self.scope.unit_files[idx],
+                );
                 self.emit_ordered_args(x.callee, x.args, ordered);
                 self.emit(Instr.Call(idx, ordered.len() + 1));
                 return true;
@@ -2291,7 +2334,7 @@ impl FnCompiler {
         self,
         _ callee: Expr,
         _ args: List<CallArg>,
-        _ ordered: List<Expr>,
+        _ ordered: List<OrderedArg>,
     ) -> Void {
         let expected = expected_param_types(callee, args, self.type_scope, self.ctx);
         for p in ordered.enumerate() {
@@ -2301,18 +2344,47 @@ impl FnCompiler {
                 } else { Option.None },
                 None => Option.None,
             };
-            self.expr_expecting(p.value, exp);
+            match p.value.site {
+                Caller => { self.expr_expecting(p.value.value, exp); },
+                Default(decl_file, call) => {
+                    self.emit_default_arg(p.value.value, decl_file, call, exp);
+                },
+            }
         }
+    }
+
+    // Emit a value materialized from a parameter's default. The expression was
+    // written in the *callee's* file, so it compiles in that file's top-level
+    // context — its names (a file-local const, a member of an import only that
+    // file has) resolve there, not against whatever the caller happens to see.
+    // The call site is threaded through separately, as the `#loc` site: a default
+    // needs both scopes at once, the declaration's for names and the call's for
+    // `#loc`. Expanding per call site (rather than hoisting the default into a
+    // thunk compiled in its own file) is what keeps that second half working.
+    fn emit_default_arg(
+        self,
+        _ value: Expr,
+        _ decl_file: Option<String>,
+        _ call: SourceSpan,
+        _ expected: Option<Type>,
+    ) -> Void {
+        let saved = self.enter_file_context(decl_file);
+        self.loc_span = Option.Some(call);
+        self.expr_expecting(value, expected);
+        self.restore_file_context(saved);
     }
 
     // Match call arguments to a callee's (non-self) parameters, returning the
     // value expressions in parameter order (named-argument + default resolution).
+    // `decl_file` is the file the callee was declared in — the scope any default
+    // this fills in must compile against (see `emit_default_arg`).
     fn resolve_args(
         self,
         _ params: List<Param>,
         _ call_args: List<CallArg>,
         _ span: SourceSpan,
-    ) -> List<Expr> {
+        _ decl_file: Option<String>,
+    ) -> List<OrderedArg> {
         let positional: List<Expr> = [];
         let named: Map<String, Expr> = [:];
         for a in call_args {
@@ -2321,7 +2393,7 @@ impl FnCompiler {
                 None => { positional.push(a.value); },
             }
         }
-        let ordered: List<Expr> = [];
+        let ordered: List<OrderedArg> = [];
         let mut pi = 0;
         for p in params {
             if !p.is_self {
@@ -2331,21 +2403,21 @@ impl FnCompiler {
                         if pi < positional.len() {
                             let v = positional[pi];
                             pi = pi + 1;
-                            Option.Some(v)
+                            Option.Some(OrderedArg { value: v, site: ArgSite.Caller })
                         } else {
-                            self.relocate_loc_default(p.default_value, span)
+                            default_arg(p.default_value, decl_file, span)
                         }
                     },
                     Some(label) => {
                         match named.get(label) {
-                            Some(v) => Option.Some(v),
+                            Some(v) => Option.Some(OrderedArg { value: v, site: ArgSite.Caller }),
                             None => {
                                 if pi < positional.len() && label == p.name {
                                     let v = positional[pi];
                                     pi = pi + 1;
-                                    Option.Some(v)
+                                    Option.Some(OrderedArg { value: v, site: ArgSite.Caller })
                                 } else {
-                                    self.relocate_loc_default(p.default_value, span)
+                                    default_arg(p.default_value, decl_file, span)
                                 }
                             },
                         }
@@ -2358,22 +2430,6 @@ impl FnCompiler {
             }
         }
         return ordered;
-    }
-
-    // A `#loc` default value captures the *call site*, not its definition site:
-    // when an omitted parameter defaults to `#loc`, re-stamp it with the call's
-    // span so codegen reports where the call was written (the file is the caller's,
-    // since this default is emitted while compiling the calling unit).
-    fn relocate_loc_default(self, _ d: Option<Expr>, _ call_span: SourceSpan) -> Option<Expr> {
-        match d {
-            Some(e) => {
-                return match e {
-                    Loc(_) => Option.Some(Expr.Loc(call_span)),
-                    _ => Option.Some(e),
-                };
-            },
-            None => { return Option.None; },
-        }
     }
 
     // --- dispatch helpers ---
@@ -2441,6 +2497,18 @@ impl FnCompiler {
         }
         return false;
     }
+}
+
+// The argument an omitted parameter contributes: its default value, tagged with
+// the file that default was written in and the call being filled in. None when
+// the parameter has no default — a missing argument, which `resolve_args`
+// reports.
+fn default_arg(
+    _ d: Option<Expr>,
+    _ decl_file: Option<String>,
+    _ call: SourceSpan,
+) -> Option<OrderedArg> {
+    return d.map((e) => OrderedArg { value: e, site: ArgSite.Default(decl_file, call) });
 }
 
 // A resolved enum variant reference (its enum info and the variant's tag).

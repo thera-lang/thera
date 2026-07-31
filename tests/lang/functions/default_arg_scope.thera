@@ -1,16 +1,13 @@
 //! spec: fn-default-params
 //! mode: run
-//! xfail: a default parameter value is resolved in the caller's scope, so one naming a declaring-file const or import fails to compile (docs/roadmap.md → Compiler & front-end)
 
-// A default parameter value is written in the callee's file, so its names must
-// resolve there. Today the expression is copied into the *caller's* unit and
-// resolved against that file's scope, so a default naming anything the caller
-// cannot see fails — `undefined name: LOCAL_PAD` for the const, `field access on
-// non-struct value` for the import. Passing the argument explicitly is fine, as
-// is defaulting it from inside `defaultlib` itself.
+// A default parameter value is written in the callee's file, so its names
+// resolve *there* — a file-local const, a member of an import only that file
+// has — even though the value is materialized at each call site. The caller
+// needs no access to either name.
 //
-// `thera check` accepts this program; only `emit` rejects it, so the two
-// disagree — closing that gap is part of the fix.
+// `thera check` sees the same program: the default is checked once, at the
+// declaration, in the file that wrote it.
 
 import 'defaultlib';
 

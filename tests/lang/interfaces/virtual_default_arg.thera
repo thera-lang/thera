@@ -1,0 +1,34 @@
+//! spec: fn-default-params
+//! mode: run
+//! xfail: a dynamically dispatched call does not fill in parameter defaults (docs/roadmap.md → Compiler & front-end)
+
+// Defaults are filled in by `resolve_args`, which every *statically* resolved
+// call path runs — but the virtual path emits the written arguments only, so an
+// omitted argument on an interface-typed receiver reaches the callee as a
+// missing one. The direct call below is fine; the same call through `Greeter`
+// traps (`expects 2 args, got 1`), and `check` reports nothing.
+
+interface Greeter {
+    fn greet(self, punct: String = '!') -> String;
+}
+
+struct Person {
+    let name: String;
+}
+
+impl Greeter for Person {
+    fn greet(self, punct: String = '!') -> String {
+        return self.name + punct;
+    }
+}
+
+fn show(_ g: Greeter) -> Void {
+    println(g.greet());
+}
+
+fn main() -> Int {
+    let p = Person { name: 'hi' };
+    println(p.greet());   // expect: hi!
+    show(p);              // expect: hi!
+    return 0;
+}
