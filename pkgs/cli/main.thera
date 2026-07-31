@@ -29,28 +29,35 @@ import 'session';
 fn build_app() -> cli.Command {
     return cli.Command.new('thera')
         .about('the Thera toolchain')
-        .details(
-'Compile, run, test, and check Thera programs.
+        .details(unwrap_lines('''
+Compile, run, test, and check Thera programs.
 
-Output convention: analysis output (diagnostics, test reports) goes to stdout; operational errors (missing file, bad usage) go to stderr.')
+Output convention: analysis output (diagnostics, test reports) goes to stdout;
+  operational errors (missing file, bad usage) go to stderr.'''))
         .subcommand(cli.Command.new('run')
             .about('compile and run a Thera program')
-            .details(
-'Compiles <file> and executes it, forwarding any trailing arguments to the program. The program owns stdout/stderr (they stream through).
+            .details(unwrap_lines('''
+Compiles <file> and executes it, forwarding any trailing arguments to the program.
+  The program owns stdout/stderr (they stream through).
 
 Set THERA_PROFILE=1 to write a deterministic per-function profile to stderr at exit.
 
-- exit code: the program\'s own exit code; 1 if compilation fails (diagnostics to stderr) or the program traps')
+- exit code: the program\'s own exit code; 1 if compilation fails (diagnostics to
+  stderr) or the program traps'''))
             .positional('file', help: 'the .thera file to run')
             .trailing_var_arg(true))
         .subcommand(cli.Command.new('check')
             .about('type-check programs without running them')
-            .details(
-'Type-checks each target (a .thera file, or a directory searched for *.thera) without executing — the analyzer for CI and pre-commit hooks. No target checks the current directory.
+            .details(unwrap_lines('''
+Type-checks each target (a .thera file, or a directory searched for *.thera) without
+  executing — the analyzer for CI and pre-commit hooks. No target checks the current
+  directory.
 
-- stdout: one diagnostic per line, `path:line:col: message`, then a `Checked N source files; M issues found.` summary
+- stdout: one diagnostic per line, `path:line:col: message`, then a `Checked N source
+  files; M issues found.` summary
 - stderr: operational errors (a missing or unreadable target)
-- exit code: 0 clean, 1 if any errors (or, with --fatal-warnings, any warnings), 2 if a target is missing or a file is unreadable')
+- exit code: 0 clean, 1 if any errors (or, with --fatal-warnings, any warnings), 2 if
+  a target is missing or a file is unreadable'''))
             .flag(
                 'fatal-warnings',
                 help: 'treat warnings as errors: exit 1 if any warning is reported (for CI)',
@@ -61,46 +68,57 @@ Set THERA_PROFILE=1 to write a deterministic per-function profile to stderr at e
             ))
         .subcommand(cli.Command.new('emit')
             .about('compile a Thera program to a .thera-bc file')
-            .details(
-'Compiles <file> ahead-of-time to a .thera-bc bytecode artifact at <out> (run it later with the runtime).
+            .details(unwrap_lines('''
+Compiles <file> ahead-of-time to a .thera-bc bytecode artifact at <out> (run it later
+  with the runtime).
 
 - stdout: nothing
 - stderr: diagnostics (`path:line:col: message`) and I/O errors
-- exit code: 0 on success (artifact written), 1 on compile errors (no artifact), 2 on a read/write failure')
+- exit code: 0 on success (artifact written), 1 on compile errors (no artifact), 2 on
+  a read/write failure'''))
             .positional('file', help: 'the .thera file to compile')
             .positional('out', help: 'the .thera-bc output path'))
         .subcommand(cli.Command.new('test')
             .about('run the @test functions in a program')
-            .details(
-'Compiles and runs every @test function in the targets (a file, or *_test.thera under a directory). No target tests the current directory.
+            .details(unwrap_lines('''
+Compiles and runs every @test function in the targets (a file, or *_test.thera under
+  a directory). No target tests the current directory.
 
-The default output is quiet: a block per failing test (`<name>: failed` with the error indented under it), then a `Ran N tests for M test files; K failures.` summary. A green run prints only the summary. --verbose restores the full per-file, per-test report, adding each test\'s wall-clock duration (ms) as a trailing column and a `(N tests, T ms)` total per file — the view for spotting a slow test.
+The default output is quiet: a block per failing test (`<name>: failed` with the error
+  indented under it), then a `Ran N tests for M test files; K failures.` summary. A
+  green run prints only the summary. --verbose restores the full per-file, per-test
+  report, adding each test\'s wall-clock duration (ms) as a trailing column and a
+  `(N tests, T ms)` total per file — the view for spotting a slow test.
 
 - stdout: the report (see above)
 - stderr: compile diagnostics and operational errors
-- exit code: 0 if all tests pass, 1 if any fail or none are found')
+- exit code: 0 if all tests pass, 1 if any fail or none are found'''))
             .flag(
                 'show-output',
-                help: 'show captured stdout for passing tests too (failing tests always show it); implies --verbose',
+                help: 'show captured stdout for passing tests too; implies --verbose',
             )
-            .flag(
-                'verbose',
-                help: 'print the full per-file, per-test report, with per-test timing and a per-file total',
-            )
+            .flag('verbose', help: 'print a per-file test report including timing information')
             .positional(
                 'file',
                 help: 'the .thera file or directory to test (default: the current directory)',
             ))
         .subcommand(cli.Command.new('fmt')
             .about('format source files in place')
-            .details(
-'Rewrites each target (a file, or *.thera under a directory) to the canonical format, in place. Layout is a function of the code, not of how it was typed: lines are broken at 100 columns and rejoined where they fit, so the same code always comes out the same. There are no options to configure it.
+            .details(unwrap_lines('''
+Rewrites each target (a file, or *.thera under a directory) to the canonical format,
+  in place. Layout is a function of the code, not of how it was typed: lines are
+  broken at 100 columns and rejoined where they fit, so the same code always comes out
+  the same. There are no options to configure it.
 
-With --check, no file is modified: the unformatted files are listed instead, one per line, and the exit code reports whether any were found (for CI / pre-commit).
+With --check, no file is modified: the unformatted files are listed instead, one per
+  line, and the exit code reports whether any were found (for CI / pre-commit).
 
-- stdout: `Formatted <path>` for each file that changed (silent for files already formatted); with --check, the path of each file that needs formatting
+- stdout: `Formatted <path>` for each file that changed (silent for files already
+  formatted); with --check, the path of each file that needs formatting
 - stderr: per-file errors
-- exit code: 0; 2 when a target is missing or any file cannot be read or written (the rest are still processed). With --check: 0 when all files are formatted, 1 when some need formatting, 2 on a read/target error')
+- exit code: 0; 2 when a target is missing or any file cannot be read or written (the
+  rest are still processed). With --check: 0 when all files are formatted, 1 when some
+  need formatting, 2 on a read/target error'''))
             .flag(
                 'check',
                 help: 'do not write; list files that need formatting and exit non-zero if any',
@@ -108,18 +126,25 @@ With --check, no file is modified: the unformatted files are listed instead, one
             .positional('target', help: 'a .thera file or directory to format'))
         .subcommand(cli.Command.new('lint')
             .about('report non-idiomatic code shapes; --fix applies the rewrites')
-            .details(
-'Scans each target (a file, or *.thera under a directory) for code shapes that have a more idiomatic, mechanical rewrite (e.g. a two-arm `match` with an empty catch-all arm that could be `if let`). By default it is read-only — it reports and tallies sites. No target lints the current directory.
+            .details(unwrap_lines('''
+Scans each target (a file, or *.thera under a directory) for code shapes that have a
+  more idiomatic, mechanical rewrite (e.g. a two-arm `match` with an empty catch-all
+  arm that could be `if let`). By default it is read-only — it reports and tallies
+  sites. No target lints the current directory.
 
-With `--fix`, it applies the safe subset of those rewrites in place. Each fix is a localized, self-formatted edit — only the rewritten span changes, the rest of the file is untouched. `--fix` requires an explicit target (like the other writing commands); the LSP code action is the per-site way to apply the same rewrites.
+With `--fix`, it applies the safe subset of those rewrites in place. Each fix is a
+  localized, self-formatted edit — only the rewritten span changes, the rest of the
+  file is untouched. `--fix` requires an explicit target (like the other writing
+  commands); the LSP code action is the per-site way to apply the same rewrites.
 
-- stdout: one `path:line:col: message` per site, then a per-rule tally; with --fix, `Fixed <path>` per changed file and a summary
+- stdout: one `path:line:col: message` per site, then a per-rule tally; with --fix,
+  `Fixed <path>` per changed file and a summary
 - stderr: per-file read/write errors
-- exit code: 0 (2 on a missing target)')
+- exit code: 0 (2 on a missing target)'''))
             .flag('fix', help: 'apply the rewrites in place (requires an explicit target)')
             .option(
                 'only',
-                help: 'with --fix: restrict to a comma-separated list of rule ids (e.g. match-to-if-let)',
+                help: 'restrict to a comma-separated list of rule ids (e.g. match-to-if-let)',
             )
             .positional(
                 'target',
@@ -127,13 +152,14 @@ With `--fix`, it applies the safe subset of those rewrites in place. Each fix is
             ))
         .subcommand(cli.Command.new('lsp')
             .about('start the Thera language server')
-            .details(
-'Serves the Language Server Protocol over stdin/stdout — the transport an editor drives, not for interactive use.
+            .details(unwrap_lines('''
+Serves the Language Server Protocol over stdin/stdout — the transport an editor
+  drives, not for interactive use.
 
 Runs until stdin closes.
 
 - stdout: framed LSP JSON-RPC (mix no other output here)
-- stderr: server logs'));
+- stderr: server logs''')));
 }
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
@@ -584,4 +610,21 @@ fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
             return Result.Ok(2);
         },
     }
+}
+
+/// Join the continuation lines of `text` — the indented ones — onto the line
+/// above, so the help text above can be hard-wrapped to keep this file's lines
+/// short and still print as whole paragraphs and bullets.
+fn unwrap_lines(_ text: String) -> String {
+    let lines: List<String> = [];
+
+    for line in text.split('\n') {
+        if line.starts_with(' ') && lines.len() > 0 {
+            lines.push('${lines.pop().unwrap_or('')} ${line.trim()}');
+        } else {
+            lines.push(line);
+        }
+    }
+
+    return lines.join('\n');
 }
