@@ -98,6 +98,15 @@ fn first_call_argc(_ code: List<Instr>) -> Int {
 
 fn enum_tag_tag() -> String { return 'simple_${Op.EnumTag.byte()}'; }
 
+// The argument count of the first `CallVirtual` (the receiver counts as an
+// argument), or -1 if there is none.
+fn first_virtual_argc(_ code: List<Instr>) -> Int {
+    for i in code {
+        if let CallVirtual(_, argc) = i { return argc; }
+    }
+    return -1;
+}
+
 // The argument counts of every `str_concat` call in `code`, in order.
 fn concat_argcs(_ code: List<Instr>) -> List<Int> {
     let out: List<Int> = [];
@@ -547,6 +556,17 @@ fn test_lowering_interface_receiver_emits_call_virtual() -> Result<Void, Error> 
         actual: count_tag(code_of(src, 'describe'), 'call_virtual:area'),
         expected: 1,
     )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_virtual_call_fills_parameter_default() -> Result<Void, Error> {
+    // An omitted defaulted argument at a virtual site materializes from the
+    // interface's signature: `call.virtual` carries receiver + filled default.
+    let src = 'interface Shape { fn area(self, scale: Int = 2) -> Int; }\n'
+        + 'fn describe(_ s: Shape) -> Int { return s.area(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: first_virtual_argc(code_of(src, 'describe')), expected: 2)?;
     return Result.Ok(void);
 }
 

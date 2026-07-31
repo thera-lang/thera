@@ -1,0 +1,10 @@
+// Support library: an interface whose defaulted parameter references a const
+// private to this file. A virtual call site in another file that omits the
+// argument must compile the filled default against *this* file's scope (see
+// virtual_default_arg_scope.thera).
+
+const BANG: String = '!';
+
+pub interface Exclaimer {
+    fn exclaim(self, punct: String = BANG) -> String;
+}

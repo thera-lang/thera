@@ -100,6 +100,16 @@ pub struct ImplInfo {
     let interfaces: Set<TypeId>;
 }
 
+// An interface method's declared signature as a virtual call site needs it:
+// the parameters (whose `default_value` exprs fill omitted arguments — the
+// interface's defaults govern dispatch through the interface, like every other
+// statically-known signature) and the declaring file (the scope those defaults
+// compile against; see `emit_default_arg`).
+pub struct IfaceMethodSig {
+    let params: List<Param>;
+    let file: Option<String>;
+}
+
 // The owner-qualified key of a value-level identity (a const's cycle guard, a
 // module global's init-order node) in codegen's string-keyed tables. `name` is
 // an identifier (never contains `#`), so the join is unambiguous. Type and
@@ -154,6 +164,10 @@ pub struct ModuleScope {
     let native_instance_methods: Map<String, Map<String, String>>;
     let interface_impls: Map<TypeId, ImplInfo>; // type identity -> impls
     let interface_methods: Map<TypeId, Set<String>>;
+    // Each interface's method signatures (params + declaring file), for filling
+    // parameter defaults at virtual call sites. Folded across supers alongside
+    // `interface_methods`; an inherited entry keeps its own declaring file.
+    let interface_method_sigs: Map<TypeId, Map<String, IfaceMethodSig>>;
     let pending_dispatch: List<PendingDispatch>;
     let interface_supers: Map<TypeId, List<TypeId>>;
     let mut next_enum_ty: Int;
@@ -197,6 +211,7 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
         native_instance_methods: [:],
         interface_impls: [:],
         interface_methods: [:],
+        interface_method_sigs: [:],
         pending_dispatch: [],
         interface_supers: [:],
         next_enum_ty: 3,
@@ -576,10 +591,13 @@ impl ModuleScope {
     pub fn add_interface(self, _ decl: InterfaceDecl, _ file: Option<String>) -> Void {
         let key = TypeId { owner: element.file_key(file), name: decl.name };
         let names: Set<String> = Set.new();
+        let sigs: Map<String, IfaceMethodSig> = [:];
         for m in decl.methods {
             names.add(m.name);
+            sigs[m.name] = IfaceMethodSig { params: m.params, file: file };
         }
         self.interface_methods[key] = names;
+        self.interface_method_sigs[key] = sigs;
         if decl.super_interfaces.len() > 0 {
             // Supers by the identity this file's scope sees under the name.
             let fs = file_scope(self.library, file);
@@ -639,11 +657,14 @@ impl ModuleScope {
     }
 
     // Fold each interface's super-interface methods into its dispatchable method
-    // set (transitive; tolerates a cycle). Run once after every interface is
-    // registered.
+    // set and signature table (transitive; tolerates a cycle). BFS from the
+    // interface, nearest super first, so an inherited signature comes from the
+    // closest declaration (the interface's own entries always win). Run once
+    // after every interface is registered.
     pub fn flatten_interfaces(self) -> Void {
         for name in self.interface_methods.keys() {
             if let Some(methods) = self.interface_methods.get(name) {
+                let sigs = self.interface_method_sigs.get(name);
                 let seen: Set<TypeId> = Set.new();
                 seen.add(name);
                 let queue: List<TypeId> = [];
@@ -661,6 +682,17 @@ impl ModuleScope {
                         if let Some(super_methods) = self.interface_methods.get(s) {
                             for sm in super_methods.to_list() {
                                 methods.add(sm);
+                            }
+                        }
+                        if let Some(own_sigs) = sigs {
+                            if let Some(super_sigs) = self.interface_method_sigs.get(s) {
+                                for sm in super_sigs.keys() {
+                                    if !own_sigs.has(sm) {
+                                        if let Some(sig) = super_sigs.get(sm) {
+                                            own_sigs[sm] = sig;
+                                        }
+                                    }
+                                }
                             }
                         }
                         if let Some(more) = self.interface_supers.get(s) {

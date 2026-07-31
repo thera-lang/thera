@@ -1,0 +1,40 @@
+//! spec: fn-default-params
+//! mode: run
+
+// The defaulted method is declared on a *super*-interface; a call through a
+// sub-interface-typed value still fills the inherited default (the flattened
+// signature set keeps each method's declaring parameters).
+
+interface Greeter {
+    fn greet(self, punct: String = '!') -> String;
+}
+
+interface NamedGreeter: Greeter {
+    fn id(self) -> Int;
+}
+
+struct Person {
+    let name: String;
+}
+
+impl Greeter for Person {
+    fn greet(self, punct: String = '!') -> String {
+        return self.name + punct;
+    }
+}
+
+impl NamedGreeter for Person {
+    fn id(self) -> Int {
+        return 7;
+    }
+}
+
+fn show(_ g: NamedGreeter) -> Void {
+    println(g.greet());          // expect: hi!
+    println('${g.id()}');        // expect: 7
+}
+
+fn main() -> Int {
+    show(Person { name: 'hi' });
+    return 0;
+}
