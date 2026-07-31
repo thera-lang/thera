@@ -529,6 +529,32 @@ the function body (avoiding a clash with a potential `default` keyword).
 > looseness, and the style guidance above are tracked in
 > [roadmap.md](roadmap.md).
 
+### Default values
+
+A parameter may carry a **default value** — the expression a call that omits the
+argument uses instead:
+
+```thera
+fn pad(_ s: String, width: Int = 80, fill: String = ' ') -> String { ... }
+
+pad('x');             // width: 80, fill: ' '
+pad('x', width: 4);   // fill: ' '
+```
+
+The default is the *declaring* file's code, so that is where its names resolve —
+a `const` or an import only that file can see is fair game, and the caller needs
+access to neither. It is checked once, at the declaration, against the
+parameter's type.
+
+The value is materialized at each call that omits the argument, which is what
+makes `#loc` meaningful as a default: it captures the **caller's** location, not
+the declaration's. That is how `std.testing` reports the failing assertion's
+line:
+
+```thera
+pub fn assert(_ condition: Bool, at: SourceLoc = #loc) -> Result<Void, Error> { ... }
+```
+
 ---
 
 ## Concurrency

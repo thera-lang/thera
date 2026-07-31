@@ -1112,6 +1112,9 @@ fn check_fn(
 ) -> Void {
     let type_params = union_type_params(outer_type_params, fn_decl.type_params);
     check_fn_sig(errors, fn_decl, library, file, type_params);
+    // Before the body, so a signature-only declaration (a `native fn`, an
+    // interface method) has its defaults checked too.
+    check_param_defaults(errors, fn_decl, library, self_type, type_params, file, records);
 
     match fn_decl.body {
         None => { return; },
@@ -1207,6 +1210,62 @@ fn may_complete_normally(_ rt: Type, _ lib: LibraryElement) -> Bool {
             && args.len() > 0 && is_unit_type(args[0]),
         _ => false,
     };
+}
+
+// Check each parameter's default value — where it is *written*, in the declaring
+// file's top-level scope: no locals, no other parameters, but this file's
+// imports and consts. That is the scope codegen expands it in at every call site
+// (`emit_default_arg`), so checking it here is what makes `check` and `emit`
+// agree: a default naming something only this file can see is legal everywhere,
+// and one naming nothing at all is an error *here*, once, rather than at each
+// call — or, as before, only from `emit`, leaving check-clean programs that
+// failed to compile.
+fn check_param_defaults(
+    _ errors: List<diagnostic.Diagnostic>,
+    _ fn_decl: FnDecl,
+    _ library: LibraryElement,
+    _ self_type: Option<Type>,
+    _ type_params: Set<String>,
+    _ file: Option<String>,
+    _ records: List<TypeRecord>,
+) -> Void {
+    let fs = file_scope(library, file);
+    for p in fn_decl.params {
+        if let Some(value) = p.default_value {
+            let ctx = InferCtx {
+                library: library,
+                type_params: type_params,
+                self_type: self_type,
+                // A default value is an expression, never a `return` site.
+                return_type: Option.None,
+                type_param_bounds: fn_param_bounds(fn_decl, fs),
+                current_file: file,
+                types: [:],
+                record_sink: records,
+            };
+            let expected = resolve_opt_in(p.type_ann, fs, type_params, self_type);
+            check_expr(
+                CheckCtx {
+                    errors: errors,
+                    infer: ctx,
+                    scope: empty_scope(),
+                    muts: [:],
+                    no_return_reported: [true],
+                    in_loop: false,
+                },
+                value,
+                Option.Some(expected),
+            );
+            expect_type(
+                errors,
+                infer_expr(value, empty_scope(), ctx, Option.Some(expected)),
+                expected,
+                'default value for \'${p.name}\'',
+                expr_span(value),
+                library,
+            );
+        }
+    }
 }
 
 fn check_fn_sig(

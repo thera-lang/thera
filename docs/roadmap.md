@@ -232,61 +232,27 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 
 ### Compiler & front-end
 
-- **A default parameter value is resolved in the caller's scope.** A call that
-  omits an argument materializes its default expression where the *call* is, not
-  where the function is declared, so any default that is not resolvable from the
-  caller's file fails to compile:
+- **A dynamically dispatched call does not fill in parameter defaults.** Every
+  statically resolved call path routes through codegen's `resolve_args`, which
+  matches labels and materializes defaults; `emit_virtual_call` does not — it
+  emits the arguments as written and calls the selector. So an omitted argument
+  on an interface-typed receiver reaches the callee missing, and the program
+  traps (`call: function 'Person.greet' expects 2 args, got 1`) with nothing
+  reported by `check`:
 
   ```thera
-  // lib.thera
-  import 'sub';
-  pub const L: Int = 7;
-  pub fn f(_ s: String, w: Int = sub.W) -> Int { … }   // or `= L`
-
-  // caller.thera — does not import `sub`, cannot see `L`
-  lib.f('x')     // `field access on non-struct value` / `undefined name: L`
+  interface Greeter { fn greet(self, punct: String = '!') -> String; }
+  fn show(_ g: Greeter) -> Void { println(g.greet()); }   // traps
   ```
 
-  Passing the argument explicitly is fine, as is defaulting it from inside
-  `lib.thera` itself, and a literal default (`= false`, `= [:]`) or one naming a
-  prelude type (`= Option.None`, `= Set.new()`) resolves anywhere — which is why
-  the corpus has not hit it. **`thera check` does not catch it**: the error
-  surfaces only from `emit`, so a check-clean program fails to compile, which is
-  its own gap worth closing alongside. Found writing `fmt.format_source`, whose
-  `width: Int = reflow.DEFAULT_WIDTH` the LSP could not call; the workaround
-  there was to drop the parameter, which is the better API anyway (the formatter
-  is not configurable).
-
-  **The fix has to satisfy `#loc` at the same time**, and that is the part most
-  likely to go wrong. A default parameter value needs *two* contexts at once:
-  its names belong to the declaring file, while `#loc` must stamp the **call**
-  site — which is what gives `std.testing` assertions the failing test's
-  location, via codegen's `relocate_loc_default`. Today's caller-scope resolution is exactly
-  what makes that work, so the two are the same mechanism.
-
-  ```thera
-  // lib.thera
-  pub fn tag(_ at: SourceLoc) -> Int { return at.line; }
-  pub fn caller_line(at: Int = tag(#loc)) -> Int { return at; }
-  //                          ^^^ declaring scope   ^^^^ call site
-  ```
-
-  Neither extreme works. Resolving the whole default in the caller's scope is
-  today's bug. Hoisting it into a thunk compiled in `lib.thera` — the tidiest
-  fix for the scope half — would silently break `#loc`, which would then report
-  `lib.thera` instead of the caller, and every assertion in the corpus would
-  point at [assert.thera](../sdk/std/testing/assert.thera). So: **resolve names
-  at the declaration, keep expanding the default per call site.** The work is
-  threading the declaring file's scope through to where the caller's unit lowers
-  the default, which is presumably why it resolves in the caller's scope now.
-
-  Both halves are pinned as `xfail` conformance tests under
-  `fn-default-params` — `tests/lang/functions/default_arg_scope.thera` (the
-  plain case, with the
-  check/emit divergence) and `default_arg_loc.thera` (the composite above) —
-  so the harness reports XPASS when a fix lands. `expr-loc`'s existing
-  `loc_metaconstant.thera` covers `#loc` alone and would not have caught a fix
-  that broke the composite.
+  The fix wants the *interface* method's parameters (the static contract at a
+  virtual site — the receiver's concrete impl isn't known there), resolved
+  against the interface's declaring file, which is what codegen's `ArgSite`
+  already carries for defaults. It also needs a spelled-out rule for the case
+  where an `impl` restates a default that differs from the interface's: the
+  interface's is the one a virtual call can see, so either it wins or a
+  divergent restatement is a checker error. Pinned as an xfail conformance test,
+  `tests/lang/interfaces/virtual_default_arg.thera`.
 
 - **Faithful syntax nodes for `if let` / `let … else` / `else if`.** The parser
   **desugars** all three into a `MatchExpr` (`parse_if_let` / `parse_let_else`),
@@ -1041,6 +1007,34 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **A default parameter value resolves where it is written** (2026-07). A call
+  that omitted an argument materialized the default expression where the *call*
+  was, and resolved its names there — so a default naming anything the caller
+  could not see (a declaring-file `const`, a member of an import only that file
+  has) failed to compile, while `thera check` accepted the same program. Codegen
+  now compiles a default in the **declaring file's** top-level context
+  (`emit_default_arg`, the same `enter_file_context` seam an inlined `const`
+  initializer already used), tagging each resolved argument with where it came
+  from (`ArgSite.Caller` / `Default`).
+  - **`#loc` still stamps the call site.** A default needs two contexts at once:
+    the declaration's for names, the call's for `#loc` — which is what gives
+    `std.testing` assertions the failing test's location. Hoisting the default
+    into a thunk compiled in its own file would have fixed the first half and
+    silently broken the second, so the default is still expanded per call site,
+    with the call's span carried alongside as the `loc_span` that `#loc` reads —
+    one `Option<SourceSpan>` field, since a span already carries its file. It
+    now reaches a *nested* `#loc` (`at: Int = tag(#loc)`), which the old
+    top-level-only span swap missed.
+  - **Check/emit divergence closed.** Defaults are now checked at the
+    declaration — once, in the file that wrote them, including on signature-only
+    declarations (`native fn`, interface methods) — against the parameter's
+    type, so both an unresolvable default and a mismatched one
+    (`text: String = 7`) are `check` errors instead of an emit failure or no
+    error at all. Zero corpus hits.
+  - Specs: `fn-default-params` — `default_arg_scope.thera` and
+    `default_arg_loc.thera` (both were `xfail`, now passing) plus a new
+    `default_arg_reject.thera` for the check-time diagnostics.
+
 - **Formatter width settled at 100** (2026-07). The empirical study ran (see
   _Developer tooling_ for the table); it found **no knee between 88 and 110**,
   so 100 stays on the non-empirical grounds — the corpus is already there, it is
@@ -1072,8 +1066,9 @@ conformance specs. Newest first.
     design, and a `width` parameter on the public entry point said otherwise;
     `format_source_at` carries the margin for tests and the width study. Forced
     by a front-end bug found here — a defaulted `width: Int =
-    reflow.DEFAULT_WIDTH` could not be called from the LSP, since a default is
-    resolved in the *caller's* scope (see _Compiler & front-end_).
+    reflow.DEFAULT_WIDTH` could not be called from the LSP, since a default was
+    resolved in the *caller's* scope (fixed since; see the entry above). Dropping
+    the parameter was the better API regardless.
   - Sweep: **103 files, +5156/−2106**. Over-width lines **545 → 139**, of which
     all but a handful are single long string literals and multi-line help text —
     nothing a break can shorten.

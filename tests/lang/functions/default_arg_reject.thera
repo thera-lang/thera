@@ -1,0 +1,20 @@
+//! spec: fn-default-params
+//! mode: check
+
+// A default parameter value is checked at its declaration, in the file that
+// wrote it — so a default that names nothing, or one whose type does not fit
+// the parameter, is a `check` diagnostic anchored to the default expression.
+// These used to reach `emit` unchecked (an unresolvable default) or run
+// unchecked (a mismatched one), so a check-clean program failed to compile.
+
+fn pad(width: Int = MISSING) -> Int { // expect error: undefined name: MISSING
+    return width;
+}
+
+fn label(text: String = 7) -> String { // expect error: default value for 'text': expected String, found Int
+    return text;
+}
+
+fn main() -> Void {
+    println('${pad()} ${label()}');
+}

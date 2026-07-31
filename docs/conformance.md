@@ -126,7 +126,7 @@ and [grammar.md](grammar.md) (syntax).
 | `fn-labeled-reorder`  | Named parameters        | labeled args in any order; an un-annotated lambda types (and compiles) against the parameter its label targets | ✓      |
 | `fn-call-args`        | Functions → Calls       | argument diagnostics (type mismatch, unknown label, bound violation) anchor to the offending argument          | ✓      |
 | `gen-arg-consistency` | Functions → Generics    | a type parameter must bind consistently across a call's arguments; undetermined bindings stay lenient          | ✓      |
-| `fn-default-params`   | Named parameters        | default parameter values                                                                                       | ✓      |
+| `fn-default-params`   | Named parameters        | default parameter values: resolved in the declaring file, expanded per call site (`#loc`), checked at the decl | ✓      |
 | `fn-lambda`           | Functions               | `n => …` and `(a, b) => …` forms                                                                               | ✓      |
 | `fn-lambda-infer`     | Functions → Param types | lambda param type from context (incl. if/block tails, static-method args); error when undetermined             | ✓      |
 | `fn-closures`         | Functions               | capture by value; captured `mut` is shared                                                                     | ✓      |

@@ -1226,6 +1226,35 @@ fn test_interface_default_body_is_checked() -> Result<Void, Error> {
 }
 
 @test
+fn test_param_default_is_checked_at_the_declaration() -> Result<Void, Error> {
+    // A default value used to be checked by nobody: `check` skipped it and
+    // codegen resolved it in the *caller's* scope. It is now checked once, where
+    // it is written — so an unresolvable name is an error even with no call.
+    let errs = errors_of('fn f(w: Int = missing) -> Int { return w; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'undefined name: missing')?;
+    // And it must fit the parameter's type.
+    testing.assert_eq(
+        actual: first_message(errors_of('fn f(w: Int = \'wide\') -> Int { return w; }')),
+        expected: 'default value for \'w\': expected Int, found String',
+    )?;
+    // The declaring file's own scope is what it resolves against — a file-local
+    // `const` is legal, whoever calls.
+    testing.assert_eq(
+        actual: errors_of('const W: Int = 8; fn f(w: Int = W) -> Int { return w; }').len(),
+        expected: 0,
+    )?;
+    // Signature-only declarations are checked too (no body to hang it on).
+    testing.assert_eq(
+        actual: first_message(
+            errors_of('native fn wrap(_ s: String, w: Int = missing) -> String;')
+        ),
+        expected: 'undefined name: missing',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_for_iterable_is_checked() -> Result<Void, Error> {
     let errs = errors_of('fn f() { for x in 5 { } }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
