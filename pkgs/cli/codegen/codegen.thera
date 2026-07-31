@@ -2199,9 +2199,14 @@ impl FnCompiler {
     // (total rendering: the runtime resolves the value's impl or its auto-derived
     // fallback).
     fn emit_virtual_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+        // A non-universal selector must be declared by a candidate interface;
+        // the declaring interface's signature governs the call (its parameter
+        // defaults fill omitted arguments, as at every statically resolved
+        // site). `display`/`debug` are universal (and nullary): they dispatch
+        // on any receiver with no signature to consult.
+        let mut sig: Option<IfaceMethodSig> = Option.None;
         if field != 'display' && field != 'debug' {
-            // A non-universal selector must be declared by a candidate interface.
-            let declared = match self.dispatch_interfaces(
+            match self.dispatch_interfaces(
                 infer_expr(obj, self.type_scope, self.ctx, Option.None)
             ) {
                 Some(ifaces) => {
@@ -2210,35 +2215,48 @@ impl FnCompiler {
                         if let Some(s) = self.scope.interface_methods.get(i) {
                             if s.has(field) {
                                 found = true;
+                                if let Some(m) = self.scope.interface_method_sigs.get(i) {
+                                    sig = m.get(field);
+                                }
                                 break;
                             }
                         }
                     }
-                    found
+                    if !found {
+                        return false;
+                    }
                 },
-                None => false,
-            };
-            if !declared {
-                return false;
+                None => { return false; },
             }
         }
         self.expr(obj);
-        // Thread each argument's expected type (the interface method's parameter
-        // types, instantiated with the receiver's type args) so a lambda argument
-        // types its un-annotated parameters bidirectionally — matching the
-        // instance-method path. Without this, a lambda passed to a virtual call
-        // (e.g. `it.map((x) => …)`) would lose its param type in codegen.
-        let expected = expected_arg_types(x.callee, x.args, self.type_scope, self.ctx);
-        for p in x.args.enumerate() {
-            let exp = match expected {
-                Some(eps) => if p.index < eps.len() {
-                    Option.Some(eps[p.index])
-                } else { Option.None },
-                None => Option.None,
-            };
-            self.expr_expecting(p.value.value, exp);
+        match sig {
+            Some(s) => {
+                // Fill defaults and thread each parameter's expected type (the
+                // interface method's, instantiated with the receiver's type
+                // args) so a lambda argument types its un-annotated parameters
+                // bidirectionally — matching the instance-method path.
+                let ordered = self.resolve_args(s.params, x.args, x.span, s.file);
+                self.emit_ordered_args(x.callee, x.args, ordered);
+                self.emit(Instr.CallVirtual(field, ordered.len() + 1));
+            },
+            None => {
+                // No consultable signature (a universal selector): emit the
+                // written arguments as-is, threading expected types in call
+                // order as before.
+                let expected = expected_arg_types(x.callee, x.args, self.type_scope, self.ctx);
+                for p in x.args.enumerate() {
+                    let exp = match expected {
+                        Some(eps) => if p.index < eps.len() {
+                            Option.Some(eps[p.index])
+                        } else { Option.None },
+                        None => Option.None,
+                    };
+                    self.expr_expecting(p.value.value, exp);
+                }
+                self.emit(Instr.CallVirtual(field, x.args.len() + 1));
+            },
         }
-        self.emit(Instr.CallVirtual(field, x.args.len() + 1));
         return true;
     }
 

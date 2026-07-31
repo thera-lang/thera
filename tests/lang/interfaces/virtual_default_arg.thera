@@ -1,12 +1,10 @@
 //! spec: fn-default-params
 //! mode: run
-//! xfail: a dynamically dispatched call does not fill in parameter defaults (docs/roadmap.md → Compiler & front-end)
 
-// Defaults are filled in by `resolve_args`, which every *statically* resolved
-// call path runs — but the virtual path emits the written arguments only, so an
-// omitted argument on an interface-typed receiver reaches the callee as a
-// missing one. The direct call below is fine; the same call through `Greeter`
-// traps (`expects 2 args, got 1`), and `check` reports nothing.
+// A dynamically dispatched call fills in parameter defaults from the
+// *interface's* declared signature — the static type governs, as at every
+// statically resolved call site. Both the direct call and the call through
+// the interface-typed parameter fill the omitted `punct`.
 
 interface Greeter {
     fn greet(self, punct: String = '!') -> String;
@@ -30,5 +28,6 @@ fn main() -> Int {
     let p = Person { name: 'hi' };
     println(p.greet());   // expect: hi!
     show(p);              // expect: hi!
+    println(p.greet('?')); // expect: hi?
     return 0;
 }

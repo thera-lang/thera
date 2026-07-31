@@ -1,0 +1,27 @@
+//! spec: fn-default-params
+//! mode: run
+
+// A default filled at a virtual call site compiles in the *interface's*
+// declaring file: `exclaim`'s default names a const private to libgreet, which
+// this file cannot see — yet the omitted argument resolves it there.
+
+import 'libgreet' as g;
+
+struct Cheer {
+    let word: String;
+}
+
+impl g.Exclaimer for Cheer {
+    fn exclaim(self, punct: String = '!') -> String {
+        return self.word + punct;
+    }
+}
+
+fn shout(_ e: g.Exclaimer) -> Void {
+    println(e.exclaim());
+}
+
+fn main() -> Int {
+    shout(Cheer { word: 'go' }); // expect: go!
+    return 0;
+}

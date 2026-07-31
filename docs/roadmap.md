@@ -232,28 +232,6 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 
 ### Compiler & front-end
 
-- **A dynamically dispatched call does not fill in parameter defaults.** Every
-  statically resolved call path routes through codegen's `resolve_args`, which
-  matches labels and materializes defaults; `emit_virtual_call` does not — it
-  emits the arguments as written and calls the selector. So an omitted argument
-  on an interface-typed receiver reaches the callee missing, and the program
-  traps (`call: function 'Person.greet' expects 2 args, got 1`) with nothing
-  reported by `check`:
-
-  ```thera
-  interface Greeter { fn greet(self, punct: String = '!') -> String; }
-  fn show(_ g: Greeter) -> Void { println(g.greet()); }   // traps
-  ```
-
-  The fix wants the *interface* method's parameters (the static contract at a
-  virtual site — the receiver's concrete impl isn't known there), resolved
-  against the interface's declaring file, which is what codegen's `ArgSite`
-  already carries for defaults. It also needs a spelled-out rule for the case
-  where an `impl` restates a default that differs from the interface's: the
-  interface's is the one a virtual call can see, so either it wins or a
-  divergent restatement is a checker error. Pinned as an xfail conformance test,
-  `tests/lang/interfaces/virtual_default_arg.thera`.
-
 - **Faithful syntax nodes for `if let` / `let … else` / `else if`.** The parser
   **desugars** all three into a `MatchExpr` (`parse_if_let` / `parse_let_else`),
   leaving `MatchOrigin` and `Block.synthetic` behind as provenance so consumers

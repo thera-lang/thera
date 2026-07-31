@@ -555,6 +555,11 @@ line:
 pub fn assert(_ condition: Bool, at: SourceLoc = #loc) -> Result<Void, Error> { ... }
 ```
 
+Defaults follow the **static type** of the call. A call through an
+interface-typed value (or a bounded generic) fills omitted arguments from the
+*interface's* declared defaults; a direct call on the concrete type uses the
+impl's. Write the same defaults in both places unless you mean them to differ.
+
 ---
 
 ## Concurrency

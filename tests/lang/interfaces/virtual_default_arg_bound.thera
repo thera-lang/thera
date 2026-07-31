@@ -1,0 +1,29 @@
+//! spec: fn-default-params
+//! mode: run
+
+// A bounded-generic receiver (`T: Greeter`) dispatches virtually too; an
+// omitted argument fills from the bound interface's declared default.
+
+interface Greeter {
+    fn greet(self, punct: String = '!') -> String;
+}
+
+struct Person {
+    let name: String;
+}
+
+impl Greeter for Person {
+    fn greet(self, punct: String = '!') -> String {
+        return self.name + punct;
+    }
+}
+
+fn show<T: Greeter>(_ g: T) -> Void {
+    println(g.greet());    // expect: hi!
+    println(g.greet('?')); // expect: hi?
+}
+
+fn main() -> Int {
+    show(Person { name: 'hi' });
+    return 0;
+}
