@@ -8,9 +8,9 @@ gaps and settles what a Thera API client should look like; (3) an **OpenAPI
 generator** that turns that shape into a repeatable one, so the Nth API costs
 days instead of weeks. It closes with a measurable method for choosing which
 APIs to target next. Items graduate the same way [scale.md](scale.md)'s do: a
-decided semantic lands in [language.md](language.md) or
-[stdlib.md](stdlib.md), a scoped piece of work becomes a
-[roadmap](roadmap.md) arc, and the item here shrinks to a pointer.
+decided semantic lands in [language.md](language.md) or [stdlib.md](stdlib.md),
+a scoped piece of work becomes a [roadmap](roadmap.md) arc, and the item here
+shrinks to a pointer.
 
 ## Why this is load-bearing
 
@@ -37,21 +37,21 @@ runtime substrate is where the real work is.**
 
 The commercial SDK generators — Stainless, Speakeasy, Fern, liblab — are SaaS
 products that emit SDKs for a fixed language list, and there is no path to
-getting Thera onto it. What they all *consume* is OpenAPI. Supporting OpenAPI
+getting Thera onto it. What they all _consume_ is OpenAPI. Supporting OpenAPI
 puts Thera downstream of the same artifact that produces the official
 Python/TypeScript SDKs for the APIs we care about. The 2026-08 supply-side
 survey (all fetched and verified, not taken from documentation claims):
 
-| API | Spec | Version | Size |
-| --- | --- | --- | --- |
-| Anthropic | the URL in `.stats.yml` of the official SDK repos | 3.1.0 | 1.8 MB |
-| OpenAI | `openai/openai-openapi` (officially published) | 3.1.0 | 2.8 MB |
-| Gemini | `generativelanguage.googleapis.com/$discovery/OPENAPI3_0` | 3.0.3 | 460 KB |
-| GitHub | `github/rest-api-description` | 3.0.3 | 12.9 MB |
-| Cloudflare | `cloudflare/api-schemas` | 3.x | 23 MB |
-| Vercel | `openapi.vercel.sh` | 3.x | 9.8 MB |
-| Fly Machines | `docs.machines.dev/spec/openapi3.json` | 3.x | 138 KB |
-| **AWS** | **Smithy, not OpenAPI** (`aws/api-models-aws`) | — | — |
+| API          | Spec                                                      | Version | Size    |
+| ------------ | --------------------------------------------------------- | ------- | ------- |
+| Anthropic    | the URL in `.stats.yml` of the official SDK repos         | 3.1.0   | 1.8 MB  |
+| OpenAI       | `openai/openai-openapi` (officially published)            | 3.1.0   | 2.8 MB  |
+| Gemini       | `generativelanguage.googleapis.com/$discovery/OPENAPI3_0` | 3.0.3   | 460 KB  |
+| GitHub       | `github/rest-api-description`                             | 3.0.3   | 12.9 MB |
+| Cloudflare   | `cloudflare/api-schemas`                                  | 3.x     | 23 MB   |
+| Vercel       | `openapi.vercel.sh`                                       | 3.x     | 9.8 MB  |
+| Fly Machines | `docs.machines.dev/spec/openapi3.json`                    | 3.x     | 138 KB  |
+| **AWS**      | **Smithy, not OpenAPI** (`aws/api-models-aws`)            | —       | —       |
 
 Two caveats worth carrying forward. Anthropic's spec is real and public but is
 **not advertised as a supported artifact** — the URL is content-hash-pinned per
@@ -71,8 +71,8 @@ Two credible open-source generators could be extended to target Thera:
 - **[OpenAPI Generator](https://github.com/OpenAPITools/openapi-generator)** —
   50+ targets, most battle-tested. Adding Thera is a Java class plus Mustache
   templates.
-- **[Kiota](https://github.com/microsoft/kiota)** — better architecture:
-  it builds a URI-space tree from the spec, filters it, lowers to a
+- **[Kiota](https://github.com/microsoft/kiota)** — better architecture: it
+  builds a URI-space tree from the spec, filters it, lowers to a
   language-agnostic code model, and a per-language `LanguageWriter` emits text.
   Dart support was contributed by the community, which is the existence proof
   that the extension point works for a small language.
@@ -98,71 +98,66 @@ gate the rest.
 
 ### 1. HTTPS — **the gate**
 
-**Problem.** Every API in the table above is HTTPS-only.
-**Today.** `std.http` is `http://`-only: the scheme parses, `default_port`
-resolves 443, and a single branch in
-[client.thera](../sdk/std/http/client.thera) returns "not supported".
+**Problem.** Every API in the table above is HTTPS-only. **Today.** `std.http`
+is `http://`-only: the scheme parses, `default_port` resolves 443, and a single
+branch in [client.thera](../sdk/std/http/client.thera) returns "not supported".
 [http-tls.md](http-tls.md) stages 1–3 have landed (the `rustls` runtime session,
 the `tls_*` natives, `net.TlsStream`/`net.connect_tls`), so Thera speaks TLS
-today — the client just doesn't use it.
-**Direction.** Stage 4 of the TLS plan: replace the branch with resolve →
-connect → wrap in `TlsStream`, and hand the wrapped stream to the same codec.
-The seam is already interface-typed, so nothing above the socket changes.
-**Status.** In flight; tracked in [http-tls.md](http-tls.md) and the roadmap's
-_Networking punchlist_. **Nothing else in this doc can start before it.**
+today — the client just doesn't use it. **Direction.** Stage 4 of the TLS plan:
+replace the branch with resolve → connect → wrap in `TlsStream`, and hand the
+wrapped stream to the same codec. The seam is already interface-typed, so
+nothing above the socket changes. **Status.** In flight; tracked in
+[http-tls.md](http-tls.md) and the roadmap's _Networking punchlist_. **Nothing
+else in this doc can start before it.**
 
 ### 2. Streaming responses and SSE
 
-**Problem.** Token streaming is the default interaction mode for every GenAI
-API — a client that can only await a complete response is a toy for the flagship
-use case. Server-sent events are the transport all three of Anthropic, OpenAI,
-and Gemini use for it.
-**Today.** `Response.body` is `Bytes` — fully buffered, capped at
-`MAX_BODY_BYTES` (32 MiB). [stdlib.md](stdlib.md) lists streaming bodies as
-explicitly deferred alongside TLS.
-**Direction.** Three layers, each independently useful:
-(a) a **streaming response body** — the response head arrives, the body is an
-`io.Reader` (the codec already reads incrementally; what's missing is a public
-surface that doesn't drain it first);
-(b) an **SSE framing layer** over that reader — `event:` / `data:` / `id:` /
-`retry:` fields, blank-line record separation, multi-line `data` concatenation,
-and the `[DONE]` sentinel convention;
-(c) a **typed event stream** — the framing layer yields raw events; the client
-decodes each into its own event enum. `Iterator<T>` and the lazy-iteration arc
-have landed, so the natural shape is `Iterator<Event>`; fibers + `channel` make
-a producer/consumer shape equally available. Which one a client should expose is
-an Arc 2 question (see § the client-shape checklist).
-**Status.** Open. Item (a) is the one with a design dependency on the codec;
-(b) and (c) are pure Thera over it.
+**Problem.** Token streaming is the default interaction mode for every GenAI API
+— a client that can only await a complete response is a toy for the flagship use
+case. Server-sent events are the transport all three of Anthropic, OpenAI, and
+Gemini use for it. **Today.** `Response.body` is `Bytes` — fully buffered,
+capped at `MAX_BODY_BYTES` (32 MiB). [stdlib.md](stdlib.md) lists streaming
+bodies as explicitly deferred alongside TLS. **Direction.** Three layers, each
+independently useful: (a) a **streaming response body** — the response head
+arrives, the body is an `io.Reader` (the codec already reads incrementally;
+what's missing is a public surface that doesn't drain it first); (b) an **SSE
+framing layer** over that reader — `event:` / `data:` / `id:` / `retry:` fields,
+blank-line record separation, multi-line `data` concatenation, and the `[DONE]`
+sentinel convention; (c) a **typed event stream** — the framing layer yields raw
+events; the client decodes each into its own event enum. `Iterator<T>` and the
+lazy-iteration arc have landed, so the natural shape is `Iterator<Event>`;
+fibers + `channel` make a producer/consumer shape equally available. Which one a
+client should expose is an Arc 2 question (see § the client-shape checklist).
+**Status.** Open. Item (a) is the one with a design dependency on the codec; (b)
+and (c) are pure Thera over it.
 
 ### 3. Typed JSON — structs in, structs out
 
 **Problem.** A generated client is mostly types. Getting a Thera struct into and
-out of JSON is the single highest-volume operation in every client.
-**Today.** `std.json` is a dynamic `Json` enum with `parse`/`stringify` and
-constructors. There is no struct mapping and no JSON derive; `Response.json()`
-hands back a `Json`. Hand-decoding one Anthropic response by pattern-matching
-`Json` is roughly a page of code.
-**Direction.** The key observation is that **a generator does not need a
-derive** — it can emit an explicit `from_json` / `to_json` pair per struct, and
-that emitted code is ordinary, readable, greppable Thera that participates in
-checking and refactors. The alternative, a `@derive(json)` attribute alongside
-the existing `eq`/`debug` derives, is a language feature with a much larger
-blast radius. **Recommendation: explicit emitted codecs first.** Revisit a
-derive only if hand-written clients (which do want one) prove painful enough.
-The schema-to-type mapping this implies:
+out of JSON is the single highest-volume operation in every client. **Today.**
+`std.json` is a dynamic `Json` enum with `parse`/`stringify` and constructors.
+There is no struct mapping and no JSON derive; `Response.json()` hands back a
+`Json`. Hand-decoding one Anthropic response by pattern-matching `Json` is
+roughly a page of code. **Direction.** The key observation is that **a generator
+does not need a derive** — it can emit an explicit `from_json` / `to_json` pair
+per struct, and that emitted code is ordinary, readable, greppable Thera that
+participates in checking and refactors. The alternative, a `@derive(json)`
+attribute alongside the existing `eq`/`debug` derives, is a language feature
+with a much larger blast radius. **Recommendation: explicit emitted codecs
+first.** Revisit a derive only if hand-written clients (which do want one) prove
+painful enough. The schema-to-type mapping this implies:
 
-| OpenAPI construct | Thera |
-| --- | --- |
-| `object` with fixed properties | `struct` |
-| `oneOf` + `discriminator` | `enum` with a variant per branch |
-| `enum` of strings | `enum` (plus a raw-string round trip) |
-| nullable / not in `required` | `Option<T>` |
-| `array` | `List<T>` |
-| `additionalProperties: {T}` | `Map<String, T>` |
-| `allOf` | flattened into one struct |
-| `anyOf` without a discriminator | **open question** — see below |
-| unmodeled / `true` schema | `Json` (the honest escape hatch) |
+| OpenAPI construct               | Thera                                 |
+| ------------------------------- | ------------------------------------- |
+| `object` with fixed properties  | `struct`                              |
+| `oneOf` + `discriminator`       | `enum` with a variant per branch      |
+| `enum` of strings               | `enum` (plus a raw-string round trip) |
+| nullable / not in `required`    | `Option<T>`                           |
+| `array`                         | `List<T>`                             |
+| `additionalProperties: {T}`     | `Map<String, T>`                      |
+| `allOf`                         | flattened into one struct             |
+| `anyOf` without a discriminator | **open question** — see below         |
+| unmodeled / `true` schema       | `Json` (the honest escape hatch)      |
 
 Anthropic's spec alone contains 928 component schemas with 527 `anyOf`, 238
 `oneOf`, 229 `discriminator`, and 165 `allOf` occurrences — so none of these
@@ -177,60 +172,55 @@ error code. A client that decodes into a closed Thera enum and matches
 exhaustively will **fail on a response it should have tolerated** — and it will
 fail for every user at once, remotely triggered, with no code change on our
 side. This is the defining bug class of generated clients and it interacts
-directly with Thera's exhaustive `match`.
-**Today.** Not a problem yet, because there are no typed clients.
-**Direction.** Every generated enum decoded from the wire gets an
-`Unknown(Json)` variant (name TBD), and decode never fails on an unrecognized
-tag. The cost is that every consumer's `match` grows an arm — which is arguably
-correct, since the case is real. The open question is whether that is a
-convention the generator applies uniformly, or something the spec's
-`x-` extensions can opt out of.
-**Status.** Open. Small, and cheap to get wrong permanently — decide it in
-Arc 2, before any generated code exists to migrate.
+directly with Thera's exhaustive `match`. **Today.** Not a problem yet, because
+there are no typed clients. **Direction.** Every generated enum decoded from the
+wire gets an `Unknown(Json)` variant (name TBD), and decode never fails on an
+unrecognized tag. The cost is that every consumer's `match` grows an arm — which
+is arguably correct, since the case is real. The open question is whether that
+is a convention the generator applies uniformly, or something the spec's `x-`
+extensions can opt out of. **Status.** Open. Small, and cheap to get wrong
+permanently — decide it in Arc 2, before any generated code exists to migrate.
 
 ### 5. Reliability — retries, timeouts, redirects, pooling
 
 **Problem.** Real API traffic is 429s, 529/overloaded, transient 5xx, and slow
 responses. A client without retry-with-backoff is not usable unattended, which
-is exactly the mode agent scripts run in.
-**Today.** Deferred alongside TLS in [stdlib.md](stdlib.md): redirect following,
-connection pooling, and per-request timeouts. `HttpError` already distinguishes
-`Connect` / `Timeout` / `Status` / `Body` / `Protocol`, which is the right
-vocabulary to retry against. `fiber.select` and `fiber.with_timeout` exist, so
-bounding a wait is available today.
-**Direction.** Retry with exponential backoff + jitter, honoring `Retry-After`;
-an idempotency policy (retrying a non-idempotent POST needs the API's blessing —
-several GenAI APIs supply idempotency keys); per-request timeout distinct from
-per-connection; redirects and keep-alive as independent follow-ons. Where this
-lives is a real question: a shared `std.http` retry policy, or per-client logic
-the generator emits? **Shared** is the better answer — retry behavior is not
-API-specific and should not be duplicated N times.
+is exactly the mode agent scripts run in. **Today.** Deferred alongside TLS in
+[stdlib.md](stdlib.md): redirect following, connection pooling, and per-request
+timeouts. `HttpError` already distinguishes `Connect` / `Timeout` / `Status` /
+`Body` / `Protocol`, which is the right vocabulary to retry against.
+`fiber.select` and `fiber.with_timeout` exist, so bounding a wait is available
+today. **Direction.** Retry with exponential backoff + jitter, honoring
+`Retry-After`; an idempotency policy (retrying a non-idempotent POST needs the
+API's blessing — several GenAI APIs supply idempotency keys); per-request
+timeout distinct from per-connection; redirects and keep-alive as independent
+follow-ons. Where this lives is a real question: a shared `std.http` retry
+policy, or per-client logic the generator emits? **Shared** is the better answer
+— retry behavior is not API-specific and should not be duplicated N times.
 **Status.** Open. Retry is required for Arc 2; pooling and redirects are not.
 
 ### 6. Auth and secrets
 
 **Problem.** Every API needs a credential, usually from the environment, and it
-must never reach a log or an error message.
-**Today.** `std.env` exists with the ambient-capability model
-([stdlib.md](stdlib.md)), which is the right shape: an ambient free function
-plus an opt-in capability interface for tests.
+must never reach a log or an error message. **Today.** `std.env` exists with the
+ambient-capability model ([stdlib.md](stdlib.md)), which is the right shape: an
+ambient free function plus an opt-in capability interface for tests.
 **Direction.** Mostly convention rather than machinery: a client reads its key
 from a named env var by default and accepts an override. The one piece of real
 design is **redaction** — a credential-carrying value should not be printable
 via `Debug`, and today nothing prevents that. Bearer/API-key is the whole slate
-for now; OAuth device flow and AWS SigV4 are deliberately out of scope (see
-§ Choosing targets — they are a ranking criterion, not a v1 feature).
-**Status.** Open, small.
+for now; OAuth device flow and AWS SigV4 are deliberately out of scope (see §
+Choosing targets — they are a ranking criterion, not a v1 feature). **Status.**
+Open, small.
 
 ### 7. Multipart and binary bodies
 
 **Problem.** File uploads (a Files API, a GitHub release asset) need
-`multipart/form-data`; downloads need to not go through `String`.
-**Today.** `Bytes` and `BytesBuilder` make this buildable; nothing exists.
-**Direction.** Defer until a chosen target actually needs it. Named here so the
-generator doesn't silently emit a broken operation — an unsupported content type
-must be a generation-time error, not a runtime surprise.
-**Status.** Deferred, tracked.
+`multipart/form-data`; downloads need to not go through `String`. **Today.**
+`Bytes` and `BytesBuilder` make this buildable; nothing exists. **Direction.**
+Defer until a chosen target actually needs it. Named here so the generator
+doesn't silently emit a broken operation — an unsupported content type must be a
+generation-time error, not a runtime surprise. **Status.** Deferred, tracked.
 
 ### 8. Hermetic testing
 
@@ -238,14 +228,14 @@ must be a generation-time error, not a runtime surprise.
 credential in CI. Every client and every generated client needs a test story.
 **Today.** `std.http.server` exists (plaintext HTTP/1.1), and
 [http-tls.md](http-tls.md) stage 5 is the hermetic **in-process TLS loop** —
-which is exactly the machinery an API-client test needs.
-**Direction.** Lean on stage 5 rather than inventing a parallel mechanism: spin
-a local TLS server, point the client's `base_url` at it, assert on the exchange.
-Recorded-fixture replay is the cheaper complement for response-decoding tests
-(a captured response body plus its decode is a pure function — no server
-needed). Both are worth having; the decode tests are far more numerous.
-**Status.** Open; **synergy worth noting** — stage 5 was already planned for TLS
-and now pays for two things.
+which is exactly the machinery an API-client test needs. **Direction.** Lean on
+stage 5 rather than inventing a parallel mechanism: spin a local TLS server,
+point the client's `base_url` at it, assert on the exchange. Recorded-fixture
+replay is the cheaper complement for response-decoding tests (a captured
+response body plus its decode is a pure function — no server needed). Both are
+worth having; the decode tests are far more numerous. **Status.** Open;
+**synergy worth noting** — stage 5 was already planned for TLS and now pays for
+two things.
 
 ## Arc 2 — one hand-written client, as a forcing function
 
@@ -286,11 +276,12 @@ This is the list Arc 2 exists to answer. Each is a decision the generator will
 then make hundreds of times, so each is worth getting right once, by hand, with
 a real caller in front of it.
 
-- **Construction and config.** `Client.new(api_key:, base_url:, timeout:,
-  max_retries:)` versus ambient free functions. The ambient-capability model
-  from [stdlib.md](stdlib.md) is the precedent to follow or consciously break.
-- **Optional fields.** A Messages request has a handful of required fields and
-  a long tail of optional ones. Most languages force a builder or an options
+- **Construction and config.**
+  `Client.new(api_key:, base_url:, timeout:, max_retries:)` versus ambient free
+  functions. The ambient-capability model from [stdlib.md](stdlib.md) is the
+  precedent to follow or consciously break.
+- **Optional fields.** A Messages request has a handful of required fields and a
+  long tail of optional ones. Most languages force a builder or an options
   struct here; **Thera has default arguments**, so the direct call
   `messages.create(model: …, messages: …, max_tokens: …, temperature: …)` is
   actually viable. Whether it stays readable at 20 parameters is the question —
@@ -320,9 +311,9 @@ GitHub 12.9 MB; even Anthropic carries 928 component schemas. Whole-spec
 generation would produce hundreds of thousands of lines of Thera that nobody
 reads — directly against everything [scale.md](scale.md) argues for. So the unit
 of generation is **a named set of operations**: the manifest lists them, the
-generator emits those plus transitively-reachable schemas and nothing else.
-This is Kiota's URI-space-tree design, and it is the single most important
-structural decision in this arc.
+generator emits those plus transitively-reachable schemas and nothing else. This
+is Kiota's URI-space-tree design, and it is the single most important structural
+decision in this arc.
 
 **Pipeline.** Deliberately the same shape as the front-end's own, because it is
 the same kind of program and the pieces already exist:
@@ -341,7 +332,7 @@ event rather than a silent drift. It is also the natural place for the
 **Output is committed, not generated at build time.** This is the opposite of
 [scale.md](scale.md) item 5's decision to reject committed doc artifacts, and
 the reason for the difference is worth stating: doc artifacts were rejected
-because their staleness window is *adversarial* — an agent consults the index
+because their staleness window is _adversarial_ — an agent consults the index
 precisely while a local change is in flight. A generated client has no such
 window: it changes only when the **upstream spec** changes, which is neither
 frequent nor local. And committing it is what makes it readable — by agents, by
@@ -356,13 +347,13 @@ in the repo.
 
 **Acceptance test: regenerate Anthropic and diff against Arc 2's hand-written
 client.** Not byte-equality — but every semantic difference must be
-*explainable*, and each unexplainable one is either a generator bug or a lesson
+_explainable_, and each unexplainable one is either a generator bug or a lesson
 to fold back into the emitter. This is what makes Arc 2 an investment rather
 than throwaway work.
 
-**Non-goals for v1.** Server stubs; content types beyond JSON and text;
-OAuth flows; webhooks and callbacks; Smithy and Google Discovery ingestion;
-gRPC; OpenAPI 2.0.
+**Non-goals for v1.** Server stubs; content types beyond JSON and text; OAuth
+flows; webhooks and callbacks; Smithy and Google Discovery ingestion; gRPC;
+OpenAPI 2.0.
 
 ## Choosing targets — discovery and ranking
 
@@ -382,18 +373,18 @@ and the Postman public network are secondary sources.
 1. **Is there an official machine-readable spec?** A near-binary gate and by far
    the biggest discriminator. Vendor-published and hash-pinnable beats
    community-maintained.
-2. **Spec quality**, and this is *measurable*: percentage of operations carrying
+2. **Spec quality**, and this is _measurable_: percentage of operations carrying
    an `operationId`, schema nesting depth, the `oneOf`/`discriminator`
-   histogram, how often `additionalProperties: true` is used as an escape
-   hatch, whether the document validates at all.
+   histogram, how often `additionalProperties: true` is used as an escape hatch,
+   whether the document validates at all.
 3. **Filtered surface size** — how many operations does a realistic tool
    actually need? Five, or five hundred?
 4. **Feature demand** — does it require SSE, multipart, websockets, OAuth? Each
    is Arc 1 work, and the cost belongs in the ranking.
-5. **Fit to the CLI-tool / agent domain** — Thera's stated target, not
-   "popular APIs" generally.
-6. **Auth cost** — bearer/API-key (cheap) < OAuth device flow (moderate) <
-   AWS SigV4 (expensive, and Smithy anyway).
+5. **Fit to the CLI-tool / agent domain** — Thera's stated target, not "popular
+   APIs" generally.
+6. **Auth cost** — bearer/API-key (cheap) < OAuth device flow (moderate) < AWS
+   SigV4 (expensive, and Smithy anyway).
 
 **How to actually run it.** A `dev/` script that fetches N specs from APIs.guru
 plus the hand-list and reports, per API: operation count, `operationId`
@@ -410,7 +401,7 @@ corpus.
 1. **Anthropic** — Arc 2, hand-written.
 2. **OpenAI + Gemini** — the first generated clients. Together they prove one
    generator handles three shapes of the same domain, and Gemini is valuably
-   *different*: a Google-flavored 3.0.3 document derived from a Discovery
+   _different_: a Google-flavored 3.0.3 document derived from a Discovery
    service, not a Stainless-shaped 3.1.
 3. **GitHub** — 12.9 MB and 3.0.3. Proves filtering under real load, and is the
    single most-called API in the CLI-tool domain.
@@ -425,9 +416,9 @@ not generator output. They therefore do **not** wait on Arc 3 — they need only
 Arc 1 (items 1, 2, 5) and the shape lessons from Arc 2.
 
 They are also arguably the highest-value single target in this whole document
-for the stated domain, because the value runs both ways: an MCP *client* lets a
+for the stated domain, because the value runs both ways: an MCP _client_ lets a
 Thera tool consume the entire MCP ecosystem without generating anything, and an
-MCP *server* library makes Thera a language people write agent tools *in*. That
+MCP _server_ library makes Thera a language people write agent tools _in_. That
 second one is the closer fit to Thera's thesis. Sequence it right after Arc 2's
 streaming work, in parallel with Arc 3.
 
