@@ -800,7 +800,7 @@ checksum, not a hash.
 _Status: the **wire codec**, the **server**, and the **client** are implemented,
 over the provisional `std.net` — and the client now speaks **`https`**,
 verifying the chain and host name against the bundled roots
-([http-tls.md](http-tls.md) stages 1–4). A certificate that doesn't verify is an
+([http-tls.md](http-tls.md), complete). A certificate that doesn't verify is an
 `HttpError.Tls`, distinct from `Connect` because retrying won't fix it. Still
 deferred: redirect following, connection pooling, streaming bodies, and
 **server**-side TLS (a simple server's TLS is terminated upstream)._

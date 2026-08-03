@@ -916,18 +916,19 @@ deferred bare-`TypeParameter` narrowing.
 ### Networking punchlist
 
 The phase-4 poller's two known gaps — per-fd wakeup routing and `select`-based
-socket timeouts — are **done** (see _Changelog_). **TLS is now done through
-stage 4: `std.http` speaks `https`.** Design + staged plan (crate choice, native
-ABI, the park/retry mapping, `TlsStream`, and a hermetic test strategy) in
-[http-tls.md](http-tls.md). **Stages 1–4 have landed** —
-`rustls`/`aws-lc-rs`/`webpki-roots`; the runtime's TLS session + `tls_*` natives
-riding the existing park/retry model; `net.TlsStream`/`net.connect_tls`; and the
-client's scheme branch plus an `HttpError.Tls` variant (its own, because it is
-the connect failure a retry cannot fix). What remains is **stage 5**, the
-hermetic in-process TLS loop (`tls_accept` + `rcgen`) — what lets the `https`
-path be tested without the network, since today's coverage there is two
-env-gated live smokes. ALPN is settled as a non-goal for now, with the reasoning
-in that doc's open questions.
+socket timeouts — are **done** (see _Changelog_). **TLS is done — all five
+stages of [http-tls.md](http-tls.md), so `std.http` speaks `https` and the TLS
+stack is tested end to end with no network.** See the Changelog entries for the
+arc; the design doc keeps the crate/provider reasoning, the park/retry mapping,
+and the two decisions it settled along the way (ALPN stays unoffered; the trust
+seam deliberately does not reach `std.http`).
+
+**This punchlist is now empty of TLS.** What `std.http` still lacks is
+independent of it and deferred with reasons in [stdlib.md](stdlib.md): redirect
+following, connection pooling, streaming bodies, and a public server-TLS
+surface. The first three are exactly what [api-access.md](api-access.md)'s Arc 1
+picks up — streaming bodies plus SSE framing is the next one that matters, since
+it gates every GenAI client.
 
 Stage 4 is now also the gate on a larger arc: [api-access.md](api-access.md) —
 calling third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans
@@ -1014,6 +1015,34 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **The hermetic TLS loop** (2026-08) — [http-tls.md](http-tls.md) stage 5,
+  completing the TLS arc. The runtime gained `TlsSession::server`,
+  `server_config(cert_pem, key_pem)`, and the **`tls_accept`** native — the
+  server mirror of `tls_connect`, wrapping an accepted socket in place. rustls's
+  `Connection` covers both roles, so the pump, the park/retry discipline, and
+  every other `tls_*` native were reused unchanged; the server session is new
+  code only at the config boundary.
+  - **A real client↔server handshake in one process**, over loopback, in
+    `net_test.thera`: two fibers, a plaintext round trip, a clean
+    `close_notify`. Plus the hermetic form of the security assertion — the same
+    server refused by a client on the production root store, which is what pins
+    verification being on without reaching for the network.
+  - **The certificate is checked in, not minted.** `rcgen` is a dev-dependency,
+    so it is available to the Rust tests but absent from `thera-rt`; minting
+    from Thera would mean shipping a cert-generation native to serve tests
+    alone. `net_test.thera` embeds a throwaway CA, a `localhost` leaf, and its
+    key, with regeneration commands in the doc comments. The trade is an expiry
+    (2052-08-06) instead of a runtime dependency.
+  - **The trust seam deliberately stops at `std.net`.** It is file-private, so
+    only `net_test.thera` can build a TLS stream trusting a test certificate —
+    an `https` round trip in `client_test.thera` would mean making trust
+    injection or server-TLS termination *public API*. Declined: that is a
+    permanent widening of a security boundary for a small amount of coverage.
+    `std.http` instead gets a hermetic test that points an `https` URL at the
+    **plaintext** loopback server, which pins scheme routing and the
+    `HttpError.Tls` mapping together — a plaintext peer cannot complete a
+    handshake, so any other outcome means the scheme was ignored.
 
 - **`std.http` speaks `https`** (2026-08) — [http-tls.md](http-tls.md) stage 4,
   the last thing between `std.http` and complete. `send` branches on the scheme

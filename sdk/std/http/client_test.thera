@@ -234,13 +234,38 @@ fn a_fragment_is_not_sent() -> Result<Void, Error> {
 
 // --- https ---
 //
-// The loopback server above is plaintext, so the `https` path cannot be reached
-// hermetically yet: that needs a TLS listener and a certificate minted at test
-// time (docs/http-tls.md § Testing #3, stage 5), which is the next arc. Until it
-// lands the coverage here is two **live** smokes, off unless `THERA_NET_TESTS` is
-// set — the same gate and the same reasoning as `std.net`'s. They are the only
-// tests in this file that touch the network, and stage 5's hermetic loop
-// supersedes them rather than joins them.
+// Three tests over two mechanisms, because no single one covers the path.
+//
+// **Hermetic** (the first): point an `https` URL at the *plaintext* loopback
+// server. That is enough to prove the two things this file owns — that `send`
+// routes an `https` scheme through TLS at all, and that a TLS failure arrives as
+// `HttpError.Tls` — because a plaintext peer cannot complete a handshake, so any
+// other outcome means the scheme was ignored.
+//
+// **Live, gated** (the other two): a full `https` round trip needs a TLS *server*,
+// and the seam that stands one up is file-private to `std.net` — deliberately, so
+// no public API grows a way to inject trust or terminate TLS (docs/http-tls.md
+// §Testing). The hermetic client↔server loop therefore lives in `net_test.thera`,
+// which can reach both seams; what is left here is covered against the real world,
+// off unless `THERA_NET_TESTS` is set.
+
+/// The hermetic half: `https` to a peer that speaks plaintext HTTP fails as `Tls`.
+/// If `send` ignored the scheme this would return a `Response` instead, so the
+/// test pins scheme routing and the error mapping together, with no network.
+@test
+fn https_to_a_plaintext_peer_fails_as_tls() -> Result<Void, Error> {
+    // `serving` hands back an `http://` base; asking for it over `https` is the
+    // whole point.
+    let base = serving(echo)?;
+    let outcome = match http.get(base.replace('http://', 'https://')) {
+        Ok(_) => '(a plaintext server completed a TLS handshake)',
+        Err(e) => match e {
+            Tls(_) => 'tls',
+            _ => 'wrong variant: ' + e.message(),
+        },
+    };
+    return testing.assert(outcome == 'tls', message: 'got: ' + outcome);
+}
 
 /// `https` end to end against a real certificate and the bundled Mozilla roots —
 /// the production trust path, which nothing hermetic covers.

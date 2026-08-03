@@ -107,15 +107,21 @@ policy has to make. Verified against live failure modes (unknown issuer, expired
 certificate, host-name mismatch), each arriving as `Tls` with the specific
 reason.
 
-Two things it left behind. **Test coverage is partial**: the hermetic loop needs
-a TLS listener and a test-time certificate ([http-tls.md](http-tls.md) stage 5),
-so `https` is covered today by two live smokes gated on `THERA_NET_TESTS` — that
-stage is the immediate next piece of work. And it surfaced a front-end gap worth
-knowing about before writing any client: **a generic bound parses only a bare
-name**, so `fn f<S: io.Reader>` does not compile and no generic can be bounded
-by an interface from another library. The http client works around it by passing
-its stream twice, once per role; it is tracked in the roadmap's _Type system
-punchlist_, and it will bite any generic client code Arc 2 wants to write.
+Stage 5 then closed the test story: `tls_accept` plus a file-private
+`net.accept_tls` give a real client↔server handshake in one process, so the TLS
+stack is covered with no network — including the security assertion that an
+untrusted certificate is refused. Two coverage notes carry forward: the trust
+seam deliberately stops at `std.net` (reaching it from `std.http` would mean
+making trust injection public API), so a full `https` **round trip** is a gated
+live smoke rather than a hermetic test; and the test certificate is checked in
+with a 2052 expiry rather than minted.
+
+One thing this arc left behind, worth knowing before writing any client: **a
+generic bound parses only a bare name**, so `fn f<S: io.Reader>` does not
+compile and no generic can be bounded by an interface from another library. The
+http client works around it by passing its stream twice, once per role; it is
+tracked in the roadmap's _Type system punchlist_, and it will bite any generic
+client code Arc 2 wants to write.
 
 ### 2. Streaming responses and SSE
 

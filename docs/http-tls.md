@@ -8,15 +8,18 @@ surface, and a test strategy that stays hermetic. See the roadmap's _Networking
 punchlist_ for where it sits (item 3, "the last thing between `std.http` and
 complete").
 
-**Progress against § Staged plan: stages 1–4 have landed** — the crate/provider
+**Complete: all five stages have landed.** ~~Progress against § Staged plan:
+stages 1–4 have landed~~ — the crate/provider
 spike ([runtime/tests/tls.rs](../runtime/tests/tls.rs)), the runtime session plus
 `tls_*` natives ([interp/tls.rs](../runtime/src/interp/tls.rs) and the TLS natives
 in [natives.rs](../runtime/src/interp/natives.rs)), the Thera `TlsStream` +
 `connect_tls` in [std.net](../sdk/std/net/net.thera), and the `https` branch in
-[std.http](../sdk/std/http/client.thera). **So `http.get('https://…')` works
-today**, chain- and host-verified. What's left is the hermetic in-process loop
-(stage 5), which is what lets the `https` path be tested without the network.
-What each stage settled is marked _(settled)_ below.
+[std.http](../sdk/std/http/client.thera), and the hermetic in-process
+client↔server loop (`tls_accept` + `net.accept_tls`, exercised from
+[net_test.thera](../sdk/std/net/net_test.thera)). **So `http.get('https://…')`
+works today**, chain- and host-verified, and the TLS stack is tested end to end
+with no network. What each stage settled is marked _(settled)_ below; the one
+deliberate gap left is recorded in stage 5.
 
 ## Goals & non-goals
 
@@ -321,6 +324,11 @@ considered:
    `std.http`'s public API). This is the closest analogue to the existing
    hermetic HTTP loop and the highest-value functional test. **Do this** — it's
    what makes the whole `https` path testable without the network.
+   _(landed, stage 5 — with one amendment: the certificate is **checked in**
+   rather than `rcgen`-minted, because `rcgen` is a dev-dependency and so is
+   absent from `thera-rt`; minting from Thera would mean shipping a
+   cert-generation native. And the loop lives in `net_test.thera`, not
+   `client_test.thera` — see stage 5 for why it stops at the `std.net` layer.)_
 
 **Recommendation:** (2) + (3) as the hermetic core (deterministic, no network),
 plus (1) as an off-by-default live smoke. Building `tls_accept` for (3) is the
@@ -359,14 +367,38 @@ in-process loop.
    name `io.Reader` at all. That gap is a front-end fix of its own (parser, ast,
    resolver, checker, codegen, lsp), tracked in the roadmap's _Type system
    punchlist_; the duplicated arm in `send` carries a comment pointing at it.
-5. **Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3) — where the
-   trust-seam sub-question above gets answered. **This is the remaining stage.**
+5. ~~**Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3).~~ _Done._
+   The runtime grew `TlsSession::server` + `server_config` and the `tls_accept`
+   native (the pump is role-agnostic, so the server end reuses it whole), and
+   `std.net` binds it as a **file-private `accept_tls`** beside
+   `connect_trusting`. `net_test.thera` now runs a real handshake and plaintext
+   round trip between two fibers over loopback, plus the hermetic version of the
+   security assertion: the same server refused by a client on the production
+   root store. Rust-side, both ends of a handshake are now `TlsSession`, so the
+   server path is unit-tested as well as integration-tested.
    ~~The env-gated live smoke (#1)~~ _landed with stage 3._
-   ~~Update the `https_reports_that_tls_is_missing` test~~ _done with stage 4:_
-   its precondition is gone, so it was replaced by two env-gated live smokes at
-   the `std.http` level — a successful `https` fetch, and an untrusted
-   certificate refused **as `Tls`**, which is what pins verification actually
-   being on. The hermetic loop supersedes them rather than joins them.
+   ~~Update the `https_reports_that_tls_is_missing` test~~ _done with stage 4._
+
+   **Two sub-questions this stage answered, both differently than expected:**
+
+   - **The certificate is checked in, not minted.** `rcgen` is a
+     dev-dependency, so it is in the Rust tests but *not* in `thera-rt` — a
+     Thera test cannot mint a certificate without putting a cert-generation
+     native (and `rcgen`) in the shipped runtime to serve tests alone. So
+     `net_test.thera` embeds a throwaway CA, a `localhost` leaf, and its key as
+     PEM constants, with the regeneration commands in the doc comments. The
+     cost is an expiry (2052-08-06) rather than a dependency.
+   - **The trust seam does *not* reach `std.http`, and shouldn't.** The seam is
+     file-private to `net.thera`, so only `net_test.thera` can build a TLS
+     stream trusting a test certificate — which means an `https` round trip in
+     `client_test.thera` would require making trust injection (or server-TLS
+     termination) public API. That is a permanent widening of a security
+     boundary to buy a small amount of coverage, so it was declined. What
+     `std.http` covers hermetically instead: an `https` URL pointed at the
+     *plaintext* loopback server, which pins scheme routing and the
+     `HttpError.Tls` mapping together, since a plaintext peer cannot complete a
+     handshake. The full round trip stays covered by the gated live smokes, and
+     the TLS stack itself is covered by the net-layer loop.
 6. **Docs.** Flip [stdlib.md](stdlib.md) § std.http from "`http://` only" to
    "https supported"; move the roadmap _Networking punchlist_ item 3 to the
    Changelog; note the still-deferred redirects/pooling/streaming and the
