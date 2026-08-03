@@ -58,10 +58,10 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 ### Stdlib
 
 - **Stdlib breadth — remaining.** Of the "batteries included" goal, what's left:
-  **TLS for `std.http`** (the client is `http://`-only — an `https://` URL
-  parses then fails at `connect`; tracked under _Networking punchlist_ as the
-  last thing between `std.http` and complete) and sorted/`Ord`-keyed `Set`/`Map`
-  variants. Everything else in the staples arc — the collection/string/bytes
+  sorted/`Ord`-keyed `Set`/`Map` variants. **TLS for `std.http` has landed** —
+  the client speaks `https`, chain- and host-verified; see _Networking
+  punchlist_ for the one remaining stage, the hermetic test loop.
+  Everything else in the staples arc — the collection/string/bytes
   staples, `std.encoding`/`std.hash`/`std.regex`/`std.log`/`std.term`/`std.http`
   (over the provisional `std.net`), and the lazy iteration arc (`Iterator<T>` +
   adapters, `io.lines`/`BufReader`, `fs.walk`, streaming `File`s,
@@ -861,6 +861,25 @@ findings recorded.
   better served by a nominal `struct`. Recorded as a language non-goal in
   [language.md](language.md). Would need a very compelling use case to reopen.
 
+**Open — a generic bound can only name a bare type** (found 2026-08, wiring TLS
+into `std.http`). `fn f<S: io.Reader>(…)` does not parse: `parse_type_params`
+reads each bound with `expect(Identifier)` into a `List<String>`, so a dotted
+name is a syntax error at the `.`. The restriction looks unintended rather than
+designed — the two sibling positions that also name an interface both accept a
+qualified name (`impl io.Reader for TlsStream` is in `std.net` today), and
+[language.md](language.md) § Name resolution groups all three together as
+resolving the same way. The practical effect is that **no generic can be bounded
+by an interface from another library**, which rules out all of `std.io`'s; the
+first casualty is `fn exchange<S: io.Reader + io.Writer>` in the http client,
+which now passes its stream twice, once per role, with a comment pointing here.
+
+Not a one-line fix, which is why it is tracked rather than folded into the TLS
+arc: `bounds: List<String>` is threaded through `ast` → `element.bound_id` →
+resolver → checker → codegen → lsp → `session`, and `bound_id` resolves a bare
+name, so qualified bounds need namespace resolution at each. Worth doing — it is
+a spec/implementation divergence, and the workaround it forces is exactly the
+kind of thing that teaches an agent the wrong idiom.
+
 The review's holes are all closed or deferred-with-findings above; the landed
 fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
 `throw`, and the four type-checker holes).
@@ -897,15 +916,19 @@ deferred bare-`TypeParameter` narrowing.
 ### Networking punchlist
 
 The phase-4 poller's two known gaps — per-fd wakeup routing and `select`-based
-socket timeouts — are **done** (see _Changelog_). What remains is **TLS**, the
-last thing between `std.http` and complete: the client is `http://`-only — an
-`https://` URL parses then fails at `connect`. Design + staged plan (crate
-choice, native ABI, the park/retry mapping, `TlsStream`, and a hermetic test
-strategy) in [http-tls.md](http-tls.md). **Stages 1–3 of that plan have landed**
-(`rustls`/`aws-lc-rs`/`webpki-roots`; the runtime's TLS session + `tls_*`
-natives riding the existing park/retry model; and
-`net.TlsStream`/`net.connect_tls`, so Thera can speak TLS today); next is the
-`https` branch in the client, then the hermetic in-process TLS loop.
+socket timeouts — are **done** (see _Changelog_). **TLS is done — all five
+stages of [http-tls.md](http-tls.md), so `std.http` speaks `https` and the TLS
+stack is tested end to end with no network.** See the Changelog entries for the
+arc; the design doc keeps the crate/provider reasoning, the park/retry mapping,
+and the two decisions it settled along the way (ALPN stays unoffered; the trust
+seam deliberately does not reach `std.http`).
+
+**This punchlist is now empty of TLS.** What `std.http` still lacks is
+independent of it and deferred with reasons in [stdlib.md](stdlib.md): redirect
+following, connection pooling, streaming bodies, and a public server-TLS
+surface. The first three are exactly what [api-access.md](api-access.md)'s Arc 1
+picks up — streaming bodies plus SSE framing is the next one that matters, since
+it gates every GenAI client.
 
 Stage 4 is now also the gate on a larger arc: [api-access.md](api-access.md) —
 calling third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans
@@ -992,6 +1015,60 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **The hermetic TLS loop** (2026-08) — [http-tls.md](http-tls.md) stage 5,
+  completing the TLS arc. The runtime gained `TlsSession::server`,
+  `server_config(cert_pem, key_pem)`, and the **`tls_accept`** native — the
+  server mirror of `tls_connect`, wrapping an accepted socket in place. rustls's
+  `Connection` covers both roles, so the pump, the park/retry discipline, and
+  every other `tls_*` native were reused unchanged; the server session is new
+  code only at the config boundary.
+  - **A real client↔server handshake in one process**, over loopback, in
+    `net_test.thera`: two fibers, a plaintext round trip, a clean
+    `close_notify`. Plus the hermetic form of the security assertion — the same
+    server refused by a client on the production root store, which is what pins
+    verification being on without reaching for the network.
+  - **The certificate is checked in, not minted.** `rcgen` is a dev-dependency,
+    so it is available to the Rust tests but absent from `thera-rt`; minting
+    from Thera would mean shipping a cert-generation native to serve tests
+    alone. `net_test.thera` embeds a throwaway CA, a `localhost` leaf, and its
+    key, with regeneration commands in the doc comments. The trade is an expiry
+    (2052-08-06) instead of a runtime dependency.
+  - **The trust seam deliberately stops at `std.net`.** It is file-private, so
+    only `net_test.thera` can build a TLS stream trusting a test certificate —
+    an `https` round trip in `client_test.thera` would mean making trust
+    injection or server-TLS termination *public API*. Declined: that is a
+    permanent widening of a security boundary for a small amount of coverage.
+    `std.http` instead gets a hermetic test that points an `https` URL at the
+    **plaintext** loopback server, which pins scheme routing and the
+    `HttpError.Tls` mapping together — a plaintext peer cannot complete a
+    handshake, so any other outcome means the scheme was ignored.
+
+- **`std.http` speaks `https`** (2026-08) — [http-tls.md](http-tls.md) stage 4,
+  the last thing between `std.http` and complete. `send` branches on the scheme
+  to `net.connect_tls` (resolve → connect → wrap → verify), so a request to an
+  `https` URL is chain- and host-verified against the bundled Mozilla roots.
+  - **`HttpError.Tls(String)`, not a `Connect`.** A rejected certificate is not
+    a network failure and **retrying will not fix it**, so it gets its own
+    variant — the same reasoning that gave `NetError` its `Tls`, and the
+    distinction any retry policy has to be able to make. Only that cause
+    survives the `NetError` → `HttpError` mapping as itself; everything else is
+    the `Connect` it already was.
+  - **Verified against live failure modes**, not just the happy path: an unknown
+    issuer, an expired certificate, and a host-name mismatch each come back as
+    `Tls` with the specific reason in the message.
+  - **ALPN stays unoffered** — settled rather than deferred: `net.connect_tls`
+    is a general TLS dial, so an HTTP protocol list can't be a constant there,
+    and a server offered no ALPN defaults to HTTP/1.1 anyway. If it ever
+    matters it becomes a per-connection parameter.
+  - **Test coverage is honestly partial.** The hermetic loop needs a TLS
+    listener and a test-time certificate (stage 5), so the `https` path is
+    covered today by two live smokes gated on `THERA_NET_TESTS` — one success,
+    one untrusted certificate refused as `Tls`. The plaintext loopback suite is
+    unchanged and still hermetic.
+  - **Noted in passing:** `exchange` takes its stream twice, once per role,
+    because a generic bound parses only a bare name — so no bound can name
+    `io.Reader`. Tracked in _Type system punchlist_.
 
 - **A default parameter value resolves where it is written** (2026-07). A call
   that omitted an argument materialized the default expression where the *call*

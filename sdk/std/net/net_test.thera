@@ -317,6 +317,164 @@ fn unusable_trust_roots_are_reported() -> Result<Void, Error> {
     return testing.assert(msg.contains('trusted roots'), message: 'got: ' + msg);
 }
 
+// --- the hermetic TLS loop (docs/http-tls.md §Testing #3) ---
+//
+// A TLS client and a TLS server in one process, over loopback, with no network and
+// no third party: the mirror of the plaintext `connect_and_echo` at the top of this
+// file. Both seams it needs are file-private and reachable only from here —
+// `accept_tls` (there is no public server-TLS surface) and `connect_trusting` (no
+// public API may say "trust this too").
+//
+// The certificates below are **checked in** rather than minted at test time, and
+// that is a deliberate trade. Minting would need a certificate-generation native,
+// which means putting `rcgen` in the shipped runtime to serve tests alone; the
+// Rust-side tests already do generate theirs, because there `rcgen` is a
+// dev-dependency and costs the binary nothing. What is checked in is a throwaway
+// CA and a `localhost` leaf with no value to anyone — but it does carry an expiry
+// (2052-08-06), so a distant future run failing on `certificate expired` means
+// regenerate, not debug. The commands are in the comment on the constants.
+
+/// Regenerate with (openssl, ed25519 for compactness):
+///
+/// ```
+/// openssl req -x509 -newkey ed25519 -nodes -keyout ca.key -out ca.crt -days 9500 \
+///   -subj "/CN=Thera std.net test CA" \
+///   -addext "basicConstraints=critical,CA:TRUE" \
+///   -addext "keyUsage=critical,keyCertSign,cRLSign"
+/// ```
+const TEST_CA_PEM: String = '-----BEGIN CERTIFICATE-----
+MIIBZzCCARmgAwIBAgIUFdBOTd8I5jTxJONQM6m6DYNXaR4wBQYDK2VwMCAxHjAc
+BgNVBAMMFVRoZXJhIHN0ZC5uZXQgdGVzdCBDQTAgFw0yNjA4MDMwNDI1MDBaGA8y
+MDUyMDgwNjA0MjUwMFowIDEeMBwGA1UEAwwVVGhlcmEgc3RkLm5ldCB0ZXN0IENB
+MCowBQYDK2VwAyEAXAwDRvGGQ54O4tiMOtBV792yS2BubC0CTv2XZnlbfvqjYzBh
+MB0GA1UdDgQWBBR5E3H3Nhbp51TxjThjHszVRl4zjDAfBgNVHSMEGDAWgBR5E3H3
+Nhbp51TxjThjHszVRl4zjDAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIB
+BjAFBgMrZXADQQAhNH2gZ31IRmC5mHpA2Vj0PWXqcGLrMKIM0kE9EteBYpxR7ija
+omV2ILMnXKa17+iXPISAqJBBCdBgbuZwcQYC
+-----END CERTIFICATE-----
+';
+
+/// The `localhost` leaf the test server presents, signed by the CA above. Its SAN
+/// is `DNS:localhost`, which is the name the client verifies (it dials
+/// `127.0.0.1`, so the two differ on purpose — verification is against the *name*,
+/// never the address).
+///
+/// ```
+/// openssl req -newkey ed25519 -nodes -keyout leaf.key -out leaf.csr -subj "/CN=localhost"
+/// openssl x509 -req -in leaf.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+///   -out leaf.crt -days 9500 -extfile ext.cnf   # ext.cnf: CA:FALSE, serverAuth,
+///                                               # subjectAltName=DNS:localhost
+/// ```
+const TEST_CERT_PEM: String = '-----BEGIN CERTIFICATE-----
+MIIBhTCCATegAwIBAgIUc8a1RX07AwS1fOuxIUz1qqU4sXEwBQYDK2VwMCAxHjAc
+BgNVBAMMFVRoZXJhIHN0ZC5uZXQgdGVzdCBDQTAgFw0yNjA4MDMwNDI1MDBaGA8y
+MDUyMDgwNjA0MjUwMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MCowBQYDK2VwAyEA
+aQWYBZc7q22AwCnS2T1EBt7qt2YJCUcholhY5wDkF12jgYwwgYkwDAYDVR0TAQH/
+BAIwADAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwEwFAYDVR0R
+BA0wC4IJbG9jYWxob3N0MB0GA1UdDgQWBBTAcrisubmTCH3THNmlSOHg6VLDyTAf
+BgNVHSMEGDAWgBR5E3H3Nhbp51TxjThjHszVRl4zjDAFBgMrZXADQQAGaOf7iqnB
+cIhR7XnWQNx8f5T5ELQi06wWAKdcY+3cb6MDZtiFgVNorj4DmlQ7GHtdx535y10T
+FzCndNEG0vQK
+-----END CERTIFICATE-----
+';
+
+/// The leaf's private key. A **test** key for `localhost`, generated for this file
+/// and used nowhere else — it guards nothing and grants nothing.
+const TEST_KEY_PEM: String = '-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEII2doBwjs6yyKoYnotwRDKBKHHFjoo8si5w3iWjbETz4
+-----END PRIVATE KEY-----
+';
+
+/// The whole point of stage 5: a real TLS handshake and a plaintext round trip
+/// between two fibers, entirely in process. This is what makes the `https` path
+/// testable without the network.
+@test
+fn a_tls_client_and_server_echo_over_loopback() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+
+    let server = fiber.spawn(() => {
+        let conn = listener.accept()?;
+        let tls = accept_tls(conn, cert_pem: TEST_CERT_PEM, key_pem: TEST_KEY_PEM)?;
+        let got = tls.read(max: 64)?;
+        io.write_all(to: tls, got)?;
+        // `close` sends `close_notify`, which is what lets the client tell a
+        // finished stream from a truncated one.
+        tls.close()?;
+        return Result.Ok(void);
+    });
+
+    // Dial the address, but verify the *name* — the leaf is issued for `localhost`
+    // and the socket is `127.0.0.1`.
+    let sock = net.connect_addr(addr)?;
+    let tls = connect_trusting(sock, host: 'localhost', roots_pem: TEST_CA_PEM)?;
+    io.write_all(to: tls, 'hello over TLS'.bytes())?;
+    let echoed = io.read_all(tls)?;
+    tls.close()?;
+
+    server.join()?;
+    listener.close()?;
+    return testing.assert_eq(echoed.to_string()?, 'hello over TLS');
+}
+
+/// The security-critical half, now hermetically: the same server, but a client on
+/// the **production** root store, which has never heard of the test CA. It must be
+/// refused — and as `Tls`, so a caller can tell "don't retry this" from a network
+/// flake. The live `badssl` smoke in `std.http` says the same thing against the
+/// real world; this one says it with no network at all.
+@test
+fn an_untrusted_server_certificate_is_refused() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+
+    let server = fiber.spawn(() => {
+        let conn = listener.accept()?;
+        // Expected to fail: the client alerts and hangs up mid-handshake. The
+        // assertion is on the client, so this end's verdict is deliberately
+        // discarded — it must not turn a correct refusal into a test error.
+        let _ = accept_tls(conn, cert_pem: TEST_CERT_PEM, key_pem: TEST_KEY_PEM);
+        return Result.Ok(void);
+    });
+
+    let sock = net.connect_addr(addr)?;
+    let outcome = match net.TlsStream.connect(sock, host: 'localhost') {
+        Ok(_) => '(the certificate was accepted)',
+        Err(e) => match e {
+            Tls(_) => 'tls',
+            _ => 'wrong variant: ' + e.message(),
+        },
+    };
+
+    server.join()?;
+    listener.close()?;
+    return testing.assert(outcome == 'tls', message: 'got: ' + outcome);
+}
+
+/// A server identity that can't be used is reported at `accept_tls`, before any
+/// bytes move — the mirror of `unusable_trust_roots_are_reported`. A server that
+/// silently presented nothing would be the worse failure.
+@test
+fn an_unusable_server_identity_is_reported() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+
+    let client = fiber.spawn(() => {
+        let sock = net.connect_addr(addr)?;
+        let _ = sock.close();
+        return Result.Ok(void);
+    });
+
+    let conn = listener.accept()?;
+    let msg = match accept_tls(conn, cert_pem: 'not a PEM', key_pem: TEST_KEY_PEM) {
+        Ok(_) => '(unexpectedly wrapped)',
+        Err(e) => e.message(),
+    };
+
+    client.join()?;
+    listener.close()?;
+    return testing.assert(msg.contains('server identity'), message: 'got: ' + msg);
+}
+
 /// The one test that exercises the *production* trust path — a real certificate
 /// against the bundled Mozilla roots — which nothing hermetic can cover. Off unless
 /// `THERA_NET_TESTS` is set, because it needs the network and a third party's

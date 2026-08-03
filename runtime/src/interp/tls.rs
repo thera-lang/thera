@@ -33,8 +33,10 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::sync::Arc;
 
 use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, ServerName};
-use rustls::{ClientConfig, ClientConnection, Connection, RootCertStore};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use rustls::{
+    ClientConfig, ClientConnection, Connection, RootCertStore, ServerConfig, ServerConnection,
+};
 
 /// How far a pump got. `Blocked` is the caller's cue to park on socket readiness
 /// and re-run the native, which re-enters the pump where this one left off.
@@ -58,6 +60,11 @@ pub(super) enum TlsError {
     Hostname(String),
     /// The caller-supplied trust roots couldn't be used (see [`client_config`]).
     Roots(String),
+    /// The server's own certificate chain or private key couldn't be used (see
+    /// [`server_config`]). Kept apart from [`TlsError::Roots`] because it is the
+    /// mirror-image mistake — "what I present" rather than "who I trust" — and a
+    /// server operator reading the message needs to know which.
+    Identity(String),
     /// The peer closed the TCP connection where TLS requires more — mid-handshake,
     /// or before the `close_notify` that ends a stream cleanly. Reported rather
     /// than passed off as a plain EOF: a silently accepted truncation is an attack
@@ -93,6 +100,21 @@ impl TlsSession {
         let conn = ClientConnection::new(config, name).map_err(TlsError::Protocol)?;
         Ok(Self {
             conn: Connection::Client(conn),
+        })
+    }
+
+    /// A server session presenting `config`'s certificate. No I/O — `handshake`
+    /// does that, and the same pump drives it: rustls's `Connection` is one type
+    /// for both roles, so every method below is role-agnostic.
+    ///
+    /// The asymmetry worth knowing: a server session verifies **nothing** about the
+    /// client (`with_no_client_auth`), so a completed handshake here says only that
+    /// a peer speaks TLS — never who it is. Mutual TLS is a non-goal
+    /// (docs/http-tls.md §Goals).
+    pub(super) fn server(config: Arc<ServerConfig>) -> Result<Self, TlsError> {
+        let conn = ServerConnection::new(config).map_err(TlsError::Protocol)?;
+        Ok(Self {
+            conn: Connection::Server(conn),
         })
     }
 
@@ -317,6 +339,42 @@ pub(super) fn client_config(extra_roots_pem: &str) -> Result<Arc<ClientConfig>, 
     ))
 }
 
+/// A server config presenting `cert_chain_pem` (leaf first, then any
+/// intermediates) with `key_pem` as its private key. Built per call — unlike the
+/// client config there is no root bundle to amortize, and a server that terminates
+/// TLS names its identity once at bind time, not per connection.
+///
+/// **This exists for the hermetic test loop** (docs/http-tls.md §Testing #3): a
+/// public `serve_tls` is a deliberate non-goal, since a simple server's TLS is
+/// terminated upstream. The native lands anyway because the in-process
+/// client↔server test is what makes the `https` client path testable without the
+/// network, and that test needs both ends.
+///
+/// No client authentication is requested — see [`TlsSession::server`].
+pub(super) fn server_config(
+    cert_chain_pem: &str,
+    key_pem: &str,
+) -> Result<Arc<ServerConfig>, TlsError> {
+    let chain = CertificateDer::pem_slice_iter(cert_chain_pem.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| TlsError::Identity(format!("could not read the certificate PEM: {e}")))?;
+    if chain.is_empty() {
+        return Err(TlsError::Identity(
+            "no CERTIFICATE block in the supplied chain".to_string(),
+        ));
+    }
+    let key = PrivateKeyDer::from_pem_slice(key_pem.as_bytes())
+        .map_err(|e| TlsError::Identity(format!("could not read the private key PEM: {e}")))?;
+    // rustls checks here that the key actually matches the leaf certificate, which
+    // is the mistake worth catching at bind time rather than at the first
+    // handshake — the failure would otherwise reach a client as an opaque alert.
+    ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(chain, key)
+        .map(Arc::new)
+        .map_err(TlsError::Protocol)
+}
+
 /// The bundled Mozilla roots, plus every certificate in `extra_pem` (which may be
 /// empty). A PEM that parses to nothing is an error rather than a silent no-op:
 /// the caller asked for something to be trusted, and "trusted nothing" is the one
@@ -416,6 +474,9 @@ mod tests {
         ca_pem: String,
         leaf: rustls::pki_types::CertificateDer<'static>,
         key: PrivateKeyDer<'static>,
+        /// The same leaf and key as PEM — what [`server_config`] takes.
+        leaf_pem: String,
+        key_pem: String,
     }
 
     fn pki() -> Pki {
@@ -432,6 +493,8 @@ mod tests {
             .unwrap();
         Pki {
             ca_pem,
+            leaf_pem: leaf.pem(),
+            key_pem: leaf_key.serialize_pem(),
             leaf: leaf.der().clone(),
             key: PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(leaf_key.serialize_der())),
         }
@@ -771,6 +834,159 @@ mod tests {
         let bundled = root_store("").unwrap().roots.len();
         let extended = root_store(&pki.ca_pem).unwrap().roots.len();
         assert_eq!(extended, bundled + 1);
+    }
+
+    // --- the server session (stage 5) ---
+    //
+    // Everything above tests our client against an independent rustls server, which
+    // is the right oracle for a client. These test *our own* server session, so both
+    // ends of the loop below are the code the `tls_accept` native runs.
+
+    /// Two sessions facing each other, each with its own `Wire`. `relay` hands
+    /// whatever each end wrote to the other's inbox — one call stands in for the
+    /// scheduler giving both ends a turn, which is what a park does.
+    struct Duplex {
+        client_wire: Wire,
+        server_wire: Wire,
+    }
+
+    impl Duplex {
+        fn open() -> Self {
+            Self {
+                client_wire: Wire::open(),
+                server_wire: Wire::open(),
+            }
+        }
+
+        fn relay(&mut self) {
+            let to_server = std::mem::take(&mut self.client_wire.out);
+            let to_client = std::mem::take(&mut self.server_wire.out);
+            self.server_wire.inbox.extend(to_server);
+            self.client_wire.inbox.extend(to_client);
+        }
+    }
+
+    /// A client trusting the test CA and a server presenting the matching leaf —
+    /// both built through the production entry points (`client_config` /
+    /// `server_config`), so the configs these tests exercise are the ones the
+    /// natives build.
+    fn sessions() -> (TlsSession, TlsSession, Duplex) {
+        let pki = pki();
+        let client = TlsSession::client(client_config(&pki.ca_pem).unwrap(), "localhost").unwrap();
+        let server =
+            TlsSession::server(server_config(&pki.leaf_pem, &pki.key_pem).unwrap()).unwrap();
+        (client, server, Duplex::open())
+    }
+
+    /// Drive both ends to a completed handshake, relaying between turns.
+    fn handshake_both(client: &mut TlsSession, server: &mut TlsSession, d: &mut Duplex) {
+        let (mut client_done, mut server_done) = (false, false);
+        for _ in 0..64 {
+            if !client_done {
+                client_done = matches!(
+                    client.handshake(&mut d.client_wire).unwrap(),
+                    Progress::Done(())
+                );
+            }
+            if !server_done {
+                server_done = matches!(
+                    server.handshake(&mut d.server_wire).unwrap(),
+                    Progress::Done(())
+                );
+            }
+            d.relay();
+            if client_done && server_done {
+                return;
+            }
+        }
+        panic!("the handshake never converged");
+    }
+
+    #[test]
+    fn our_own_client_and_server_sessions_complete_a_handshake() {
+        // The loop `tls_accept` exists for: both ends are `TlsSession`, driven by
+        // the same role-agnostic pump.
+        let (mut client, mut server, mut d) = sessions();
+        handshake_both(&mut client, &mut server, &mut d);
+    }
+
+    #[test]
+    fn plaintext_flows_both_ways_between_our_two_sessions() {
+        let (mut client, mut server, mut d) = sessions();
+        handshake_both(&mut client, &mut server, &mut d);
+
+        assert!(matches!(
+            client.write(&mut d.client_wire, b"GET / HTTP/1.1").unwrap(),
+            Progress::Done(14)
+        ));
+        d.relay();
+        let Progress::Done(got) = server.read(&mut d.server_wire, 64).unwrap() else {
+            panic!("the server parked with a whole record waiting");
+        };
+        assert_eq!(got, b"GET / HTTP/1.1");
+
+        assert!(matches!(
+            server
+                .write(&mut d.server_wire, b"HTTP/1.1 200 OK")
+                .unwrap(),
+            Progress::Done(15)
+        ));
+        d.relay();
+        let Progress::Done(got) = client.read(&mut d.client_wire, 64).unwrap() else {
+            panic!("the client parked with a whole record waiting");
+        };
+        assert_eq!(got, b"HTTP/1.1 200 OK");
+    }
+
+    #[test]
+    fn a_client_that_does_not_trust_the_server_refuses_the_handshake() {
+        // The security-critical half, hermetically: same server, but a client on the
+        // production root store, which has never heard of the test CA. It must fail
+        // — and as a TLS refusal, not a transport hiccup.
+        let pki = pki();
+        let mut client = TlsSession::client(default_client_config(), "localhost").unwrap();
+        let mut server =
+            TlsSession::server(server_config(&pki.leaf_pem, &pki.key_pem).unwrap()).unwrap();
+        let mut d = Duplex::open();
+
+        let mut refused = false;
+        for _ in 0..64 {
+            match client.handshake(&mut d.client_wire) {
+                Err(TlsError::Protocol(_)) => {
+                    refused = true;
+                    break;
+                }
+                Err(e) => panic!("expected a TLS refusal, got {e:?}"),
+                Ok(_) => {}
+            }
+            // The server may fail too (the client alerts it); that is not the
+            // assertion, so its verdict is ignored.
+            let _ = server.handshake(&mut d.server_wire);
+            d.relay();
+        }
+        assert!(refused, "an untrusted certificate completed a handshake");
+    }
+
+    #[test]
+    fn a_server_identity_must_be_a_usable_certificate_and_key() {
+        let pki = pki();
+        // No certificate at all — the mirror of the empty-roots case, and the one
+        // that must not silently produce a server presenting nothing.
+        assert!(matches!(
+            server_config("# no PEM block here\n", &pki.key_pem),
+            Err(TlsError::Identity(_))
+        ));
+        assert!(matches!(
+            server_config(&pki.leaf_pem, "# no key either\n"),
+            Err(TlsError::Identity(_))
+        ));
+        // A well-formed key that isn't *this* certificate's key. Caught at build
+        // time by rustls rather than reaching a client as an opaque alert.
+        let stranger = rcgen::KeyPair::generate().unwrap().serialize_pem();
+        assert!(matches!(
+            server_config(&pki.leaf_pem, &stranger),
+            Err(TlsError::Protocol(_))
+        ));
     }
 
     #[test]

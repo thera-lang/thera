@@ -96,19 +96,32 @@ URI-space-tree filtering wholesale.
 What a real API client needs, and where Thera stands. Ordered by how hard they
 gate the rest.
 
-### 1. HTTPS — **the gate**
+### 1. HTTPS — **done, graduated**
 
-**Problem.** Every API in the table above is HTTPS-only. **Today.** `std.http`
-is `http://`-only: the scheme parses, `default_port` resolves 443, and a single
-branch in [client.thera](../sdk/std/http/client.thera) returns "not supported".
-[http-tls.md](http-tls.md) stages 1–3 have landed (the `rustls` runtime session,
-the `tls_*` natives, `net.TlsStream`/`net.connect_tls`), so Thera speaks TLS
-today — the client just doesn't use it. **Direction.** Stage 4 of the TLS plan:
-replace the branch with resolve → connect → wrap in `TlsStream`, and hand the
-wrapped stream to the same codec. The seam is already interface-typed, so
-nothing above the socket changes. **Status.** In flight; tracked in
-[http-tls.md](http-tls.md) and the roadmap's _Networking punchlist_. **Nothing
-else in this doc can start before it.**
+The gate is open: `http.get('https://…')` works, chain- and host-verified
+against the bundled roots. [http-tls.md](http-tls.md) stage 4 replaced the
+client's "not supported" branch with `net.connect_tls`, and `HttpError` gained a
+`Tls(String)` variant — its own rather than a `Connect`, because it is the one
+connect failure a retry cannot fix, which is the distinction item 5's retry
+policy has to make. Verified against live failure modes (unknown issuer, expired
+certificate, host-name mismatch), each arriving as `Tls` with the specific
+reason.
+
+Stage 5 then closed the test story: `tls_accept` plus a file-private
+`net.accept_tls` give a real client↔server handshake in one process, so the TLS
+stack is covered with no network — including the security assertion that an
+untrusted certificate is refused. Two coverage notes carry forward: the trust
+seam deliberately stops at `std.net` (reaching it from `std.http` would mean
+making trust injection public API), so a full `https` **round trip** is a gated
+live smoke rather than a hermetic test; and the test certificate is checked in
+with a 2052 expiry rather than minted.
+
+One thing this arc left behind, worth knowing before writing any client: **a
+generic bound parses only a bare name**, so `fn f<S: io.Reader>` does not
+compile and no generic can be bounded by an interface from another library. The
+http client works around it by passing its stream twice, once per role; it is
+tracked in the roadmap's _Type system punchlist_, and it will bite any generic
+client code Arc 2 wants to write.
 
 ### 2. Streaming responses and SSE
 

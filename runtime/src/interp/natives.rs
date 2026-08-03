@@ -243,6 +243,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("chan_is_ready", native_chan_is_ready),
     ("select_park", native_select_park),
     ("tls_connect", native_tls_connect),
+    ("tls_accept", native_tls_accept),
     ("tls_handshake", native_tls_handshake),
     ("tls_read", native_tls_read),
     ("tls_write", native_tls_write),
@@ -3023,6 +3024,9 @@ fn tls_err(e: TlsError) -> Value {
         TlsError::Roots(why) => Value::err(Value::new_str(format!(
             "tls\u{1}unusable trusted roots: {why}"
         ))),
+        TlsError::Identity(why) => Value::err(Value::new_str(format!(
+            "tls\u{1}unusable server identity: {why}"
+        ))),
         TlsError::Truncated(where_) => Value::err(Value::new_str(format!(
             "tls\u{1}the peer closed the connection {where_}"
         ))),
@@ -3366,8 +3370,10 @@ fn native_socket_resolve(_out: &mut dyn Write, args: &[Value]) -> Result<Value, 
 //     re-encrypt the same bytes on the retry and send them twice. See
 //     `TlsSession::write` and the tests under it.
 //
-// Nothing in Thera binds these yet: the `TlsStream` wrapper and the trust-injection
-// seam these tests want are stage 3 of docs/http-tls.md §Staged plan.
+// `std.net` binds these as `TlsStream` (stage 3) and `std.http` uses it for
+// `https` (stage 4). The two seams that exist only for tests — `tls_connect`'s
+// extra trust roots and `tls_accept` itself — stay behind file-private Thera
+// functions, so no public API grows a way to inject trust or to terminate TLS.
 
 /// Run `f` against the TLS session on `handle` and the socket beneath it, or give
 /// back the error `Value` the native should return: the handle is closed, or it
@@ -3452,9 +3458,58 @@ fn native_tls_connect(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     }
 }
 
+/// The server mirror of `tls_connect`: layer a TLS **server** session over the
+/// already-accepted socket `handle`, presenting `cert_pem` (leaf first) with
+/// `key_pem`. No I/O yet — `tls_handshake` drives it, and every other `tls_*` op
+/// works on the result unchanged, because the pump is role-agnostic.
+///
+/// **Deliberately not a public `std.http` surface.** A simple server's TLS is
+/// terminated upstream (docs/http-tls.md §Goals), so this exists for the hermetic
+/// in-process test loop — the thing that makes the `https` *client* path testable
+/// without the network. `std.net` keeps it behind a file-private function, next to
+/// the trust-injection seam it pairs with.
+///
+/// Wraps in place and returns the same handle, exactly as `tls_connect` does: the
+/// poller registration survives, and the plaintext `socket_read`/`socket_write`
+/// stop working so nothing can bypass the session.
+fn native_tls_accept(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, cert_v, key_v) = args3(args, "tls_accept")?;
+    let handle = as_int(hv, "tls_accept")?;
+    let cert_pem = str_contents(cert_v)?;
+    let key_pem = str_contents(key_v)?;
+    // Build first, so an unusable certificate or key leaves the caller holding a
+    // still-usable plaintext stream rather than a half-wrapped one.
+    let config = match super::tls::server_config(&cert_pem, &key_pem) {
+        Ok(c) => c,
+        Err(e) => return Ok(tls_err(e)),
+    };
+    let session = match TlsSession::server(config) {
+        Ok(s) => Box::new(s),
+        Err(e) => return Ok(tls_err(e)),
+    };
+    let taken = SOCKETS.with(|s| s.borrow_mut().remove(&handle));
+    match taken {
+        None => Ok(socket_closed_err()),
+        Some(Socket::Stream(stream)) => {
+            SOCKETS.with(|s| {
+                s.borrow_mut()
+                    .insert(handle, Socket::Tls { stream, session })
+            });
+            Ok(Value::ok(Value::Int(handle)))
+        }
+        Some(other) => {
+            SOCKETS.with(|s| s.borrow_mut().insert(handle, other));
+            Ok(socket_err(&wrong_socket_kind("an unwrapped stream")))
+        }
+    }
+}
+
 /// Drive the handshake to completion, parking on the socket as needed. `Ok(void)`
-/// means the session is ready **and** the server's certificate chain and host name
-/// verified — a bad certificate arrives here as an `Err`, never as a usable stream.
+/// means the session is ready **and** — for a client — that the server's
+/// certificate chain and host name verified; a bad certificate arrives here as an
+/// `Err`, never as a usable stream. A **server** session verifies nothing about its
+/// peer (see `TlsSession::server`), so success there means only that the handshake
+/// completed.
 fn native_tls_handshake(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let handle = as_int(expect_one(args, "tls_handshake")?, "tls_handshake")?;
     match with_tls(handle, |stream, session| session.handshake(stream)) {

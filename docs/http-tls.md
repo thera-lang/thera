@@ -8,13 +8,18 @@ surface, and a test strategy that stays hermetic. See the roadmap's _Networking
 punchlist_ for where it sits (item 3, "the last thing between `std.http` and
 complete").
 
-**Progress against § Staged plan: stages 1–3 have landed** — the crate/provider
+**Complete: all five stages have landed.** ~~Progress against § Staged plan:
+stages 1–4 have landed~~ — the crate/provider
 spike ([runtime/tests/tls.rs](../runtime/tests/tls.rs)), the runtime session plus
 `tls_*` natives ([interp/tls.rs](../runtime/src/interp/tls.rs) and the TLS natives
-in [natives.rs](../runtime/src/interp/natives.rs)), and the Thera `TlsStream` +
-`connect_tls` in [std.net](../sdk/std/net/net.thera). So Thera can speak TLS
-today; what's left is `std.http` using it (stage 4) and the hermetic in-process
-loop (stage 5). What each stage settled is marked _(settled)_ below.
+in [natives.rs](../runtime/src/interp/natives.rs)), the Thera `TlsStream` +
+`connect_tls` in [std.net](../sdk/std/net/net.thera), and the `https` branch in
+[std.http](../sdk/std/http/client.thera), and the hermetic in-process
+client↔server loop (`tls_accept` + `net.accept_tls`, exercised from
+[net_test.thera](../sdk/std/net/net_test.thera)). **So `http.get('https://…')`
+works today**, chain- and host-verified, and the TLS stack is tested end to end
+with no network. What each stage settled is marked _(settled)_ below; the one
+deliberate gap left is recorded in stage 5.
 
 ## Goals & non-goals
 
@@ -319,6 +324,11 @@ considered:
    `std.http`'s public API). This is the closest analogue to the existing
    hermetic HTTP loop and the highest-value functional test. **Do this** — it's
    what makes the whole `https` path testable without the network.
+   _(landed, stage 5 — with one amendment: the certificate is **checked in**
+   rather than `rcgen`-minted, because `rcgen` is a dev-dependency and so is
+   absent from `thera-rt`; minting from Thera would mean shipping a
+   cert-generation native. And the loop lives in `net_test.thera`, not
+   `client_test.thera` — see stage 5 for why it stops at the `std.net` layer.)_
 
 **Recommendation:** (2) + (3) as the hermetic core (deterministic, no network),
 plus (1) as an off-by-default live smoke. Building `tls_accept` for (3) is the
@@ -345,13 +355,50 @@ in-process loop.
    handshake allows without a server: a plaintext peer fails as `Tls`, an
    unverifiable host name and unusable roots are refused up front, and a failed
    handshake closes the socket it was handed.
-4. **Wire it into `std.http`.** Replace the `https` error branch in
-   `client.thera` with resolve → connect → wrap; add the `HttpError` TLS
-   variant.
-5. **Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3) — where the
-   trust-seam sub-question above gets answered. ~~The env-gated live smoke
-   (#1)~~ _landed with stage 3._ Update the `https_reports_that_tls_is_missing`
-   test — its precondition is gone once stage 4 lands.
+4. ~~**Wire it into `std.http`.**~~ _Done._ `send` branches on the scheme to
+   `net.connect_tls`, and `HttpError` gained a `Tls(String)` variant — its own
+   rather than folded into `Connect`, because it is the one connect failure a
+   retry cannot fix (the same reasoning that gave `NetError` its `Tls`). Two
+   details the sketch didn't anticipate: the connect-error mapping is now a
+   `connect_error` helper, so only the TLS cause survives as itself; and
+   `exchange` takes the stream **twice**, once as `io.Reader` and once as
+   `io.Writer`, because a generic bound (`<S: io.Reader + io.Writer>`) would say
+   it once but a bound currently parses only a *bare* name — so no bound can
+   name `io.Reader` at all. That gap is a front-end fix of its own (parser, ast,
+   resolver, checker, codegen, lsp), tracked in the roadmap's _Type system
+   punchlist_; the duplicated arm in `send` carries a comment pointing at it.
+5. ~~**Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3).~~ _Done._
+   The runtime grew `TlsSession::server` + `server_config` and the `tls_accept`
+   native (the pump is role-agnostic, so the server end reuses it whole), and
+   `std.net` binds it as a **file-private `accept_tls`** beside
+   `connect_trusting`. `net_test.thera` now runs a real handshake and plaintext
+   round trip between two fibers over loopback, plus the hermetic version of the
+   security assertion: the same server refused by a client on the production
+   root store. Rust-side, both ends of a handshake are now `TlsSession`, so the
+   server path is unit-tested as well as integration-tested.
+   ~~The env-gated live smoke (#1)~~ _landed with stage 3._
+   ~~Update the `https_reports_that_tls_is_missing` test~~ _done with stage 4._
+
+   **Two sub-questions this stage answered, both differently than expected:**
+
+   - **The certificate is checked in, not minted.** `rcgen` is a
+     dev-dependency, so it is in the Rust tests but *not* in `thera-rt` — a
+     Thera test cannot mint a certificate without putting a cert-generation
+     native (and `rcgen`) in the shipped runtime to serve tests alone. So
+     `net_test.thera` embeds a throwaway CA, a `localhost` leaf, and its key as
+     PEM constants, with the regeneration commands in the doc comments. The
+     cost is an expiry (2052-08-06) rather than a dependency.
+   - **The trust seam does *not* reach `std.http`, and shouldn't.** The seam is
+     file-private to `net.thera`, so only `net_test.thera` can build a TLS
+     stream trusting a test certificate — which means an `https` round trip in
+     `client_test.thera` would require making trust injection (or server-TLS
+     termination) public API. That is a permanent widening of a security
+     boundary to buy a small amount of coverage, so it was declined. What
+     `std.http` covers hermetically instead: an `https` URL pointed at the
+     *plaintext* loopback server, which pins scheme routing and the
+     `HttpError.Tls` mapping together, since a plaintext peer cannot complete a
+     handshake. The full round trip stays covered by the gated live smokes, and
+     the TLS stack itself is covered by the net-layer loop.
 6. **Docs.** Flip [stdlib.md](stdlib.md) § std.http from "`http://` only" to
    "https supported"; move the roadmap _Networking punchlist_ item 3 to the
    Changelog; note the still-deferred redirects/pooling/streaming and the
@@ -373,13 +420,22 @@ in-process loop.
   natives (§ Park/retry). The one genuinely non-mechanical ABI call.~~
   _Settled in stage 2:_ feed-and-count with the park ordered before the feed, no
   flush native, backpressure from rustls's capped queue (§ Park/retry).
-- **ALPN**: the natives currently offer none, so a server sees no
+- ~~**ALPN**: the natives currently offer none, so a server sees no
   `application_layer_protocol_negotiation` extension and HTTP/1.1 is implied.
   Offering `http/1.1` explicitly is more correct (it stops a server picking `h2`,
   which the codec can't speak) but fails the handshake against an
   HTTP/2-only host instead of failing at the first response — and it is an
   `std.http` policy decision sitting in an `std.net`-layer native. Decide when
-  stage 4 wires the client, since that is where the policy belongs.
+  stage 4 wires the client, since that is where the policy belongs.~~
+  _Settled in stage 4: **keep offering none**_ — for a reason the question
+  didn't name. Its framing ("should `std.http` offer `http/1.1`?") assumes the
+  answer can be a constant, and it can't: `net.connect_tls` is a general TLS
+  dial, so baking an HTTP protocol list into it is wrong for every non-HTTP user
+  of the same native. Offering ALPN properly means a **per-connection
+  parameter** — an ABI addition — and the payoff today is small, because a
+  server offered no ALPN defaults to HTTP/1.1, which is exactly what the codec
+  speaks (verified against live endpoints during stage 4). Revisit if a real
+  host negotiates `h2` anyway, and then as a parameter, never a constant.
 - **Truncation strictness**: a socket that ends with no `close_notify` is an error
   (`TlsError::Truncated`), not an EOF — the secure reading, and invisible to
   length- or chunk-framed HTTP responses, which stop before EOF. Revisit only if

@@ -174,6 +174,11 @@ native fn _is_ready(_ handle: Int) -> Bool
 @extern('tls_connect')
 native fn _tls_connect(_ handle: Int, _ host: String, _ roots_pem: String) -> Result<Int, String>
 
+// The server mirror, wrapping an *accepted* socket the same way. Bound only for
+// `accept_tls` below — there is no public server-TLS surface, by design.
+@extern('tls_accept')
+native fn _tls_accept(_ handle: Int, _ cert_pem: String, _ key_pem: String) -> Result<Int, String>
+
 @extern('tls_handshake')
 native fn _tls_handshake(_ handle: Int) -> Result<Void, String>
 
@@ -315,6 +320,43 @@ fn connect_trusting(
     roots_pem: String,
 ) -> Result<TlsStream, NetError> {
     let handle = match _tls_connect(stream.handle, host, roots_pem) {
+        Ok(h) => h,
+        // Nothing was wrapped, so this is still a plain socket — close it rather
+        // than leak the descriptor, since the caller has handed it over.
+        Err(e) => {
+            let _ = _close(stream.handle);
+            return Result.Err(to_net_error(e));
+        },
+    };
+    return match _tls_handshake(handle) {
+        Ok(_) => Result.Ok(TlsStream { handle: handle }),
+        Err(e) => {
+            let _ = _close(handle);
+            Result.Err(to_net_error(e))
+        },
+    };
+}
+
+/// Terminate TLS on an **accepted** `stream`, presenting `cert_pem` (leaf first)
+/// with `key_pem`, and drive the handshake. The server half of `connect_trusting`
+/// — together they are the hermetic in-process TLS loop (docs/http-tls.md
+/// §Testing #3): one fiber serves, another connects, and no network is involved.
+///
+/// Ownership works exactly as for `TlsStream.connect`: on success `stream` becomes
+/// the returned `TlsStream`, on failure it is closed.
+///
+/// Deliberately **file-private**, like `connect_trusting` and for a stronger
+/// reason: a public server-TLS surface is a stated non-goal (a simple server's TLS
+/// is terminated upstream), so this exists to make the *client* path testable and
+/// nothing else. Note what it does **not** do — a server session verifies nothing
+/// about its peer, so a completed handshake here says only that someone speaks
+/// TLS.
+fn accept_tls(
+    _ stream: TcpStream,
+    cert_pem: String,
+    key_pem: String,
+) -> Result<TlsStream, NetError> {
+    let handle = match _tls_accept(stream.handle, cert_pem, key_pem) {
         Ok(h) => h,
         // Nothing was wrapped, so this is still a plain socket — close it rather
         // than leak the descriptor, since the caller has handed it over.
