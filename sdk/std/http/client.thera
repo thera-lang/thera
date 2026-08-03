@@ -168,28 +168,18 @@ pub fn post(
 /// error; `HttpError` is for exchanges that did not happen.
 pub fn send(_ request: wire.Request) -> Result<wire.Response, wire.HttpError> {
     let url = parse_url(request.url)?;
-    // The two arms are the same three lines over different stream types, and they
-    // stay duplicated on purpose: unifying them wants `fn exchange<S: io.Reader +
-    // io.Writer>`, and a generic bound currently parses only a *bare* name — so no
-    // bound can name `io.Reader` at all. Revisit when that gap closes.
+    // The scheme picks the stream type; `exchange` is generic over both, so each
+    // arm is just "connect, then hand it over".
     if url.scheme == 'https' {
-        let conn = match net.connect_tls(url.host, url.port) {
-            Ok(c) => c,
-            Err(e) => { return Result.Err(connect_error(e)); },
+        return match net.connect_tls(url.host, url.port) {
+            Ok(conn) => exchange(conn, request, url),
+            Err(e) => Result.Err(connect_error(e)),
         };
-        let result = exchange(read: conn, write: conn, request, url);
-        let _ = conn.close();
-        return result;
     }
-    let conn = match net.connect(url.host, url.port) {
-        Ok(c) => c,
-        Err(e) => { return Result.Err(connect_error(e)); },
+    return match net.connect(url.host, url.port) {
+        Ok(conn) => exchange(conn, request, url),
+        Err(e) => Result.Err(connect_error(e)),
     };
-    let result = exchange(read: conn, write: conn, request, url);
-    // Close either way: the response body is already in memory, and leaking the
-    // descriptor on the error path is how a retry loop runs a process out of them.
-    let _ = conn.close();
-    return result;
 }
 
 /// A failure to establish the connection, as an `HttpError`. Only the TLS cause
@@ -202,12 +192,16 @@ fn connect_error(_ e: net.NetError) -> wire.HttpError {
     };
 }
 
-/// One request/response over an open connection. Takes the stream twice, once per
-/// role, because the codec's two halves are separately interface-typed and the
-/// bound that would name both at once doesn't parse yet (see `send`).
-fn exchange(
-    read src: io.Reader,
-    write dst: io.Writer,
+/// One request/response over an open connection, which is **closed on the way
+/// out** either way: the response body is already in memory by then, and leaking
+/// the descriptor on the error path is how a retry loop runs a process out of
+/// them.
+///
+/// Generic over the stream rather than taking a `net.TcpStream`, which is what
+/// lets `https` and `http` share it — the codec's two halves are separately
+/// interface-typed, so the bound names both roles plus the close.
+fn exchange<S: io.Reader + io.Writer + io.Closer>(
+    _ conn: S,
     _ request: wire.Request,
     _ url: Url,
 ) -> Result<wire.Response, wire.HttpError> {
@@ -219,13 +213,18 @@ fn exchange(
         headers: outbound_headers(request.headers, url),
         body: request.body,
     };
-    match wire.write_request(to: dst, sent) {
-        Ok(_) => void,
-        Err(e) => { return Result.Err(wire.HttpError.Connect(e.message())); },
-    }
-    // A HEAD response describes a body it does not send; nothing on the wire says
-    // so, so the reader has to be told.
-    return wire.Wire.new(src).read_response(to_head: request.method.to_uppercase() == 'HEAD');
+    // Written as one expression so there is a single `close` below, on every path,
+    // rather than one per early return.
+    let outcome = match wire.write_request(to: conn, sent) {
+        // A HEAD response describes a body it does not send; nothing on the wire
+        // says so, so the reader has to be told.
+        Ok(_) => wire.Wire
+            .new(conn)
+            .read_response(to_head: request.method.to_uppercase() == 'HEAD'),
+        Err(e) => Result.Err(wire.HttpError.Connect(e.message())),
+    };
+    let _ = conn.close();
+    return outcome;
 }
 
 /// The caller's headers plus the ones the transport owns. Caller-set values win,
