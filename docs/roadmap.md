@@ -907,6 +907,14 @@ natives riding the existing park/retry model; and
 `net.TlsStream`/`net.connect_tls`, so Thera can speak TLS today); next is the
 `https` branch in the client, then the hermetic in-process TLS loop.
 
+Stage 4 is now also the gate on a larger arc: [api-access.md](api-access.md) —
+calling third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans
+the substrate this punchlist feeds (streaming bodies + SSE, typed JSON, retry
+with backoff), a hand-written Anthropic client as the forcing function, and an
+OpenAPI generator to scale past it. Two items there land here: the `https`
+branch is its hard prerequisite, and the hermetic in-process TLS loop (stage 5)
+doubles as the API-client test harness.
+
 ### Scheduler punchlist
 
 Findings from a 2026-07 design review of fiber waiting/waking (the park

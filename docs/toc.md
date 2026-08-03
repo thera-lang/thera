@@ -36,6 +36,11 @@ this is"; read top-down for progressive detail.
   to the client — the `rustls` crate choice, the native ABI, how a TLS session
   rides the socket park/retry model, the `TlsStream` surface, and a hermetic
   test strategy.
+- [api-access.md](api-access.md) — **API access for Thera tools**: the plan for
+  calling third-party HTTP APIs (GenAI, MCP, GitHub) — the platform substrate
+  (HTTPS, SSE streaming, typed JSON, retries), one hand-written client as a
+  forcing function, an OpenAPI generator to scale past it, and a measurable
+  method for ranking target APIs.
 - [scale.md](scale.md) — **Thera at scale**: the plan for keeping large
   codebases workable for agents — the four scaling failure modes (reading
   radius, discoverability, feedback latency, trustworthy prose), and the work
