@@ -864,10 +864,9 @@ findings recorded.
 **Qualified generic bounds and supers — done** (2026-08, found wiring TLS into
 `std.http`): `fn f<S: io.Reader>(…)` and `interface A: ns.B` now parse and
 resolve through the namespace like every other interface position — see
-_Changelog_. One follow-up remains: unify the http client's duplicated
-read/write paths into `fn exchange<S: io.Reader + io.Writer>` (the workaround
-that found the hole — `client.thera` passes its stream twice, once per role,
-with a comment pointing here).
+_Changelog_. The follow-up is done too: the http client's duplicated read/write
+paths are now one `fn exchange<S: io.Reader + io.Writer + io.Closer>`, which
+also let `send` shrink to a scheme branch over two connect calls.
 
 The review's holes are all closed or deferred-with-findings above; the landed
 fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
@@ -1021,8 +1020,10 @@ conformance specs. Newest first.
   detected by resolved identity rather than spelling, qualified bounds/supers
   counted by the unused-import walker, and LSP member resolution on parameters
   bounded by qualified interfaces. Bootstrap snapshot refreshed (new syntax —
-  the self-hosting ratchet). The `fn exchange<S: io.Reader + io.Writer>`
-  cleanup in the http client is the follow-up that consumes this.
+  the self-hosting ratchet). **Consumed:** the http client is now one
+  `fn exchange<S: io.Reader + io.Writer + io.Closer>` instead of a function
+  taking its stream twice, once per role — and folding the close into that bound
+  shrank `send` to a scheme branch over two connect calls.
 
 - **The hermetic TLS loop** (2026-08) — [http-tls.md](http-tls.md) stage 5,
   completing the TLS arc. The runtime gained `TlsSession::server`,
@@ -1076,7 +1077,8 @@ conformance specs. Newest first.
     unchanged and still hermetic.
   - **Noted in passing:** `exchange` takes its stream twice, once per role,
     because a generic bound parses only a bare name — so no bound can name
-    `io.Reader`. Tracked in _Type system punchlist_.
+    `io.Reader`. _(Since fixed — see **Qualified generic bounds and
+    super-interfaces** above; `exchange` is now generic over one stream.)_
 
 - **A default parameter value resolves where it is written** (2026-07). A call
   that omitted an argument materialized the default expression where the *call*

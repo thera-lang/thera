@@ -360,13 +360,13 @@ in-process loop.
    rather than folded into `Connect`, because it is the one connect failure a
    retry cannot fix (the same reasoning that gave `NetError` its `Tls`). Two
    details the sketch didn't anticipate: the connect-error mapping is now a
-   `connect_error` helper, so only the TLS cause survives as itself; and
-   `exchange` takes the stream **twice**, once as `io.Reader` and once as
-   `io.Writer`, because a generic bound (`<S: io.Reader + io.Writer>`) would say
-   it once but a bound currently parses only a *bare* name — so no bound can
-   name `io.Reader` at all. That gap is a front-end fix of its own (parser, ast,
-   resolver, checker, codegen, lsp), tracked in the roadmap's _Type system
-   punchlist_; the duplicated arm in `send` carries a comment pointing at it.
+   `connect_error` helper, so only the TLS cause survives as itself; and wiring
+   the client **found a front-end hole** — a generic bound could name only a
+   *bare* type, so `<S: io.Reader + io.Writer>` didn't parse and `exchange` had
+   to take its stream twice, once per role. That has since been fixed
+   (qualified bounds and super-interfaces, roadmap _Changelog_), and `exchange`
+   is now one `fn exchange<S: io.Reader + io.Writer + io.Closer>` — which also
+   shrank `send` to a scheme branch over two connect calls.
 5. ~~**Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3).~~ _Done._
    The runtime grew `TlsSession::server` + `server_config` and the `tls_accept`
    native (the pump is role-agnostic, so the server end reuses it whole), and

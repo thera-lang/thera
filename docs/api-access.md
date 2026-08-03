@@ -116,12 +116,15 @@ making trust injection public API), so a full `https` **round trip** is a gated
 live smoke rather than a hermetic test; and the test certificate is checked in
 with a 2052 expiry rather than minted.
 
-One thing this arc left behind, worth knowing before writing any client: **a
-generic bound parses only a bare name**, so `fn f<S: io.Reader>` does not
-compile and no generic can be bounded by an interface from another library. The
-http client works around it by passing its stream twice, once per role; it is
-tracked in the roadmap's _Type system punchlist_, and it will bite any generic
-client code Arc 2 wants to write.
+The arc also paid a dividend the plan didn't anticipate. Wiring TLS in hit a
+front-end hole — **a generic bound could only name a bare type**, so
+`fn f<S: io.Reader>` did not parse and no generic could be bounded by an
+interface from another library — which has since been fixed (qualified bounds
+and super-interfaces both resolve through the namespace now; see the roadmap's
+_Changelog_). Worth recording because Arc 2 would have hit it on day one: a
+typed client is generic code over `std` interfaces, and that was exactly the
+combination that didn't compile. The http client now reads
+`fn exchange<S: io.Reader + io.Writer + io.Closer>`.
 
 ### 2. Streaming responses and SSE
 
