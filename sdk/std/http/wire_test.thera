@@ -179,6 +179,152 @@ fn a_chunked_body_may_carry_trailers() -> Result<Void, Error> {
     return testing.assert_eq(r.body.to_string()?, 'hi');
 }
 
+// --- streaming bodies ---
+
+/// Parse `raw` far enough to have its head, leaving the body unread.
+fn stream(_ raw: String) -> Result<wire.ResponseStream, wire.HttpError> {
+    return wire.Wire.new(io.from_bytes(raw.bytes())).stream_response();
+}
+
+/// A `Reader` that hands out at most `step` bytes per call and records how far it
+/// has been consumed — the instrument for "did reading the head pull the body in?".
+struct SlowReader {
+    let data: Bytes;
+    let step: Int;
+    let mut pos: Int;
+}
+
+impl io.Reader for SlowReader {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        let n = self.data.len();
+        if self.pos >= n {
+            return Result.Ok(Bytes.empty());
+        }
+        let end = (self.pos + max.min(self.step)).min(n);
+        let chunk = self.data.slice(self.pos, end);
+        self.pos = end;
+        return Result.Ok(chunk);
+    }
+}
+
+/// The point of the whole exercise: `stream_response` returns with the head parsed
+/// and the body still on the wire. The buffered path over the same bytes drains the
+/// source, which is the contrast that makes this a regression test rather than a
+/// tautology — nothing else here would notice a "drain, then hand it over".
+@test
+fn streaming_a_response_leaves_the_body_on_the_wire() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 200 OK\r\nContent-Length: 64\r\n\r\n' + 'x'.repeat(64);
+    let src = SlowReader { data: raw.bytes(), step: 8, pos: 0 };
+    let s = wire.Wire.new(src).stream_response()?;
+    testing.assert_eq(s.status, 200)?;
+    testing.assert(
+        src.pos < raw.len(),
+        message: 'the head is parsed but the source is drained: ' + src.pos.display(),
+    )?;
+    testing.assert(!s.body.is_complete(), message: 'the body has not been read')?;
+    testing.assert_eq(io.read_all(s.body)?.len(), 64)?;
+    testing.assert(s.body.is_complete(), message: 'the body is complete now')?;
+
+    let drained = SlowReader { data: raw.bytes(), step: 8, pos: 0 };
+    wire.Wire.new(drained).read_response()?;
+    return testing.assert_eq(drained.pos, raw.len());
+}
+
+/// `read_some` yields what has arrived rather than waiting for the frame to fill,
+/// and stops dead at the framed length — the bytes after it belong to whatever
+/// comes next on the connection.
+@test
+fn a_streamed_body_yields_partial_reads() -> Result<Void, Error> {
+    let s = stream('HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello world!!!')?;
+    testing.assert_eq(s.body.read_some(max: 5)?.to_string()?, 'hello')?;
+    testing.assert_eq(s.body.read_some(max: 99)?.to_string()?, ' world')?;
+    testing.assert_eq(s.body.read_some(max: 99)?.len(), 0)?;
+    return testing.assert(s.body.is_complete(), message: 'complete at the framed length');
+}
+
+/// A chunked stream surfaces each chunk as it is framed, so a consumer sees the
+/// first one without waiting for the last. This is the shape an event stream has.
+@test
+fn a_streamed_chunked_body_yields_chunk_by_chunk() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        + '5\r\nhello\r\n'
+        + '6\r\n world\r\n'
+        + '0\r\n\r\n';
+    let s = stream(raw)?;
+    testing.assert_eq(s.body.read_some(max: 4096)?.to_string()?, 'hello')?;
+    testing.assert_eq(s.body.read_some(max: 4096)?.to_string()?, ' world')?;
+    testing.assert_eq(s.body.read_some(max: 4096)?.len(), 0)?;
+    return testing.assert(s.body.is_complete(), message: 'the zero-size chunk ended it');
+}
+
+/// The body is an `io.Reader`, so everything written against that protocol composes
+/// with it — which is how SSE gets its line splitting for free. The chunk
+/// boundaries here deliberately fall mid-line, since that is the case a framing
+/// layer built on chunk arrival rather than on bytes would get wrong.
+@test
+fn a_streamed_body_composes_with_io_lines() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        + '6\r\none\ntw\r\n'
+        + '5\r\no\nthr\r\n'
+        + '3\r\nee\n\r\n'
+        + '0\r\n\r\n';
+    let got = io.lines(stream(raw)?.body).to_list();
+    testing.assert_eq(got.len(), 3)?;
+    testing.assert_eq(got[0], 'one')?;
+    testing.assert_eq(got[1], 'two')?;
+    return testing.assert_eq(got[2], 'three');
+}
+
+/// `read_response` *is* `stream_response` plus a capped drain, so the two agree by
+/// construction — this is the test that keeps them that way.
+@test
+fn the_streamed_and_buffered_paths_agree() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        + '3\r\nabc\r\n'
+        + '2\r\nde\r\n'
+        + '0\r\n\r\n';
+    let streamed = io.read_all(stream(raw)?.body)?;
+    return testing.assert_eq(streamed.to_string()?, parse_response(raw)?.body.to_string()?);
+}
+
+@test
+fn a_stream_can_still_be_buffered() -> Result<Void, Error> {
+    let r = stream('HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\nhi')?.buffered()?;
+    testing.assert(r.is_ok(), message: '201 is ok')?;
+    return testing.assert_eq(r.body.to_string()?, 'hi');
+}
+
+/// `content-length: 0` is a body that is over on arrival: it must complete without
+/// a read, or the reader blocks for a byte the peer already accounted for.
+@test
+fn a_zero_length_body_completes_without_reading() -> Result<Void, Error> {
+    let s = stream('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n')?;
+    testing.assert_eq(io.read_all(s.body)?.len(), 0)?;
+    return testing.assert(s.body.is_complete(), message: 'complete');
+}
+
+/// A body that isn't coming is complete on arrival too — same reasoning, but the
+/// caller is the one who knows (nothing on the wire says a response is to a HEAD).
+@test
+fn a_head_response_streams_an_empty_body() -> Result<Void, Error> {
+    let w = wire.Wire.new(io.from_bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n'.bytes()));
+    let s = w.stream_response(to_head: true)?;
+    testing.assert(s.body.is_complete(), message: 'no body to read')?;
+    return testing.assert_eq(io.read_all(s.body)?.len(), 0);
+}
+
+/// A truncated body fails the same way streamed as buffered: the promise was
+/// `content-length` bytes, and the peer vanished before keeping it.
+@test
+fn a_truncated_streamed_body_is_a_body_error() -> Result<Void, Error> {
+    let s = stream('HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort')?;
+    let failed = match io.read_all(s.body) {
+        Ok(_) => false,
+        Err(_) => true,
+    };
+    return testing.assert(failed, message: 'expected the short body to fail');
+}
+
 // --- header normalization ---
 
 @test

@@ -36,6 +36,10 @@ this is"; read top-down for progressive detail.
   to the client — the `rustls` crate choice, the native ABI, how a TLS session
   rides the socket park/retry model, the `TlsStream` surface, and a hermetic
   test strategy.
+- [http-streaming.md](http-streaming.md) — **Streaming bodies and SSE for
+  `std.http`**: the plan for a response body read as it arrives — the codec's
+  `BodyReader`, a `std.sse` framing library above it, and who owns the
+  connection while a stream is open.
 - [api-access.md](api-access.md) — **API access for Thera tools**: the plan for
   calling third-party HTTP APIs (GenAI, MCP, GitHub) — the platform substrate
   (HTTPS, SSE streaming, typed JSON, retries), one hand-written client as a

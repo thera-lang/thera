@@ -126,26 +126,31 @@ typed client is generic code over `std` interfaces, and that was exactly the
 combination that didn't compile. The http client now reads
 `fn exchange<S: io.Reader + io.Writer + io.Closer>`.
 
-### 2. Streaming responses and SSE
+### 2. Streaming responses and SSE — **in flight**
 
 **Problem.** Token streaming is the default interaction mode for every GenAI API
 — a client that can only await a complete response is a toy for the flagship use
 case. Server-sent events are the transport all three of Anthropic, OpenAI, and
-Gemini use for it. **Today.** `Response.body` is `Bytes` — fully buffered,
-capped at `MAX_BODY_BYTES` (32 MiB). [stdlib.md](stdlib.md) lists streaming
-bodies as explicitly deferred alongside TLS. **Direction.** Three layers, each
-independently useful: (a) a **streaming response body** — the response head
-arrives, the body is an `io.Reader` (the codec already reads incrementally;
-what's missing is a public surface that doesn't drain it first); (b) an **SSE
-framing layer** over that reader — `event:` / `data:` / `id:` / `retry:` fields,
-blank-line record separation, multi-line `data` concatenation, and the `[DONE]`
-sentinel convention; (c) a **typed event stream** — the framing layer yields raw
-events; the client decodes each into its own event enum. `Iterator<T>` and the
-lazy-iteration arc have landed, so the natural shape is `Iterator<Event>`;
-fibers + `channel` make a producer/consumer shape equally available. Which one a
-client should expose is an Arc 2 question (see § the client-shape checklist).
-**Status.** Open. Item (a) is the one with a design dependency on the codec; (b)
-and (c) are pure Thera over it.
+Gemini use for it. **Today.** The codec streams: `Wire.stream_response` returns
+the head with the body left on the wire as an `io.Reader`, and the buffered
+`read_response` — still the common case, still capped at `MAX_BODY_BYTES` — is
+that plus a drain. **Direction.** Three layers, each independently useful, now
+planned and staged in [http-streaming.md](http-streaming.md): (a) the streaming
+response body, **done**; (b) an **SSE framing layer** over that reader, landing
+as its own `std.sse` library, since the format's only dependency is `std.io`;
+(c) a **typed event stream** — the framing layer yields raw events; the client
+decodes each into its own event enum. `Iterator<T>` and the lazy-iteration arc
+have landed, so the natural shape is `Iterator<Event>`; fibers + `channel` make
+a producer/consumer shape equally available. Which one a client should expose is
+an Arc 2 question (see § the client-shape checklist).
+
+**One correction to the above**, worth carrying because it is the kind of
+mistake that gets baked into a framing layer: the `[DONE]` sentinel is _not_
+part of SSE. It is an OpenAI convention, and Anthropic doesn't use it — its
+stream terminates with `event: message_stop`. So `[DONE]` belongs to layer (c),
+per API, and the framing layer must not know about it. **Status.** Stage 1 of
+three has landed; the client surface (who closes a connection held open by a
+stream) is the one real design question left, and it is not in the codec.
 
 ### 3. Typed JSON — structs in, structs out
 
@@ -445,8 +450,12 @@ streaming work, in parallel with Arc 3.
 2. **Arc 2, non-streaming.** Messages + count_tokens + models, hand-written.
    Forces items 3 (typed JSON), 4 (forward compat), 5 (retry), 6 (auth) into the
    open in the order a caller meets them.
-3. **Arc 1 item 2 — streaming + SSE**, driven by that client; then streaming
-   Messages. Arc 1 item 8 (hermetic tests) lands alongside, on TLS stage 5.
+3. **Arc 1 item 2 — streaming + SSE**; then streaming Messages. Arc 1 item 8
+   (hermetic tests) lands alongside, on TLS stage 5. _In practice this started
+   before step 2 rather than after it, and the ordering argument survives: the
+   part a client was supposed to drive is layer (c), the typed event stream,
+   which [http-streaming.md](http-streaming.md) leaves to Arc 2 for exactly that
+   reason. Layers (a) and (b) are protocol, not API._
 4. **The spec survey.** Cheap, and it sets Arc 3's construct priority — so it
    pays for itself before Arc 3 starts rather than after.
 5. **Arc 3 v1**, acceptance-tested by regenerating Anthropic and diffing against
