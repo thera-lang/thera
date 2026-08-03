@@ -798,9 +798,12 @@ checksum, not a hash.
 ### `std.http` / `std.http.server` — HTTP client + simple server
 
 _Status: the **wire codec**, the **server**, and the **client** are implemented,
-over the provisional `std.net`. **TLS is not**, so the client is `http://`-only
-— an `https://` URL parses and then fails at `send` saying so. Also deferred
-with it: redirect following, connection pooling, and streaming bodies._
+over the provisional `std.net` — and the client now speaks **`https`**,
+verifying the chain and host name against the bundled roots
+([http-tls.md](http-tls.md) stages 1–4). A certificate that doesn't verify is an
+`HttpError.Tls`, distinct from `Connect` because retrying won't fix it. Still
+deferred: redirect following, connection pooling, streaming bodies, and
+**server**-side TLS (a simple server's TLS is terminated upstream)._
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
 are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both

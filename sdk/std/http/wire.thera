@@ -38,6 +38,13 @@ pub enum HttpError {
     Status(Int),
     /// The body could not be read or decoded, or exceeds `MAX_BODY_BYTES`.
     Body(String),
+    /// TLS refused the connection: a certificate that doesn't verify or isn't
+    /// valid for the host, a protocol violation, or a stream that ended without a
+    /// `close_notify`. Its own variant rather than a `Connect` for the same reason
+    /// `net.NetError.Tls` is: it is not a network failure, so **retrying will not
+    /// fix it** — and a client that retries a rejected certificate is doing
+    /// something worse than failing.
+    Tls(String),
     /// The peer is not speaking HTTP/1.1: a malformed start line, header, or
     /// chunk framing. (An addition to the sketch in docs/stdlib.md — a bad status
     /// line is not a `Body` failure, and conflating them costs the caller the one
@@ -52,6 +59,7 @@ impl Error for HttpError {
             Timeout => 'the request timed out',
             Status(code) => 'unexpected status ' + code.display(),
             Body(m) => m,
+            Tls(m) => m,
             Protocol(m) => m,
         };
     }

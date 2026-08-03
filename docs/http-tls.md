@@ -8,13 +8,15 @@ surface, and a test strategy that stays hermetic. See the roadmap's _Networking
 punchlist_ for where it sits (item 3, "the last thing between `std.http` and
 complete").
 
-**Progress against § Staged plan: stages 1–3 have landed** — the crate/provider
+**Progress against § Staged plan: stages 1–4 have landed** — the crate/provider
 spike ([runtime/tests/tls.rs](../runtime/tests/tls.rs)), the runtime session plus
 `tls_*` natives ([interp/tls.rs](../runtime/src/interp/tls.rs) and the TLS natives
-in [natives.rs](../runtime/src/interp/natives.rs)), and the Thera `TlsStream` +
-`connect_tls` in [std.net](../sdk/std/net/net.thera). So Thera can speak TLS
-today; what's left is `std.http` using it (stage 4) and the hermetic in-process
-loop (stage 5). What each stage settled is marked _(settled)_ below.
+in [natives.rs](../runtime/src/interp/natives.rs)), the Thera `TlsStream` +
+`connect_tls` in [std.net](../sdk/std/net/net.thera), and the `https` branch in
+[std.http](../sdk/std/http/client.thera). **So `http.get('https://…')` works
+today**, chain- and host-verified. What's left is the hermetic in-process loop
+(stage 5), which is what lets the `https` path be tested without the network.
+What each stage settled is marked _(settled)_ below.
 
 ## Goals & non-goals
 
@@ -345,13 +347,26 @@ in-process loop.
    handshake allows without a server: a plaintext peer fails as `Tls`, an
    unverifiable host name and unusable roots are refused up front, and a failed
    handshake closes the socket it was handed.
-4. **Wire it into `std.http`.** Replace the `https` error branch in
-   `client.thera` with resolve → connect → wrap; add the `HttpError` TLS
-   variant.
+4. ~~**Wire it into `std.http`.**~~ _Done._ `send` branches on the scheme to
+   `net.connect_tls`, and `HttpError` gained a `Tls(String)` variant — its own
+   rather than folded into `Connect`, because it is the one connect failure a
+   retry cannot fix (the same reasoning that gave `NetError` its `Tls`). Two
+   details the sketch didn't anticipate: the connect-error mapping is now a
+   `connect_error` helper, so only the TLS cause survives as itself; and
+   `exchange` takes the stream **twice**, once as `io.Reader` and once as
+   `io.Writer`, because a generic bound (`<S: io.Reader + io.Writer>`) would say
+   it once but a bound currently parses only a *bare* name — so no bound can
+   name `io.Reader` at all. That gap is a front-end fix of its own (parser, ast,
+   resolver, checker, codegen, lsp), tracked in the roadmap's _Type system
+   punchlist_; the duplicated arm in `send` carries a comment pointing at it.
 5. **Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3) — where the
-   trust-seam sub-question above gets answered. ~~The env-gated live smoke
-   (#1)~~ _landed with stage 3._ Update the `https_reports_that_tls_is_missing`
-   test — its precondition is gone once stage 4 lands.
+   trust-seam sub-question above gets answered. **This is the remaining stage.**
+   ~~The env-gated live smoke (#1)~~ _landed with stage 3._
+   ~~Update the `https_reports_that_tls_is_missing` test~~ _done with stage 4:_
+   its precondition is gone, so it was replaced by two env-gated live smokes at
+   the `std.http` level — a successful `https` fetch, and an untrusted
+   certificate refused **as `Tls`**, which is what pins verification actually
+   being on. The hermetic loop supersedes them rather than joins them.
 6. **Docs.** Flip [stdlib.md](stdlib.md) § std.http from "`http://` only" to
    "https supported"; move the roadmap _Networking punchlist_ item 3 to the
    Changelog; note the still-deferred redirects/pooling/streaming and the
@@ -373,13 +388,22 @@ in-process loop.
   natives (§ Park/retry). The one genuinely non-mechanical ABI call.~~
   _Settled in stage 2:_ feed-and-count with the park ordered before the feed, no
   flush native, backpressure from rustls's capped queue (§ Park/retry).
-- **ALPN**: the natives currently offer none, so a server sees no
+- ~~**ALPN**: the natives currently offer none, so a server sees no
   `application_layer_protocol_negotiation` extension and HTTP/1.1 is implied.
   Offering `http/1.1` explicitly is more correct (it stops a server picking `h2`,
   which the codec can't speak) but fails the handshake against an
   HTTP/2-only host instead of failing at the first response — and it is an
   `std.http` policy decision sitting in an `std.net`-layer native. Decide when
-  stage 4 wires the client, since that is where the policy belongs.
+  stage 4 wires the client, since that is where the policy belongs.~~
+  _Settled in stage 4: **keep offering none**_ — for a reason the question
+  didn't name. Its framing ("should `std.http` offer `http/1.1`?") assumes the
+  answer can be a constant, and it can't: `net.connect_tls` is a general TLS
+  dial, so baking an HTTP protocol list into it is wrong for every non-HTTP user
+  of the same native. Offering ALPN properly means a **per-connection
+  parameter** — an ABI addition — and the payoff today is small, because a
+  server offered no ALPN defaults to HTTP/1.1, which is exactly what the codec
+  speaks (verified against live endpoints during stage 4). Revisit if a real
+  host negotiates `h2` anyway, and then as a parameter, never a constant.
 - **Truncation strictness**: a socket that ends with no `close_notify` is an error
   (`TlsError::Truncated`), not an EOF — the secure reading, and invisible to
   length- or chunk-framed HTTP responses, which stop before EOF. Revisit only if

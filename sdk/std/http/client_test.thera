@@ -8,6 +8,7 @@
 //! literal bytes, so a shared misconception has to survive being spelled out.
 
 import std.testing;
+import std.env;
 import std.io;
 import std.net;
 import std.fiber;
@@ -231,15 +232,44 @@ fn a_fragment_is_not_sent() -> Result<Void, Error> {
     return testing.assert_eq(field(resp, 'url')?, '/page?a=1');
 }
 
-/// https parses fine — it fails for the honest reason, named precisely, rather
-/// than as a connect failure that would send someone debugging their network.
+// --- https ---
+//
+// The loopback server above is plaintext, so the `https` path cannot be reached
+// hermetically yet: that needs a TLS listener and a certificate minted at test
+// time (docs/http-tls.md § Testing #3, stage 5), which is the next arc. Until it
+// lands the coverage here is two **live** smokes, off unless `THERA_NET_TESTS` is
+// set — the same gate and the same reasoning as `std.net`'s. They are the only
+// tests in this file that touch the network, and stage 5's hermetic loop
+// supersedes them rather than joins them.
+
+/// `https` end to end against a real certificate and the bundled Mozilla roots —
+/// the production trust path, which nothing hermetic covers.
 @test
-fn https_reports_that_tls_is_missing() -> Result<Void, Error> {
-    let msg = match http.get('https://example.com/') {
-        Ok(_) => '(unexpectedly succeeded)',
-        Err(e) => e.message(),
+fn a_live_https_request_succeeds() -> Result<Void, Error> {
+    if env.get('THERA_NET_TESTS').is_none() {
+        return Result.Ok(void);
+    }
+    let resp = http.get('https://example.com/')?;
+    return testing.assert_eq(resp.status, 200);
+}
+
+/// The security-critical half: verification is actually **on**. A host whose
+/// certificate does not chain to a trusted root is refused, and it comes back as
+/// `Tls` — not `Connect` — so a caller can tell "don't retry this" from "the
+/// network flaked".
+@test
+fn a_live_untrusted_certificate_is_refused_as_tls() -> Result<Void, Error> {
+    if env.get('THERA_NET_TESTS').is_none() {
+        return Result.Ok(void);
+    }
+    let outcome = match http.get('https://self-signed.badssl.com/') {
+        Ok(_) => '(the certificate was accepted)',
+        Err(e) => match e {
+            Tls(_) => 'tls',
+            _ => 'wrong variant: ' + e.message(),
+        },
     };
-    return testing.assert(msg.contains('https is not supported'), message: 'got: ' + msg);
+    return testing.assert(outcome == 'tls', message: 'got: ' + outcome);
 }
 
 @test
