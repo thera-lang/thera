@@ -272,7 +272,8 @@ fn used_in_decl(_ decl: Decl, _ used: Set<String>) -> Void {
         Interface(x) => {
             used_in_type_params(x.type_params, used);
             for s in x.super_interfaces {
-                used.add(s);
+                used.add(s.name);
+                if let Some(ns) = s.namespace { used.add(ns); }
             }
             for m in x.methods {
                 used_in_fn(m, used);
@@ -301,7 +302,8 @@ fn used_in_decl(_ decl: Decl, _ used: Set<String>) -> Void {
 fn used_in_type_params(_ params: List<TypeParam>, _ used: Set<String>) -> Void {
     for tp in params {
         for b in tp.bounds {
-            used.add(b);
+            used.add(b.name);
+            if let Some(ns) = b.namespace { used.add(ns); }
         }
     }
 }
@@ -1377,21 +1379,24 @@ fn check_interface_decl(
     // sees; a super that exists somewhere in the closure but isn't reachable
     // here is unknown.
     let fs = file_scope(library, current_file);
-    for super_name in decl.super_interfaces {
-        match fs.resolve_type_def(element.bound_id(fs, super_name)) {
+    for s in decl.super_interfaces {
+        match fs.resolve_type_def(element.bound_id(fs, s)) {
             None => {
-                add_error(errors, 'unknown super-interface: ${super_name}', decl.name_span);
+                add_error(errors, 'unknown super-interface: ${bound_text(s)}', s.span);
 
             },
             Some(super_def) => {
                 if super_def.kind != TypeDefKind.Interface {
-                    add_error(errors, '\'${super_name}\' is not an interface', decl.name_span);
+                    add_error(errors, '\'${bound_text(s)}\' is not an interface', s.span);
                 };
             },
         }
     }
-    if str_list_has(decl.super_interfaces, decl.name)
-        || extends_cycle(element.bound_id(fs, decl.name), library) {
+    // Self-extension by resolved identity, so `interface I : ns.I` where `ns.I`
+    // is this very interface is caught the same as the bare spelling.
+    let own_id = TypeId { owner: fs.resolve_type_owner(decl.name, Option.None), name: decl.name };
+    if id_list_has(decl.super_interfaces.map((s) => element.bound_id(fs, s)), own_id)
+        || extends_cycle(own_id, library) {
         add_error(
             errors,
             'interface \'${decl.name}\' extends itself (inheritance cycle)',

@@ -1373,8 +1373,10 @@ first match; failing all steps is a located error.
 - **Members** (`recv.m(...)`, `recv.f`, `T.m(...)`, `E.V(...)`): resolved
   through the receiver or type — its static type and visible `impl`s — not a
   namespace. Interface references (an `impl I for T`, a super-interface, a
-  `<T: I>` bound) resolve in their declaring file's scope by the bare-type
-  algorithm, and interface **identity** is the resolved declaration (owner +
+  `<T: I>` bound) resolve in their declaring file's scope — bare names by the
+  bare-type algorithm, or qualified (`impl io.Reader for T`,
+  `<S: io.Reader>`, `interface A: ns.B`) through the namespace like a `ns.T`
+  annotation — and interface **identity** is the resolved declaration (owner +
   name), so two libraries' same-named interfaces never entangle. See
   [Interfaces](#interfaces).
 
@@ -1782,8 +1784,9 @@ sorting; see [stdlib.md](stdlib.md) (`std.sort`).
 
 An interface may **extend** one or more others, declaring that any conforming
 type must also satisfy those super-interfaces. The `: Super1 + Super2` clause
-uses the same `+`-joined form as a generic bound; supers must be interfaces and
-the relation must be acyclic.
+uses the same `+`-joined form as a generic bound (each super may be a qualified
+`ns.Name`, likewise); supers must be interfaces and the relation must be
+acyclic.
 
 ```thera
 pub interface Error: Display + Debug {
@@ -1840,8 +1843,10 @@ fn swap<A, B>(_ p: Pair<A, B>) -> Pair<B, A> {
 ### Bounds
 
 A type parameter may require interfaces of its instantiations: `<T: Display>`,
-`+`-joined for several (`<T: Eq + Debug>`). Bounds are **enforced where the
-parameter is instantiated** — at the call site for a function's type parameters,
+`+`-joined for several (`<T: Eq + Debug>`). A bound may name an imported
+interface qualified, like any type reference (`<S: io.Reader + io.Writer>`).
+Bounds are **enforced where the parameter is instantiated** — at the call site
+for a function's type parameters,
 and wherever a concrete type argument is supplied for a bounded
 struct/enum/interface parameter (a struct literal, an annotation, an explicit
 type argument):

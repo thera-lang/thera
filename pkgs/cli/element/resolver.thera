@@ -756,10 +756,11 @@ fn type_param_names(_ tps: List<TypeParam>) -> List<String> {
 }
 
 // The resolved identity of a bound / super-interface / conformance name — the
-// interface the declaring file's scope sees. Shared with the checker and
-// codegen, which resolve the same AST bound lists at their use sites.
-pub fn bound_id(_ fs: FileScope, _ name: String) -> TypeId {
-    return TypeId { owner: fs.resolve_type_owner(name, Option.None), name: name };
+// interface the declaring file's scope sees, honoring a `ns.Name` qualifier.
+// Shared with the checker and codegen, which resolve the same AST bound lists
+// at their use sites.
+pub fn bound_id(_ fs: FileScope, _ b: BoundRef) -> TypeId {
+    return TypeId { owner: fs.resolve_type_owner(b.name, b.namespace), name: b.name };
 }
 
 // Fill a type def's per-parameter interface bounds from its declared type params

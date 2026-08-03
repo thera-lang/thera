@@ -821,7 +821,7 @@ fn surface_signature(_ p: Program) -> String {
                 if x.is_pub {
                     let ms = x.methods.map((m) => fn_sig(m));
                     lines.push(
-                        'interface ${x.name}${type_params_sig(x.type_params)}: ${x.super_interfaces.join('+')} { ${ms.join('; ')} }'
+                        'interface ${x.name}${type_params_sig(x.type_params)}: ${x.super_interfaces.map((s) => bound_text(s)).join('+')} { ${ms.join('; ')} }'
                     );
                 }
             },
@@ -903,7 +903,7 @@ fn type_params_sig(_ tps: List<TypeParam>) -> String {
     if tps.len() == 0 {
         return '';
     }
-    let parts = tps.map((tp) => '${tp.name}: ${tp.bounds.join('+')}');
+    let parts = tps.map((tp) => '${tp.name}: ${tp.bounds.map((b) => bound_text(b)).join('+')}');
     return '<${parts.join(', ')}>';
 }
 

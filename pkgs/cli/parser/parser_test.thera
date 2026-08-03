@@ -444,6 +444,43 @@ fn test_parse_impl_bounded_inherent_param() -> Result<Void, Error> {
 }
 
 @test
+fn test_parse_qualified_bounds_and_supers() -> Result<Void, Error> {
+    // A bound or super-interface may be namespace-qualified (`ns.Name`), like
+    // the interface of an `impl ns.I for T` — the three positions resolve the
+    // same way, so they parse the same way.
+    let src = 'import std.io;\n'
+        + 'fn f<S: io.Reader + io.Writer>(_ s: S) -> Int { return 1; }\n'
+        + 'struct Box<T: io.Reader> { let v: T; }\n'
+        + 'impl Box<T: io.Reader> { pub fn go(self) -> Int { return 1; } }\n'
+        + 'interface Duplex : io.Reader + Display { fn id(self) -> Int; }';
+    let r = parse_src(src);
+    testing.assert(!r.has_errors(), message: 'qualified bounds should parse')?;
+    if let Fn(f) = r.program.decls[1] {
+        let b = f.type_params[0].bounds;
+        testing.assert_eq(
+            actual: b.map((x) => x.namespace),
+            expected: [Option.Some('io'), Option.Some('io')],
+        )?;
+        testing.assert_eq(actual: b.map((x) => x.name), expected: ['Reader', 'Writer'])?;
+        testing.assert_eq(actual: b[0].span.text(), expected: 'io.Reader')?;
+    }
+    if let Interface(idecl) = r.program.decls[4] {
+        let s = idecl.super_interfaces;
+        testing.assert_eq(
+            actual: s.map((x) => x.namespace),
+            expected: [Option.Some('io'), Option.None],
+        )?;
+        testing.assert_eq(actual: s.map((x) => x.name), expected: ['Reader', 'Display'])?;
+    }
+    // A dangling qualifier (`S: io.`) is a syntax error, not a silent bare bound.
+    testing.assert(
+        parse_src('fn f<S: io.>(_ s: S) -> Int { return 1; }').has_errors(),
+        message: 'expected a parse error for a dangling bound qualifier',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_error_recovery_skips_to_next_decl() -> Result<Void, Error> {
     // The first declaration is malformed (no function name); the parser records
     // an error, resyncs to the next `fn`, and parses the good one.
@@ -668,7 +705,7 @@ fn test_name_spans_recorded() -> Result<Void, Error> {
         testing.assert_eq(actual: im.alias_span.map((s) => s.text()), expected: Option.Some('f'))?;
     }
     if let Type(td) = r.program.decls[1] {
-        testing.assert_eq(actual: td.type_params[0].bound_spans[0].text(), expected: 'Display')?;
+        testing.assert_eq(actual: td.type_params[0].bounds[0].span.text(), expected: 'Display')?;
         testing.assert_eq(actual: td.fields[0].name_span.text(), expected: 'x')?;
         if let Named(nt) = td.fields[0].type_ann {
             testing.assert_eq(
@@ -679,7 +716,7 @@ fn test_name_spans_recorded() -> Result<Void, Error> {
     }
     if let Interface(idecl) = r.program.decls[2] {
         testing.assert_eq(
-            actual: idecl.super_spans.map((s) => s.text()),
+            actual: idecl.super_interfaces.map((s) => s.span.text()),
             expected: ['Display', 'Debug'],
         )?;
     }
