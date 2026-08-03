@@ -1087,6 +1087,100 @@ fn test_unbounded_type_param_method_is_a_definitive_miss() -> Result<Void, Error
     return Result.Ok(void);
 }
 
+// ---- qualified bounds and supers (`<S: ns.I>`, `interface A : ns.B`) ----
+
+// Check `main_src` (at 'main.thera') against `helper_src` (at 'helper.thera'),
+// with 'main.thera' binding the `helper` namespace exposing `names` — the
+// loader-side surface/origin maps built by hand, the hermetic analogue of a
+// real `import 'helper';`.
+fn cross_lib_errors(
+    _ main_src: String,
+    _ helper_src: String,
+    _ names: List<String>,
+) -> List<Diagnostic> {
+    let surface: Set<String> = Set.new();
+    let origin: Map<String, String> = [:];
+    for n in names {
+        surface.add(n);
+        origin[n] = 'helper.thera';
+    }
+    let ns = LibraryNamespace { names: surface, collisions: Set.new(), origin: origin };
+    return check(
+        program_at(main_src, 'main.thera'),
+        [program_at(helper_src, 'helper.thera')],
+        ['main.thera': ['helper': ns]],
+        [:],
+    ).errors;
+}
+
+const READER_LIB: String = 'pub interface Reader { fn read(self) -> Int; }';
+
+@test
+fn test_qualified_bound_cross_library() -> Result<Void, Error> {
+    // A generic bounded by another library's interface: the bound resolves
+    // through the namespace, its methods are callable on the parameter, and a
+    // conforming argument satisfies it at the call site.
+    let errs = cross_lib_errors(
+        'struct R { let v: Int; }\n'
+        + 'impl helper.Reader for R { pub fn read(self) -> Int { return self.v; } }\n'
+        + 'fn f<S: helper.Reader>(_ s: S) -> Int { return s.read(); }\n'
+        + 'fn go() -> Int { return f(R { v: 1 }); }',
+        READER_LIB,
+        ['Reader'],
+    );
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    // A method the bound doesn't declare is still a definitive miss.
+    let bad = cross_lib_errors(
+        'fn f<S: helper.Reader>(_ s: S) -> Int { return s.nope(); }',
+        READER_LIB,
+        ['Reader'],
+    );
+    testing.assert_eq(actual: first_message(bad), expected: 'no method "nope" on S')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_qualified_bound_violation_cross_library() -> Result<Void, Error> {
+    // A non-conforming argument violates a qualified bound like a bare one.
+    let errs = cross_lib_errors(
+        'struct N { let v: Int; }\n'
+        + 'fn f<S: helper.Reader>(_ s: S) -> Int { return s.read(); }\n'
+        + 'fn go() -> Int { return f(N { v: 1 }); }',
+        READER_LIB,
+        ['Reader'],
+    );
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(
+        actual: first_message(errs),
+        expected: 'type argument `N` for `S` does not implement `Reader` '
+        + '(required by "f")',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_qualified_super_interface_cross_library() -> Result<Void, Error> {
+    // A super-interface from another library resolves through the namespace…
+    let errs = cross_lib_errors(
+        'interface Sub : helper.Reader { fn extra(self) -> Int; }',
+        READER_LIB,
+        ['Reader'],
+    );
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    // …and an unknown qualified super reports its written (qualified) name.
+    let bad = cross_lib_errors(
+        'interface Sub : helper.Nope { fn extra(self) -> Int; }',
+        READER_LIB,
+        ['Reader'],
+    );
+    testing.assert_eq(actual: bad.len(), expected: 1)?;
+    testing.assert_eq(
+        actual: first_message(bad),
+        expected: 'unknown super-interface: helper.Nope',
+    )?;
+    return Result.Ok(void);
+}
+
 @test
 fn test_universal_method_on_type_param_is_clean() -> Result<Void, Error> {
     // `display`/`debug` are universal — callable on any parameter, bounded or
@@ -1463,6 +1557,18 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
     testing.assert_eq(
         actual: warning_messages(errors_of(
             'import \'helper\' as h;\nfn f() -> Int { return h.go(); }')).len(),
+        expected: 0,
+    )?;
+    // A qualified generic bound and a qualified super-interface each count as
+    // a use of the namespace.
+    testing.assert_eq(
+        actual: warning_messages(errors_of(
+            'import \'helper\';\nfn f<S: helper.Thing>(_ x: S) -> Int { return 1; }')).len(),
+        expected: 0,
+    )?;
+    testing.assert_eq(
+        actual: warning_messages(errors_of(
+            'import \'helper\';\ninterface I : helper.Thing { fn go(self) -> Int; }')).len(),
         expected: 0,
     )?;
     // `pub import` (a re-export is itself the use) is exempt; an `as _` import

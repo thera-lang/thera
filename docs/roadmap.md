@@ -861,24 +861,13 @@ findings recorded.
   better served by a nominal `struct`. Recorded as a language non-goal in
   [language.md](language.md). Would need a very compelling use case to reopen.
 
-**Open — a generic bound can only name a bare type** (found 2026-08, wiring TLS
-into `std.http`). `fn f<S: io.Reader>(…)` does not parse: `parse_type_params`
-reads each bound with `expect(Identifier)` into a `List<String>`, so a dotted
-name is a syntax error at the `.`. The restriction looks unintended rather than
-designed — the two sibling positions that also name an interface both accept a
-qualified name (`impl io.Reader for TlsStream` is in `std.net` today), and
-[language.md](language.md) § Name resolution groups all three together as
-resolving the same way. The practical effect is that **no generic can be bounded
-by an interface from another library**, which rules out all of `std.io`'s; the
-first casualty is `fn exchange<S: io.Reader + io.Writer>` in the http client,
-which now passes its stream twice, once per role, with a comment pointing here.
-
-Not a one-line fix, which is why it is tracked rather than folded into the TLS
-arc: `bounds: List<String>` is threaded through `ast` → `element.bound_id` →
-resolver → checker → codegen → lsp → `session`, and `bound_id` resolves a bare
-name, so qualified bounds need namespace resolution at each. Worth doing — it is
-a spec/implementation divergence, and the workaround it forces is exactly the
-kind of thing that teaches an agent the wrong idiom.
+**Qualified generic bounds and supers — done** (2026-08, found wiring TLS into
+`std.http`): `fn f<S: io.Reader>(…)` and `interface A: ns.B` now parse and
+resolve through the namespace like every other interface position — see
+_Changelog_. One follow-up remains: unify the http client's duplicated
+read/write paths into `fn exchange<S: io.Reader + io.Writer>` (the workaround
+that found the hole — `client.thera` passes its stream twice, once per role,
+with a comment pointing here).
 
 The review's holes are all closed or deferred-with-findings above; the landed
 fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
@@ -1015,6 +1004,25 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Qualified generic bounds and super-interfaces** (2026-08). A generic bound
+  could only name a bare type — `fn f<S: io.Reader>` was a syntax error at the
+  `.`, so no generic could be bounded by an interface from another library
+  (found wiring TLS into `std.http`; the client passed its stream twice, once
+  per role). Interface `extends` had the identical hole. Both positions now
+  accept a qualified `ns.Name`, resolving through the namespace exactly like an
+  `impl ns.I for T` — the third sibling position, which always accepted one.
+  The mechanical core: the AST's two parallel string/span bound lists became
+  one `List<BoundRef>` (`{namespace, name, span}`), and `element.bound_id`
+  resolves it via the already-namespace-aware `resolve_type_owner`; everything
+  downstream (element model, inference, bound enforcement, dispatch) operates
+  on resolved `TypeId`s and needed no change. Also along the way: per-super
+  error spans (previously the whole-interface name span), self-extension
+  detected by resolved identity rather than spelling, qualified bounds/supers
+  counted by the unused-import walker, and LSP member resolution on parameters
+  bounded by qualified interfaces. Bootstrap snapshot refreshed (new syntax —
+  the self-hosting ratchet). The `fn exchange<S: io.Reader + io.Writer>`
+  cleanup in the http client is the follow-up that consumes this.
 
 - **The hermetic TLS loop** (2026-08) — [http-tls.md](http-tls.md) stage 5,
   completing the TLS arc. The runtime gained `TlsSession::server`,

@@ -699,19 +699,16 @@ impl Parser {
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
             let name_tok = self.expect(TokenKind.Identifier, 'type parameter name');
-            let bounds: List<String> = [];
-            let bound_spans: List<SourceSpan> = [];
+            let bounds: List<BoundRef> = [];
             let mut end = name_tok.span;
             if self.match_kind(TokenKind.Colon) {
-                let first = self.expect(TokenKind.Identifier, 'bound name');
-                bounds.push(first.lexeme());
-                bound_spans.push(first.span);
+                let first = self.parse_bound_ref('bound name');
+                bounds.push(first);
                 end = first.span;
                 while !self.panicking && self.check(TokenKind.Plus) {
                     self.advance();
-                    let nb = self.expect(TokenKind.Identifier, 'bound name');
-                    bounds.push(nb.lexeme());
-                    bound_spans.push(nb.span);
+                    let nb = self.parse_bound_ref('bound name');
+                    bounds.push(nb);
                     end = nb.span;
                 }
             }
@@ -719,7 +716,6 @@ impl Parser {
                 span: name_tok.span.cover(end),
                 name: name_tok.lexeme(),
                 bounds: bounds,
-                bound_spans: bound_spans,
             });
             if !self.match_kind(TokenKind.Comma) {
                 going = false;
@@ -727,6 +723,22 @@ impl Parser {
         }
         self.close_generic();
         return params;
+    }
+
+    // An interface name in a bound position: `Name` or `ns.Name` (one level of
+    // qualification, like a `ns.T` annotation).
+    fn parse_bound_ref(self, _ what: String) -> BoundRef {
+        let first = self.expect(TokenKind.Identifier, what);
+        if self.check(TokenKind.Dot) {
+            self.advance();
+            let name_tok = self.expect(TokenKind.Identifier, what);
+            return BoundRef {
+                span: first.span.cover(name_tok.span),
+                namespace: Option.Some(first.lexeme()),
+                name: name_tok.lexeme(),
+            };
+        }
+        return BoundRef { span: first.span, namespace: Option.None, name: first.lexeme() };
     }
 
     fn parse_param_list(self) -> List<Param> {
@@ -1017,19 +1029,16 @@ impl Parser {
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
             let ref = self.parse_type_ref();
-            let bounds: List<String> = [];
-            let bound_spans: List<SourceSpan> = [];
+            let bounds: List<BoundRef> = [];
             let mut end = type_span(ref);
             if self.match_kind(TokenKind.Colon) {
-                let first = self.expect(TokenKind.Identifier, 'bound name');
-                bounds.push(first.lexeme());
-                bound_spans.push(first.span);
+                let first = self.parse_bound_ref('bound name');
+                bounds.push(first);
                 end = first.span;
                 while !self.panicking && self.check(TokenKind.Plus) {
                     self.advance();
-                    let nb = self.expect(TokenKind.Identifier, 'bound name');
-                    bounds.push(nb.lexeme());
-                    bound_spans.push(nb.span);
+                    let nb = self.parse_bound_ref('bound name');
+                    bounds.push(nb);
                     end = nb.span;
                 }
             }
@@ -1039,7 +1048,6 @@ impl Parser {
                     span: type_span(ref).cover(end),
                     name: nt.name,
                     bounds: bounds,
-                    bound_spans: bound_spans,
                 });
             }
             if !self.match_kind(TokenKind.Comma) {
@@ -1053,17 +1061,12 @@ impl Parser {
         self.advance(); // 'interface'
         let name_tok = self.expect(TokenKind.Identifier, 'interface name');
         let type_params = self.parse_type_params();
-        let super_interfaces: List<String> = [];
-        let super_spans: List<SourceSpan> = [];
+        let super_interfaces: List<BoundRef> = [];
         if self.match_kind(TokenKind.Colon) {
-            let s0 = self.expect(TokenKind.Identifier, 'super-interface');
-            super_interfaces.push(s0.lexeme());
-            super_spans.push(s0.span);
+            super_interfaces.push(self.parse_bound_ref('super-interface'));
             while !self.panicking && self.check(TokenKind.Plus) {
                 self.advance();
-                let sn = self.expect(TokenKind.Identifier, 'super-interface');
-                super_interfaces.push(sn.lexeme());
-                super_spans.push(sn.span);
+                super_interfaces.push(self.parse_bound_ref('super-interface'));
             }
         }
         self.expect(TokenKind.LBrace, '{');
@@ -1090,7 +1093,6 @@ impl Parser {
             name_span: name_tok.span,
             type_params: type_params,
             super_interfaces: super_interfaces,
-            super_spans: super_spans,
             methods: methods,
         });
     }

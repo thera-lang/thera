@@ -344,8 +344,10 @@ pub fn member_target(_ ctx: ResolveCtx, _ ty: element.Type) -> Option<element.Ty
 
 // A member of a generic parameter `tpname` in scope at `recv_span`, resolved
 // against the interfaces it is bound by (`T: Weighted` -> Weighted's methods).
-// The enclosing generic declaration carries the bound names; each resolves as a
-// bare type in this file's scope, and the member is looked up owner-correct.
+// The enclosing generic declaration carries the bound names; each resolves in
+// this file's scope — a bare bound by the bare-type algorithm, a qualified
+// `ns.I` bound through the namespace's surface — and the member is looked up
+// owner-correct.
 fn type_param_member(
     _ ctx: ResolveCtx,
     _ ref: NameRef,
@@ -354,14 +356,27 @@ fn type_param_member(
 ) -> Option<Resolved> {
     if let Some(tp) = enclosing_type_param(ctx.program, tpname, recv_span.offset) {
         for bound in tp.bounds {
-            if let Some(owner) = bare_owner_key(ctx, bound) {
-                if let Some(res) = member_on_owner(ctx, ref, owner, bound) {
+            if let Some(owner) = bound_owner_key(ctx, bound) {
+                if let Some(res) = member_on_owner(ctx, ref, owner, bound.name) {
                     return Option.Some(res);
                 }
             }
         }
     }
     return Option.None;
+}
+
+// The file (key) owning the interface a bound names, as seen from the primary
+// file: `ns.I` through the import namespace's surface, bare `I` by the
+// bare-name attribution.
+fn bound_owner_key(_ ctx: ResolveCtx, _ bound: BoundRef) -> Option<String> {
+    return match bound.namespace {
+        Some(ns) => match namespace_surface(ctx, ns) {
+            Some(surface) => surface.origin.get(bound.name),
+            None => Option.None,
+        },
+        None => bare_owner_key(ctx, bound.name),
+    };
 }
 
 // A member of a *computed* value receiver (`f().x`, `xs[i].y`) or a value chain

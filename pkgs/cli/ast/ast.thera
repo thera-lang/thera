@@ -113,8 +113,7 @@ pub struct InterfaceDecl {
     let name: String;
     let name_span: SourceSpan;
     let type_params: List<TypeParam>;
-    let super_interfaces: List<String>; // extended interfaces, e.g. Display + Debug
-    let super_spans: List<SourceSpan>; // one per super_interfaces entry
+    let super_interfaces: List<BoundRef>; // extended interfaces, e.g. Display + Debug
     let methods: List<FnDecl>;
 }
 
@@ -166,8 +165,24 @@ pub struct Decorator {
 pub struct TypeParam {
     let span: SourceSpan;
     let name: String;
-    let bounds: List<String>; // e.g. ['Eq', 'Debug']
-    let bound_spans: List<SourceSpan>; // one per bounds entry
+    let bounds: List<BoundRef>; // e.g. `T: Eq + io.Reader` -> [Eq, io.Reader]
+}
+
+// An interface named in a bound position — a generic bound (`<T: Eq + io.Reader>`)
+// or a super-interface (`interface A: ns.B`). The optional namespace qualifies
+// resolution the same way it does on a `ns.T` annotation.
+pub struct BoundRef {
+    let span: SourceSpan;
+    let namespace: Option<String>; // Some for `ns.Name`
+    let name: String;
+}
+
+// The bound as written: `Name` or `ns.Name`.
+pub fn bound_text(_ b: BoundRef) -> String {
+    return match b.namespace {
+        Some(ns) => '${ns}.${b.name}',
+        None => b.name,
+    };
 }
 
 pub struct Param {

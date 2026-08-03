@@ -602,7 +602,7 @@ impl ModuleScope {
             // Supers by the identity this file's scope sees under the name.
             let fs = file_scope(self.library, file);
             self.interface_supers[key] = decl.super_interfaces.map((s) =>
-                TypeId { owner: fs.resolve_type_owner(s, Option.None), name: s });
+                TypeId { owner: fs.resolve_type_owner(s.name, s.namespace), name: s.name });
         }
     }
 
