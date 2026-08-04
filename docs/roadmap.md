@@ -916,7 +916,12 @@ independent of it and deferred with reasons in [stdlib.md](stdlib.md): redirect
 following, connection pooling, streaming bodies, and a public server-TLS
 surface. The first three are exactly what [api-access.md](api-access.md)'s Arc 1
 picks up — streaming bodies plus SSE framing is the next one that matters, since
-it gates every GenAI client.
+it gates every GenAI client, and it now has its own plan in
+[http-streaming.md](http-streaming.md). **Stage 1 of that plan has landed** (the
+codec streams: `Framing` / `BodyReader` / `Wire.stream_response`, with the
+buffered `read_response` redefined as that plus a capped drain). Open there:
+`std.sse`, the client's streaming surface and who closes the connection, and the
+docs sweep.
 
 Stage 4 is now also the gate on a larger arc: [api-access.md](api-access.md) —
 calling third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans

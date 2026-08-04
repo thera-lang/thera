@@ -10,6 +10,12 @@
 //! with no sockets: point it at `io.from_bytes(...)` and an `io.StringWriter`.
 //! The two directions are mirror images — the server parses a `Request` and writes
 //! a `Response`, the client does the reverse — so both live together.
+//!
+//! A response can be read either way round. `read_response` is the common case: the
+//! body lands in memory as `Bytes`, capped. `stream_response` stops at the head and
+//! hands back the body as a `BodyReader` (an `io.Reader`), for a body that should be
+//! consumed as it arrives — an event stream, a large download. The first is defined
+//! as the second plus a drain, so the framing is decided in one place.
 
 import std.io;
 import std.json;
@@ -19,10 +25,16 @@ const CRLF: String = '\r\n';
 /// Cap on a body assembled into memory. A `Content-Length` is attacker-controlled
 /// on a server, so an unbounded read is a trivial OOM; the runtime's heap ceiling
 /// would catch it as a trap, but a `Body` error the caller can turn into a 413 is
-/// the better answer. Generous, since the whole body lands in memory either way —
-/// streaming bodies (`io.Reader` in, `io.Reader` out) are the real fix, and are
-/// deferred with the rest of the surface.
+/// the better answer. Generous, since the whole body lands in memory either way.
+///
+/// It is a property of *assembling* a body, not of reading one, so it bounds the
+/// buffered path only — a `BodyReader` streams uncapped, which is the point of it.
 pub const MAX_BODY_BYTES: Int = 33554432; // 32 MiB
+
+/// Bytes requested per read while draining a body into memory. Large enough that a
+/// big body isn't a million calls, small enough to bound the overshoot past
+/// `MAX_BODY_BYTES` before the drain notices.
+const DRAIN_CHUNK: Int = 65536; // 64 KiB
 
 // --- errors ---
 
@@ -353,41 +365,28 @@ impl Wire {
         }
     }
 
-    /// Exactly `n` bytes; an early end-of-stream is an error (the peer promised
-    /// them via `content-length` or a chunk size).
-    fn read_exact(self, _ n: Int) -> Result<Bytes, HttpError> {
-        if n <= 0 {
+    /// Up to `max` already-buffered bytes, pulling one chunk from `source` first if
+    /// nothing is buffered. Empty means end-of-stream.
+    ///
+    /// The "up to" is what makes an incremental body read possible: a caller that
+    /// needs *exactly* `n` bytes (a `content-length` body, a chunk) tracks the
+    /// remainder itself and calls again, rather than making the codec block until a
+    /// whole frame has arrived.
+    fn take_buffered(self, _ max: Int) -> Result<Bytes, HttpError> {
+        if max <= 0 {
+            // Not a no-op worth skipping but a hazard: falling through would `fill`,
+            // which blocks for bytes the caller didn't ask for and may never come.
             return Result.Ok(Bytes.empty());
         }
-        while self.buffered() < n {
+        if self.buffered() == 0 {
             if !self.fill()? {
-                return Result.Err(HttpError.Body(
-                    'stream ended after ' + self.buffered().display()
-                    + ' of ' + n.display() + ' bytes',
-                ));
+                return Result.Ok(Bytes.empty());
             }
         }
+        let n = self.buffered().min(max);
         let out = self.buf.slice(self.pos, self.pos + n);
         self.pos = self.pos + n;
         return Result.Ok(out);
-    }
-
-    /// Everything until end-of-stream — HTTP/1.0-style framing, where the close
-    /// *is* the delimiter.
-    fn read_to_eof(self) -> Result<Bytes, HttpError> {
-        let acc = BytesBuilder.new();
-        while true {
-            if self.buffered() > 0 {
-                if acc.len() + self.buffered() > MAX_BODY_BYTES {
-                    return too_large();
-                }
-                acc.write_bytes(self.buf.slice(self.pos, self.buf.len()));
-                self.pos = self.buf.len();
-            }
-            if !self.fill()? {
-                return Result.Ok(acc.finish());
-            }
-        }
     }
 
     /// The header block, up to the blank line that ends it.
@@ -424,96 +423,6 @@ impl Wire {
         }
     }
 
-    /// The body, framed per the headers: chunked if `transfer-encoding` says so,
-    /// else `content-length`, else empty — or, when `until_eof`, everything left
-    /// (a response on a connection that closes to delimit).
-    fn read_body(
-        self,
-        _ headers: Map<String, String>,
-        until_eof: Bool,
-    ) -> Result<Bytes, HttpError> {
-        // `transfer-encoding` wins over `content-length` (RFC 9110 §6.3), and a
-        // message bearing both is an outright smuggling attempt.
-        let te = header(headers, 'transfer-encoding');
-        let cl = header(headers, 'content-length');
-        if let Some(encoding) = te {
-            if cl.is_some() {
-                return protocol('both transfer-encoding and content-length are present');
-            }
-            if encoding.to_lowercase().trim() != 'chunked' {
-                return protocol('unsupported transfer-encoding: "' + encoding + '"');
-            }
-            return self.read_chunked();
-        }
-        if let Some(raw) = cl {
-            let n = match raw.trim().to_int() {
-                Some(n) => n,
-                None => { return protocol('malformed content-length: "' + raw + '"'); },
-            };
-            if n < 0 {
-                return protocol('negative content-length: "' + raw + '"');
-            }
-            if n > MAX_BODY_BYTES {
-                return too_large();
-            }
-            return self.read_exact(n);
-        }
-        if until_eof {
-            return self.read_to_eof();
-        }
-        return Result.Ok(Bytes.empty());
-    }
-
-    /// A chunked body: size line, chunk, CRLF, … terminated by a zero-size chunk
-    /// and an optional trailer block.
-    fn read_chunked(self) -> Result<Bytes, HttpError> {
-        let acc = BytesBuilder.new();
-        while true {
-            let line = match self.read_line()? {
-                Some(l) => l,
-                None => { return protocol('stream ended inside a chunked body'); },
-            };
-            // A chunk-size line may carry `;ext=value` extensions; nothing uses
-            // them, but they are legal, so drop them rather than choke.
-            let digits = match line.find(';') {
-                Some(i) => line.slice(0, i),
-                None => line,
-            };
-            let size = match digits.trim().to_int_radix(16) {
-                Some(n) => n,
-                None => { return protocol('malformed chunk size: "' + line + '"'); },
-            };
-            if size < 0 {
-                return protocol('negative chunk size: "' + line + '"');
-            }
-            if size == 0 {
-                // The trailer block, then the blank line that ends the message.
-                while true {
-                    let trailer = match self.read_line()? {
-                        Some(t) => t,
-                        None => { return protocol('stream ended inside the trailer block'); },
-                    };
-                    if trailer.is_empty() {
-                        return Result.Ok(acc.finish());
-                    }
-                }
-            }
-            if acc.len() + size > MAX_BODY_BYTES {
-                return too_large();
-            }
-            acc.write_bytes(self.read_exact(size)?);
-            // Each chunk's data is followed by its own CRLF.
-            match self.read_line()? {
-                Some(t) => {
-                    if !t.is_empty() {
-                        return protocol('chunk not terminated by CRLF');
-                    }
-                },
-                None => { return protocol('stream ended after a chunk'); },
-            }
-        }
-    }
-
     /// The next request, or `None` at a clean end-of-stream — which on a
     /// kept-alive connection just means the client is done, and is how a serve
     /// loop terminates.
@@ -535,7 +444,7 @@ impl Wire {
         let headers = self.read_headers()?;
         // A request has no body unless it is framed as having one: there is no
         // read-to-EOF fallback, since the client isn't going to close.
-        let body = self.read_body(headers, until_eof: false)?;
+        let body = BodyReader.new(self, framing_of(headers, until_eof: false)?).drain()?;
         return Result.Ok(Option.Some(Request {
             method: method,
             url: url,
@@ -544,10 +453,18 @@ impl Wire {
         }));
     }
 
-    /// The next response. `to_head` must say whether the request was a `HEAD`: the
-    /// response then describes a body it does not send, and reading one would hang
-    /// until the peer closed (or eat the next response).
-    pub fn read_response(self, to_head: Bool = false) -> Result<Response, HttpError> {
+    /// The next response, its body left on the wire as a `BodyReader` — the
+    /// streaming form, for a body that should be consumed as it arrives (an event
+    /// stream, a large download) rather than assembled in memory first.
+    ///
+    /// The body must be read, or abandoned along with the connection, **before**
+    /// another message is read from this `Wire`: on the wire a body sits between two
+    /// messages, so skipping it would read the body as the next response.
+    ///
+    /// `to_head` must say whether the request was a `HEAD`: the response then
+    /// describes a body it does not send, and reading one would hang until the peer
+    /// closed (or eat the next response).
+    pub fn stream_response(self, to_head: Bool = false) -> Result<ResponseStream, HttpError> {
         let line = match self.read_line()? {
             Some(l) => l,
             None => { return protocol('no response (the connection closed first)'); },
@@ -567,15 +484,284 @@ impl Wire {
             return protocol('status out of range: "' + line + '"');
         }
         let headers = self.read_headers()?;
-        let body = if to_head || status_has_no_body(status) {
-            Bytes.empty()
+        let framing = if to_head || status_has_no_body(status) {
+            Framing.Empty
         } else {
             // Unlike a request, a response with no framing headers runs to the
             // close of the connection (HTTP/1.0 style).
-            self.read_body(headers, until_eof: true)?
+            framing_of(headers, until_eof: true)?
         };
-        return Result.Ok(Response { status: status, headers: headers, body: body });
+        return Result.Ok(ResponseStream {
+            status: status,
+            headers: headers,
+            body: BodyReader.new(self, framing),
+        });
     }
+
+    /// The next response, body and all — `stream_response` plus a capped drain.
+    /// This is the common case, and the only one `MAX_BODY_BYTES` applies to.
+    pub fn read_response(self, to_head: Bool = false) -> Result<Response, HttpError> {
+        return self.stream_response(to_head: to_head)?.buffered();
+    }
+}
+
+// --- bodies ---
+
+/// How a message's body is delimited on the wire. Decided once, from the headers,
+/// so the streaming and buffered paths cannot disagree about it.
+enum Framing {
+    /// No body at all: a `HEAD` response, a 1xx/204/304, or a request whose headers
+    /// don't frame one.
+    Empty,
+    /// Exactly this many bytes, per `content-length`.
+    Length(Int),
+    /// `transfer-encoding: chunked` — a sequence of self-describing frames.
+    Chunked,
+    /// Everything until the peer closes: HTTP/1.0-style framing, where the close
+    /// *is* the delimiter.
+    ToEof,
+}
+
+/// The framing `headers` declare, or `Protocol` if they declare something
+/// contradictory or unsupported. `until_eof` says what the *absence* of framing
+/// means: for a response the close delimits, for a request there is simply no body,
+/// since the client isn't going to close.
+fn framing_of(_ headers: Map<String, String>, until_eof: Bool) -> Result<Framing, HttpError> {
+    // `transfer-encoding` wins over `content-length` (RFC 9110 §6.3), and a message
+    // bearing both is an outright smuggling attempt.
+    let te = header(headers, 'transfer-encoding');
+    let cl = header(headers, 'content-length');
+    if let Some(encoding) = te {
+        if cl.is_some() {
+            return protocol('both transfer-encoding and content-length are present');
+        }
+        if encoding.to_lowercase().trim() != 'chunked' {
+            return protocol('unsupported transfer-encoding: "' + encoding + '"');
+        }
+        return Result.Ok(Framing.Chunked);
+    }
+    if let Some(raw) = cl {
+        let n = match raw.trim().to_int() {
+            Some(n) => n,
+            None => { return protocol('malformed content-length: "' + raw + '"'); },
+        };
+        if n < 0 {
+            return protocol('negative content-length: "' + raw + '"');
+        }
+        return Result.Ok(Framing.Length(n));
+    }
+    if until_eof {
+        return Result.Ok(Framing.ToEof);
+    }
+    return Result.Ok(Framing.Empty);
+}
+
+/// A message body that has not been read yet, as an `io.Reader`.
+///
+/// Reading consumes from the `Wire` it came from, so this is only valid until the
+/// next message is read from that `Wire` (see `stream_response`).
+///
+/// `read_some` is the honest primitive and the `io.Reader` impl is the composable
+/// one — the same split `io.BufReader` makes between `read_line` and its `Iterator`,
+/// and for the same reason: the interface's `Error` loses the `Protocol`-vs-`Body`
+/// distinction, which is the one that says whose bug it is.
+///
+/// **Nothing here is capped.** Streaming is how you read a body that need not fit
+/// in memory, so bounding it is the caller's business; `ResponseStream.buffered` is
+/// the bounded form.
+pub struct BodyReader {
+    let wire: Wire;
+    let framing: Framing;
+    let mut remaining: Int; // bytes left in the current frame (the body, or a chunk)
+    let mut done: Bool;
+}
+
+impl BodyReader {
+    fn new(_ wire: Wire, _ framing: Framing) -> BodyReader {
+        let declared = match framing {
+            Length(n) => n,
+            _ => 0,
+        };
+        let empty = match framing {
+            Empty => true,
+            _ => false,
+        };
+        return BodyReader { wire: wire, framing: framing, remaining: declared, done: empty };
+    }
+
+    /// Whether the body has been read to its end — which is what leaves the
+    /// connection at a message boundary, and so what a future keep-alive would gate
+    /// reuse on.
+    pub fn is_complete(self) -> Bool {
+        return self.done;
+    }
+
+    /// Up to `max` more bytes. An empty result means the body is **complete**, not
+    /// that the peer has nothing right now: a read blocks (parking the fiber) until
+    /// bytes arrive or the stream ends.
+    pub fn read_some(self, max: Int) -> Result<Bytes, HttpError> {
+        if self.done || max <= 0 {
+            return Result.Ok(Bytes.empty());
+        }
+        return match self.framing {
+            Empty => Result.Ok(Bytes.empty()),
+            Length(_) => self.read_counted(max),
+            Chunked => self.read_chunked(max),
+            ToEof => {
+                let got = self.wire.take_buffered(max)?;
+                if got.len() == 0 {
+                    self.done = true;
+                }
+                Result.Ok(got)
+            },
+        };
+    }
+
+    /// A `content-length` body: `remaining` more bytes, and an early end-of-stream
+    /// is an error — the peer promised them.
+    fn read_counted(self, _ max: Int) -> Result<Bytes, HttpError> {
+        if self.remaining == 0 {
+            self.done = true; // `content-length: 0` — a body that is over on arrival
+            return Result.Ok(Bytes.empty());
+        }
+        let got = self.wire.take_buffered(self.remaining.min(max))?;
+        if got.len() == 0 {
+            return truncated(self.remaining, 'the body');
+        }
+        self.remaining = self.remaining - got.len();
+        if self.remaining == 0 {
+            self.done = true;
+        }
+        return Result.Ok(got);
+    }
+
+    /// A chunked body, walked one frame at a time: the size line, then that many
+    /// bytes (over as many reads as it takes), then the CRLF closing the chunk.
+    fn read_chunked(self, _ max: Int) -> Result<Bytes, HttpError> {
+        if self.remaining == 0 {
+            if !self.next_chunk()? {
+                return Result.Ok(Bytes.empty()); // the zero-size chunk ended it
+            }
+        }
+        let got = self.wire.take_buffered(self.remaining.min(max))?;
+        if got.len() == 0 {
+            return truncated(self.remaining, 'a chunk');
+        }
+        self.remaining = self.remaining - got.len();
+        if self.remaining == 0 {
+            // Each chunk's data is followed by its own CRLF.
+            match self.wire.read_line()? {
+                Some(t) => {
+                    if !t.is_empty() {
+                        return protocol('chunk not terminated by CRLF');
+                    }
+                },
+                None => { return protocol('stream ended after a chunk'); },
+            }
+        }
+        return Result.Ok(got);
+    }
+
+    /// Read the next chunk-size line into `remaining`, returning whether a non-empty
+    /// chunk follows. A zero-size one consumes the trailer block and completes the
+    /// body.
+    fn next_chunk(self) -> Result<Bool, HttpError> {
+        let line = match self.wire.read_line()? {
+            Some(l) => l,
+            None => { return protocol('stream ended inside a chunked body'); },
+        };
+        // A chunk-size line may carry `;ext=value` extensions; nothing uses them, but
+        // they are legal, so drop them rather than choke.
+        let digits = match line.find(';') {
+            Some(i) => line.slice(0, i),
+            None => line,
+        };
+        let size = match digits.trim().to_int_radix(16) {
+            Some(n) => n,
+            None => { return protocol('malformed chunk size: "' + line + '"'); },
+        };
+        if size < 0 {
+            return protocol('negative chunk size: "' + line + '"');
+        }
+        if size > 0 {
+            self.remaining = size;
+            return Result.Ok(true);
+        }
+        // The trailer block, then the blank line that ends the message. Read and
+        // discarded — see docs/http-streaming.md § Goals & non-goals.
+        while true {
+            let trailer = match self.wire.read_line()? {
+                Some(t) => t,
+                None => { return protocol('stream ended inside the trailer block'); },
+            };
+            if trailer.is_empty() {
+                self.done = true;
+                return Result.Ok(false);
+            }
+        }
+    }
+
+    /// Everything left, assembled in memory and capped at `MAX_BODY_BYTES`.
+    fn drain(self) -> Result<Bytes, HttpError> {
+        let acc = BytesBuilder.new();
+        while true {
+            // A frame declares its size before its bytes arrive, so an oversized
+            // `content-length` — or chunk — is refused without reading it.
+            if acc.len() + self.remaining > MAX_BODY_BYTES {
+                return too_large();
+            }
+            let got = self.read_some(max: DRAIN_CHUNK)?;
+            if got.len() == 0 {
+                return Result.Ok(acc.finish());
+            }
+            if acc.len() + got.len() > MAX_BODY_BYTES {
+                return too_large();
+            }
+            acc.write_bytes(got);
+        }
+    }
+}
+
+impl io.Reader for BodyReader {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        return match self.read_some(max: max) {
+            Ok(b) => Result.Ok(b),
+            Err(e) => Result.Err(e),
+        };
+    }
+}
+
+/// A response whose head has arrived and whose body has not been read.
+///
+/// The fields mirror `Response` but for `body`, which is a `BodyReader` rather than
+/// `Bytes` — the whole difference the streaming path exists for.
+pub struct ResponseStream {
+    let status: Int;
+    let headers: Map<String, String>;
+    let body: BodyReader;
+}
+
+impl ResponseStream {
+    /// Whether the status is 2xx.
+    pub fn is_ok(self) -> Bool {
+        return self.status >= 200 && self.status < 300;
+    }
+
+    /// Read the body in and give up the streaming form. Capped at `MAX_BODY_BYTES`,
+    /// since the result lands in the heap whole.
+    pub fn buffered(self) -> Result<Response, HttpError> {
+        return Result.Ok(Response {
+            status: self.status,
+            headers: self.headers,
+            body: self.body.drain()?,
+        });
+    }
+}
+
+fn truncated<T>(_ left: Int, _ what: String) -> Result<T, HttpError> {
+    return Result.Err(HttpError.Body(
+        'stream ended with ' + left.display() + ' bytes of ' + what + ' left',
+    ));
 }
 
 fn too_large<T>() -> Result<T, HttpError> {
