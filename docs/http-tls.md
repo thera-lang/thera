@@ -9,13 +9,13 @@ punchlist_ for where it sits (item 3, "the last thing between `std.http` and
 complete").
 
 **Complete: all five stages have landed.** ~~Progress against § Staged plan:
-stages 1–4 have landed~~ — the crate/provider
-spike ([runtime/tests/tls.rs](../runtime/tests/tls.rs)), the runtime session plus
-`tls_*` natives ([interp/tls.rs](../runtime/src/interp/tls.rs) and the TLS natives
-in [natives.rs](../runtime/src/interp/natives.rs)), the Thera `TlsStream` +
-`connect_tls` in [std.net](../sdk/std/net/net.thera), and the `https` branch in
-[std.http](../sdk/std/http/client.thera), and the hermetic in-process
-client↔server loop (`tls_accept` + `net.accept_tls`, exercised from
+stages 1–4 have landed~~ — the crate/provider spike
+([runtime/tests/tls.rs](../runtime/tests/tls.rs)), the runtime session plus
+`tls_*` natives ([interp/tls.rs](../runtime/src/interp/tls.rs) and the TLS
+natives in [natives.rs](../runtime/src/interp/natives.rs)), the Thera
+`TlsStream` + `connect_tls` in [std.net](../sdk/std/net/net.thera), and the
+`https` branch in [std.http](../sdk/std/http/client.thera), and the hermetic
+in-process client↔server loop (`tls_accept` + `net.accept_tls`, exercised from
 [net_test.thera](../sdk/std/net/net_test.thera)). **So `http.get('https://…')`
 works today**, chain- and host-verified, and the TLS stack is tested end to end
 with no network. What each stage settled is marked _(settled)_ below; the one
@@ -175,16 +175,17 @@ to `tls_connect` for SNI + certificate-name verification. The raw socket stays
 registered for `READABLE | WRITABLE` exactly as now — the TLS layer changes
 _what the native does with readiness_, not _how it parks_.
 
-_(settled, stage 2)_ The `Socket` enum grew a `Tls { stream, session }` variant and
-`tls_connect` swaps the entry **in place, under the same handle** — the returned
-"tls_handle" _is_ the socket handle. That was the choice that made TLS free of
-scheduler changes: the fd keeps its registration, so park routing, `wake_poll_waiters`,
-`socket_close`, `local_addr`/`peer_addr` and `select` all work untouched. It also
-mistake-proofs the layering in the other direction — plain `socket_read`/`socket_write`
-reject the wrapped variant, so a stale plaintext handle can't put cleartext on the
-wire or steal records from the session. `socket_is_ready` learned one thing (a TLS
-stream is ready when the _session_ holds plaintext, even with the fd quiet), which
-keeps `TlsStream` selectable.
+_(settled, stage 2)_ The `Socket` enum grew a `Tls { stream, session }` variant
+and `tls_connect` swaps the entry **in place, under the same handle** — the
+returned "tls_handle" _is_ the socket handle. That was the choice that made TLS
+free of scheduler changes: the fd keeps its registration, so park routing,
+`wake_poll_waiters`, `socket_close`, `local_addr`/`peer_addr` and `select` all
+work untouched. It also mistake-proofs the layering in the other direction —
+plain `socket_read`/`socket_write` reject the wrapped variant, so a stale
+plaintext handle can't put cleartext on the wire or steal records from the
+session. `socket_is_ready` learned one thing (a TLS stream is ready when the
+_session_ holds plaintext, even with the fd quiet), which keeps `TlsStream`
+selectable.
 
 ## Park/retry mechanics — the load-bearing part
 
@@ -233,19 +234,21 @@ reduce to "the underlying socket wasn't ready":
     with a mutation-style test (break idempotency, prove a test catches a
     double-write) the way the poller invariants were pinned.
 
-  _(settled, stage 2)_ **Neither, quite — feed-and-count, ordered so the park can
-  only happen before the feed.** `tls_write` drains pending ciphertext first (pure
-  socket flushing, so repeating it on a retry is free), _then_ hands plaintext to
-  rustls exactly once and returns what rustls took, then best-effort flushes. The
-  first option's unbounded-buffering risk goes away for free: rustls's outgoing
-  queue is size-capped (64 KiB), so it reports a **short count** when full — which
-  is precisely the backpressure a `write` should apply, and the Thera side already
-  loops over short writes. The only park is the "took 0 bytes, queue full" case,
-  which is reached _before_ any plaintext is consumed, so the retry re-feeds
-  nothing. That made the extra flush native unnecessary: every op drains the queue
-  on entry, and `tls_close` must anyway. The invariant is pinned as asked —
-  `a_blocked_write_retried_with_the_same_plaintext_sends_it_once`, and moving the
-  park to after the feed makes it fail with exactly double the payload.
+  _(settled, stage 2)_ **Neither, quite — feed-and-count, ordered so the park
+  can only happen before the feed.** `tls_write` drains pending ciphertext first
+  (pure socket flushing, so repeating it on a retry is free), _then_ hands
+  plaintext to rustls exactly once and returns what rustls took, then
+  best-effort flushes. The first option's unbounded-buffering risk goes away for
+  free: rustls's outgoing queue is size-capped (64 KiB), so it reports a **short
+  count** when full — which is precisely the backpressure a `write` should
+  apply, and the Thera side already loops over short writes. The only park is
+  the "took 0 bytes, queue full" case, which is reached _before_ any plaintext
+  is consumed, so the retry re-feeds nothing. That made the extra flush native
+  unnecessary: every op drains the queue on entry, and `tls_close` must anyway.
+  The invariant is pinned as asked —
+  `a_blocked_write_retried_with_the_same_plaintext_sends_it_once`, and moving
+  the park to after the feed makes it fail with exactly double the payload.
+
 - **`tls_close`** sends rustls's `close_notify` (a graceful-shutdown record that
   must be flushed to the socket) _then_ closes the underlying socket via the
   existing `socket_close` path — which already wakes poll waiters, so
@@ -280,14 +283,15 @@ provisional surface with a TLS type — acceptable since it stays internal until
 
 _(settled, stage 3)_ It lives in **`std.net`**, as sketched, plus a
 `net.connect_tls(host, port)` that packages resolve → connect → wrap so the
-client's `https` branch is one line. Two things the sketch didn't say, both worth
-knowing:
+client's `https` branch is one line. Two things the sketch didn't say, both
+worth knowing:
 
-- **`connect` takes ownership of the `TcpStream`.** On success the stream *becomes*
-  the `TlsStream` (the runtime wraps in place, so it is literally the same
-  descriptor); on failure it is closed rather than leaked. The spent `TcpStream`
-  value still exists — Thera has no moves — but reading or writing it is an error
-  from the runtime, which is what keeps plaintext from slipping past the session.
+- **`connect` takes ownership of the `TcpStream`.** On success the stream
+  _becomes_ the `TlsStream` (the runtime wraps in place, so it is literally the
+  same descriptor); on failure it is closed rather than leaked. The spent
+  `TcpStream` value still exists — Thera has no moves — but reading or writing
+  it is an error from the runtime, which is what keeps plaintext from slipping
+  past the session.
 - **`NetError` gained a `Tls(String)` variant**, fed by the natives' `tls` kind
   tag, so a certificate rejection is matchable rather than a generic `Other`. It
   covers verification, protocol violations, and truncation. (The `HttpError`
@@ -306,10 +310,11 @@ considered:
 1. **Live external endpoint** (`https://example.com`). Rejected as the suite's
    backbone — non-hermetic, network-dependent, flaky, and non-reproducible. Keep
    only as an **opt-in smoke** gated on an env var (`THERA_NET_TESTS`), off by
-   default, so a real end-to-end path _can_ be exercised on demand. _(Landed with
-   stage 3, at the `net.connect_tls` layer: it is the only test that exercises the
-   real root store against a real certificate, which is exactly what nothing
-   hermetic can cover. A `std.http`-level one can follow with stage 4.)_
+   default, so a real end-to-end path _can_ be exercised on demand. _(Landed
+   with stage 3, at the `net.connect_tls` layer: it is the only test that
+   exercises the real root store against a real certificate, which is exactly
+   what nothing hermetic can cover. A `std.http`-level one can follow with stage
+   4.)_
 2. **Rust-level in-memory handshake test** — a rustls client and server over an
    in-memory duplex (no sockets), asserting the pump loop and the ABI's
    idempotency (including the deliberate-break write test). Cheap, fully
@@ -323,12 +328,12 @@ considered:
    this cert" parameter used _only_ by the harness (never surfaced in
    `std.http`'s public API). This is the closest analogue to the existing
    hermetic HTTP loop and the highest-value functional test. **Do this** — it's
-   what makes the whole `https` path testable without the network.
-   _(landed, stage 5 — with one amendment: the certificate is **checked in**
-   rather than `rcgen`-minted, because `rcgen` is a dev-dependency and so is
-   absent from `thera-rt`; minting from Thera would mean shipping a
-   cert-generation native. And the loop lives in `net_test.thera`, not
-   `client_test.thera` — see stage 5 for why it stops at the `std.net` layer.)_
+   what makes the whole `https` path testable without the network. _(landed,
+   stage 5 — with one amendment: the certificate is **checked in** rather than
+   `rcgen`-minted, because `rcgen` is a dev-dependency and so is absent from
+   `thera-rt`; minting from Thera would mean shipping a cert-generation native.
+   And the loop lives in `net_test.thera`, not `client_test.thera` — see stage 5
+   for why it stops at the `std.net` layer.)_
 
 **Recommendation:** (2) + (3) as the hermetic core (deterministic, no network),
 plus (1) as an off-by-default live smoke. Building `tls_accept` for (3) is the
@@ -342,11 +347,11 @@ in-process loop.
 1. ~~**Crate + provider spike.**~~ _Done._ `rustls` on `aws-lc-rs` with
    `webpki-roots`, plus a Rust-only in-memory client↔server handshake (and the
    cert/hostname rejection cases) over a duplex buffer.
-2. ~~**Client TLS natives + registry.**~~ _Done._ `tls_connect` / `tls_handshake` /
-   `tls_read` / `tls_write` / `tls_close`; the `Socket::Tls` variant owning
-   `{ socket, rustls Connection }`; the pump loop and the park/retry wiring, with
-   the write- and close-idempotency invariants pinned by break-it tests against an
-   in-memory transport that blocks on demand.
+2. ~~**Client TLS natives + registry.**~~ _Done._ `tls_connect` /
+   `tls_handshake` / `tls_read` / `tls_write` / `tls_close`; the `Socket::Tls`
+   variant owning `{ socket, rustls Connection }`; the pump loop and the
+   park/retry wiring, with the write- and close-idempotency invariants pinned by
+   break-it tests against an in-memory transport that blocks on demand.
 3. ~~**`TlsStream` Thera wrapper** (`Reader`/`Writer`/`Closer`) + the
    trust-injection seam on `tls_connect` for tests.~~ _Done._ In `std.net`, with
    `connect_tls(host, port)`, a `NetError.Tls` variant, and the seam as a
@@ -362,11 +367,11 @@ in-process loop.
    details the sketch didn't anticipate: the connect-error mapping is now a
    `connect_error` helper, so only the TLS cause survives as itself; and wiring
    the client **found a front-end hole** — a generic bound could name only a
-   *bare* type, so `<S: io.Reader + io.Writer>` didn't parse and `exchange` had
-   to take its stream twice, once per role. That has since been fixed
-   (qualified bounds and super-interfaces, roadmap _Changelog_), and `exchange`
-   is now one `fn exchange<S: io.Reader + io.Writer + io.Closer>` — which also
-   shrank `send` to a scheme branch over two connect calls.
+   _bare_ type, so `<S: io.Reader + io.Writer>` didn't parse and `exchange` had
+   to take its stream twice, once per role. That has since been fixed (qualified
+   bounds and super-interfaces, roadmap _Changelog_), and `exchange` is now one
+   `fn exchange<S: io.Reader + io.Writer + io.Closer>` — which also shrank
+   `send` to a scheme branch over two connect calls.
 5. ~~**Tests.** `tls_accept` + `rcgen` in-process loop (§ Testing #3).~~ _Done._
    The runtime grew `TlsSession::server` + `server_config` and the `tls_accept`
    native (the pump is role-agnostic, so the server end reuses it whole), and
@@ -375,30 +380,31 @@ in-process loop.
    round trip between two fibers over loopback, plus the hermetic version of the
    security assertion: the same server refused by a client on the production
    root store. Rust-side, both ends of a handshake are now `TlsSession`, so the
-   server path is unit-tested as well as integration-tested.
-   ~~The env-gated live smoke (#1)~~ _landed with stage 3._
-   ~~Update the `https_reports_that_tls_is_missing` test~~ _done with stage 4._
+   server path is unit-tested as well as integration-tested. ~~The env-gated
+   live smoke (#1)~~ _landed with stage 3._ ~~Update the
+   `https_reports_that_tls_is_missing` test~~ _done with stage 4._
 
    **Two sub-questions this stage answered, both differently than expected:**
 
-   - **The certificate is checked in, not minted.** `rcgen` is a
-     dev-dependency, so it is in the Rust tests but *not* in `thera-rt` — a
-     Thera test cannot mint a certificate without putting a cert-generation
-     native (and `rcgen`) in the shipped runtime to serve tests alone. So
-     `net_test.thera` embeds a throwaway CA, a `localhost` leaf, and its key as
-     PEM constants, with the regeneration commands in the doc comments. The
-     cost is an expiry (2052-08-06) rather than a dependency.
-   - **The trust seam does *not* reach `std.http`, and shouldn't.** The seam is
+   - **The certificate is checked in, not minted.** `rcgen` is a dev-dependency,
+     so it is in the Rust tests but _not_ in `thera-rt` — a Thera test cannot
+     mint a certificate without putting a cert-generation native (and `rcgen`)
+     in the shipped runtime to serve tests alone. So `net_test.thera` embeds a
+     throwaway CA, a `localhost` leaf, and its key as PEM constants, with the
+     regeneration commands in the doc comments. The cost is an expiry
+     (2052-08-06) rather than a dependency.
+   - **The trust seam does _not_ reach `std.http`, and shouldn't.** The seam is
      file-private to `net.thera`, so only `net_test.thera` can build a TLS
      stream trusting a test certificate — which means an `https` round trip in
      `client_test.thera` would require making trust injection (or server-TLS
      termination) public API. That is a permanent widening of a security
      boundary to buy a small amount of coverage, so it was declined. What
      `std.http` covers hermetically instead: an `https` URL pointed at the
-     *plaintext* loopback server, which pins scheme routing and the
+     _plaintext_ loopback server, which pins scheme routing and the
      `HttpError.Tls` mapping together, since a plaintext peer cannot complete a
      handshake. The full round trip stays covered by the gated live smokes, and
      the TLS stack itself is covered by the net-layer loop.
+
 6. **Docs.** Flip [stdlib.md](stdlib.md) § std.http from "`http://` only" to
    "https supported"; move the roadmap _Networking punchlist_ item 3 to the
    Changelog; note the still-deferred redirects/pooling/streaming and the
@@ -408,57 +414,56 @@ in-process loop.
 
 - ~~**Crypto provider**: RustCrypto-backed (pure Rust, consolidates with `sha2`)
   vs `aws-lc-rs`/`ring` (hardened, largest deployment base, first C-toolchain
-  build in the tree).~~ _Settled in stage 1:_ **`aws-lc-rs`** (rustls's default),
-  the security-posture answer, accepting the C-toolchain build step as the
-  secondary cost the weighting says it is — see runtime/Cargo.toml's note.
+  build in the tree).~~ _Settled in stage 1:_ **`aws-lc-rs`** (rustls's
+  default), the security-posture answer, accepting the C-toolchain build step as
+  the secondary cost the weighting says it is — see runtime/Cargo.toml's note.
 - ~~**Patch-track commitment**: `cargo audit`/`cargo deny` in CI, Dependabot on,
   and a standing intent to ship a prompt runtime patch on a TLS/crypto advisory
-  rather than batching it.~~ _Done alongside stage 1:_ a `cargo-deny`
-  advisory scan in CI, and the TLS/crypto deps split into their own
-  daily-checked Dependabot group.
-- ~~**`tls_write` idempotency shape**: buffer-all-and-count vs split buffer/flush
-  natives (§ Park/retry). The one genuinely non-mechanical ABI call.~~
-  _Settled in stage 2:_ feed-and-count with the park ordered before the feed, no
-  flush native, backpressure from rustls's capped queue (§ Park/retry).
+  rather than batching it.~~ _Done alongside stage 1:_ a `cargo-deny` advisory
+  scan in CI, and the TLS/crypto deps split into their own daily-checked
+  Dependabot group.
+- ~~**`tls_write` idempotency shape**: buffer-all-and-count vs split
+  buffer/flush natives (§ Park/retry). The one genuinely non-mechanical ABI
+  call.~~ _Settled in stage 2:_ feed-and-count with the park ordered before the
+  feed, no flush native, backpressure from rustls's capped queue (§ Park/retry).
 - ~~**ALPN**: the natives currently offer none, so a server sees no
   `application_layer_protocol_negotiation` extension and HTTP/1.1 is implied.
-  Offering `http/1.1` explicitly is more correct (it stops a server picking `h2`,
-  which the codec can't speak) but fails the handshake against an
+  Offering `http/1.1` explicitly is more correct (it stops a server picking
+  `h2`, which the codec can't speak) but fails the handshake against an
   HTTP/2-only host instead of failing at the first response — and it is an
   `std.http` policy decision sitting in an `std.net`-layer native. Decide when
-  stage 4 wires the client, since that is where the policy belongs.~~
-  _Settled in stage 4: **keep offering none**_ — for a reason the question
-  didn't name. Its framing ("should `std.http` offer `http/1.1`?") assumes the
-  answer can be a constant, and it can't: `net.connect_tls` is a general TLS
-  dial, so baking an HTTP protocol list into it is wrong for every non-HTTP user
-  of the same native. Offering ALPN properly means a **per-connection
-  parameter** — an ABI addition — and the payoff today is small, because a
-  server offered no ALPN defaults to HTTP/1.1, which is exactly what the codec
-  speaks (verified against live endpoints during stage 4). Revisit if a real
-  host negotiates `h2` anyway, and then as a parameter, never a constant.
-- **Truncation strictness**: a socket that ends with no `close_notify` is an error
-  (`TlsError::Truncated`), not an EOF — the secure reading, and invisible to
-  length- or chunk-framed HTTP responses, which stop before EOF. Revisit only if
-  a real server forces it, and then narrowly (`std.http` tolerating it for a
+  stage 4 wires the client, since that is where the policy belongs.~~ _Settled
+  in stage 4: **keep offering none**_ — for a reason the question didn't name.
+  Its framing ("should `std.http` offer `http/1.1`?") assumes the answer can be
+  a constant, and it can't: `net.connect_tls` is a general TLS dial, so baking
+  an HTTP protocol list into it is wrong for every non-HTTP user of the same
+  native. Offering ALPN properly means a **per-connection parameter** — an ABI
+  addition — and the payoff today is small, because a server offered no ALPN
+  defaults to HTTP/1.1, which is exactly what the codec speaks (verified against
+  live endpoints during stage 4). Revisit if a real host negotiates `h2` anyway,
+  and then as a parameter, never a constant.
+- **Truncation strictness**: a socket that ends with no `close_notify` is an
+  error (`TlsError::Truncated`), not an EOF — the secure reading, and invisible
+  to length- or chunk-framed HTTP responses, which stop before EOF. Revisit only
+  if a real server forces it, and then narrowly (`std.http` tolerating it for a
   fully-framed body), never by weakening the native.
 - ~~**Root store**: bundled `webpki-roots` (deterministic, but distrusting a CA
   needs a dep bump) vs `rustls-native-certs` (automatic OS-managed trust
-  updates, platform-variable).~~ _Settled in stage 1:_ bundled **`webpki-roots`**,
-  which is what puts the patch track above on the trust path — a distrusted CA
-  reaches us as a dep bump, so that bump has to be prompt.
-- ~~**`TlsStream` placement**: `std.net` (natural, grows a provisional surface) vs
-  a private sibling under `std.http`.~~ _Settled in stage 3:_ `std.net`, plus
+  updates, platform-variable).~~ _Settled in stage 1:_ bundled
+  **`webpki-roots`**, which is what puts the patch track above on the trust path
+  — a distrusted CA reaches us as a dep bump, so that bump has to be prompt.
+- ~~**`TlsStream` placement**: `std.net` (natural, grows a provisional surface)
+  vs a private sibling under `std.http`.~~ _Settled in stage 3:_ `std.net`, plus
   `net.connect_tls` (§ Thera surface).
 - ~~**Trust-injection seam**: how the test-only "trust this cert" knob is passed
   to `tls_connect` without leaking into the public `std.http` API.~~ _Settled in
   stage 3:_ a third `roots_pem` parameter on the `tls_connect` native — empty is
-  the production path — reached only through a **file-private** `connect_trusting`
-  in `std.net`, which the white-box rule makes visible to `net_test.thera` and
-  nothing else. Roots are strictly *additional*, so even where it is reachable it
-  cannot turn verification off, and unusable roots are an error rather than a
-  silent "trusted nothing".
-  **The sub-question stage 5 has to answer:** a test in *another* file (the
-  `std.http` in-process loop) can't see a file-private seam. Either that loop
-  lives in `net_test.thera` at the `TlsStream` layer, or the seam becomes ambient
-  (an env var, à la `NODE_EXTRA_CA_CERTS`) — decide it with the harness, not
-  before.
+  the production path — reached only through a **file-private**
+  `connect_trusting` in `std.net`, which the white-box rule makes visible to
+  `net_test.thera` and nothing else. Roots are strictly _additional_, so even
+  where it is reachable it cannot turn verification off, and unusable roots are
+  an error rather than a silent "trusted nothing". **The sub-question stage 5
+  has to answer:** a test in _another_ file (the `std.http` in-process loop)
+  can't see a file-private seam. Either that loop lives in `net_test.thera` at
+  the `TlsStream` layer, or the seam becomes ambient (an env var, à la
+  `NODE_EXTRA_CA_CERTS`) — decide it with the harness, not before.

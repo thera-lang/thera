@@ -260,8 +260,8 @@ is an error rather than a silent pass-through, so a stray backslash can't change
 what a string means without saying so. `\0` is NUL alone — there are no octal
 escapes, and `'\012'` is rejected instead of being read the C way.
 
-An `r` prefix makes a **raw string**, where everything up to the closing quote is
-content — no escapes, no interpolation:
+An `r` prefix makes a **raw string**, where everything up to the closing quote
+is content — no escapes, no interpolation:
 
 ```thera
 let re   = Regex.compile(r'(\w+)@(\w+)')?;  // not '(\\w+)@(\\w+)'
@@ -269,7 +269,7 @@ let path = r'C:\Users\dev';                 // trailing `\` is fine too
 let tmpl = r'${HOME}/bin';                  // a literal ${…}, not interpolated
 ```
 
-Raw is deliberately *fully* raw. It's the one string form with no escape hatch,
+Raw is deliberately _fully_ raw. It's the one string form with no escape hatch,
 so if `${` still interpolated there would be no way to write a literal `${` in a
 raw string — and shell-variable patterns are exactly what these strings hold.
 Either quote opens one, so the other can appear in the content (`r"it's"`); for
@@ -293,12 +293,12 @@ fn usage(_ name: String) -> String {
 That value is `usage: … <command>\n\n  --help  show this help\n` — the eight
 columns of source indentation are gone, the two that separate `--help` from the
 left edge are not. The **margin** is the smallest indentation across the
-non-blank lines *and* the closing delimiter's line, so lining the closing `'''`
+non-blank lines _and_ the closing delimiter's line, so lining the closing `'''`
 up where the left edge belongs is how you say where it is; a line indented less
 than the closer just lowers the margin. Content starts on the line after the
-opening delimiter (only whitespace may follow it). A closing delimiter on its own
-line supplies the final newline — put it at the end of a content line and the
-value stops there.
+opening delimiter (only whitespace may follow it). A closing delimiter on its
+own line supplies the final newline — put it at the end of a content line and
+the value stops there.
 
 Trailing whitespace is dropped from each line, so what a program prints never
 depends on characters nobody can see, and a whitespace-trimming editor can't
@@ -541,7 +541,7 @@ pad('x');             // width: 80, fill: ' '
 pad('x', width: 4);   // fill: ' '
 ```
 
-The default is the *declaring* file's code, so that is where its names resolve —
+The default is the _declaring_ file's code, so that is where its names resolve —
 a `const` or an import only that file can see is fair game, and the caller needs
 access to neither. It is checked once, at the declaration, against the
 parameter's type.
@@ -557,7 +557,7 @@ pub fn assert(_ condition: Bool, at: SourceLoc = #loc) -> Result<Void, Error> { 
 
 Defaults follow the **static type** of the call. A call through an
 interface-typed value (or a bounded generic) fills omitted arguments from the
-*interface's* declared defaults; a direct call on the concrete type uses the
+_interface's_ declared defaults; a direct call on the concrete type uses the
 impl's. Write the same defaults in both places unless you mean them to differ.
 
 ---
@@ -1154,31 +1154,32 @@ file — is a check error (`a file cannot import itself`): its own names are
 already in scope.
 
 **Imports between libraries must be acyclic.** The unit of acyclicity is the
-library: a directory library (the directory fronted by its barrel) is one
-unit — its files, barrel and siblings alike, may import each other freely,
-mutual recursion included — and every other file is a unit of its own. An
-import that crosses libraries inside a cycle is a check error at that import,
-carrying one full cycle path at library granularity (`import cycle between
-libraries: a.thera → b/ → a.thera`); **every** participating import is
-flagged — exactly the set of places an edit can break the cycle. A test file
-(`foo_test.thera`) is a *consumer* of the libraries it imports, not a member:
-its imports don't participate in the graph (`std.testing` importing `std.env`
-while `env_test.thera` imports `std.testing` closes no cycle). Loading still
-links a cyclic closure best-effort — names resolve, downstream diagnostics
-stay real — but the error gates compile/run like any other.
+library: a directory library (the directory fronted by its barrel) is one unit —
+its files, barrel and siblings alike, may import each other freely, mutual
+recursion included — and every other file is a unit of its own. An import that
+crosses libraries inside a cycle is a check error at that import, carrying one
+full cycle path at library granularity
+(`import cycle between libraries: a.thera → b/ → a.thera`); **every**
+participating import is flagged — exactly the set of places an edit can break
+the cycle. A test file (`foo_test.thera`) is a _consumer_ of the libraries it
+imports, not a member: its imports don't participate in the graph (`std.testing`
+importing `std.env` while `env_test.thera` imports `std.testing` closes no
+cycle). Loading still links a cyclic closure best-effort — names resolve,
+downstream diagnostics stay real — but the error gates compile/run like any
+other.
 
 **A directory library's files are importable only from inside it.** From
 anywhere else, the one importable surface is the barrel — reached by directory
 path (`import 'lexer'`) or barrel-file path (`import 'lexer/lexer'`), the same
-file either way; importing any *other* file inside the directory
-(`import 'lexer/token'`) is a check error at the import (`… resolves inside
-the library 'lexer/'; import its barrel instead`). This is what makes the
-barrel a library's one API: whatever internals an outsider needs, the barrel
-re-exports (`pub import`). The rule is the same for every importer — a test
-file's white-box access rides the same-directory `foo_test.thera` convention,
-which sibling imports already cover. A directory *without* a barrel is not a
-library, just a folder of independent single-file libraries, each freely
-importable — so a program root of loose files needs no barrel, and a
+file either way; importing any _other_ file inside the directory
+(`import 'lexer/token'`) is a check error at the import
+(`… resolves inside the library 'lexer/'; import its barrel instead`). This is
+what makes the barrel a library's one API: whatever internals an outsider needs,
+the barrel re-exports (`pub import`). The rule is the same for every importer —
+a test file's white-box access rides the same-directory `foo_test.thera`
+convention, which sibling imports already cover. A directory _without_ a barrel
+is not a library, just a folder of independent single-file libraries, each
+freely importable — so a program root of loose files needs no barrel, and a
 single-file library (`source.thera`) can later become a directory library
 (`source/source.thera` plus siblings) without changing a single importer.
 
@@ -1204,8 +1205,8 @@ import 'util/strings'     // → <same dir>/util/strings.thera
 The `.thera` extension is always implied and must not be written in the import
 path. A path may climb out of the importing file's directory with `..` segments
 (`import '../diagnostic'`) — paths are lexically normalized (`.`/`..`
-collapsed), so every file has one identity however it is reached. Absolute
-paths are not supported.
+collapsed), so every file has one identity however it is reached. Absolute paths
+are not supported.
 
 **A path may resolve to a file or to a directory.** For a path `P` (after
 anchoring as above): if `P.thera` exists it is the library; otherwise, if `P/`
@@ -1374,10 +1375,10 @@ first match; failing all steps is a located error.
   through the receiver or type — its static type and visible `impl`s — not a
   namespace. Interface references (an `impl I for T`, a super-interface, a
   `<T: I>` bound) resolve in their declaring file's scope — bare names by the
-  bare-type algorithm, or qualified (`impl io.Reader for T`,
-  `<S: io.Reader>`, `interface A: ns.B`) through the namespace like a `ns.T`
-  annotation — and interface **identity** is the resolved declaration (owner +
-  name), so two libraries' same-named interfaces never entangle. See
+  bare-type algorithm, or qualified (`impl io.Reader for T`, `<S: io.Reader>`,
+  `interface A: ns.B`) through the namespace like a `ns.T` annotation — and
+  interface **identity** is the resolved declaration (owner + name), so two
+  libraries' same-named interfaces never entangle. See
   [Interfaces](#interfaces).
 
 Qualification therefore applies to **free functions, consts, and type names** —
@@ -1846,10 +1847,9 @@ A type parameter may require interfaces of its instantiations: `<T: Display>`,
 `+`-joined for several (`<T: Eq + Debug>`). A bound may name an imported
 interface qualified, like any type reference (`<S: io.Reader + io.Writer>`).
 Bounds are **enforced where the parameter is instantiated** — at the call site
-for a function's type parameters,
-and wherever a concrete type argument is supplied for a bounded
-struct/enum/interface parameter (a struct literal, an annotation, an explicit
-type argument):
+for a function's type parameters, and wherever a concrete type argument is
+supplied for a bounded struct/enum/interface parameter (a struct literal, an
+annotation, an explicit type argument):
 
 ```thera
 fn show_all<T: Display>(_ xs: List<T>) -> Void {

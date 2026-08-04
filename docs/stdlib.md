@@ -802,12 +802,11 @@ over the provisional `std.net` — and the client now speaks **`https`**,
 verifying the chain and host name against the bundled roots
 ([http-tls.md](http-tls.md), complete). A certificate that doesn't verify is an
 `HttpError.Tls`, distinct from `Connect` because retrying won't fix it. The
-codec **streams a response body** (`Wire.stream_response`, whose body is an
-`io.Reader`), and **`std.http.sse`** decodes a `text/event-stream` over any
-reader — [http-streaming.md](http-streaming.md) stages 1 and 2. Still deferred:
-redirect following, connection pooling, a **client**-level streaming entry point
-(that plan's stage 3), and **server**-side TLS (a simple server's TLS is
-terminated upstream)._
+client **streams a response body** (`http.stream` / `http.with_stream`, whose
+body is an `io.Reader`), and **`std.http.sse`** decodes a `text/event-stream`
+over any reader. Still deferred: redirect following, connection pooling,
+streaming **request** bodies, and **server**-side TLS (a simple server's TLS is
+terminated upstream, and a handler still returns a complete `Response`)._
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
 are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both
@@ -819,21 +818,21 @@ The **client** lives in `std.http`; the **simple server** is a sibling,
 so "the server is its own surface" stays explicit). **As laid out today that
 import does not resolve**, and the server is reachable only from inside the
 directory: `server.thera` is a plain file inside the `std/http` directory
-library, so `import std.http.server` is a check error (`… resolves inside the
-library 'std/http/'; import its barrel instead`) — which is why its only callers
-are the sibling test files. The fix is mechanical, and is the layout
-`std.http.sse` already uses: a file that is meant to be its own public surface
-needs its own directory and barrel (`std/http/server/server.thera`). Tracked in
-the roadmap's _Networking punchlist_. Lightweight servers — a
-webhook receiver, a local endpoint, a health check — are common enough in
-agent/CLI tooling to deserve a built-in answer. **The line: bind + handle (a
-handler function, plus a tiny built-in path matcher) is core; routing DSLs,
-middleware stacks, and enterprise servers are ecosystem.** The server can land
-**plaintext-HTTP/1.1 first** — a simple server's TLS is usually terminated
-upstream (a reverse proxy), so it is _not_ gated on the client's TLS native and
-can ship alongside or ahead of it. Its accept loop is also one of the real I/O
-clients that should **drive** the `std.fiber` API design before that surface is
-frozen (see § `std.fiber`).
+library, so `import std.http.server` is a check error
+(`… resolves inside the library 'std/http/'; import its barrel instead`) — which
+is why its only callers are the sibling test files. The fix is mechanical, and
+is the layout `std.http.sse` already uses: a file that is meant to be its own
+public surface needs its own directory and barrel
+(`std/http/server/server.thera`). Tracked in the roadmap's _Networking
+punchlist_. Lightweight servers — a webhook receiver, a local endpoint, a health
+check — are common enough in agent/CLI tooling to deserve a built-in answer.
+**The line: bind + handle (a handler function, plus a tiny built-in path
+matcher) is core; routing DSLs, middleware stacks, and enterprise servers are
+ecosystem.** The server can land **plaintext-HTTP/1.1 first** — a simple
+server's TLS is usually terminated upstream (a reverse proxy), so it is _not_
+gated on the client's TLS native and can ship alongside or ahead of it. Its
+accept loop is also one of the real I/O clients that should **drive** the
+`std.fiber` API design before that surface is frozen (see § `std.fiber`).
 
 ```
 pub struct Request { let method: String; let url: String;
@@ -843,6 +842,20 @@ pub struct Response { let status: Int; let headers: Map<String, String>; let bod
 pub fn get(_ url: String, headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
 pub fn post(_ url: String, body: Bytes, headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
 pub fn send(_ request: Request) -> Result<Response, HttpError>;
+
+// Streaming: return once the head is in, body still on the wire. `send` is this
+// plus a capped read plus the close, so the two paths cannot drift.
+pub struct Stream { let status: Int; let headers: Map<String, String>;
+                    let body: BodyReader; /* + the connection it owns */ }
+impl Stream {
+    pub fn is_ok(self) -> Bool;
+    pub fn close(self) -> Result<Void, Error>;   // caller's job; twice is an Err
+}
+pub fn stream(_ request: Request) -> Result<Stream, HttpError>;
+// Leak-proof: closes on every path out, including an early `?` inside.
+pub fn with_stream<T>(_ request: Request,
+                      handle handler: (Stream) -> Result<T, Error>)
+    -> Result<T, Error>;
 
 impl Response {
     pub fn text(self) -> Result<String, Error>;
@@ -854,7 +867,11 @@ pub enum HttpError { Connect(String), Timeout, Status(Int), Body(String),
 ```
 
 Notes: TLS is provided by a runtime native (not reimplemented in Thera).
-Streaming bodies use `std.io.Reader`.
+Streaming bodies use `std.io.Reader`, as sketched — a `Stream`'s body is one, so
+`io.read_all`, `io.copy`, `io.lines` and `sse.events` all drive it. Note the
+asymmetry that buys: a buffered body is capped at `MAX_BODY_BYTES` and a
+streamed one is not, because bounding a body you are not assembling is the
+caller's call.
 
 **The simple server (`std.http.server`).** One fiber per connection over the
 scheduler; the handler is an ordinary function returning a `Response`. Errors
@@ -918,8 +935,12 @@ As-built notes, none of them visible from the sketch above:
 framing, decoded into events, over any `io.Reader` — in practice a streaming
 response body. Every GenAI API streams tokens this way, the framing is small and
 fiddly and identical for all of them, so it belongs in one tested place rather
-than in each client. Design and staging in
-[http-streaming.md](http-streaming.md).
+than in each client.
+
+**It does not reconnect.** The spec's last-event-id and `retry` machinery exists
+to resume a dropped stream, and the streams this is for are not resumable — a
+dropped model completion is restarted, not continued. Both values are parsed and
+handed over; acting on them is the caller's decision.
 
 ```
 pub struct Event { let name: String;          // `event:`, or 'message' by default
@@ -943,16 +964,24 @@ implementation is wrong:
   `[DONE]` and Anthropic's `event: message_stop` are conventions of those APIs,
   not of the format, and neither appears here.
 - **`id` is on the event, `retry` is on the decoder.** Both are stream state per
-  the spec (an `id:` is *not* cleared between records, so it rides along on
+  the spec (an `id:` is _not_ cleared between records, so it rides along on
   every later event), but a record carrying only `retry:` dispatches **no event
   at all** — as a field of `Event` the value would have nowhere to go.
 - **A blank line dispatches, and a record with no `data` dispatches nothing.**
   So a stream that ends mid-record yields no final event, rather than half a
   payload.
 
-Deliberate gap: a lone `\r` as a line terminator, which the spec allows and no
-real server emits. Reusing `io.lines` (LF and CRLF) is what keeps the decode
-incremental; see that plan's open questions for why the cheap fix isn't one.
+Deliberate gap: **a lone `\r` as a line terminator**, which the spec allows and
+no real server emits. Reusing `io.lines` (LF and CRLF) is what keeps the decode
+incremental, and the cheap fix is not one — with bare CRs `io.lines` yields
+nothing until an LF or end-of-stream, so a _live_ CR-delimited stream would
+block whatever we did afterwards. A real fix is a CR-or-LF splitter with its own
+buffering, duplicating `io.BufReader` for a terminator nothing emits; if it is
+ever needed it belongs here, not in `io.lines`.
+
+A second gap on the read path, shared with the buffered codec: **a chunked
+body's trailer block is read and discarded.** Nothing needs it (trailers carry
+checksums and post-hoc metadata), but a caller cannot see one.
 
 ### `std.log` — named, per-source logging _(implemented)_
 
@@ -1260,19 +1289,18 @@ So the boundary is explicit (and so an agent knows where to look):
 
   A **provisional** `std.net` does exist — TCP `listen`/`accept`/`connect` plus
   a `TcpStream` that is a `Reader`+`Writer`+`Closer`, and a `TlsStream` that is
-  the same thing over a verified TLS session (`connect_tls`; client-side only, no
-  `TlsListener`) — but only as the layer `std.http` is built on, and only as much
-  of it as HTTP needs (no UDP, no deadlines, no half-close, no socket
-  options). It is documented in its
-  own module header as expected to change, and is **not** a committed surface:
-  treat it as internal until this entry says otherwise. Promoting it is the
-  natural pivot if the demand shows up — and the demand to watch for is
-  specific, because natives are bound by name in the runtime with **no FFI path
-  for third-party packages**: until `std.net` is committed, "other network
-  protocols → ecosystem" is aspirational, since nobody outside this repo can
-  build a WebSocket, Redis, or Postgres client without it. The first real
-  non-HTTP protocol need is the forcing function; the same "pivot when
-  demonstrated, not speculatively" rule as TOML above applies.
+  the same thing over a verified TLS session (`connect_tls`; client-side only,
+  no `TlsListener`) — but only as the layer `std.http` is built on, and only as
+  much of it as HTTP needs (no UDP, no deadlines, no half-close, no socket
+  options). It is documented in its own module header as expected to change, and
+  is **not** a committed surface: treat it as internal until this entry says
+  otherwise. Promoting it is the natural pivot if the demand shows up — and the
+  demand to watch for is specific, because natives are bound by name in the
+  runtime with **no FFI path for third-party packages**: until `std.net` is
+  committed, "other network protocols → ecosystem" is aspirational, since nobody
+  outside this repo can build a WebSocket, Redis, or Postgres client without it.
+  The first real non-HTTP protocol need is the forcing function; the same "pivot
+  when demonstrated, not speculatively" rule as TOML above applies.
 
 - **Databases / SQLite** → ecosystem.
 - **Full cryptography / TLS primitives, signing** → ecosystem (digests +

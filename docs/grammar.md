@@ -117,16 +117,17 @@ stays an ordinary identifier everywhere else.
 
 Three quotes open a **text block**, where the indentation that keeps the source
 readable is not part of the value. Escapes and `${…}` work exactly as in an
-ordinary string; only whitespace handling differs. The content starts on the line
-after the opening delimiter (only whitespace may follow it — anything else is an
-error). The **margin** stripped from every line is the smallest indentation
-across the non-blank content lines *and* the closing delimiter's own line, so
-lining the closing `'''` up where the left edge belongs is how the margin is
-said; a line indented less than the closer simply lowers it. Trailing whitespace
-is dropped per line, keeping the value independent of invisible characters —
-`\x20` forces one that's meant. A closing delimiter on its own line supplies the
-final newline; on a content line it ends the value there. Indentation is measured
-on source characters, so a leading `\t` escape is content, not margin.
+ordinary string; only whitespace handling differs. The content starts on the
+line after the opening delimiter (only whitespace may follow it — anything else
+is an error). The **margin** stripped from every line is the smallest
+indentation across the non-blank content lines _and_ the closing delimiter's own
+line, so lining the closing `'''` up where the left edge belongs is how the
+margin is said; a line indented less than the closer simply lowers it. Trailing
+whitespace is dropped per line, keeping the value independent of invisible
+characters — `\x20` forces one that's meant. A closing delimiter on its own line
+supplies the final newline; on a content line it ends the value there.
+Indentation is measured on source characters, so a leading `\t` escape is
+content, not margin.
 
 ### Operators & punctuation
 

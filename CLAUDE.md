@@ -69,6 +69,10 @@ change). No external toolchain.
 `bin/test.sh` runs everything: cargo tests, the `pkgs/cli` and `sdk/std` @test
 suites, and the examples.
 
+`bin/fmt_docs.sh` formats every tracked `*.md` (prettier, per `.prettierrc`);
+`--check` reports without writing. Needs node, which is why it is a convention
+rather than part of `bin/test.sh`.
+
 `bin/build_sdk.sh` assembles the SDK in `build/sdk/`: `bin/thera` (the
 runtime) + `bin/inc/frontend.thera-bc` (the compiled front-end, loaded from
 there at runtime)
@@ -88,6 +92,11 @@ there at runtime)
 - Keep every change `cargo test` / `cargo clippy` / `cargo fmt --check` clean.
 - Work in small, self-contained increments, each with tests.
 - Match the surrounding code's style and comment density.
+- **Markdown is formatted by `bin/fmt_docs.sh`** — run it after editing any
+  `*.md`, and don't hand-wrap prose or count columns; that is the script's job.
+  It reformats whole files, so it may tidy lines you didn't touch: **leave those
+  changes in.** Don't revert them, and never reflow markdown by hand or with an
+  ad-hoc script — the one time that was tried it destroyed a table.
 - Perform work in new branches (no commits to main).
 - Each PR should be focused on a single task, feature, or arc of work.
 - PR descriptions should be brief; a summary sentence or two, the main items in

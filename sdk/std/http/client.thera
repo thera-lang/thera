@@ -166,20 +166,110 @@ pub fn post(
 /// reuse, and **no redirect following** — a 3xx comes back as itself, for the
 /// caller to act on. A 4xx or 5xx is likewise a perfectly good `Response`, not an
 /// error; `HttpError` is for exchanges that did not happen.
+///
+/// The body is read into memory, capped at `wire.MAX_BODY_BYTES`. This is `stream`
+/// plus that read plus the close — so for a body that should not be held whole, use
+/// `stream` directly.
 pub fn send(_ request: wire.Request) -> Result<wire.Response, wire.HttpError> {
+    let open = stream(request)?;
+    // Written as one expression so there is a single `close` below, on every path,
+    // rather than one per early return.
+    let outcome = match open.body.buffered() {
+        Ok(body) => Result.Ok(wire.Response {
+            status: open.status,
+            headers: open.headers,
+            body: body,
+        }),
+        Err(e) => Result.Err(e),
+    };
+    let _ = open.close();
+    return outcome;
+}
+
+// --- streaming ---
+
+/// A response whose connection is **still open**: the head has arrived, and the body
+/// is being read off the wire as it comes.
+///
+/// The client's counterpart to `wire.ResponseStream`, which is the codec's version
+/// of the same idea. The difference is the last field: this one **owns the
+/// connection**, and so has to be closed.
+pub struct Stream {
+    let status: Int;
+    let headers: Map<String, String>;
+    let body: wire.BodyReader;
+    let conn: io.Closer;
+}
+
+impl Stream {
+    /// Whether the status is 2xx.
+    pub fn is_ok(self) -> Bool {
+        return self.status >= 200 && self.status < 300;
+    }
+
+    /// Close the connection — after reading the body, or early if you have stopped
+    /// caring about the rest of it.
+    ///
+    /// **Always call it.** Thera has no destructors, so nothing else will: a `Stream`
+    /// that goes out of scope unclosed is a leaked descriptor, and a retry loop that
+    /// leaks one per attempt runs the process out of them. `with_stream` is the
+    /// spelling that cannot forget.
+    ///
+    /// Closing twice is an `Err`, not a crash — the runtime refuses a close on a
+    /// connection it no longer has. So `let _ = s.close()` is the right spelling
+    /// anywhere the close might be redundant.
+    pub fn close(self) -> Result<Void, Error> {
+        return self.conn.close();
+    }
+}
+
+/// Send `request` and return as soon as the response **head** has arrived, with the
+/// body still on the wire.
+///
+/// For a body that should be consumed as it comes — a `text/event-stream` (see
+/// `std.http.sse`), a download too large to hold. `send` is the right call for
+/// everything else: it buffers, which is what almost every caller wants, and being
+/// buffered is what lets it be capped.
+///
+/// **The connection stays open until the returned `Stream` is closed**, and closing
+/// it is the caller's job. Prefer `with_stream`, which does it on every path out.
+pub fn stream(_ request: wire.Request) -> Result<Stream, wire.HttpError> {
     let url = parse_url(request.url)?;
-    // The scheme picks the stream type; `exchange` is generic over both, so each
-    // arm is just "connect, then hand it over".
+    // The scheme picks the stream type; `open` is generic over both, so each arm is
+    // just "connect, then hand it over".
     if url.scheme == 'https' {
         return match net.connect_tls(url.host, url.port) {
-            Ok(conn) => exchange(conn, request, url),
+            Ok(conn) => open(conn, request, url),
             Err(e) => Result.Err(connect_error(e)),
         };
     }
     return match net.connect(url.host, url.port) {
-        Ok(conn) => exchange(conn, request, url),
+        Ok(conn) => open(conn, request, url),
         Err(e) => Result.Err(connect_error(e)),
     };
+}
+
+/// Stream `request`, hand the open `Stream` to `handler`, and **close it on the way
+/// out — every way out**, including an early `?` inside the callback.
+///
+/// The leak-proof spelling, and the one to reach for unless the stream genuinely has
+/// to outlive the call:
+///
+/// ```thera
+/// let count = http.with_stream(req, handle: (s) => {
+///     let mut n = 0;
+///     for ev in sse.events(s.body) { n = n + 1; }
+///     return Result.Ok(n);
+/// })?;
+/// ```
+pub fn with_stream<T>(
+    _ request: wire.Request,
+    handle handler: (Stream) -> Result<T, Error>,
+) -> Result<T, Error> {
+    let open = stream(request)?;
+    let outcome = handler(open);
+    let _ = open.close();
+    return outcome;
 }
 
 /// A failure to establish the connection, as an `HttpError`. Only the TLS cause
@@ -192,19 +282,21 @@ fn connect_error(_ e: net.NetError) -> wire.HttpError {
     };
 }
 
-/// One request/response over an open connection, which is **closed on the way
-/// out** either way: the response body is already in memory by then, and leaking
-/// the descriptor on the error path is how a retry loop runs a process out of
-/// them.
+/// Write `request` on `conn` and read the head back, leaving the body on the wire.
 ///
-/// Generic over the stream rather than taking a `net.TcpStream`, which is what
-/// lets `https` and `http` share it — the codec's two halves are separately
+/// Generic over the stream rather than taking a `net.TcpStream`, which is what lets
+/// `https` and `http` share it — the codec's two halves are separately
 /// interface-typed, so the bound names both roles plus the close.
-fn exchange<S: io.Reader + io.Writer + io.Closer>(
+///
+/// **Ownership of `conn` transfers on success** and only on success: a `Stream`
+/// closes it when the caller says so, but nothing owns it yet on the failure path,
+/// so that path closes it here. Leaking the descriptor when a request fails is
+/// exactly how a retry loop runs a process out of them.
+fn open<S: io.Reader + io.Writer + io.Closer>(
     _ conn: S,
     _ request: wire.Request,
     _ url: Url,
-) -> Result<wire.Response, wire.HttpError> {
+) -> Result<Stream, wire.HttpError> {
     let sent = wire.Request {
         method: request.method,
         // The request line carries the path, not the whole URL (that form is for
@@ -213,18 +305,26 @@ fn exchange<S: io.Reader + io.Writer + io.Closer>(
         headers: outbound_headers(request.headers, url),
         body: request.body,
     };
-    // Written as one expression so there is a single `close` below, on every path,
-    // rather than one per early return.
-    let outcome = match wire.write_request(to: conn, sent) {
+    let head = match wire.write_request(to: conn, sent) {
         // A HEAD response describes a body it does not send; nothing on the wire
         // says so, so the reader has to be told.
         Ok(_) => wire.Wire
             .new(conn)
-            .read_response(to_head: request.method.to_uppercase() == 'HEAD'),
+            .stream_response(to_head: request.method.to_uppercase() == 'HEAD'),
         Err(e) => Result.Err(wire.HttpError.Connect(e.message())),
     };
-    let _ = conn.close();
-    return outcome;
+    return match head {
+        Ok(r) => Result.Ok(Stream {
+            status: r.status,
+            headers: r.headers,
+            body: r.body,
+            conn: conn,
+        }),
+        Err(e) => {
+            let _ = conn.close();
+            Result.Err(e)
+        },
+    };
 }
 
 /// The caller's headers plus the ones the transport owns. Caller-set values win,

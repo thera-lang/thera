@@ -123,34 +123,38 @@ interface from another library — which has since been fixed (qualified bounds
 and super-interfaces both resolve through the namespace now; see the roadmap's
 _Changelog_). Worth recording because Arc 2 would have hit it on day one: a
 typed client is generic code over `std` interfaces, and that was exactly the
-combination that didn't compile. The http client now reads
-`fn exchange<S: io.Reader + io.Writer + io.Closer>`.
+combination that didn't compile. The http client's one connect-and-write path is
+now `fn open<S: io.Reader + io.Writer + io.Closer>` — spelled `exchange` when it
+first consumed the fix, before item 2 made it the streaming entry point.
 
-### 2. Streaming responses and SSE — **in flight**
+### 2. Streaming responses and SSE — **done, graduated**
 
-**Problem.** Token streaming is the default interaction mode for every GenAI API
-— a client that can only await a complete response is a toy for the flagship use
-case. Server-sent events are the transport all three of Anthropic, OpenAI, and
-Gemini use for it. **Today.** The codec streams: `Wire.stream_response` returns
-the head with the body left on the wire as an `io.Reader`, and the buffered
-`read_response` — still the common case, still capped at `MAX_BODY_BYTES` — is
-that plus a drain. **Direction.** Three layers, each independently useful, now
-planned and staged in [http-streaming.md](http-streaming.md): (a) the streaming
-response body, **done**; (b) an **SSE framing layer** over that reader, landing
-as its own `std.sse` library, since the format's only dependency is `std.io`;
-(c) a **typed event stream** — the framing layer yields raw events; the client
-decodes each into its own event enum. `Iterator<T>` and the lazy-iteration arc
-have landed, so the natural shape is `Iterator<Event>`; fibers + `channel` make
-a producer/consumer shape equally available. Which one a client should expose is
-an Arc 2 question (see § the client-shape checklist).
+Token streaming is the default interaction mode for every GenAI API, and
+server-sent events are the transport all three of Anthropic, OpenAI, and Gemini
+use for it — so a client that could only await a complete response was a toy for
+the flagship use case. It isn't one now: `http.stream(request)` returns once the
+head is in, with the body as an `io.Reader`, and `std.http.sse` decodes a
+`text/event-stream` off it event by event. `send` is that plus a capped read
+plus the close, so the buffered and streaming paths cannot drift. The API
+surface is in [stdlib.md](stdlib.md) § `std.http`; what the three stages settled
+is in the roadmap's _Changelog_.
 
-**One correction to the above**, worth carrying because it is the kind of
-mistake that gets baked into a framing layer: the `[DONE]` sentinel is _not_
-part of SSE. It is an OpenAI convention, and Anthropic doesn't use it — its
-stream terminates with `event: message_stop`. So `[DONE]` belongs to layer (c),
-per API, and the framing layer must not know about it. **Status.** Stage 1 of
-three has landed; the client surface (who closes a connection held open by a
-stream) is the one real design question left, and it is not in the codec.
+Two things from it that this document had wrong, both worth carrying because
+they are the kind of mistake that gets baked in:
+
+- **The `[DONE]` sentinel is not part of SSE.** It is an OpenAI convention, and
+  Anthropic doesn't use it — its stream terminates with `event: message_stop`.
+  So it belongs to layer (c), per API, and the framing layer does not know it.
+- **SSE landed as `std.http.sse`, not a top-level `std.sse`.** The format
+  depends only on `std.io`, but an event stream is always something an HTTP body
+  delivers, and the top-level namespace shouldn't grow a name per format riding
+  on one.
+
+**What's left is layer (c), the typed event stream**, and it is Arc 2's: the
+framing layer yields `Iterator<Event>` with `data` as a `String`, and turning
+that into an API's own event enum needs that API's schema. Choosing between an
+iterator, a fiber `channel`, and a callback is one line on § the client-shape
+checklist; all three are buildable over an `Iterator<Event>`.
 
 ### 3. Typed JSON — structs in, structs out
 
@@ -218,7 +222,14 @@ timeout distinct from per-connection; redirects and keep-alive as independent
 follow-ons. Where this lives is a real question: a shared `std.http` retry
 policy, or per-client logic the generator emits? **Shared** is the better answer
 — retry behavior is not API-specific and should not be duplicated N times.
-**Status.** Open. Retry is required for Arc 2; pooling and redirects are not.
+
+One timeout shape the streaming work surfaced and left here: the useful bound on
+a token stream is **"no event for N seconds"**, not "the whole stream within N
+seconds", and `fiber.with_timeout` only gives the latter. It also has to treat
+an SSE keep-alive comment as liveness — a comment produces no event but does
+mean the peer is alive, so a per-event clock that ignores comments would cancel
+a healthy stream. **Status.** Open. Retry is required for Arc 2; pooling and
+redirects are not.
 
 ### 6. Auth and secrets
 
@@ -450,12 +461,12 @@ streaming work, in parallel with Arc 3.
 2. **Arc 2, non-streaming.** Messages + count_tokens + models, hand-written.
    Forces items 3 (typed JSON), 4 (forward compat), 5 (retry), 6 (auth) into the
    open in the order a caller meets them.
-3. **Arc 1 item 2 — streaming + SSE**; then streaming Messages. Arc 1 item 8
-   (hermetic tests) lands alongside, on TLS stage 5. _In practice this started
-   before step 2 rather than after it, and the ordering argument survives: the
-   part a client was supposed to drive is layer (c), the typed event stream,
-   which [http-streaming.md](http-streaming.md) leaves to Arc 2 for exactly that
-   reason. Layers (a) and (b) are protocol, not API._
+3. ~~**Arc 1 item 2 — streaming + SSE**~~ — **done**, and done _before_ step 2
+   rather than after it. The ordering argument survived: the part a client was
+   supposed to drive is layer (c), the typed event stream, which was
+   deliberately left to Arc 2 for exactly that reason. Layers (a) and (b) are
+   protocol, not API. Streaming Messages and Arc 1 item 8 (hermetic tests, on
+   TLS stage 5) still belong with step 2.
 4. **The spec survey.** Cheap, and it sets Arc 3's construct priority — so it
    pays for itself before Arc 3 starts rather than after.
 5. **Arc 3 v1**, acceptance-tested by regenerating Anthropic and diffing against

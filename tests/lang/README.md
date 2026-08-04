@@ -1,15 +1,15 @@
 # Language conformance tests
 
-These tests pin Thera's **specification** (the `docs/` reference), as distinct from
-the `*_test.thera` suites in `pkgs/cli` and `sdk/std`, which test the
+These tests pin Thera's **specification** (the `docs/` reference), as distinct
+from the `*_test.thera` suites in `pkgs/cli` and `sdk/std`, which test the
 implementation behaviorally. A conformance test asserts what a documented
-language feature *should* do — including features the implementation does not yet
-provide (see [xfail](#expected-failures-xfail)).
+language feature _should_ do — including features the implementation does not
+yet provide (see [xfail](#expected-failures-xfail)).
 
-Each test is a real `.thera` file whose expectations live in comments, so the test
-and its oracle are a single artifact you can also just run by hand
-(`thera run <file>` / `thera check <file>`). They are grouped into subdirectories
-by spec area (`expressions/`, `control_flow/`, `errors/`, …).
+Each test is a real `.thera` file whose expectations live in comments, so the
+test and its oracle are a single artifact you can also just run by hand
+(`thera run <file>` / `thera check <file>`). They are grouped into
+subdirectories by spec area (`expressions/`, `control_flow/`, `errors/`, …).
 
 The harness is [`tests/lang_runner.thera`](../lang_runner.thera); `bin/test.sh`
 runs it.
@@ -47,30 +47,31 @@ let y = nums[9];         // expect trap: out of range    (run)   the program tra
   expectations compose with the stdout check: `// expect exit: <n>` asserts the
   exact process exit code, and `// expect stderr: <text>` asserts a substring on
   stderr (e.g. for an `Err` returned from `main`).
-- **`check`** mode requires every `// expect error:` to match a diagnostic on its
-  line **and** every emitted diagnostic to be expected — a surprise error fails
-  the test.
+- **`check`** mode requires every `// expect error:` to match a diagnostic on
+  its line **and** every emitted diagnostic to be expected — a surprise error
+  fails the test.
 
 ## Expected failures (xfail)
 
 `xfail` lets the spec run ahead of the implementation: write the test the spec
 implies, mark it `xfail` with the reason, and the gap becomes a tracked signal.
 
-| State                              | Outcome  | Suite |
-| ---------------------------------- | -------- | ----- |
-| `xfail`, fails as expected         | `XFAIL`  | green |
-| `xfail`, **unexpectedly passes**   | `XPASS`  | red   |
-| not `xfail`, fails                 | `FAIL`   | red   |
+| State                            | Outcome | Suite |
+| -------------------------------- | ------- | ----- |
+| `xfail`, fails as expected       | `XFAIL` | green |
+| `xfail`, **unexpectedly passes** | `XPASS` | red   |
+| not `xfail`, fails               | `FAIL`  | red   |
 
 An `XPASS` fails the suite on purpose: it means the feature landed, so the
 `//! xfail:` marker should be deleted and the test promoted to required.
 
 ## Support files (multi-file tests)
 
-A `.thera` file with **no `//!` directive block** is treated as a *support file*,
-not a test: the harness skips running it directly. This is how a multi-file test
-(e.g. an import or white-box-visibility test) ships the library it imports — the
-test file carries the `//!` header and `import`s its sibling support file.
+A `.thera` file with **no `//!` directive block** is treated as a _support
+file_, not a test: the harness skips running it directly. This is how a
+multi-file test (e.g. an import or white-box-visibility test) ships the library
+it imports — the test file carries the `//!` header and `import`s its sibling
+support file.
 
 ## Running
 
@@ -78,8 +79,8 @@ test file carries the `//!` header and `import`s its sibling support file.
 thera run tests/lang_runner.thera <thera-cmd> <test-root> [coverage-map]
 ```
 
-`<thera-cmd>` is the `thera` launcher under test (`bin/thera.sh` in the dev tree);
-`<test-root>` is this directory. `bin/test.sh` wires this up.
+`<thera-cmd>` is the `thera` launcher under test (`bin/thera.sh` in the dev
+tree); `<test-root>` is this directory. `bin/test.sh` wires this up.
 
 ## Coverage report
 
@@ -92,7 +93,8 @@ coverage: 70/72 spec IDs have a test
   untested (2): entry-main-err, vis-whitebox-test
 ```
 
-- **untested** registered IDs are informational (some are intentionally unpinned).
+- **untested** registered IDs are informational (some are intentionally
+  unpinned).
 - An ID a test cites that is **not** registered in the map (a typo or a missing
   map entry) is an error and fails the run — keeping citations and the map in
   sync.

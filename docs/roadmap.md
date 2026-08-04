@@ -60,10 +60,10 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 - **Stdlib breadth — remaining.** Of the "batteries included" goal, what's left:
   sorted/`Ord`-keyed `Set`/`Map` variants. **TLS for `std.http` has landed** —
   the client speaks `https`, chain- and host-verified; see _Networking
-  punchlist_ for the one remaining stage, the hermetic test loop.
-  Everything else in the staples arc — the collection/string/bytes
-  staples, `std.encoding`/`std.hash`/`std.regex`/`std.log`/`std.term`/`std.http`
-  (over the provisional `std.net`), and the lazy iteration arc (`Iterator<T>` +
+  punchlist_ for the one remaining stage, the hermetic test loop. Everything
+  else in the staples arc — the collection/string/bytes staples,
+  `std.encoding`/`std.hash`/`std.regex`/`std.log`/`std.term`/`std.http` (over
+  the provisional `std.net`), and the lazy iteration arc (`Iterator<T>` +
   adapters, `io.lines`/`BufReader`, `fs.walk`, streaming `File`s,
   `List.enumerate()`) — has landed; see _Changelog_.
   - **`zip` iterator adapter** (and `flat_map`/`chain`, the other wrapped
@@ -483,8 +483,8 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 - **Reflowing doc comments — the prose half of the formatter.** `thera fmt`
   normalizes code layout but never touches comment text, so `///` prose is
   hand-wrapped and drifts. A follow-on to the canonical-formatter arc (see
-  _Reflowing formatter_): rewrap `///` / `//!` runs to the same
-  margin the code uses.
+  _Reflowing formatter_): rewrap `///` / `//!` runs to the same margin the code
+  uses.
 
   **It needs its own guard, and the existing one does not cover it.** The
   formatter's safety check is token equality, and **comments are not in the
@@ -492,16 +492,16 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   ([lexer.thera](../pkgs/cli/lexer/lexer.thera)), so `same_tokens` says nothing
   about them. That is benign today (no pass touches comment text) but it means
   reflowing prose would be unguarded. The invariant to add is **normalized prose
-  equality**: strip the `///` prefixes and collapse whitespace on both sides, and
-  require the text to match. Note this also means doc-comment reflow was never
-  blocked by the whitespace-only contract — the two are independent.
+  equality**: strip the `///` prefixes and collapse whitespace on both sides,
+  and require the text to match. Note this also means doc-comment reflow was
+  never blocked by the whitespace-only contract — the two are independent.
 
   **What must not be rewrapped**, and the reason this is a real pass rather than
   a word-wrap loop:
-  - **Fenced code blocks.** A ```` ```thera ```` block is source, not prose.
-    This interlocks with _Verify the code snippets in docs_ below, which wants
-    those same fences extracted and compiled — both features need one
-    fence-detector, so build it once.
+  - **Fenced code blocks.** A ` ```thera ` block is source, not prose. This
+    interlocks with _Verify the code snippets in docs_ below, which wants those
+    same fences extracted and compiled — both features need one fence-detector,
+    so build it once.
   - **Lists, tables, and indented examples**, where the line structure is the
     content.
   - **Ordinary `//` comments — scope call.** Doc comments have a defined shape;
@@ -587,7 +587,7 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   the irreducible column is lines dominated by one long string literal, and
   unbroken is the rest of what stayed over the margin.
 
-  | width | lines  | vs 100 | irreducible | unbroken | split groups | crowding margin | code p90 |
+  | width |  lines | vs 100 | irreducible | unbroken | split groups | crowding margin | code p90 |
   | ----: | -----: | -----: | ----------: | -------: | -----------: | --------------: | -------: |
   |    80 | 64,689 | +10.4% |         357 |       90 |       11,705 |           1,375 |       64 |
   |    88 | 61,613 |  +5.2% |         226 |       31 |       10,775 |             836 |       68 |
@@ -598,7 +598,6 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   |    98 | 59,060 |  +0.8% |         130 |       19 |        9,988 |             516 |       71 |
   |   100 | 58,576 |      — |         116 |       19 |        9,840 |             518 |       72 |
   |   110 | 57,637 |  −1.6% |          64 |       15 |        9,568 |             145 |       73 |
-
   - **There is no knee between 88 and 110.** Every column decays smoothly; the
     per-column line cost drifts from ~380 at the narrow end to ~100 at the wide
     end with no step anywhere. So the corpus does not pick a number, and any
@@ -624,8 +623,8 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   already formatted to (any change is another ~5,000-line sweep), it is what
   [language.md](language.md#style) already tells authors, and it is where the
   statically-typed cluster sits — rustfmt, google-java-format, swift-format and
-  ktfmt all default to 100, and the Linux kernel moved 80 → 100 in 2020.
-  Thera's shape is that cluster's: qualified paths and generic types like
+  ktfmt all default to 100, and the Linux kernel moved 80 → 100 in 2020. Thera's
+  shape is that cluster's: qualified paths and generic types like
   `Map<String, Map<String, LibraryNamespace>>` are what consume the columns.
 
   - Context, unchanged by the study: enforced formatters split into a **~80
@@ -866,7 +865,8 @@ findings recorded.
 resolve through the namespace like every other interface position — see
 _Changelog_. The follow-up is done too: the http client's duplicated read/write
 paths are now one `fn exchange<S: io.Reader + io.Writer + io.Closer>`, which
-also let `send` shrink to a scheme branch over two connect calls.
+also let `send` shrink to a scheme branch over two connect calls. (Since renamed
+to `open` and given a `Stream` to return — see the streaming Changelog entry.)
 
 The review's holes are all closed or deferred-with-findings above; the landed
 fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
@@ -911,40 +911,55 @@ arc; the design doc keeps the crate/provider reasoning, the park/retry mapping,
 and the two decisions it settled along the way (ALPN stays unoffered; the trust
 seam deliberately does not reach `std.http`).
 
-**This punchlist is now empty of TLS.** What `std.http` still lacks is
-independent of it and deferred with reasons in [stdlib.md](stdlib.md): redirect
-following, connection pooling, streaming bodies, and a public server-TLS
-surface. The first three are exactly what [api-access.md](api-access.md)'s Arc 1
-picks up — streaming bodies plus SSE framing is the next one that matters, since
-it gates every GenAI client, and it now has its own plan in
-[http-streaming.md](http-streaming.md). **Stages 1 and 2 of that plan have
-landed**: the codec streams (`Framing` / `BodyReader` / `Wire.stream_response`,
-with the buffered `read_response` redefined as that plus a capped drain), and
-`std.http.sse` decodes a `text/event-stream` over any `io.Reader`. Open there:
-the client's streaming entry point — and with it who closes a connection held
-open by a stream, the one design question the codec doesn't answer — then the
-docs sweep.
+**Streaming is done too.** The codec streams, `std.http.sse` decodes a
+`text/event-stream` over any `io.Reader`, and `http.stream` / `http.with_stream`
+give the client an entry point that returns once the head is in — with `send`
+redefined as that plus a capped read plus the close, so the buffered and
+streaming paths cannot drift. See the Changelog entry for the arc, including the
+connection-ownership reasoning and the shape of the incrementality test.
+
+**So this punchlist is empty of both.** What `std.http` still lacks, deferred
+with reasons in [stdlib.md](stdlib.md): redirect following, connection pooling,
+streaming _request_ bodies, and a public server-TLS surface. None of them gates
+[api-access.md](api-access.md) — the next substrate item there is retry with
+backoff (its Arc 1 item 5), and the next arc is the hand-written Anthropic
+client. Three things that document takes from this one: the `https` branch was
+its hard prerequisite, the streaming stack is what makes a token stream possible
+at all, and the hermetic in-process TLS loop (TLS stage 5) doubles as the
+API-client test harness.
+
+Two notes carried over from the streaming design, because each says how much the
+remaining work actually is:
+
+- **Streaming a _request_ body is a surface decision, not new machinery.** A
+  server handler receiving a large upload has the client's problem in reverse,
+  and `framing_of` + `BodyReader` are already indifferent to which direction
+  they are reading. What's missing is a public entry point on the request side.
+  Nothing needs it yet.
+- **Connection reuse has its precondition already.** A fully-consumed body
+  leaves the connection at a clean message boundary, which is what keep-alive
+  requires, and `BodyReader.is_complete` is the bit that would gate it. Nothing
+  to do until pooling exists — the point is that the reader doesn't make it
+  impossible.
 
 **`import std.http.server` does not resolve**, found while placing
 `std.http.sse`. `server.thera` is a plain file inside the `std/http` directory
-library, so from
-outside it the import is a check error and the server is reachable only from its
-sibling test files — which is why nothing outside the SDK calls it, and why the
-gap went unnoticed while [stdlib.md](stdlib.md) documented the import in five
-places. The barrel rule is doing exactly what it should; the layout is what's
-wrong. The fix is mechanical and is the one `std.http.sse` already uses: move it
-to `std/http/server/server.thera`, its own directory fronted by its own barrel.
-Worth folding into the wider "is the `std` API surface regular and intentional?"
-review rather than doing piecemeal, since the same question applies to every
-library that fronts more than one public surface.
+library, so from outside it the import is a check error and the server is
+reachable only from its sibling test files — which is why nothing outside the
+SDK calls it, and why the gap went unnoticed while [stdlib.md](stdlib.md)
+documented the import in five places. The barrel rule is doing exactly what it
+should; the layout is what's wrong. The fix is mechanical and is the one
+`std.http.sse` already uses: move it to `std/http/server/server.thera`, its own
+directory fronted by its own barrel. Worth folding into the wider "is the `std`
+API surface regular and intentional?" review rather than doing piecemeal, since
+the same question applies to every library that fronts more than one public
+surface.
 
-Stage 4 is now also the gate on a larger arc: [api-access.md](api-access.md) —
-calling third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans
-the substrate this punchlist feeds (streaming bodies + SSE, typed JSON, retry
-with backoff), a hand-written Anthropic client as the forcing function, and an
-OpenAPI generator to scale past it. Two items there land here: the `https`
-branch is its hard prerequisite, and the hermetic in-process TLS loop (stage 5)
-doubles as the API-client test harness.
+The larger arc all of this feeds is [api-access.md](api-access.md) — calling
+third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans the rest
+of the substrate (typed JSON, retry with backoff, auth and redaction), a
+hand-written Anthropic client as the forcing function, and an OpenAPI generator
+to scale past it.
 
 ### Scheduler punchlist
 
@@ -1024,23 +1039,65 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Streaming response bodies and SSE** (2026-08) — a `text/event-stream` now
+  reaches a caller event by event over `http` or `https`. The item
+  [api-access.md](api-access.md) called the gate on every GenAI client, and the
+  work went in three stages: the codec, the framing library, the client surface.
+  - **The codec streams.** `framing_of` derives a `Framing` from the headers
+    once, and a `BodyReader` walks it a read at a time (`io.Reader`, plus
+    `read_some` as the honest primitive that keeps the `Protocol`-vs-`Body`
+    distinction the interface's `Error` would lose). `Wire.stream_response`
+    returns the head with the body still on the wire, and `read_response` is
+    **defined as** that plus a capped drain — which is what keeps the two paths
+    from drifting. `MAX_BODY_BYTES` moved with the drain, since it is a property
+    of assembling a body rather than reading one, so streaming is deliberately
+    uncapped; an oversized frame is still refused before it is read, because the
+    drain consults the reader's declared remainder each time round.
+  - **`std.http.sse`** decodes the framing over any `io.Reader`. Three places
+    the obvious implementation is wrong, each pinned by a test: `retry` is state
+    on the `Decoder` rather than a field of `Event`, because a `retry:`-only
+    record dispatches no event and the value would have nowhere to go; `id`
+    carries forward across events (the spec's buffer is not cleared between
+    records) while the event _name_ does not; and an `id` containing NUL is
+    dropped, a header-injection guard for any caller that later implements
+    resumption. Framing only — `[DONE]` is an OpenAI convention and
+    `event: message_stop` an Anthropic one, so neither appears in it.
+  - **The client's entry point owns the connection.** `http.stream` returns an
+    `http.Stream` the caller must close; `http.with_stream(request, handle: …)`
+    closes on every path out, including an early `?` inside the callback, and is
+    the blessed spelling — Thera has no destructors, so nothing else will.
+    Ownership transfers on success and only on success: the failure path closes
+    the connection itself, since nothing owns it yet. `send` is now `stream`
+    plus the drain plus the close, which deleted `exchange` outright.
+  - **The incrementality test is a handshake, not a timing measurement.** The
+    server writes the first event, waits to be told it arrived before writing
+    the second, and reports back whether the go-ahead came; the wait is bounded
+    by `fiber.select` against a timer, so a client that read the body whole
+    **fails the assertion** instead of deadlocking the suite. Mutation-checked.
+  - **Found on the way:** `import std.http.server` does not resolve — see the
+    _Networking punchlist_. And a placement correction worth keeping: SSE landed
+    as `std.http.sse` (its own nested directory library) rather than the
+    top-level `std.sse` the plan first settled on, because a format depending
+    only on `std.io` is not a reason for the top-level namespace to grow a name
+    per format that rides on an HTTP body.
+
 - **Qualified generic bounds and super-interfaces** (2026-08). A generic bound
   could only name a bare type — `fn f<S: io.Reader>` was a syntax error at the
   `.`, so no generic could be bounded by an interface from another library
   (found wiring TLS into `std.http`; the client passed its stream twice, once
   per role). Interface `extends` had the identical hole. Both positions now
   accept a qualified `ns.Name`, resolving through the namespace exactly like an
-  `impl ns.I for T` — the third sibling position, which always accepted one.
-  The mechanical core: the AST's two parallel string/span bound lists became
-  one `List<BoundRef>` (`{namespace, name, span}`), and `element.bound_id`
-  resolves it via the already-namespace-aware `resolve_type_owner`; everything
-  downstream (element model, inference, bound enforcement, dispatch) operates
-  on resolved `TypeId`s and needed no change. Also along the way: per-super
-  error spans (previously the whole-interface name span), self-extension
-  detected by resolved identity rather than spelling, qualified bounds/supers
-  counted by the unused-import walker, and LSP member resolution on parameters
-  bounded by qualified interfaces. Bootstrap snapshot refreshed (new syntax —
-  the self-hosting ratchet). **Consumed:** the http client is now one
+  `impl ns.I for T` — the third sibling position, which always accepted one. The
+  mechanical core: the AST's two parallel string/span bound lists became one
+  `List<BoundRef>` (`{namespace, name, span}`), and `element.bound_id` resolves
+  it via the already-namespace-aware `resolve_type_owner`; everything downstream
+  (element model, inference, bound enforcement, dispatch) operates on resolved
+  `TypeId`s and needed no change. Also along the way: per-super error spans
+  (previously the whole-interface name span), self-extension detected by
+  resolved identity rather than spelling, qualified bounds/supers counted by the
+  unused-import walker, and LSP member resolution on parameters bounded by
+  qualified interfaces. Bootstrap snapshot refreshed (new syntax — the
+  self-hosting ratchet). **Consumed:** the http client is now one
   `fn exchange<S: io.Reader + io.Writer + io.Closer>` instead of a function
   taking its stream twice, once per role — and folding the close into that bound
   shrank `send` to a scheme branch over two connect calls.
@@ -1066,7 +1123,7 @@ conformance specs. Newest first.
   - **The trust seam deliberately stops at `std.net`.** It is file-private, so
     only `net_test.thera` can build a TLS stream trusting a test certificate —
     an `https` round trip in `client_test.thera` would mean making trust
-    injection or server-TLS termination *public API*. Declined: that is a
+    injection or server-TLS termination _public API_. Declined: that is a
     permanent widening of a security boundary for a small amount of coverage.
     `std.http` instead gets a hermetic test that points an `https` URL at the
     **plaintext** loopback server, which pins scheme routing and the
@@ -1088,8 +1145,8 @@ conformance specs. Newest first.
     `Tls` with the specific reason in the message.
   - **ALPN stays unoffered** — settled rather than deferred: `net.connect_tls`
     is a general TLS dial, so an HTTP protocol list can't be a constant there,
-    and a server offered no ALPN defaults to HTTP/1.1 anyway. If it ever
-    matters it becomes a per-connection parameter.
+    and a server offered no ALPN defaults to HTTP/1.1 anyway. If it ever matters
+    it becomes a per-connection parameter.
   - **Test coverage is honestly partial.** The hermetic loop needs a TLS
     listener and a test-time certificate (stage 5), so the `https` path is
     covered today by two live smokes gated on `THERA_NET_TESTS` — one success,
@@ -1101,7 +1158,7 @@ conformance specs. Newest first.
     super-interfaces** above; `exchange` is now generic over one stream.)_
 
 - **A default parameter value resolves where it is written** (2026-07). A call
-  that omitted an argument materialized the default expression where the *call*
+  that omitted an argument materialized the default expression where the _call_
   was, and resolved its names there — so a default naming anything the caller
   could not see (a declaring-file `const`, a member of an import only that file
   has) failed to compile, while `thera check` accepted the same program. Codegen
@@ -1116,7 +1173,7 @@ conformance specs. Newest first.
     silently broken the second, so the default is still expanded per call site,
     with the call's span carried alongside as the `loc_span` that `#loc` reads —
     one `Option<SourceSpan>` field, since a span already carries its file. It
-    now reaches a *nested* `#loc` (`at: Int = tag(#loc)`), which the old
+    now reaches a _nested_ `#loc` (`at: Int = tag(#loc)`), which the old
     top-level-only span swap missed.
   - **Check/emit divergence closed.** Defaults are now checked at the
     declaration — once, in the file that wrote them, including on signature-only
@@ -1141,7 +1198,7 @@ conformance specs. Newest first.
   scalar and exploded to one element per line. Unreachable at width 100, where
   the corpus is a fixpoint; it cost a byte fixture 1,358 lines at every other
   margin and faked a cliff in the first run of the study. A packed list is now
-  left as packed — re-packing means *deleting* row breaks, which a pass that
+  left as packed — re-packing means _deleting_ row breaks, which a pass that
   only inserts cannot do.
 
 - **`thera fmt` owns line breaks** (2026-07). The reflowing pass below is now
@@ -1151,17 +1208,17 @@ conformance specs. Newest first.
   of the token stream: the same code comes out the same however it was typed.
   - **Stage A and Stage B were not retired**, as the plan assumed they would be.
     They were written against a full `Doc`-renderer design that was declined;
-    the pass that shipped computes break *offsets* and re-runs the existing
+    the pass that shipped computes break _offsets_ and re-runs the existing
     layout passes after each round, so they are the engine, not dead weight.
     What the split needed was honest names — `format_lines` for the line-layout
     half, `format_source` for the whole formatter.
   - **`format_source` takes no width.** The formatter is not configurable by
     design, and a `width` parameter on the public entry point said otherwise;
     `format_source_at` carries the margin for tests and the width study. Forced
-    by a front-end bug found here — a defaulted `width: Int =
-    reflow.DEFAULT_WIDTH` could not be called from the LSP, since a default was
-    resolved in the *caller's* scope (fixed since; see the entry above). Dropping
-    the parameter was the better API regardless.
+    by a front-end bug found here — a defaulted
+    `width: Int = reflow.DEFAULT_WIDTH` could not be called from the LSP, since
+    a default was resolved in the _caller's_ scope (fixed since; see the entry
+    above). Dropping the parameter was the better API regardless.
   - Sweep: **103 files, +5156/−2106**. Over-width lines **545 → 139**, of which
     all but a handful are single long string literals and multi-line help text —
     nothing a break can shorten.
@@ -1172,36 +1229,36 @@ conformance specs. Newest first.
   - **A token backbone, not an AST pretty-printer.** A bracket pair is a group;
     its break points are after the opener, after each top-level separator, and
     before the closer, taken **all-or-nothing** (packing would make one added
-    element rewrap its neighbours, which is the churn this exists to remove). For
-    an over-width line the **outermost** group with a break left to give is split,
-    widest first. The AST is consulted for exactly one thing — whether a `{` opens
-    a struct literal, which tokens cannot tell (`impl Foo {` and `Point {` read
-    alike) — and only to classify an offset, never to render. So the parser's
-    `if let` / `let … else` / `else if` desugaring never has to be reversed, and a
-    break can never land inside a string literal or between the adjacent `>` `>`
-    of a shift operator.
+    element rewrap its neighbours, which is the churn this exists to remove).
+    For an over-width line the **outermost** group with a break left to give is
+    split, widest first. The AST is consulted for exactly one thing — whether a
+    `{` opens a struct literal, which tokens cannot tell (`impl Foo {` and
+    `Point {` read alike) — and only to classify an offset, never to render. So
+    the parser's `if let` / `let … else` / `else if` desugaring never has to be
+    reversed, and a break can never land inside a string literal or between the
+    adjacent `>` `>` of a shift operator.
   - **Joining** removes author line breaks inside a group that fits, so layout
-    follows the token stream rather than how the code was typed. `{` never joins —
-    a statement block, `match` body, or declaration body stays expanded however
-    short — unless it opens a struct literal. A group holding a line comment
-    (joining would comment out the code after it) or a multi-line string is held
-    back.
-  - **`Fill`** packs a scalar `[…]` literal to the margin rather than one element
-    per line; without it the byte fixtures in `codegen_test.thera` expanded to
-    ~90 lines each.
-  - **Trailing commas are added on split and removed on join** — the one place the
-    formatter edits tokens rather than whitespace. The grammar makes the comma
-    optional in every comma list, so the guard drops inert trailing commas from
-    both streams and still compares exactly; only a group with an existing
-    top-level comma qualifies, since `(a + b,)` is a parse error. This replaced an
-    *accidental* magic trailing comma — under the original whitespace-only rule a
-    trailing comma silently pinned a group open, because the formatter could not
-    delete it.
+    follows the token stream rather than how the code was typed. `{` never joins
+    — a statement block, `match` body, or declaration body stays expanded
+    however short — unless it opens a struct literal. A group holding a line
+    comment (joining would comment out the code after it) or a multi-line string
+    is held back.
+  - **`Fill`** packs a scalar `[…]` literal to the margin rather than one
+    element per line; without it the byte fixtures in `codegen_test.thera`
+    expanded to ~90 lines each.
+  - **Trailing commas are added on split and removed on join** — the one place
+    the formatter edits tokens rather than whitespace. The grammar makes the
+    comma optional in every comma list, so the guard drops inert trailing commas
+    from both streams and still compares exactly; only a group with an existing
+    top-level comma qualifies, since `(a + b,)` is a parse error. This replaced
+    an _accidental_ magic trailing comma — under the original whitespace-only
+    rule a trailing comma silently pinned a group open, because the formatter
+    could not delete it.
   - **Guarded, and no longer silently.** Unless the result is the same code and
-    still parses, the plain format is returned. That fallback is indistinguishable
-    from "nothing to do" and hid two real bugs during development (a double comma,
-    and generic-argument commas counted as a block's own), so `thera fmt` now
-    reports each skipped file.
+    still parses, the plain format is returned. That fallback is
+    indistinguishable from "nothing to do" and hid two real bugs during
+    development (a double comma, and generic-argument commas counted as a
+    block's own), so `thera fmt` now reports each skipped file.
   - **A split has to pay for itself** — the second pass, and what makes a call
     hug a multi-line argument. Outermost-first was handing each over-width line
     to the widest group covering it, which for a builder chain is the whole
@@ -1218,35 +1275,35 @@ conformance specs. Newest first.
   - **A closer line aligns with its own opener**, not the outermost one it
     closes (`fmt.thera`'s `scan_lines`). Pre-existing and reachable without
     `--reflow`, but hugging makes staggered closers common:
-    `a.foo(b.new('x')⏎ .bar(⏎ …⏎ ));` had its `));` dedented past the `.bar(`
-    it closes.
+    `a.foo(b.new('x')⏎ .bar(⏎ …⏎ ));` had its `));` dedented past the `.bar(` it
+    closes.
   - **A comma inside `Map<String, …>` is no longer a break point.** `<`/`>` are
     ordinary operator tokens, so the comma read as a separator of the enclosing
     block — enough to produce `let names: Map<String,⏎List<NameSite>> = [:];`.
     It was already excluded from making a group a comma list; now it is excluded
     from the break list too.
   - **All-or-nothing is an invariant, not just how a split is taken.** A comma
-    list broken at *some* of its break points is now broken at all of them,
+    list broken at _some_ of its break points is now broken at all of them,
     independently of width. Without that, a hand-wrapped
     `add_error(errors,⏎ '…',⏎ span);` whose message is too long to ever fit kept
     that shape forever while the same call with a shorter message came out one
     argument per line — layout deciding itself on how long an argument happens
     to be, which is the author-dependent layout the pass exists to remove. The
     condition is "some of its **own** breaks taken", not "spans several lines":
-    a group is also multi-line when an *element* is, and that is exactly the
+    a group is also multi-line when an _element_ is, and that is exactly the
     hugging shape, which has to survive. Exempt: a group holding a line comment
     (a break before it would swallow the code after) and a scalar `[…]` (packed
     to the margin by design).
-    - Cost, and the reason it landed on its own: the sweep goes from
-      +2335/−927 across 89 files to **+5156/−2106 across 103**. Reading the
-      extra churn, it is almost entirely hand-wrapped parameter lists
+    - Cost, and the reason it landed on its own: the sweep goes from +2335/−927
+      across 89 files to **+5156/−2106 across 103**. Reading the extra churn, it
+      is almost entirely hand-wrapped parameter lists
       (`fn check(_ program: Program, _ imports: …,⏎ …)` → one per line), which
-      is what the formatter already produces when the margin triggers the
-      split — so the sweep is what makes the corpus agree with the pass's own
-      rule. Two long string literals end up over the margin that were not
-      before, having gained an indent level from the call around them.
+      is what the formatter already produces when the margin triggers the split
+      — so the sweep is what makes the corpus agree with the pass's own rule.
+      Two long string literals end up over the margin that were not before,
+      having gained an indent level from the call around them.
   - **A join deletes every trailing comma it collapses**, not just the one last
-    in the joined span. A span is the *outermost* group that fits ([join_spans]
+    in the joined span. A span is the _outermost_ group that fits ([join_spans]
     drops the ones it contains), so its own closer is only the last of several,
     and a nested group's comma is just as much a trailing comma once the join
     puts it on one line: `push(Comment {⏎ …,⏎ span: span,⏎ });` came out as
@@ -1255,12 +1312,13 @@ conformance specs. Newest first.
     byte-identical either way; it blocks the all-or-nothing item under
     _Developer tooling_, which creates the trailing commas that hit it.
   - **Verified** by reflowing the whole corpus: `bin/test.sh` green and
-    `bin/build_sdk.sh` still byte-for-byte — the front-end compiled from reflowed
-    sources compiles itself to the same bytes.
+    `bin/build_sdk.sh` still byte-for-byte — the front-end compiled from
+    reflowed sources compiles itself to the same bytes.
   - _Declined:_ a **token-tree** reflow with no AST at all (saves ~200 lines but
-    can only be canonical per bracket structure, not per token stream), and a full
-    `Doc`/event renderer (the break-offset form reuses the existing indentation
-    pass instead, which is most of why the implementation came in small).
+    can only be canonical per bracket structure, not per token stream), and a
+    full `Doc`/event renderer (the break-offset form reuses the existing
+    indentation pass instead, which is most of why the implementation came in
+    small).
   - _Declined_ for hugging specifically: **preferring the inner group of the
     last element**, the shape the plan originally called for. Measured on the
     sweep, it would improve the 10 sites where that inner group is itself split
@@ -1842,11 +1900,9 @@ conformance specs. Newest first.
   bound a prefix), and a bare payload variant `Some =>` (silently ignored the
   payload) are all located check errors with a
   `match it as \`Some(_)\`` hint — and a pattern binds each name at most once (`Two(a,
-  a)`). The member tier gained the one-name-space rule's analogue: duplicate
-  struct fields, enum variants, type parameters, parameters (internal names
-  \_and_ external labels), impl/interface method names, and struct-literal
-  fields are all
-  `duplicate … \`x\``errors at the second site (previously silently first- or last-wins). Corpus sweep found exactly one genuine hit — a parser test's`Assign(sp,
+  a)`). The member tier gained the one-name-space rule's analogue: duplicate struct fields, enum variants, type parameters, parameters (internal names \_and_ external labels), impl/interface method names, and struct-literal fields are all `duplicate
+  …
+  \`x\``errors at the second site (previously silently first- or last-wins). Corpus sweep found exactly one genuine hit — a parser test's`Assign(sp,
   _,
   _)`under-binding the 4-field`Stmt.Assign`— and zero false positives. Specs`cf-match-pattern-arity`, `type-member-unique`;
   language.md §One name space per scope (member tier), §Choosing a form (pattern
