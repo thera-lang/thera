@@ -912,14 +912,12 @@ arc; the design doc keeps the crate/provider reasoning, the park/retry mapping,
 and the two decisions it settled along the way (ALPN stays unoffered; the trust
 seam deliberately does not reach `std.http`).
 
-**Streaming is done too — all four stages of
-[http-streaming.md](http-streaming.md).** The codec streams, `std.http.sse`
-decodes a `text/event-stream` over any `io.Reader`, and `http.stream` /
-`http.with_stream` give the client an entry point that returns once the head is
-in — with `send` redefined as that plus a capped read plus the close, so the
-buffered and streaming paths cannot drift. See the Changelog entry; the design
-doc keeps the connection-ownership reasoning and the shape of the incrementality
-test (a handshake bounded by a timer, so a regression fails rather than hangs).
+**Streaming is done too.** The codec streams, `std.http.sse` decodes a
+`text/event-stream` over any `io.Reader`, and `http.stream` / `http.with_stream`
+give the client an entry point that returns once the head is in — with `send`
+redefined as that plus a capped read plus the close, so the buffered and
+streaming paths cannot drift. See the Changelog entry for the arc, including the
+connection-ownership reasoning and the shape of the incrementality test.
 
 **So this punchlist is empty of both.** What `std.http` still lacks, deferred
 with reasons in [stdlib.md](stdlib.md): redirect following, connection pooling,
@@ -930,6 +928,20 @@ client. Three things that document takes from this one: the `https` branch was
 its hard prerequisite, the streaming stack is what makes a token stream possible
 at all, and the hermetic in-process TLS loop (TLS stage 5) doubles as the
 API-client test harness.
+
+Two notes carried over from the streaming design, because each says how much the
+remaining work actually is:
+
+- **Streaming a _request_ body is a surface decision, not new machinery.** A
+  server handler receiving a large upload has the client's problem in reverse,
+  and `framing_of` + `BodyReader` are already indifferent to which direction they
+  are reading. What's missing is a public entry point on the request side.
+  Nothing needs it yet.
+- **Connection reuse has its precondition already.** A fully-consumed body
+  leaves the connection at a clean message boundary, which is what keep-alive
+  requires, and `BodyReader.is_complete` is the bit that would gate it. Nothing
+  to do until pooling exists — the point is that the reader doesn't make it
+  impossible.
 
 **`import std.http.server` does not resolve**, found while placing
 `std.http.sse`. `server.thera` is a plain file inside the `std/http` directory
@@ -1028,10 +1040,10 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
-- **Streaming response bodies and SSE** (2026-08) — all four stages of
-  [http-streaming.md](http-streaming.md), so a `text/event-stream` reaches a
-  caller event by event over `http` or `https`. The item
-  [api-access.md](api-access.md) called the gate on every GenAI client.
+- **Streaming response bodies and SSE** (2026-08) — a `text/event-stream` now
+  reaches a caller event by event over `http` or `https`. The item
+  [api-access.md](api-access.md) called the gate on every GenAI client, and the
+  work went in three stages: the codec, the framing library, the client surface.
   - **The codec streams.** `framing_of` derives a `Framing` from the headers
     once, and a `BodyReader` walks it a read at a time (`io.Reader`, plus
     `read_some` as the honest primitive that keeps the `Protocol`-vs-`Body`

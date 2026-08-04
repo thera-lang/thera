@@ -134,11 +134,10 @@ server-sent events are the transport all three of Anthropic, OpenAI, and Gemini
 use for it — so a client that could only await a complete response was a toy for
 the flagship use case. It isn't one now: `http.stream(request)` returns once the
 head is in, with the body as an `io.Reader`, and `std.http.sse` decodes a
-`text/event-stream` off it event by event. `send` is that plus a capped read
-plus the close, so the buffered and streaming paths cannot drift. The plan, its
-four
-stages, and everything they settled are in
-[http-streaming.md](http-streaming.md).
+`text/event-stream` off it event by event. `send` is that plus a capped read plus
+the close, so the buffered and streaming paths cannot drift. The API surface is
+in [stdlib.md](stdlib.md) § `std.http`; what the three stages settled is in the
+roadmap's _Changelog_.
 
 Two things from it that this document had wrong, both worth carrying because
 they are the kind of mistake that gets baked in:
@@ -223,7 +222,14 @@ timeout distinct from per-connection; redirects and keep-alive as independent
 follow-ons. Where this lives is a real question: a shared `std.http` retry
 policy, or per-client logic the generator emits? **Shared** is the better answer
 — retry behavior is not API-specific and should not be duplicated N times.
-**Status.** Open. Retry is required for Arc 2; pooling and redirects are not.
+
+One timeout shape the streaming work surfaced and left here: the useful bound on
+a token stream is **"no event for N seconds"**, not "the whole stream within N
+seconds", and `fiber.with_timeout` only gives the latter. It also has to treat an
+SSE keep-alive comment as liveness — a comment produces no event but does mean
+the peer is alive, so a per-event clock that ignores comments would cancel a
+healthy stream. **Status.** Open. Retry is required for Arc 2; pooling and
+redirects are not.
 
 ### 6. Auth and secrets
 
@@ -457,10 +463,10 @@ streaming work, in parallel with Arc 3.
    open in the order a caller meets them.
 3. ~~**Arc 1 item 2 — streaming + SSE**~~ — **done**, and done _before_ step 2
    rather than after it. The ordering argument survived: the part a client was
-   supposed to drive is layer (c), the typed event stream, which
-   [http-streaming.md](http-streaming.md) leaves to Arc 2 for exactly that
-   reason. Layers (a) and (b) are protocol, not API. Streaming Messages and
-   Arc 1 item 8 (hermetic tests, on TLS stage 5) still belong with step 2.
+   supposed to drive is layer (c), the typed event stream, which was deliberately
+   left to Arc 2 for exactly that reason. Layers (a) and (b) are protocol, not
+   API. Streaming Messages and Arc 1 item 8 (hermetic tests, on TLS stage 5)
+   still belong with step 2.
 4. **The spec survey.** Cheap, and it sets Arc 3's construct priority — so it
    pays for itself before Arc 3 starts rather than after.
 5. **Arc 3 v1**, acceptance-tested by regenerating Anthropic and diffing against

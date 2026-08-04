@@ -688,7 +688,8 @@ impl BodyReader {
             return Result.Ok(true);
         }
         // The trailer block, then the blank line that ends the message. Read and
-        // discarded — see docs/http-streaming.md § Goals & non-goals.
+        // discarded: nothing needs trailers, and a caller cannot see one (a known
+        // gap — see docs/stdlib.md § `std.http`).
         while true {
             let trailer = match self.wire.read_line()? {
                 Some(t) => t,

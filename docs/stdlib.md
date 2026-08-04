@@ -804,10 +804,9 @@ verifying the chain and host name against the bundled roots
 `HttpError.Tls`, distinct from `Connect` because retrying won't fix it. The
 client **streams a response body** (`http.stream` / `http.with_stream`, whose
 body is an `io.Reader`), and **`std.http.sse`** decodes a `text/event-stream`
-over any reader — [http-streaming.md](http-streaming.md), complete. Still
-deferred: redirect following, connection pooling, streaming **request** bodies,
-and **server**-side TLS (a simple server's TLS is terminated upstream, and a
-handler still returns a complete `Response`)._
+over any reader. Still deferred: redirect following, connection pooling,
+streaming **request** bodies, and **server**-side TLS (a simple server's TLS is
+terminated upstream, and a handler still returns a complete `Response`)._
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
 are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both
@@ -936,8 +935,12 @@ As-built notes, none of them visible from the sketch above:
 framing, decoded into events, over any `io.Reader` — in practice a streaming
 response body. Every GenAI API streams tokens this way, the framing is small and
 fiddly and identical for all of them, so it belongs in one tested place rather
-than in each client. Design and staging in
-[http-streaming.md](http-streaming.md).
+than in each client.
+
+**It does not reconnect.** The spec's last-event-id and `retry` machinery exists
+to resume a dropped stream, and the streams this is for are not resumable — a
+dropped model completion is restarted, not continued. Both values are parsed and
+handed over; acting on them is the caller's decision.
 
 ```
 pub struct Event { let name: String;          // `event:`, or 'message' by default
@@ -968,9 +971,17 @@ implementation is wrong:
   So a stream that ends mid-record yields no final event, rather than half a
   payload.
 
-Deliberate gap: a lone `\r` as a line terminator, which the spec allows and no
+Deliberate gap: **a lone `\r` as a line terminator**, which the spec allows and no
 real server emits. Reusing `io.lines` (LF and CRLF) is what keeps the decode
-incremental; see that plan's open questions for why the cheap fix isn't one.
+incremental, and the cheap fix is not one — with bare CRs `io.lines` yields
+nothing until an LF or end-of-stream, so a *live* CR-delimited stream would block
+whatever we did afterwards. A real fix is a CR-or-LF splitter with its own
+buffering, duplicating `io.BufReader` for a terminator nothing emits; if it is
+ever needed it belongs here, not in `io.lines`.
+
+A second gap on the read path, shared with the buffered codec: **a chunked body's
+trailer block is read and discarded.** Nothing needs it (trailers carry
+checksums and post-hoc metadata), but a caller cannot see one.
 
 ### `std.log` — named, per-source logging _(implemented)_
 
