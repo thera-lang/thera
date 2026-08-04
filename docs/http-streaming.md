@@ -7,11 +7,16 @@ This is [api-access.md](api-access.md) Arc 1 item 2 graduated into its own plan;
 it is the item that gates every GenAI client, because token streaming is the
 default interaction mode for all of them.
 
-**Progress: stages 1 and 2 have landed** — the codec streams
+**Complete: all four stages have landed.** The codec streams
 ([wire.thera](../sdk/std/http/wire.thera): `Framing`, `BodyReader`,
-`Wire.stream_response`), the buffered `read_response` is now that plus a capped
-drain, and [std.http.sse](../sdk/std/http/sse/sse.thera) decodes a
-`text/event-stream` over any reader. Stages 3 and 4 are open.
+`Wire.stream_response`), with the buffered `read_response` defined as that plus
+a capped drain; [std.http.sse](../sdk/std/http/sse/sse.thera) decodes a
+`text/event-stream` over any reader; and the client has `http.stream` /
+`http.with_stream` ([client.thera](../sdk/std/http/client.thera)), with `send`
+now defined as `stream` plus that same drain plus the close. So a
+`text/event-stream` reaches a caller event by event, over `http` or `https`,
+with nothing in between holding it whole. What each stage settled is marked
+_(settled)_ below.
 
 ## Goals & non-goals
 
@@ -204,6 +209,29 @@ abandons a body partway leaves the connection in an indeterminate state — whic
 costs nothing today, since there is no pooling and the connection is closed
 rather than reused.
 
+_(settled, stage 3)_ Both shapes landed together, as `http.stream` and
+`http.with_stream(request, handle: …)`. Three things the sketch didn't say:
+
+- **`send` is now defined as `stream` plus the drain plus the close**, which
+  deleted the old `exchange` outright. The same move layer (a) made in the
+  codec, with the same payoff: one connect-and-write path, so the buffered and
+  streaming clients cannot drift. It also puts every existing client test on the
+  streaming path.
+- **The client's type is `http.Stream`, not `wire.ResponseStream`.** The barrel
+  re-exports the codec's type too, so both names exist in `http`; the difference
+  is the last field, which owns the connection. Worth knowing when reading a
+  signature, and the doc comment on each points at the other.
+- **Ownership transfers on success and only on success.** `open` closes the
+  connection itself on the failure path, because nothing owns it yet — the path
+  a retry loop hits most, and the one that leaks if you write the obvious thing.
+
+_(settled, stage 3)_ **Closing twice is an `Err`, not a crash** — the runtime
+refuses a close on a connection it no longer holds. Which makes
+`let _ = s.close()` the right spelling wherever a close might be redundant, and,
+less obviously, is the only way a test can observe from outside that a close
+happened at all: reading the body won't do it, because a `BodyReader` still
+hands back buffered bytes long after the socket underneath is gone.
+
 ## Testing
 
 Layers (a) and (b) are pure functions of a byte stream, so both test with no
@@ -225,6 +253,16 @@ incremental**, not merely correct. A test that reads one event before the server
 has written the rest is the only one that would catch a regression back into
 "drain, then hand it over".
 
+_(settled, stage 3)_ It is a handshake, and the shape matters. The server writes
+the head and the first event, then waits to be told the first arrived before
+writing the second, and **reports back whether the go-ahead came** — so the
+assertion is on that flag rather than on any timing. The wait is bounded by
+`fiber.select([go, fiber.after(2s)])` rather than being a bare `receive`, which
+is what makes a regression **fail** instead of deadlocking the suite: a client
+that read the body whole would block until the server gave up, and then be told
+that it had. Verified by mutation — draining the body before reading the first
+event fails the test in about two seconds.
+
 ## Staged plan
 
 1. ~~**Streaming bodies in the codec.**~~ _Done._ `Framing`, `BodyReader`
@@ -241,13 +279,15 @@ has written the rest is the only one that would catch a regression back into
    last-event-id buffer is not cleared between records; and an `id` containing
    NUL is dropped, which is a header-injection guard for any caller that later
    implements resumption, not pedantry.
-3. **The client streaming surface.** `http.stream(request)` returning a
-   connection-owning `ResponseStream`, plus the scoped form; the end-to-end
-   hermetic test against an SSE handler on the loopback server, including the
-   incrementality assertion.
-4. **Docs.** [stdlib.md](stdlib.md) § `std.http` loses "bodies are buffered
-   whole" and gains `std.sse`; the roadmap gets a changelog entry;
-   [api-access.md](api-access.md) Arc 1 item 2 shrinks to a pointer here.
+3. ~~**The client streaming surface.**~~ _Done._ `http.stream(request)`
+   returning a connection-owning `http.Stream`, plus `http.with_stream`; `send`
+   redefined over `stream`; and the end-to-end hermetic tests against an SSE
+   handler on the loopback server — including the incrementality assertion,
+   which is mutation-checked (making the client read the body whole first fails
+   it, in bounded time rather than by hanging).
+4. ~~**Docs.**~~ _Done._ [stdlib.md](stdlib.md) § `std.http` lost "bodies are
+   buffered whole" and gained `std.http.sse`; the roadmap has the changelog
+   entries; [api-access.md](api-access.md) Arc 1 item 2 is a pointer here.
 
 ## Open questions to settle
 

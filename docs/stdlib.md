@@ -802,12 +802,12 @@ over the provisional `std.net` — and the client now speaks **`https`**,
 verifying the chain and host name against the bundled roots
 ([http-tls.md](http-tls.md), complete). A certificate that doesn't verify is an
 `HttpError.Tls`, distinct from `Connect` because retrying won't fix it. The
-codec **streams a response body** (`Wire.stream_response`, whose body is an
-`io.Reader`), and **`std.http.sse`** decodes a `text/event-stream` over any
-reader — [http-streaming.md](http-streaming.md) stages 1 and 2. Still deferred:
-redirect following, connection pooling, a **client**-level streaming entry point
-(that plan's stage 3), and **server**-side TLS (a simple server's TLS is
-terminated upstream)._
+client **streams a response body** (`http.stream` / `http.with_stream`, whose
+body is an `io.Reader`), and **`std.http.sse`** decodes a `text/event-stream`
+over any reader — [http-streaming.md](http-streaming.md), complete. Still
+deferred: redirect following, connection pooling, streaming **request** bodies,
+and **server**-side TLS (a simple server's TLS is terminated upstream, and a
+handler still returns a complete `Response`)._
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
 are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both
@@ -844,6 +844,20 @@ pub fn get(_ url: String, headers: Map<String, String> = [:]) -> Result<Response
 pub fn post(_ url: String, body: Bytes, headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
 pub fn send(_ request: Request) -> Result<Response, HttpError>;
 
+// Streaming: return once the head is in, body still on the wire. `send` is this
+// plus a capped read plus the close, so the two paths cannot drift.
+pub struct Stream { let status: Int; let headers: Map<String, String>;
+                    let body: BodyReader; /* + the connection it owns */ }
+impl Stream {
+    pub fn is_ok(self) -> Bool;
+    pub fn close(self) -> Result<Void, Error>;   // caller's job; twice is an Err
+}
+pub fn stream(_ request: Request) -> Result<Stream, HttpError>;
+// Leak-proof: closes on every path out, including an early `?` inside.
+pub fn with_stream<T>(_ request: Request,
+                      handle handler: (Stream) -> Result<T, Error>)
+    -> Result<T, Error>;
+
 impl Response {
     pub fn text(self) -> Result<String, Error>;
     pub fn json(self) -> Result<Json, Error>;
@@ -854,7 +868,11 @@ pub enum HttpError { Connect(String), Timeout, Status(Int), Body(String),
 ```
 
 Notes: TLS is provided by a runtime native (not reimplemented in Thera).
-Streaming bodies use `std.io.Reader`.
+Streaming bodies use `std.io.Reader`, as sketched — a `Stream`'s body is one, so
+`io.read_all`, `io.copy`, `io.lines` and `sse.events` all drive it. Note the
+asymmetry that buys: a buffered body is capped at `MAX_BODY_BYTES` and a
+streamed one is not, because bounding a body you are not assembling is the
+caller's call.
 
 **The simple server (`std.http.server`).** One fiber per connection over the
 scheduler; the handler is an ordinary function returning a `Response`. Errors

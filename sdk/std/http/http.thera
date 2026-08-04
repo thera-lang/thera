@@ -17,9 +17,20 @@
 //! chain and host name against the bundled roots; a certificate that doesn't check
 //! out is an `HttpError.Tls` — its own variant because, unlike a `Connect`,
 //! retrying will not fix it. A 4xx/5xx is a `Response`, not an error: `HttpError`
-//! is for exchanges that did not happen. Redirects are not followed, there is no
-//! connection pooling (one connection per request), and bodies are buffered whole
-//! rather than streamed.
+//! is for exchanges that did not happen. Redirects are not followed, and there is no
+//! connection pooling (one connection per request).
+//!
+//! `get`/`post`/`send` buffer the body, which is what almost every caller wants.
+//! For one that should be consumed as it arrives — a `text/event-stream`, a large
+//! download — `stream` returns once the head is in, with the body as an
+//! `io.Reader`; `with_stream` is the same thing with the close taken care of:
+//!
+//! ```thera
+//! http.with_stream(request, handle: (s) => {
+//!     for ev in sse.events(s.body) { … }   // std.http.sse
+//!     return Result.Ok(void);
+//! })?;
+//! ```
 //!
 //! This is a barrel: it re-exports its sibling files (see docs/language.md) and
 //! defines nothing of its own. The split is deliberate — `std.http.server` imports

@@ -866,7 +866,8 @@ findings recorded.
 resolve through the namespace like every other interface position — see
 _Changelog_. The follow-up is done too: the http client's duplicated read/write
 paths are now one `fn exchange<S: io.Reader + io.Writer + io.Closer>`, which
-also let `send` shrink to a scheme branch over two connect calls.
+also let `send` shrink to a scheme branch over two connect calls. (Since renamed
+to `open` and given a `Stream` to return — see the streaming Changelog entry.)
 
 The review's holes are all closed or deferred-with-findings above; the landed
 fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
@@ -911,19 +912,24 @@ arc; the design doc keeps the crate/provider reasoning, the park/retry mapping,
 and the two decisions it settled along the way (ALPN stays unoffered; the trust
 seam deliberately does not reach `std.http`).
 
-**This punchlist is now empty of TLS.** What `std.http` still lacks is
-independent of it and deferred with reasons in [stdlib.md](stdlib.md): redirect
-following, connection pooling, streaming bodies, and a public server-TLS
-surface. The first three are exactly what [api-access.md](api-access.md)'s Arc 1
-picks up — streaming bodies plus SSE framing is the next one that matters, since
-it gates every GenAI client, and it now has its own plan in
-[http-streaming.md](http-streaming.md). **Stages 1 and 2 of that plan have
-landed**: the codec streams (`Framing` / `BodyReader` / `Wire.stream_response`,
-with the buffered `read_response` redefined as that plus a capped drain), and
-`std.http.sse` decodes a `text/event-stream` over any `io.Reader`. Open there:
-the client's streaming entry point — and with it who closes a connection held
-open by a stream, the one design question the codec doesn't answer — then the
-docs sweep.
+**Streaming is done too — all four stages of
+[http-streaming.md](http-streaming.md).** The codec streams, `std.http.sse`
+decodes a `text/event-stream` over any `io.Reader`, and `http.stream` /
+`http.with_stream` give the client an entry point that returns once the head is
+in — with `send` redefined as that plus a capped read plus the close, so the
+buffered and streaming paths cannot drift. See the Changelog entry; the design
+doc keeps the connection-ownership reasoning and the shape of the incrementality
+test (a handshake bounded by a timer, so a regression fails rather than hangs).
+
+**So this punchlist is empty of both.** What `std.http` still lacks, deferred
+with reasons in [stdlib.md](stdlib.md): redirect following, connection pooling,
+streaming _request_ bodies, and a public server-TLS surface. None of them gates
+[api-access.md](api-access.md) — the next substrate item there is retry with
+backoff (its Arc 1 item 5), and the next arc is the hand-written Anthropic
+client. Three things that document takes from this one: the `https` branch was
+its hard prerequisite, the streaming stack is what makes a token stream possible
+at all, and the hermetic in-process TLS loop (TLS stage 5) doubles as the
+API-client test harness.
 
 **`import std.http.server` does not resolve**, found while placing
 `std.http.sse`. `server.thera` is a plain file inside the `std/http` directory
@@ -938,13 +944,11 @@ Worth folding into the wider "is the `std` API surface regular and intentional?"
 review rather than doing piecemeal, since the same question applies to every
 library that fronts more than one public surface.
 
-Stage 4 is now also the gate on a larger arc: [api-access.md](api-access.md) —
-calling third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans
-the substrate this punchlist feeds (streaming bodies + SSE, typed JSON, retry
-with backoff), a hand-written Anthropic client as the forcing function, and an
-OpenAPI generator to scale past it. Two items there land here: the `https`
-branch is its hard prerequisite, and the hermetic in-process TLS loop (stage 5)
-doubles as the API-client test harness.
+The larger arc all of this feeds is [api-access.md](api-access.md) — calling
+third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans the rest
+of the substrate (typed JSON, retry with backoff, auth and redaction), a
+hand-written Anthropic client as the forcing function, and an OpenAPI generator
+to scale past it.
 
 ### Scheduler punchlist
 
@@ -1023,6 +1027,48 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Streaming response bodies and SSE** (2026-08) — all four stages of
+  [http-streaming.md](http-streaming.md), so a `text/event-stream` reaches a
+  caller event by event over `http` or `https`. The item
+  [api-access.md](api-access.md) called the gate on every GenAI client.
+  - **The codec streams.** `framing_of` derives a `Framing` from the headers
+    once, and a `BodyReader` walks it a read at a time (`io.Reader`, plus
+    `read_some` as the honest primitive that keeps the `Protocol`-vs-`Body`
+    distinction the interface's `Error` would lose). `Wire.stream_response`
+    returns the head with the body still on the wire, and `read_response` is
+    **defined as** that plus a capped drain — which is what keeps the two paths
+    from drifting. `MAX_BODY_BYTES` moved with the drain, since it is a property
+    of assembling a body rather than reading one, so streaming is deliberately
+    uncapped; an oversized frame is still refused before it is read, because the
+    drain consults the reader's declared remainder each time round.
+  - **`std.http.sse`** decodes the framing over any `io.Reader`. Three places
+    the obvious implementation is wrong, each pinned by a test: `retry` is state
+    on the `Decoder` rather than a field of `Event`, because a `retry:`-only
+    record dispatches no event and the value would have nowhere to go; `id`
+    carries forward across events (the spec's buffer is not cleared between
+    records) while the event _name_ does not; and an `id` containing NUL is
+    dropped, a header-injection guard for any caller that later implements
+    resumption. Framing only — `[DONE]` is an OpenAI convention and
+    `event: message_stop` an Anthropic one, so neither appears in it.
+  - **The client's entry point owns the connection.** `http.stream` returns an
+    `http.Stream` the caller must close; `http.with_stream(request, handle: …)`
+    closes on every path out, including an early `?` inside the callback, and is
+    the blessed spelling — Thera has no destructors, so nothing else will.
+    Ownership transfers on success and only on success: the failure path closes
+    the connection itself, since nothing owns it yet. `send` is now `stream`
+    plus the drain plus the close, which deleted `exchange` outright.
+  - **The incrementality test is a handshake, not a timing measurement.** The
+    server writes the first event, waits to be told it arrived before writing
+    the second, and reports back whether the go-ahead came; the wait is bounded
+    by `fiber.select` against a timer, so a client that read the body whole
+    **fails the assertion** instead of deadlocking the suite. Mutation-checked.
+  - **Found on the way:** `import std.http.server` does not resolve — see the
+    _Networking punchlist_. And a placement correction worth keeping: SSE landed
+    as `std.http.sse` (its own nested directory library) rather than the
+    top-level `std.sse` the plan first settled on, because a format depending
+    only on `std.io` is not a reason for the top-level namespace to grow a name
+    per format that rides on an HTTP body.
 
 - **Qualified generic bounds and super-interfaces** (2026-08). A generic bound
   could only name a bare type — `fn f<S: io.Reader>` was a syntax error at the

@@ -444,7 +444,7 @@ impl Wire {
         let headers = self.read_headers()?;
         // A request has no body unless it is framed as having one: there is no
         // read-to-EOF fallback, since the client isn't going to close.
-        let body = BodyReader.new(self, framing_of(headers, until_eof: false)?).drain()?;
+        let body = BodyReader.new(self, framing_of(headers, until_eof: false)?).buffered()?;
         return Result.Ok(Option.Some(Request {
             method: method,
             url: url,
@@ -701,8 +701,11 @@ impl BodyReader {
         }
     }
 
-    /// Everything left, assembled in memory and capped at `MAX_BODY_BYTES`.
-    fn drain(self) -> Result<Bytes, HttpError> {
+    /// Everything left, assembled in memory and capped at `MAX_BODY_BYTES` — the
+    /// in-memory form of a body that was going to fit anyway. The counterpart to
+    /// reading it: `io.read_all` over the same reader is the *uncapped* version, and
+    /// the cap is the whole difference.
+    pub fn buffered(self) -> Result<Bytes, HttpError> {
         let acc = BytesBuilder.new();
         while true {
             // A frame declares its size before its bytes arrive, so an oversized
@@ -753,7 +756,7 @@ impl ResponseStream {
         return Result.Ok(Response {
             status: self.status,
             headers: self.headers,
-            body: self.body.drain()?,
+            body: self.body.buffered()?,
         });
     }
 }
