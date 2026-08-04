@@ -948,12 +948,40 @@ library, so from outside it the import is a check error and the server is
 reachable only from its sibling test files — which is why nothing outside the
 SDK calls it, and why the gap went unnoticed while [stdlib.md](stdlib.md)
 documented the import in five places. The barrel rule is doing exactly what it
-should; the layout is what's wrong. The fix is mechanical and is the one
-`std.http.sse` already uses: move it to `std/http/server/server.thera`, its own
-directory fronted by its own barrel. Worth folding into the wider "is the `std`
-API surface regular and intentional?" review rather than doing piecemeal, since
-the same question applies to every library that fronts more than one public
-surface.
+should; the layout is what's wrong.
+
+**And it is the only one.** A sweep of `sdk/std` found every directory fronted
+by its own barrel, no loose files, `std/http/sse/` the one nested library and a
+proper one, and every other `import std.…` spelling in the tree resolving —
+`server.thera` is the single file with public declarations that neither its
+barrel re-exports nor any non-test sibling imports. (`pkgs/cli` has two such
+siblings, both imported by their barrel with a plain `import`, which is the
+intended internal shape.)
+
+**The fix is not mechanical, though**, which an earlier version of this note got
+wrong. Moving `server.thera` to `std/http/server/server.thera` makes it a
+separate library, and a separate library **cannot reach `wire`**:
+`import '../wire'` is the same check error one level down. So there is a real
+three-way choice, and the tension is that the barrel rule has no way to express
+"two public entry points sharing a private third file":
+
+1. **Nest `wire/` as well** — `std/http/wire/wire.thera`, re-exported by the
+   `http` barrel, imported by `client.thera` and by `server/` as `'../wire'`.
+   Verified to work, including the barrel re-export and the white-box tests. It
+   is the only option that keeps the property the split exists for: importing
+   the server still never pulls in the client, nor TLS. The cost is that
+   `std.http.wire` becomes a reachable name, which [stdlib.md](stdlib.md)
+   currently says it shouldn't be.
+2. **Nest `server/` alone and have it import the `std.http` barrel.** One
+   directory moves, but importing the server now drags in the client and the TLS
+   stack — regressing a deliberate property for a layout convenience.
+3. **Re-export `server` through the `http` barrel** (`http.serve(…)`,
+   `http.text(…)`). No move at all, and the names don't collide today — but same
+   TLS coupling as (2), plus it changes the documented spelling everywhere.
+
+**Recommendation: (1).** Worth doing with the wider "is the `std` API surface
+regular and intentional?" review, since the choice is about what `std.http`
+means, not about one file.
 
 The larger arc all of this feeds is [api-access.md](api-access.md) — calling
 third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans the rest
