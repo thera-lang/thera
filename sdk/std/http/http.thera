@@ -29,7 +29,10 @@
 //! `http.get(url)` should stay the spelling of the most-written line here.
 //!
 //! Serving requests is `std.http.server`, a separate import — see docs/stdlib.md
-//! § `std.http`.
+//! § `std.http`. Decoding a `text/event-stream` is `std.http.sse`, likewise
+//! separate: it needs nothing from here (any `io.Reader` will do), and keeping it
+//! out of this namespace keeps `Event` and `Decoder` from becoming `http.Event` and
+//! `http.Decoder`.
 
 pub import 'wire'; // Request, Response, HttpError, status codes, the HTTP/1.1 codec
 pub import 'client'; // get / post / send

@@ -795,15 +795,19 @@ best-of-breed case; the crate backing each function is named in its doc comment.
 collision resistance (checksums / legacy interop only); `crc32` is an integrity
 checksum, not a hash.
 
-### `std.http` / `std.http.server` — HTTP client + simple server
+### `std.http` / `std.http.server` / `std.http.sse` — HTTP client + simple server
 
 _Status: the **wire codec**, the **server**, and the **client** are implemented,
 over the provisional `std.net` — and the client now speaks **`https`**,
 verifying the chain and host name against the bundled roots
 ([http-tls.md](http-tls.md), complete). A certificate that doesn't verify is an
-`HttpError.Tls`, distinct from `Connect` because retrying won't fix it. Still
-deferred: redirect following, connection pooling, streaming bodies, and
-**server**-side TLS (a simple server's TLS is terminated upstream)._
+`HttpError.Tls`, distinct from `Connect` because retrying won't fix it. The
+codec **streams a response body** (`Wire.stream_response`, whose body is an
+`io.Reader`), and **`std.http.sse`** decodes a `text/event-stream` over any
+reader — [http-streaming.md](http-streaming.md) stages 1 and 2. Still deferred:
+redirect following, connection pooling, a **client**-level streaming entry point
+(that plan's stage 3), and **server**-side TLS (a simple server's TLS is
+terminated upstream)._
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
 are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both
@@ -812,7 +816,15 @@ and § Sequencing), so this lands after the scheduler.
 
 The **client** lives in `std.http`; the **simple server** is a sibling,
 `std.http.server` (sharing `Request`/`Response`/`HttpError`, a separate import
-so "the server is its own surface" stays explicit). Lightweight servers — a
+so "the server is its own surface" stays explicit). **As laid out today that
+import does not resolve**, and the server is reachable only from inside the
+directory: `server.thera` is a plain file inside the `std/http` directory
+library, so `import std.http.server` is a check error (`… resolves inside the
+library 'std/http/'; import its barrel instead`) — which is why its only callers
+are the sibling test files. The fix is mechanical, and is the layout
+`std.http.sse` already uses: a file that is meant to be its own public surface
+needs its own directory and barrel (`std/http/server/server.thera`). Tracked in
+the roadmap's _Networking punchlist_. Lightweight servers — a
 webhook receiver, a local endpoint, a health check — are common enough in
 agent/CLI tooling to deserve a built-in answer. **The line: bind + handle (a
 handler function, plus a tiny built-in path matcher) is core; routing DSLs,
@@ -901,6 +913,46 @@ As-built notes, none of them visible from the sketch above:
 - **A malformed request gets a 400 and the connection closes** — once framing is
   untrustworthy there is no way to find the start of the next request. An
   over-long body is the exception the client can act on, and gets a 413.
+
+**Server-sent events (`std.http.sse`).** _(implemented)_ The `text/event-stream`
+framing, decoded into events, over any `io.Reader` — in practice a streaming
+response body. Every GenAI API streams tokens this way, the framing is small and
+fiddly and identical for all of them, so it belongs in one tested place rather
+than in each client. Design and staging in
+[http-streaming.md](http-streaming.md).
+
+```
+pub struct Event { let name: String;          // `event:`, or 'message' by default
+                   let data: String;          // `data:` lines joined with '\n'
+                   let id: Option<String>; }  // the stream's last-event-id, carried forward
+
+pub struct Decoder { … }                      // impl Iterator<Event>
+impl Decoder {
+    pub fn new(_ src: io.Reader) -> Decoder;
+    pub fn read_event(self) -> Result<Option<Event>, Error>;   // None at end of stream
+    pub fn retry_ms(self) -> Option<Int>;      // the server's requested reconnect delay
+    pub fn error(self) -> Option<Error>;       // what ended iteration, if a read failed
+}
+pub fn events(_ src: io.Reader) -> Decoder;
+```
+
+Three decisions worth knowing, each of them a place where the obvious
+implementation is wrong:
+
+- **Framing only, no sentinels.** `data` is the string the server sent. OpenAI's
+  `[DONE]` and Anthropic's `event: message_stop` are conventions of those APIs,
+  not of the format, and neither appears here.
+- **`id` is on the event, `retry` is on the decoder.** Both are stream state per
+  the spec (an `id:` is *not* cleared between records, so it rides along on
+  every later event), but a record carrying only `retry:` dispatches **no event
+  at all** — as a field of `Event` the value would have nowhere to go.
+- **A blank line dispatches, and a record with no `data` dispatches nothing.**
+  So a stream that ends mid-record yields no final event, rather than half a
+  payload.
+
+Deliberate gap: a lone `\r` as a line terminator, which the spec allows and no
+real server emits. Reusing `io.lines` (LF and CRLF) is what keeps the decode
+incremental; see that plan's open questions for why the cheap fix isn't one.
 
 ### `std.log` — named, per-source logging _(implemented)_
 

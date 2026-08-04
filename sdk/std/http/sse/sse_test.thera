@@ -1,0 +1,253 @@
+//! Tests for std.http.sse. The framing is a pure function of a byte stream, so
+//! every case runs over `io.from_string` — no server, no sockets.
+
+import std.testing;
+import std.io;
+
+import 'sse' as _;
+
+/// Decode `raw` completely, the way a `for` loop would.
+fn decode(_ raw: String) -> List<sse.Event> {
+    return sse.events(io.from_string(raw)).to_list();
+}
+
+// --- records ---
+
+@test
+fn decodes_one_event() -> Result<Void, Error> {
+    let events = decode('event: ping\ndata: hello\n\n');
+    testing.assert_eq(events.len(), 1)?;
+    testing.assert_eq(events[0].name, 'ping')?;
+    return testing.assert_eq(events[0].data, 'hello');
+}
+
+/// A record with no `event:` field is a `message` — the spec's default, and what a
+/// browser dispatches such a record as.
+@test
+fn a_record_without_an_event_field_is_a_message() -> Result<Void, Error> {
+    let events = decode('data: hi\n\n');
+    testing.assert_eq(events.len(), 1)?;
+    return testing.assert_eq(events[0].name, 'message');
+}
+
+/// Repeated `data:` lines are one payload joined with newlines. This is how a JSON
+/// value containing a newline is sent, so getting it wrong corrupts every such
+/// payload rather than failing loudly.
+@test
+fn repeated_data_lines_join_with_newlines() -> Result<Void, Error> {
+    let events = decode('data: one\ndata: two\ndata: three\n\n');
+    testing.assert_eq(events.len(), 1)?;
+    return testing.assert_eq(events[0].data, 'one\ntwo\nthree');
+}
+
+@test
+fn decodes_a_sequence_of_events() -> Result<Void, Error> {
+    let raw = 'event: a\ndata: 1\n\n'
+        + 'event: b\ndata: 2\n\n'
+        + 'event: c\ndata: 3\n\n';
+    let events = decode(raw);
+    testing.assert_eq(events.len(), 3)?;
+    testing.assert_eq(events[0].name, 'a')?;
+    testing.assert_eq(events[2].name, 'c')?;
+    return testing.assert_eq(events[1].data, '2');
+}
+
+/// CRLF is as legal as LF, and is what a server behind a proxy often produces.
+@test
+fn crlf_line_endings_decode_the_same() -> Result<Void, Error> {
+    let events = decode('event: a\r\ndata: 1\r\n\r\n');
+    testing.assert_eq(events.len(), 1)?;
+    testing.assert_eq(events[0].name, 'a')?;
+    return testing.assert_eq(events[0].data, '1');
+}
+
+/// Exactly one leading space is stripped from a value — a second one is data. The
+/// obvious `trim()` would be wrong here, and wrong invisibly.
+@test
+fn only_one_leading_space_is_stripped() -> Result<Void, Error> {
+    let events = decode('data:  padded\n\n');
+    return testing.assert_eq(events[0].data, ' padded');
+}
+
+/// No space at all is also legal.
+@test
+fn a_value_needs_no_leading_space() -> Result<Void, Error> {
+    let events = decode('data:tight\n\n');
+    return testing.assert_eq(events[0].data, 'tight');
+}
+
+/// A line with no colon is the field with an empty value — so a bare `data` line
+/// contributes an empty string to the payload, and does count as data.
+@test
+fn a_field_without_a_colon_has_an_empty_value() -> Result<Void, Error> {
+    let events = decode('data: first\ndata\ndata: third\n\n');
+    testing.assert_eq(events.len(), 1)?;
+    return testing.assert_eq(events[0].data, 'first\n\nthird');
+}
+
+/// Comments are what a keep-alive ping looks like on the wire, so they arrive
+/// routinely on a long-lived stream and must not disturb the record being built.
+@test
+fn comments_are_ignored() -> Result<Void, Error> {
+    let events = decode(': keep-alive\ndata: hi\n: another\n\n');
+    testing.assert_eq(events.len(), 1)?;
+    return testing.assert_eq(events[0].data, 'hi');
+}
+
+/// An unknown field is ignored rather than fatal — the extension point the format
+/// is designed around.
+@test
+fn unknown_fields_are_ignored() -> Result<Void, Error> {
+    let events = decode('data: hi\nfuture-field: whatever\n\n');
+    testing.assert_eq(events.len(), 1)?;
+    return testing.assert_eq(events[0].data, 'hi');
+}
+
+/// Field names are case-sensitive, unlike header names — so `Data:` is an unknown
+/// field, not a `data` field, and the record it appears alone in dispatches nothing.
+@test
+fn field_names_are_case_sensitive() -> Result<Void, Error> {
+    return testing.assert_eq(decode('Data: hi\n\n').len(), 0);
+}
+
+// --- dispatch rules ---
+
+/// The blank line is what dispatches, so a record without one is not an event. A
+/// decoder that yielded on end-of-stream instead would hand a client half a payload.
+@test
+fn an_unterminated_record_is_not_dispatched() -> Result<Void, Error> {
+    return testing.assert_eq(decode('event: a\ndata: partial\n').len(), 0);
+}
+
+/// A record with no `data` field dispatches nothing at all — an empty `data` field
+/// is not the same as no `data` field.
+@test
+fn a_record_without_data_dispatches_nothing() -> Result<Void, Error> {
+    testing.assert_eq(decode('event: a\n\n').len(), 0)?;
+    return testing.assert_eq(decode('data\n\n').len(), 1);
+}
+
+/// Extra blank lines are records with no fields, and so dispatch nothing.
+@test
+fn blank_lines_between_events_are_harmless() -> Result<Void, Error> {
+    return testing.assert_eq(decode('\n\ndata: a\n\n\n\ndata: b\n\n').len(), 2);
+}
+
+/// An `event:` name does not carry into the next record — unlike `id`, which does.
+/// This asymmetry is in the spec and is easy to get backwards.
+@test
+fn an_event_name_does_not_carry_forward() -> Result<Void, Error> {
+    let events = decode('event: named\ndata: 1\n\ndata: 2\n\n');
+    testing.assert_eq(events.len(), 2)?;
+    testing.assert_eq(events[0].name, 'named')?;
+    return testing.assert_eq(events[1].name, 'message');
+}
+
+// --- id and retry (stream state, not record state) ---
+
+/// The last-event-id buffer is not cleared between records, so an id set once rides
+/// along on every event after it. The direction the previous test asserts for names.
+@test
+fn an_id_carries_forward_to_later_events() -> Result<Void, Error> {
+    let events = decode('id: 7\ndata: a\n\ndata: b\n\nid: 8\ndata: c\n\n');
+    testing.assert_eq(events.len(), 3)?;
+    testing.assert_eq(events[0].id.unwrap_or(''), '7')?;
+    testing.assert_eq(events[1].id.unwrap_or(''), '7')?;
+    return testing.assert_eq(events[2].id.unwrap_or(''), '8');
+}
+
+@test
+fn no_id_field_means_no_id() -> Result<Void, Error> {
+    return testing.assert(decode('data: a\n\n')[0].id.is_none(), message: 'no id was sent');
+}
+
+/// A record of only `retry:` dispatches no event, which is exactly why `retry` is
+/// state on the decoder rather than a field of `Event` — as an event field the value
+/// would have nowhere to go.
+@test
+fn a_retry_only_record_still_sets_the_delay() -> Result<Void, Error> {
+    let d = sse.events(io.from_string('retry: 2500\n\ndata: a\n\n'));
+    let events = d.to_list();
+    testing.assert_eq(events.len(), 1)?;
+    return testing.assert_eq(d.retry_ms().unwrap_or(0), 2500);
+}
+
+/// Only all-digits counts. `to_int` alone would take `-1`, and a negative
+/// reconnection delay is the sort of value that becomes a busy loop downstream.
+@test
+fn a_non_numeric_retry_is_ignored() -> Result<Void, Error> {
+    for bad in ['soon', '-1', '1.5', '2s', ''] {
+        let d = sse.events(io.from_string('retry: ' + bad + '\ndata: a\n\n'));
+        let _ = d.to_list();
+        testing.assert(d.retry_ms().is_none(), message: 'retry: "' + bad + '" is not a delay')?;
+    }
+    return Result.Ok(void);
+}
+
+/// An id carrying a NUL is dropped rather than stored: a caller that implements
+/// resumption puts it in a `Last-Event-ID` header, and NUL is the one character that
+/// can reach one (CR and LF terminate a line, so they never appear in a value).
+@test
+fn an_id_containing_nul_is_ignored() -> Result<Void, Error> {
+    let nul = String.from_chars([0]);
+    let events = decode('id: a' + nul + 'b\ndata: x\n\n');
+    testing.assert_eq(events.len(), 1)?;
+    return testing.assert(events[0].id.is_none(), message: 'a NUL id is not stored');
+}
+
+// --- reading ---
+
+/// `read_event` is the honest primitive: it hands back events one at a time and
+/// reports the end as `Ok(None)` rather than as an error.
+/// The `data` of an event, or a stand-in — so a missing event fails an assertion
+/// with a readable message instead of needing a `match` at every call.
+fn data_of(_ ev: Option<sse.Event>) -> String {
+    return match ev {
+        Some(e) => e.data,
+        None => '<no event>',
+    };
+}
+
+@test
+fn read_event_yields_one_at_a_time() -> Result<Void, Error> {
+    let d = sse.Decoder.new(io.from_string('data: a\n\ndata: b\n\n'));
+    testing.assert_eq(data_of(d.read_event()?), 'a')?;
+    testing.assert_eq(data_of(d.read_event()?), 'b')?;
+    return testing.assert(d.read_event()?.is_none(), message: 'the stream is done');
+}
+
+/// A clean stream leaves no error behind — the field only fills if a read failed.
+@test
+fn a_clean_stream_records_no_error() -> Result<Void, Error> {
+    let d = sse.events(io.from_string('data: a\n\n'));
+    let _ = d.to_list();
+    return testing.assert(d.error().is_none(), message: 'nothing went wrong');
+}
+
+/// Iterator adapters drive it like any other `Iterator`, which is the whole reason
+/// for the `Iterator<Event>` impl.
+@test
+fn adapters_drive_the_decoder() -> Result<Void, Error> {
+    let raw = 'event: keep\ndata: 1\n\nevent: skip\ndata: 2\n\nevent: keep\ndata: 3\n\n';
+    let kept = sse.events(io.from_string(raw))
+        .filter((ev) => ev.name == 'keep')
+        .map((ev) => ev.data)
+        .to_list();
+    return testing.assert_eq(kept.join(','), '1,3');
+}
+
+/// The realistic shape: a chunk of an Anthropic-style stream, where every event
+/// carries a JSON payload and the terminator is a named event rather than a
+/// sentinel. Nothing in the framing layer knows that — which is the point.
+@test
+fn decodes_a_model_style_stream() -> Result<Void, Error> {
+    let raw = 'event: message_start\ndata: {"type":"message_start"}\n\n'
+        + 'event: content_block_delta\ndata: {"delta":{"text":"Hel"}}\n\n'
+        + 'event: content_block_delta\ndata: {"delta":{"text":"lo"}}\n\n'
+        + ': keep-alive\n\n'
+        + 'event: message_stop\ndata: {"type":"message_stop"}\n\n';
+    let names = decode(raw).map((ev) => ev.name);
+    testing.assert_eq(names.len(), 4)?;
+    testing.assert_eq(names[0], 'message_start')?;
+    return testing.assert_eq(names[3], 'message_stop');
+}
