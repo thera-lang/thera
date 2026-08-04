@@ -37,10 +37,10 @@ deliberate gap left is recorded in stage 5.
   the common case is server-auth only.
 - **Non-goal (for v1) — a public server-TLS surface.** `std.http.server` stays
   plaintext-HTTP/1.1 (TLS terminated upstream, per
-  [server.thera](../sdk/std/http/server.thera)). **But** the runtime will grow a
-  TLS _accept_ native anyway, used only by the test harness (see § Testing) —
-  the public `serve_tls` stays deferred, the native that would back it lands
-  early because the in-process test loop needs it.
+  [server.thera](../sdk/std/http/server/server.thera)). **But** the runtime will
+  grow a TLS _accept_ native anyway, used only by the test harness (see §
+  Testing) — the public `serve_tls` stays deferred, the native that would back
+  it lands early because the in-process test loop needs it.
 - **Non-goal — the other things deferred with TLS.** Redirect following,
   connection pooling, and streaming bodies ([stdlib.md](stdlib.md) § std.http)
   are independent and stay deferred; TLS does not unblock or require them.
@@ -57,9 +57,9 @@ or a `TlsStream`. Concretely:
   branch that returns the "not supported" error. TLS replaces that branch with
   "resolve → connect → **wrap the connected stream in a `TlsStream`**", and
   hands the wrapped stream to the same codec path the plaintext client uses.
-- The wire codec (`wire.thera`) takes an interface-typed stream. Interface
-  dispatch (`call.virtual`) means `TlsStream` implementing
-  `Reader + Writer + Closer` is a drop-in.
+- The wire codec (`common.thera`, then named `wire.thera`) takes an
+  interface-typed stream. Interface dispatch (`call.virtual`) means `TlsStream`
+  implementing `Reader + Writer + Closer` is a drop-in.
 
 So the work is entirely **below** the codec: a runtime TLS session, its natives,
 and a thin Thera `TlsStream` wrapper.

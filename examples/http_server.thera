@@ -1,0 +1,47 @@
+// A local HTTP server, answered by our own client — the whole `std.http` surface
+// in one program.
+//
+// The `std.http` split is deliberate, and two imports is all it takes:
+//
+//   import std.http          the client (`http.get`) plus the shared types
+//   import std.http.server   binding and answering; its own surface, opted into
+//
+// There is a third library, `std.http.common` — the codec both of those build on —
+// but you should never need to import it: the barrel re-exports it, which is why
+// `http.Request` below is the type the handler receives.
+//
+// `serve` blocks, so it runs in a fiber. Binding port 0 lets the OS pick a free
+// port, which `local_addr` then reports — the pattern to use whenever a test or a
+// script has to talk to a server it just started.
+
+import std.fiber;
+import std.net;
+import std.http;
+import std.http.server;
+
+// A handler is `(Request) -> Result<Response, Error>`. Errors are values here too:
+// return a 4xx/5xx `Response` for an expected failure, or propagate an `Error` and
+// the server renders a 500.
+fn greet(_ req: http.Request) -> Result<http.Response, Error> {
+    let name = server.path_of(req.url).slice(1, server.path_of(req.url).len());
+    if name.is_empty() {
+        return Result.Ok(server.text(400, 'usage: GET /<name>\n'));
+    }
+    return Result.Ok(server.text(200, 'hello, ' + name + '\n'));
+}
+
+fn main() -> Result<Int, Error> {
+    // Bind before serving, so the port is known before anything connects.
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    fiber.spawn(() => server.serve_listener(listener, greet));
+
+    let base = 'http://' + addr;
+    let hello = http.get(base + '/world')?;
+    print(hello.text()?);
+
+    let usage = http.get(base + '/')?;
+    println('empty path -> ' + usage.status.display());
+
+    return Result.Ok(0);
+}

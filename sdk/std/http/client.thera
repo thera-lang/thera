@@ -1,12 +1,13 @@
 //! std.http client — `get`/`post`/`send` over HTTP/1.1.
 //!
 //! **Internal.** Reach for it through the [std.http](http.thera) barrel, which
-//! re-exports this alongside the `wire` types: `http.get(...)`.
+//! re-exports this alongside the [common](common/common.thera) types:
+//! `http.get(...)`.
 
 import std.io;
 import std.net;
 
-import 'wire';
+import 'common';
 
 /// The default `user-agent`, sent unless a caller sets their own. Servers do
 /// route on it (rate limits, compatibility shims), and an unidentified client is
@@ -26,18 +27,18 @@ struct Url {
 
 /// Split an absolute `http://` or `https://` URL. The scheme decides both the
 /// default port (80 vs 443) and whether `send` wraps the connection in TLS.
-fn parse_url(_ url: String) -> Result<Url, wire.HttpError> {
+fn parse_url(_ url: String) -> Result<Url, common.HttpError> {
     let scheme_end = match url.find('://') {
         Some(i) => i,
         None => {
-            return Result.Err(wire.HttpError.Connect(
+            return Result.Err(common.HttpError.Connect(
                 'not an absolute URL (no scheme): "' + url + '"',
             ));
         },
     };
     let scheme = url.slice(0, scheme_end).to_lowercase();
     if scheme != 'http' && scheme != 'https' {
-        return Result.Err(wire.HttpError.Connect('unsupported URL scheme: "' + scheme + '"'));
+        return Result.Err(common.HttpError.Connect('unsupported URL scheme: "' + scheme + '"'));
     }
     let rest = url.slice(scheme_end + 3, url.len());
 
@@ -53,7 +54,7 @@ fn parse_url(_ url: String) -> Result<Url, wire.HttpError> {
     let authority = rest.slice(0, cut);
     let after = rest.slice(cut, rest.len());
 
-    // Drop a `#fragment`: it is client-side only and never goes on the wire.
+    // Drop a `#fragment`: it is client-side only and never goes on the common.
     let mut target = match after.find('#') {
         Some(i) => after.slice(0, i),
         None => after,
@@ -66,12 +67,12 @@ fn parse_url(_ url: String) -> Result<Url, wire.HttpError> {
     // URL are deprecated (RFC 9110 §4.2.1) and passing them through as a host
     // would produce a baffling DNS failure.
     if authority.contains('@') {
-        return Result.Err(wire.HttpError.Connect(
+        return Result.Err(common.HttpError.Connect(
             'credentials in a URL are not supported; use an authorization header',
         ));
     }
     if authority.is_empty() {
-        return Result.Err(wire.HttpError.Connect('no host in URL: "' + url + '"'));
+        return Result.Err(common.HttpError.Connect('no host in URL: "' + url + '"'));
     }
 
     let default_port = if scheme == 'https' { 443 } else { 80 };
@@ -88,11 +89,11 @@ fn parse_url(_ url: String) -> Result<Url, wire.HttpError> {
 
 /// The host out of an authority, unwrapping an IPv6 literal's brackets —
 /// `[::1]:8080` is the host `::1`, which is what a resolver wants.
-fn host_of(_ authority: String) -> Result<String, wire.HttpError> {
+fn host_of(_ authority: String) -> Result<String, common.HttpError> {
     if authority.starts_with('[') {
         return match authority.find(']') {
             Some(end) => Result.Ok(authority.slice(1, end)),
-            None => Result.Err(wire.HttpError.Connect(
+            None => Result.Err(common.HttpError.Connect(
                 'unterminated IPv6 literal: "' + authority + '"',
             )),
         };
@@ -105,7 +106,7 @@ fn host_of(_ authority: String) -> Result<String, wire.HttpError> {
 
 /// The port out of an authority, or `fallback`. The colon that matters is the one
 /// *after* an IPv6 literal's `]`, not the ones inside it.
-fn port_of(_ authority: String, _ fallback: Int) -> Result<Int, wire.HttpError> {
+fn port_of(_ authority: String, _ fallback: Int) -> Result<Int, common.HttpError> {
     let tail = if authority.starts_with('[') {
         match authority.find(']') {
             Some(end) => authority.slice(end + 1, authority.len()),
@@ -125,13 +126,15 @@ fn port_of(_ authority: String, _ fallback: Int) -> Result<Int, wire.HttpError> 
                     Some(n) => {
                         if n < 0 || n > 65535 {
                             Result.Err(
-                                wire.HttpError.Connect('port out of range: "' + digits + '"')
+                                common.HttpError.Connect('port out of range: "' + digits + '"')
                             )
                         } else {
                             Result.Ok(n)
                         }
                     },
-                    None => Result.Err(wire.HttpError.Connect('malformed port: "' + digits + '"')),
+                    None => Result.Err(
+                        common.HttpError.Connect('malformed port: "' + digits + '"')
+                    ),
                 }
             }
         },
@@ -144,8 +147,8 @@ fn port_of(_ authority: String, _ fallback: Int) -> Result<Int, wire.HttpError> 
 pub fn get(
     _ url: String,
     headers: Map<String, String> = [:],
-) -> Result<wire.Response, wire.HttpError> {
-    return send(wire.Request { method: 'GET', url: url, headers: headers, body: Bytes.empty() });
+) -> Result<common.Response, common.HttpError> {
+    return send(common.Request { method: 'GET', url: url, headers: headers, body: Bytes.empty() });
 }
 
 /// POST `body` to `url`. Set `content-type` in `headers` to say what it is.
@@ -153,8 +156,8 @@ pub fn post(
     _ url: String,
     body: Bytes,
     headers: Map<String, String> = [:],
-) -> Result<wire.Response, wire.HttpError> {
-    return send(wire.Request { method: 'POST', url: url, headers: headers, body: body });
+) -> Result<common.Response, common.HttpError> {
+    return send(common.Request { method: 'POST', url: url, headers: headers, body: body });
 }
 
 /// Send `request`, whose `url` must be absolute (`http://host/path` or
@@ -167,15 +170,15 @@ pub fn post(
 /// caller to act on. A 4xx or 5xx is likewise a perfectly good `Response`, not an
 /// error; `HttpError` is for exchanges that did not happen.
 ///
-/// The body is read into memory, capped at `wire.MAX_BODY_BYTES`. This is `stream`
+/// The body is read into memory, capped at `common.MAX_BODY_BYTES`. This is `stream`
 /// plus that read plus the close — so for a body that should not be held whole, use
 /// `stream` directly.
-pub fn send(_ request: wire.Request) -> Result<wire.Response, wire.HttpError> {
+pub fn send(_ request: common.Request) -> Result<common.Response, common.HttpError> {
     let open = stream(request)?;
     // Written as one expression so there is a single `close` below, on every path,
     // rather than one per early return.
     let outcome = match open.body.buffered() {
-        Ok(body) => Result.Ok(wire.Response {
+        Ok(body) => Result.Ok(common.Response {
             status: open.status,
             headers: open.headers,
             body: body,
@@ -191,13 +194,13 @@ pub fn send(_ request: wire.Request) -> Result<wire.Response, wire.HttpError> {
 /// A response whose connection is **still open**: the head has arrived, and the body
 /// is being read off the wire as it comes.
 ///
-/// The client's counterpart to `wire.ResponseStream`, which is the codec's version
+/// The client's counterpart to `common.ResponseStream`, which is the codec's version
 /// of the same idea. The difference is the last field: this one **owns the
 /// connection**, and so has to be closed.
 pub struct Stream {
     let status: Int;
     let headers: Map<String, String>;
-    let body: wire.BodyReader;
+    let body: common.BodyReader;
     let conn: io.Closer;
 }
 
@@ -224,7 +227,7 @@ impl Stream {
 }
 
 /// Send `request` and return as soon as the response **head** has arrived, with the
-/// body still on the wire.
+/// body still on the common.
 ///
 /// For a body that should be consumed as it comes — a `text/event-stream` (see
 /// `std.http.sse`), a download too large to hold. `send` is the right call for
@@ -233,7 +236,7 @@ impl Stream {
 ///
 /// **The connection stays open until the returned `Stream` is closed**, and closing
 /// it is the caller's job. Prefer `with_stream`, which does it on every path out.
-pub fn stream(_ request: wire.Request) -> Result<Stream, wire.HttpError> {
+pub fn stream(_ request: common.Request) -> Result<Stream, common.HttpError> {
     let url = parse_url(request.url)?;
     // The scheme picks the stream type; `open` is generic over both, so each arm is
     // just "connect, then hand it over".
@@ -263,7 +266,7 @@ pub fn stream(_ request: wire.Request) -> Result<Stream, wire.HttpError> {
 /// })?;
 /// ```
 pub fn with_stream<T>(
-    _ request: wire.Request,
+    _ request: common.Request,
     handle handler: (Stream) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let open = stream(request)?;
@@ -275,14 +278,14 @@ pub fn with_stream<T>(
 /// A failure to establish the connection, as an `HttpError`. Only the TLS cause
 /// survives as itself — it is the one that says "don't retry this" — and
 /// everything else is the `Connect` it already was.
-fn connect_error(_ e: net.NetError) -> wire.HttpError {
+fn connect_error(_ e: net.NetError) -> common.HttpError {
     return match e {
-        Tls(m) => wire.HttpError.Tls(m),
-        _ => wire.HttpError.Connect(e.message()),
+        Tls(m) => common.HttpError.Tls(m),
+        _ => common.HttpError.Connect(e.message()),
     };
 }
 
-/// Write `request` on `conn` and read the head back, leaving the body on the wire.
+/// Write `request` on `conn` and read the head back, leaving the body on the common.
 ///
 /// Generic over the stream rather than taking a `net.TcpStream`, which is what lets
 /// `https` and `http` share it — the codec's two halves are separately
@@ -294,10 +297,10 @@ fn connect_error(_ e: net.NetError) -> wire.HttpError {
 /// exactly how a retry loop runs a process out of them.
 fn open<S: io.Reader + io.Writer + io.Closer>(
     _ conn: S,
-    _ request: wire.Request,
+    _ request: common.Request,
     _ url: Url,
-) -> Result<Stream, wire.HttpError> {
-    let sent = wire.Request {
+) -> Result<Stream, common.HttpError> {
+    let sent = common.Request {
         method: request.method,
         // The request line carries the path, not the whole URL (that form is for
         // proxies only).
@@ -305,13 +308,13 @@ fn open<S: io.Reader + io.Writer + io.Closer>(
         headers: outbound_headers(request.headers, url),
         body: request.body,
     };
-    let head = match wire.write_request(to: conn, sent) {
+    let head = match common.write_request(to: conn, sent) {
         // A HEAD response describes a body it does not send; nothing on the wire
         // says so, so the reader has to be told.
-        Ok(_) => wire.Wire
+        Ok(_) => common.Wire
             .new(conn)
             .stream_response(to_head: request.method.to_uppercase() == 'HEAD'),
-        Err(e) => Result.Err(wire.HttpError.Connect(e.message())),
+        Err(e) => Result.Err(common.HttpError.Connect(e.message())),
     };
     return match head {
         Ok(r) => Result.Ok(Stream {
@@ -328,7 +331,7 @@ fn open<S: io.Reader + io.Writer + io.Closer>(
 }
 
 /// The caller's headers plus the ones the transport owns. Caller-set values win,
-/// except for framing, which `wire` derives from the body.
+/// except for framing, which the codec derives from the body.
 fn outbound_headers(_ caller: Map<String, String>, _ url: Url) -> Map<String, String> {
     let headers: Map<String, String> = [:];
     for key in caller.keys() {

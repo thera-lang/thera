@@ -13,7 +13,7 @@ import std.net;
 import std.fiber;
 import std.json as _;
 
-import 'wire';
+import '../common';
 import 'server' as _;
 
 /// Start `handler` on a loopback port and return the `<ip>:<port>` to dial.
@@ -23,7 +23,7 @@ import 'server' as _;
 /// docs/roadmap.md § Networking punchlist). A test's main fiber returning ends the
 /// run regardless, and each test binds its own `:0` port, so the abandoned fiber
 /// costs nothing.
-fn start(_ handler: (wire.Request) -> Result<wire.Response, Error>) -> Result<String, Error> {
+fn start(_ handler: (common.Request) -> Result<common.Response, Error>) -> Result<String, Error> {
     let listener = net.listen('127.0.0.1:0')?;
     let addr = listener.local_addr()?;
     fiber.spawn(() => server.serve_listener(listener, handler));
@@ -31,20 +31,20 @@ fn start(_ handler: (wire.Request) -> Result<wire.Response, Error>) -> Result<St
 }
 
 /// Send `raw` verbatim to `addr` and read one response back.
-fn exchange(_ addr: String, _ raw: String) -> Result<wire.Response, Error> {
+fn exchange(_ addr: String, _ raw: String) -> Result<common.Response, Error> {
     let conn = net.connect_addr(addr)?;
     io.write_all(to: conn, raw.bytes())?;
-    let resp = wire.Wire.new(conn).read_response()?;
+    let resp = common.Wire.new(conn).read_response()?;
     conn.close()?;
     return Result.Ok(resp);
 }
 
 /// A one-line GET for `path`, asking the server to close when done.
-fn get(_ addr: String, _ path: String) -> Result<wire.Response, Error> {
+fn get(_ addr: String, _ path: String) -> Result<common.Response, Error> {
     return exchange(addr, 'GET ' + path + ' HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n');
 }
 
-fn ok_handler(_ req: wire.Request) -> Result<wire.Response, Error> {
+fn ok_handler(_ req: common.Request) -> Result<common.Response, Error> {
     return Result.Ok(server.text(200, 'hello ' + req.url));
 }
 
@@ -63,7 +63,7 @@ fn serves_a_request() -> Result<Void, Error> {
 @test
 fn a_handler_sees_the_request_body_and_headers() -> Result<Void, Error> {
     let addr = start((req) => {
-        let seen = wire.header(req.headers, 'X-Marker').unwrap_or('(none)');
+        let seen = common.header(req.headers, 'X-Marker').unwrap_or('(none)');
         return Result.Ok(server.text(200, req.method + ' ' + seen + ' ' + req.body.to_string()?));
     })?;
     let resp = exchange(
@@ -107,7 +107,7 @@ fn a_handler_can_return_a_4xx_directly() -> Result<Void, Error> {
 fn keeps_a_connection_alive_across_requests() -> Result<Void, Error> {
     let addr = start(ok_handler)?;
     let conn = net.connect_addr(addr)?;
-    let w = wire.Wire.new(conn);
+    let w = common.Wire.new(conn);
 
     io.write_all(to: conn, 'GET /one HTTP/1.1\r\nHost: x\r\n\r\n'.bytes())?;
     let first = w.read_response()?;
@@ -147,7 +147,7 @@ fn serves_many_connections_concurrently() -> Result<Void, Error> {
         pending.push(conn);
     }
     for p in pending.enumerate() {
-        let resp = wire.Wire.new(p.value).read_response()?;
+        let resp = common.Wire.new(p.value).read_response()?;
         testing.assert_eq(resp.body.to_string()?, 'hello /n' + p.index.display())?;
         p.value.close()?;
     }

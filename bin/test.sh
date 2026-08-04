@@ -118,6 +118,9 @@ phase_examples() {
   }
   check_out examples/fibers.thera $'sum of squares 1..5 = 55\nconsumed 10 values, sum = 55'
   check_out examples/list_hof.thera $'20\n40\n60\nbig: 2\ntotal: 21'
+  # Also the only thing outside the SDK that imports `std.http.server`, which is
+  # how that import being a check error went unnoticed for as long as it did.
+  check_out examples/http_server.thera $'hello, world\nempty path -> 400'
 
   # Every other example must at least run cleanly. wordcount needs a file argument;
   # *_test.thera are test files.

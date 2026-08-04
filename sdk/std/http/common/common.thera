@@ -1,10 +1,16 @@
-//! std.http wire — the HTTP/1.1 message codec: `Request`/`Response`, status
-//! codes, header normalization, and framing (`Content-Length` and chunked).
+//! std.http.common — what the client and the server share: the HTTP/1.1 message
+//! codec (`Request`/`Response`, status codes, header normalization, and framing by
+//! `Content-Length` or chunks).
 //!
-//! **Internal.** Reach for [std.http](http.thera) (the client) or
-//! [std.http.server](server.thera); both re-export or build on what is here. It is
-//! a sibling rather than part of either so that importing the server never drags
-//! in the client — and, with it, TLS.
+//! **You do not need to import this.** `import std.http` re-exports all of it, so
+//! the types are spelled `http.Request`, `http.Response`, `http.HttpError`. It is
+//! its own library rather than a file beside the client because
+//! `std.http.server` is a *separate* library and so cannot reach a private sibling
+//! of `std.http` — that is the whole reason for the directory, and the reason
+//! `import std.http.common` resolves at all. Prefer the barrel spelling.
+//!
+//! Being shared is the point: the server builds on this **without** importing the
+//! client, so serving does not drag in the client's TLS dial.
 //!
 //! Everything here is pure Thera over `io.Reader`/`io.Writer`, so it is testable
 //! with no sockets: point it at `io.from_bytes(...)` and an `io.StringWriter`.

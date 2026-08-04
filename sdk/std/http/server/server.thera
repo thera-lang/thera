@@ -22,16 +22,16 @@
 //! One fiber per connection, over the scheduler. Errors are values: return a 4xx
 //! or 5xx `Response`, or propagate an `Error` and the server renders a 500.
 //!
-//! This imports the `wire` sibling directly rather than the `std.http` barrel, so
-//! serving never pulls in the client (nor, once it lands, TLS). The types are the
-//! same ones either way — `server.serve` takes the `http.Request` you get from
-//! `import std.http`.
+//! This imports [std.http.common](../common/common.thera) rather than the
+//! `std.http` barrel, so serving never pulls in the client, nor its TLS dial. The
+//! types are the same ones either way — `server.serve` takes the `http.Request` you
+//! get from `import std.http`.
 
 import std.net;
 import std.fiber;
 import std.json as _;
 
-import 'wire';
+import '../common';
 
 // A handler is `(Request) -> Result<Response, Error>`, spelled out at every use:
 // Thera has no type aliases, so the `Handler` name in docs/stdlib.md's sketch has
@@ -44,8 +44,8 @@ import 'wire';
 // distinctly from reading one (docs/stdlib.md § `std.http`).
 
 /// A `text/plain` response.
-pub fn text(_ status: Int, _ body: String) -> wire.Response {
-    return wire.Response {
+pub fn text(_ status: Int, _ body: String) -> common.Response {
+    return common.Response {
         status: status,
         headers: ['content-type': 'text/plain; charset=utf-8'],
         body: body.bytes(),
@@ -53,8 +53,8 @@ pub fn text(_ status: Int, _ body: String) -> wire.Response {
 }
 
 /// An `application/json` response.
-pub fn json(_ status: Int, _ value: Json) -> wire.Response {
-    return wire.Response {
+pub fn json(_ status: Int, _ value: Json) -> common.Response {
+    return common.Response {
         status: status,
         headers: ['content-type': 'application/json'],
         body: stringify(value).bytes(),
@@ -62,8 +62,8 @@ pub fn json(_ status: Int, _ value: Json) -> wire.Response {
 }
 
 /// A response with no body — for a 204, or a 3xx whose `location` says it all.
-pub fn empty(_ status: Int) -> wire.Response {
-    return wire.Response { status: status, headers: [:], body: Bytes.empty() };
+pub fn empty(_ status: Int) -> common.Response {
+    return common.Response { status: status, headers: [:], body: Bytes.empty() };
 }
 
 // --- the path matcher ---
@@ -72,7 +72,7 @@ pub fn empty(_ status: Int) -> wire.Response {
 struct Route {
     let method: String;
     let path: String;
-    let handler: (wire.Request) -> Result<wire.Response, Error>;
+    let handler: (common.Request) -> Result<common.Response, Error>;
 }
 
 /// A tiny method+path matcher, so a webhook receiver or a health check needs no
@@ -104,14 +104,14 @@ impl Router {
         self,
         _ method: String,
         _ path: String,
-        _ handler: (wire.Request) -> Result<wire.Response, Error>,
+        _ handler: (common.Request) -> Result<common.Response, Error>,
     ) -> Router {
         self.routes.push(Route { method: method.to_uppercase(), path: path, handler: handler });
         return self;
     }
 
     /// Fold the table into one handler, for `serve`.
-    pub fn into_handler(self) -> (wire.Request) -> Result<wire.Response, Error> {
+    pub fn into_handler(self) -> (common.Request) -> Result<common.Response, Error> {
         let routes = self.routes;
         return (req) => {
             let path = path_of(req.url);
@@ -154,11 +154,11 @@ pub fn path_of(_ url: String) -> String {
 /// the bound address first.
 pub fn serve(
     _ addr: String,
-    _ handler: (wire.Request) -> Result<wire.Response, Error>,
-) -> Result<Void, wire.HttpError> {
+    _ handler: (common.Request) -> Result<common.Response, Error>,
+) -> Result<Void, common.HttpError> {
     let listener = match net.listen(addr) {
         Ok(l) => l,
-        Err(e) => { return Result.Err(wire.HttpError.Connect(e.message())); },
+        Err(e) => { return Result.Err(common.HttpError.Connect(e.message())); },
     };
     return serve_listener(listener, handler);
 }
@@ -167,12 +167,12 @@ pub fn serve(
 /// don't know it yet: bind `:0`, read it back with `local_addr`, *then* serve.
 pub fn serve_listener(
     _ listener: net.TcpListener,
-    _ handler: (wire.Request) -> Result<wire.Response, Error>,
-) -> Result<Void, wire.HttpError> {
+    _ handler: (common.Request) -> Result<common.Response, Error>,
+) -> Result<Void, common.HttpError> {
     while true {
         let conn = match listener.accept() {
             Ok(c) => c,
-            Err(e) => { return Result.Err(wire.HttpError.Connect(e.message())); },
+            Err(e) => { return Result.Err(common.HttpError.Connect(e.message())); },
         };
         // One fiber per connection: the accept loop is free again immediately, and
         // a slow client parks its own fiber rather than the thread.
@@ -184,9 +184,9 @@ pub fn serve_listener(
 /// connection stays alive. Always closes the socket.
 pub fn serve_connection(
     _ conn: net.TcpStream,
-    _ handler: (wire.Request) -> Result<wire.Response, Error>,
+    _ handler: (common.Request) -> Result<common.Response, Error>,
 ) -> Void {
-    let w = wire.Wire.new(conn);
+    let w = common.Wire.new(conn);
     let mut going = true;
     while going {
         match w.read_request() {
@@ -214,8 +214,8 @@ pub fn serve_connection(
 /// stays open for another request.
 fn answer(
     _ conn: net.TcpStream,
-    _ req: wire.Request,
-    _ handler: (wire.Request) -> Result<wire.Response, Error>,
+    _ req: common.Request,
+    _ handler: (common.Request) -> Result<common.Response, Error>,
 ) -> Bool {
     // Decide before handing `req` over — a handler is free to mutate its headers.
     let keep_alive = wants_keep_alive(req);
@@ -234,11 +234,11 @@ fn answer(
 
 /// Write `resp`, tagging it with the connection disposition. Returns whether the
 /// write succeeded.
-fn respond(_ conn: net.TcpStream, _ resp: wire.Response, keep_alive: Bool) -> Bool {
+fn respond(_ conn: net.TcpStream, _ resp: common.Response, keep_alive: Bool) -> Bool {
     if !keep_alive {
         resp.headers['connection'] = 'close';
     }
-    return match wire.write_response(to: conn, resp) {
+    return match common.write_response(to: conn, resp) {
         Ok(_) => true,
         Err(_) => false,
     };
@@ -252,8 +252,8 @@ fn respond(_ conn: net.TcpStream, _ resp: wire.Response, keep_alive: Bool) -> Bo
 /// carries a `content-length`, so a 1.0 client can frame the response without
 /// waiting for EOF, and simply closes when it is done — which this loop then sees
 /// as a clean end-of-stream.
-fn wants_keep_alive(_ req: wire.Request) -> Bool {
-    return match wire.header(req.headers, 'connection') {
+fn wants_keep_alive(_ req: common.Request) -> Bool {
+    return match common.header(req.headers, 'connection') {
         Some(v) => v.to_lowercase().trim() != 'close',
         None => true,
     };
@@ -261,13 +261,13 @@ fn wants_keep_alive(_ req: wire.Request) -> Bool {
 
 /// Which status a malformed request earns. A body that was too big is the one case
 /// the client can act on specifically.
-fn status_for(_ e: wire.HttpError) -> Int {
+fn status_for(_ e: common.HttpError) -> Int {
     return match e {
         Body(_) => 413,
         _ => 400,
     };
 }
 
-fn error_response(_ status: Int, _ e: Error) -> wire.Response {
+fn error_response(_ status: Int, _ e: Error) -> common.Response {
     return text(status, e.message());
 }
