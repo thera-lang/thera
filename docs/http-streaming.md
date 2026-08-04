@@ -7,10 +7,11 @@ This is [api-access.md](api-access.md) Arc 1 item 2 graduated into its own plan;
 it is the item that gates every GenAI client, because token streaming is the
 default interaction mode for all of them.
 
-**Progress: stage 1 has landed** — the codec streams
+**Progress: stages 1 and 2 have landed** — the codec streams
 ([wire.thera](../sdk/std/http/wire.thera): `Framing`, `BodyReader`,
-`Wire.stream_response`), and the buffered `read_response` is now that plus a
-capped drain. Stages 2–4 are open.
+`Wire.stream_response`), the buffered `read_response` is now that plus a capped
+drain, and [std.http.sse](../sdk/std/http/sse/sse.thera) decodes a
+`text/event-stream` over any reader. Stages 3 and 4 are open.
 
 ## Goals & non-goals
 
@@ -103,13 +104,30 @@ silently lost something.
 
 ## Layer (b) — SSE framing
 
-**Where it lives: a new `std.sse` library**, not a file under `std.http`.
-Server-sent events are a framing over a byte stream — the format's only
-dependency is `std.io`, and HTTP is merely how the stream usually arrives. A
-sibling file inside the `http` directory would also be unreachable from outside
-it (the barrel rule), and re-exporting `http.Event` / `http.Decoder` would put
-two very generic names in the namespace whose most-written line is
-`http.get(url)`.
+**Where it lives: `std.http.sse`** — its own directory
+(`sdk/std/http/sse/sse.thera`) inside the `http` folder. SSE is a framing over a
+byte stream and depends only on `std.io`, but in practice an event stream is
+always something an HTTP response body delivers, and the top-level `std.*`
+namespace should not grow a name for every format that rides on one. The
+directory is what makes it a library rather than an internal file: from outside,
+a library's one importable surface is its barrel, and a nested directory fronted
+by its own barrel is its own library — so `import std.http.sse` resolves, while
+a plain `sse.thera` beside `client.thera` would be private to `std.http`.
+
+Re-exporting through the `http` barrel instead was the third option and is worse
+on two counts: `http.Event` / `http.Decoder` are very generic names in the
+namespace whose most-written line is `http.get(url)`, and the barrel pulls in
+the client, so an SSE consumer would drag TLS along with it — the coupling the
+wire/client/server split exists to avoid.
+
+_(This replaces an earlier decision here to make it a top-level `std.sse`, which
+was wrong on the namespace question. One of the two reasons given for it —
+"a sibling file would be unreachable from outside the directory" — is true of a
+**file** and not of a **nested directory**, and reading it as a reason to leave
+the folder was the error. It has a sharp edge worth recording: `std.http.server`
+is a plain file inside `std/http/`, so `import std.http.server` is a check error
+today and the server is reachable only from its sibling tests, which is why
+nothing outside the SDK uses it. See the roadmap's Networking punchlist.)_
 
 The format (WHATWG HTML § server-sent events), in the order it bites:
 
@@ -214,9 +232,15 @@ has written the rest is the only one that would catch a regression back into
    `read_response` redefined as `stream_response(…)?.buffered()`. Framing
    validation and the oversize checks are unchanged in behaviour and now live in
    one place each.
-2. **`std.sse`.** `Event`, `Decoder` over any `io.Reader` (`read_event` +
-   `Iterator<Event>`), `events(src)`. Pure Thera over `io.lines`; tested in
-   memory. Needs a [stdlib.md](stdlib.md) entry.
+2. ~~**`std.sse`.**~~ _Done, as **`std.http.sse`**_ — see above for the move.
+   `Event`, `Decoder` over any `io.Reader` (`read_event` + `Iterator<Event>`),
+   `events(src)`. Pure Thera over `io.lines`, tested in memory. Three things the
+   sketch didn't say: `retry` ended up on the `Decoder` rather than on `Event`,
+   because a `retry:`-only record dispatches no event and the value would have
+   nowhere to go; `id` is carried forward across events, since the spec's
+   last-event-id buffer is not cleared between records; and an `id` containing
+   NUL is dropped, which is a header-injection guard for any caller that later
+   implements resumption, not pedantry.
 3. **The client streaming surface.** `http.stream(request)` returning a
    connection-owning `ResponseStream`, plus the scoped form; the end-to-end
    hermetic test against an SSE handler on the loopback server, including the
@@ -228,13 +252,18 @@ has written the rest is the only one that would catch a regression back into
 ## Open questions to settle
 
 - ~~**Where does SSE live** — a file under `std.http` or its own library?~~
-  _Settled above:_ its own `std.sse`, because the format's only dependency is
-  `std.io`.
-- **A lone `\r` as a line terminator.** The SSE spec allows CR, LF, or CRLF;
+  _Settled in stage 2:_ **`std.http.sse`**, a nested directory library. See §
+  layer (b), including the correction to the answer this doc first gave.
+- ~~**A lone `\r` as a line terminator.** The SSE spec allows CR, LF, or CRLF;
   `io.lines` splits on LF and strips a trailing CR, so a stream terminated with
-  bare CRs would arrive as one enormous line. No real server emits that.
-  Accept the gap and document it, or post-split on `\r`? Decide in stage 2 —
-  and if the answer is "handle it", the fix belongs in `std.sse`, not in
+  bare CRs would arrive as one enormous line.~~ _Settled in stage 2: accept the
+  gap._ The cheap fix the question proposed — post-splitting each line on `\r` —
+  turns out not to be a fix at all: with bare CRs, `io.lines` yields nothing
+  until it reaches an LF or end-of-stream, so a **live** CR-delimited stream
+  would still block, and post-splitting would only rescue a finite one. A real
+  fix means a CR-or-LF splitter with its own buffering, duplicating
+  `io.BufReader` for a terminator no server emits. Documented as unsupported
+  instead; if it is ever needed, the splitter belongs in `std.http.sse`, not in
   `io.lines`, whose contract is fine as it is.
 - **Does `stream_response` belong on the request side too?** A server handler
   receiving a large upload has the same problem in reverse. The machinery is

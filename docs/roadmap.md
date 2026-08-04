@@ -917,11 +917,26 @@ following, connection pooling, streaming bodies, and a public server-TLS
 surface. The first three are exactly what [api-access.md](api-access.md)'s Arc 1
 picks up — streaming bodies plus SSE framing is the next one that matters, since
 it gates every GenAI client, and it now has its own plan in
-[http-streaming.md](http-streaming.md). **Stage 1 of that plan has landed** (the
-codec streams: `Framing` / `BodyReader` / `Wire.stream_response`, with the
-buffered `read_response` redefined as that plus a capped drain). Open there:
-`std.sse`, the client's streaming surface and who closes the connection, and the
+[http-streaming.md](http-streaming.md). **Stages 1 and 2 of that plan have
+landed**: the codec streams (`Framing` / `BodyReader` / `Wire.stream_response`,
+with the buffered `read_response` redefined as that plus a capped drain), and
+`std.http.sse` decodes a `text/event-stream` over any `io.Reader`. Open there:
+the client's streaming entry point — and with it who closes a connection held
+open by a stream, the one design question the codec doesn't answer — then the
 docs sweep.
+
+**`import std.http.server` does not resolve**, found while placing
+`std.http.sse`. `server.thera` is a plain file inside the `std/http` directory
+library, so from
+outside it the import is a check error and the server is reachable only from its
+sibling test files — which is why nothing outside the SDK calls it, and why the
+gap went unnoticed while [stdlib.md](stdlib.md) documented the import in five
+places. The barrel rule is doing exactly what it should; the layout is what's
+wrong. The fix is mechanical and is the one `std.http.sse` already uses: move it
+to `std/http/server/server.thera`, its own directory fronted by its own barrel.
+Worth folding into the wider "is the `std` API surface regular and intentional?"
+review rather than doing piecemeal, since the same question applies to every
+library that fronts more than one public surface.
 
 Stage 4 is now also the gate on a larger arc: [api-access.md](api-access.md) —
 calling third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans

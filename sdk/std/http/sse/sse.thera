@@ -1,0 +1,225 @@
+//! std.http.sse — server-sent events: decoding a `text/event-stream` into events.
+//!
+//! Import as: import std.http.sse
+//!
+//! ```thera
+//! import std.http.sse;
+//!
+//! // `src` is any io.Reader — in practice a streaming HTTP response body.
+//! for ev in sse.events(src) {
+//!     if ev.name == 'message_stop' { break; }
+//!     handle(ev.data);
+//! }
+//! ```
+//!
+//! **Framing only.** An `Event`'s `data` is the string the server sent, verbatim;
+//! what it means is the API's business, and so is whatever ends the stream —
+//! OpenAI's `[DONE]` sentinel and Anthropic's `event: message_stop` are conventions
+//! of those APIs, not of this format, and nothing here knows about either.
+//!
+//! **No reconnection.** The spec's last-event-id and `retry` machinery exists to
+//! resume a dropped stream, and the streams this is written for are not resumable —
+//! a dropped model completion is restarted, not continued. Both values are parsed
+//! and handed over (`Event.id`, `Decoder.retry_ms`); whether to act on them is the
+//! caller's decision.
+//!
+//! It lives under `std.http` because that is where event streams come from in
+//! practice, but it depends only on `std.io` — any `Reader` will do, which is what
+//! makes it testable over a string. It is its own directory rather than a file
+//! beside `client.thera`, because that is what makes it a library in its own right:
+//! a file inside `std/http/` would be private to that library (docs/language.md §
+//! the barrel rule), and re-exporting it through the barrel would put two very
+//! generic names in the namespace whose most-written line is `http.get(url)`.
+
+import std.io;
+
+/// The event type of a record with no `event:` field — the spec's default, and the
+/// name a browser `EventSource` dispatches such a record as.
+const DEFAULT_NAME: String = 'message';
+
+/// One dispatched event.
+pub struct Event {
+    /// The `event:` field, or `'message'` when the record didn't set one.
+    let name: String;
+    /// The `data:` fields, joined with `\n`. A record may spread one payload over
+    /// several `data:` lines — which is how a value containing newlines is sent —
+    /// and this is them put back together.
+    let data: String;
+    /// The stream's last-event-id as of this event.
+    ///
+    /// Stream state rather than a field of the record: the spec's `id:` sets a
+    /// buffer that is **not** cleared between events, so an id set once rides along
+    /// on every event after it until another one replaces it.
+    let id: Option<String>;
+}
+
+/// A `text/event-stream` decoder over any `io.Reader`.
+///
+/// `read_event` is the honest primitive — an I/O or UTF-8 failure surfaces as `Err`
+/// — and the `Iterator<Event>` impl is the ergonomic form, which treats a failure as
+/// end-of-stream and stashes it for `error()`. The same split `io.BufReader` makes,
+/// whose line reading this is built on.
+pub struct Decoder {
+    let lines: io.BufReader;
+    let mut last_id: Option<String>; // stream state: survives dispatch (see `Event.id`)
+    let mut retry: Option<Int>; // stream state: a record may set it and dispatch nothing
+    let mut err: Option<Error>;
+}
+
+impl Decoder {
+    /// Decode `src` as an event stream.
+    pub fn new(_ src: io.Reader) -> Decoder {
+        return Decoder {
+            lines: io.lines(src),
+            last_id: Option.None,
+            retry: Option.None,
+            err: Option.None,
+        };
+    }
+
+    /// The reconnection delay the server asked for, in milliseconds, if it sent a
+    /// `retry:` field. Advisory: nothing here reconnects.
+    pub fn retry_ms(self) -> Option<Int> {
+        return self.retry;
+    }
+
+    /// The error that ended iteration, if a read failed mid-stream. Only meaningful
+    /// after iterating — the `Iterator` impl defers errors here.
+    pub fn error(self) -> Option<Error> {
+        return self.err;
+    }
+
+    /// The next event, or `None` at end of stream.
+    ///
+    /// Reads until a record completes, parking the fiber while it waits: an event is
+    /// dispatched by the **blank line** that ends its record, so a half-written
+    /// record is not yet an event and a stream that ends mid-record produces none.
+    pub fn read_event(self) -> Result<Option<Event>, Error> {
+        // Per-record buffers. `last_id` and `retry` are deliberately not among them.
+        let mut name = '';
+        let data: List<String> = [];
+        let mut has_data = false;
+        while true {
+            let line = match self.lines.read_line()? {
+                Some(l) => l,
+                // A record that never got its blank line is discarded: the stream
+                // ended mid-event, and a truncated event is not an event.
+                None => { return Result.Ok(Option.None); },
+            };
+            if line.is_empty() {
+                if has_data {
+                    return Result.Ok(Option.Some(Event {
+                        name: if name.is_empty() { DEFAULT_NAME } else { name },
+                        data: data.join('\n'),
+                        id: self.last_id,
+                    }));
+                }
+                // A record with no `data` dispatches nothing. It may still have set
+                // `id` or `retry`, which is precisely why neither is a field of
+                // `Event`: a `retry:`-only record would otherwise vanish.
+                name = ''; // `data` is necessarily still empty; only the name isn't
+                continue;
+            }
+            if line.starts_with(':') {
+                continue; // a comment — which is what a keep-alive ping is
+            }
+            let field = field_of(line);
+            let value = value_of(line);
+            if field == 'event' {
+                name = value;
+            } else if field == 'data' {
+                data.push(value);
+                has_data = true;
+            } else if field == 'id' {
+                // An id containing NUL is ignored rather than stored. Not pedantry: a
+                // caller that implements resumption puts this in a `Last-Event-ID`
+                // header, and NUL is the one character that can reach it (CR and LF
+                // are line terminators, so they cannot occur inside a value at all).
+                if !has_nul(value) {
+                    self.last_id = Option.Some(value);
+                }
+            } else if field == 'retry' {
+                if let Some(ms) = digits_to_int(value) {
+                    self.retry = Option.Some(ms);
+                }
+            }
+            // Every other field is ignored, which is what makes the format
+            // extensible — the same forward-compatibility bet a client's event enum
+            // has to make one layer up.
+        }
+    }
+}
+
+impl Iterator<Event> for Decoder {
+    pub fn next(self) -> Option<Event> {
+        return match self.read_event() {
+            Ok(ev) => ev,
+            Err(e) => {
+                self.err = Option.Some(e);
+                Option.None
+            },
+        };
+    }
+}
+
+/// Decode `src` as an event stream. The result is a `Decoder`, which is an
+/// `Iterator<Event>`: drive it with `for ev in sse.events(src)` or an adapter chain.
+/// Use `Decoder.read_event` (or check `.error()` afterwards) when a mid-stream I/O
+/// failure must be handled rather than treated as the end.
+pub fn events(_ src: io.Reader) -> Decoder {
+    return Decoder.new(src);
+}
+
+// --- fields ---
+//
+// A line is `field: value`. Both halves are taken as they come: field names match
+// exactly (they are case-*sensitive*, unlike header names), and a value is never
+// trimmed beyond the one space the spec strips — `data:  x` really does mean a value
+// of ` x`.
+
+/// The field name: everything before the first colon, or the whole line when there
+/// is none — a bare `data` line is the `data` field with an empty value.
+fn field_of(_ line: String) -> String {
+    return match line.find(':') {
+        Some(i) => line.slice(0, i),
+        None => line,
+    };
+}
+
+/// The value: everything after the first colon, minus **one** leading space.
+/// Exactly one, because `data:  x` has to keep its second.
+fn value_of(_ line: String) -> String {
+    return match line.find(':') {
+        Some(i) => {
+            let raw = line.slice(i + 1, line.len());
+            if raw.starts_with(' ') { raw.slice(1, raw.len()) } else { raw }
+        },
+        None => '',
+    };
+}
+
+/// `value` as an integer, but only if it is nothing but ASCII digits. The spec says
+/// a `retry:` that isn't is ignored rather than guessed at, and `to_int` alone would
+/// accept a leading sign — a negative reconnection delay being exactly the sort of
+/// value that becomes a busy loop somewhere downstream.
+fn digits_to_int(_ value: String) -> Option<Int> {
+    if value.is_empty() {
+        return Option.None;
+    }
+    for c in value.chars() {
+        if c < 48 || c > 57 {
+            return Option.None;
+        }
+    }
+    return value.to_int();
+}
+
+/// Whether `value` contains a NUL code point.
+fn has_nul(_ value: String) -> Bool {
+    for c in value.chars() {
+        if c == 0 {
+            return true;
+        }
+    }
+    return false;
+}
