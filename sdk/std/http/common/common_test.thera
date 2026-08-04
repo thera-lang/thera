@@ -1,20 +1,20 @@
-//! Tests for the std.http wire codec. No sockets: every case drives the codec
+//! Tests for the std.http.common codec. No sockets: every case drives the codec
 //! over `io.from_bytes` / `io.StringWriter`, so a framing bug shows up here rather
 //! than as a hang against a real peer.
 
 import std.testing;
 import std.io;
 
-import 'wire' as _;
+import 'common' as _;
 
 /// Parse `raw` as a request, as if it had arrived on a connection.
-fn parse_request(_ raw: String) -> Result<Option<wire.Request>, wire.HttpError> {
-    return wire.Wire.new(io.from_bytes(raw.bytes())).read_request();
+fn parse_request(_ raw: String) -> Result<Option<common.Request>, common.HttpError> {
+    return common.Wire.new(io.from_bytes(raw.bytes())).read_request();
 }
 
 /// Parse `raw` as a response.
-fn parse_response(_ raw: String) -> Result<wire.Response, wire.HttpError> {
-    return wire.Wire.new(io.from_bytes(raw.bytes())).read_response();
+fn parse_response(_ raw: String) -> Result<common.Response, common.HttpError> {
+    return common.Wire.new(io.from_bytes(raw.bytes())).read_response();
 }
 
 /// Whether parsing `raw` as a request fails with `Protocol` — the "the peer is not
@@ -70,7 +70,7 @@ fn a_clean_eof_yields_no_request() -> Result<Void, Error> {
 fn reads_two_pipelined_requests_from_one_buffer() -> Result<Void, Error> {
     let raw = 'GET /one HTTP/1.1\r\nContent-Length: 2\r\n\r\nhi'
         + 'GET /two HTTP/1.1\r\n\r\n';
-    let w = wire.Wire.new(io.from_bytes(raw.bytes()));
+    let w = common.Wire.new(io.from_bytes(raw.bytes()));
 
     let first = match w.read_request()? {
         Some(r) => r,
@@ -132,7 +132,7 @@ fn a_204_has_no_body_despite_content_length() -> Result<Void, Error> {
 /// caller has to tell us.
 @test
 fn a_head_response_has_no_body() -> Result<Void, Error> {
-    let w = wire.Wire.new(io.from_bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n'.bytes()));
+    let w = common.Wire.new(io.from_bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n'.bytes()));
     let r = w.read_response(to_head: true)?;
     testing.assert_eq(r.status, 200)?;
     testing.assert_eq(r.headers['content-length'], '5')?;
@@ -182,8 +182,8 @@ fn a_chunked_body_may_carry_trailers() -> Result<Void, Error> {
 // --- streaming bodies ---
 
 /// Parse `raw` far enough to have its head, leaving the body unread.
-fn stream(_ raw: String) -> Result<wire.ResponseStream, wire.HttpError> {
-    return wire.Wire.new(io.from_bytes(raw.bytes())).stream_response();
+fn stream(_ raw: String) -> Result<common.ResponseStream, common.HttpError> {
+    return common.Wire.new(io.from_bytes(raw.bytes())).stream_response();
 }
 
 /// A `Reader` that hands out at most `step` bytes per call and records how far it
@@ -208,14 +208,14 @@ impl io.Reader for SlowReader {
 }
 
 /// The point of the whole exercise: `stream_response` returns with the head parsed
-/// and the body still on the wire. The buffered path over the same bytes drains the
+/// and the body still on the common. The buffered path over the same bytes drains the
 /// source, which is the contrast that makes this a regression test rather than a
 /// tautology — nothing else here would notice a "drain, then hand it over".
 @test
 fn streaming_a_response_leaves_the_body_on_the_wire() -> Result<Void, Error> {
     let raw = 'HTTP/1.1 200 OK\r\nContent-Length: 64\r\n\r\n' + 'x'.repeat(64);
     let src = SlowReader { data: raw.bytes(), step: 8, pos: 0 };
-    let s = wire.Wire.new(src).stream_response()?;
+    let s = common.Wire.new(src).stream_response()?;
     testing.assert_eq(s.status, 200)?;
     testing.assert(
         src.pos < raw.len(),
@@ -226,7 +226,7 @@ fn streaming_a_response_leaves_the_body_on_the_wire() -> Result<Void, Error> {
     testing.assert(s.body.is_complete(), message: 'the body is complete now')?;
 
     let drained = SlowReader { data: raw.bytes(), step: 8, pos: 0 };
-    wire.Wire.new(drained).read_response()?;
+    common.Wire.new(drained).read_response()?;
     return testing.assert_eq(drained.pos, raw.len());
 }
 
@@ -307,7 +307,7 @@ fn a_zero_length_body_completes_without_reading() -> Result<Void, Error> {
 /// caller is the one who knows (nothing on the wire says a response is to a HEAD).
 @test
 fn a_head_response_streams_an_empty_body() -> Result<Void, Error> {
-    let w = wire.Wire.new(io.from_bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n'.bytes()));
+    let w = common.Wire.new(io.from_bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n'.bytes()));
     let s = w.stream_response(to_head: true)?;
     testing.assert(s.body.is_complete(), message: 'no body to read')?;
     return testing.assert_eq(io.read_all(s.body)?.len(), 0);
@@ -336,7 +336,7 @@ fn header_names_are_lowercased() -> Result<Void, Error> {
     };
     testing.assert_eq(r.headers['content-type'], 'text/plain')?;
     // ...and `header` looks up case-insensitively either way.
-    let found = wire.header(r.headers, 'Content-Type').unwrap_or('');
+    let found = common.header(r.headers, 'Content-Type').unwrap_or('');
     return testing.assert_eq(found, 'text/plain');
 }
 
@@ -371,13 +371,13 @@ fn repeated_set_cookie_is_newline_joined() -> Result<Void, Error> {
 @test
 fn writes_a_request() -> Result<Void, Error> {
     let out = io.StringWriter.new();
-    let req = wire.Request {
+    let req = common.Request {
         method: 'POST',
         url: '/things',
         headers: ['content-type': 'application/json'],
         body: '{"a":1}'.bytes(),
     };
-    wire.write_request(to: out, req)?;
+    common.write_request(to: out, req)?;
     let expected = 'POST /things HTTP/1.1\r\n'
         + 'content-type: application/json\r\n'
         + 'content-length: 7\r\n'
@@ -389,8 +389,8 @@ fn writes_a_request() -> Result<Void, Error> {
 @test
 fn writes_a_response_with_its_reason_phrase() -> Result<Void, Error> {
     let out = io.StringWriter.new();
-    let resp = wire.Response { status: 404, headers: [:], body: 'gone'.bytes() };
-    wire.write_response(to: out, resp)?;
+    let resp = common.Response { status: 404, headers: [:], body: 'gone'.bytes() };
+    common.write_response(to: out, resp)?;
     let expected = 'HTTP/1.1 404 Not Found\r\n'
         + 'content-length: 4\r\n'
         + '\r\n'
@@ -404,13 +404,13 @@ fn writes_a_response_with_its_reason_phrase() -> Result<Void, Error> {
 @test
 fn a_caller_set_content_length_is_overridden() -> Result<Void, Error> {
     let out = io.StringWriter.new();
-    let req = wire.Request {
+    let req = common.Request {
         method: 'POST',
         url: '/x',
         headers: ['content-length': '999'],
         body: 'four'.bytes(),
     };
-    wire.write_request(to: out, req)?;
+    common.write_request(to: out, req)?;
     let text = out.into_string()?;
     testing.assert(text.contains('content-length: 4'), message: 'real length')?;
     return testing.assert(!text.contains('999'), message: 'the bogus length is dropped');
@@ -419,12 +419,12 @@ fn a_caller_set_content_length_is_overridden() -> Result<Void, Error> {
 @test
 fn set_cookie_is_unfolded_into_one_line_each() -> Result<Void, Error> {
     let out = io.StringWriter.new();
-    let resp = wire.Response {
+    let resp = common.Response {
         status: 200,
         headers: ['set-cookie': 'a=1\nb=2'],
         body: Bytes.empty(),
     };
-    wire.write_response(to: out, resp)?;
+    common.write_response(to: out, resp)?;
     let text = out.into_string()?;
     testing.assert(text.contains('set-cookie: a=1\r\n'), message: 'first cookie on its own line')?;
     return testing.assert(text.contains('set-cookie: b=2\r\n'), message: 'second cookie too');
@@ -437,15 +437,15 @@ fn set_cookie_is_unfolded_into_one_line_each() -> Result<Void, Error> {
 @test
 fn a_request_round_trips() -> Result<Void, Error> {
     let out = io.StringWriter.new();
-    let sent = wire.Request {
+    let sent = common.Request {
         method: 'PUT',
         url: '/a/b?c=d',
         headers: ['host': 'example.com', 'x-trace': 'abc123'],
         body: 'payload'.bytes(),
     };
-    wire.write_request(to: out, sent)?;
+    common.write_request(to: out, sent)?;
 
-    let back = match wire.Wire.new(io.from_bytes(out.into_bytes())).read_request()? {
+    let back = match common.Wire.new(io.from_bytes(out.into_bytes())).read_request()? {
         Some(r) => r,
         None => { return Result.Err(error('expected a request')); },
     };
@@ -459,14 +459,14 @@ fn a_request_round_trips() -> Result<Void, Error> {
 @test
 fn a_response_round_trips() -> Result<Void, Error> {
     let out = io.StringWriter.new();
-    let sent = wire.Response {
+    let sent = common.Response {
         status: 201,
         headers: ['location': '/things/1'],
         body: 'created'.bytes(),
     };
-    wire.write_response(to: out, sent)?;
+    common.write_response(to: out, sent)?;
 
-    let back = wire.Wire.new(io.from_bytes(out.into_bytes())).read_response()?;
+    let back = common.Wire.new(io.from_bytes(out.into_bytes())).read_response()?;
     testing.assert_eq(back.status, 201)?;
     testing.assert_eq(back.headers['location'], '/things/1')?;
     return testing.assert_eq(back.body.to_string()?, 'created');

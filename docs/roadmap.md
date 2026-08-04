@@ -942,18 +942,12 @@ remaining work actually is:
   to do until pooling exists — the point is that the reader doesn't make it
   impossible.
 
-**`import std.http.server` does not resolve**, found while placing
-`std.http.sse`. `server.thera` is a plain file inside the `std/http` directory
-library, so from outside it the import is a check error and the server is
-reachable only from its sibling test files — which is why nothing outside the
-SDK calls it, and why the gap went unnoticed while [stdlib.md](stdlib.md)
-documented the import in five places. The barrel rule is doing exactly what it
-should; the layout is what's wrong. The fix is mechanical and is the one
-`std.http.sse` already uses: move it to `std/http/server/server.thera`, its own
-directory fronted by its own barrel. Worth folding into the wider "is the `std`
-API surface regular and intentional?" review rather than doing piecemeal, since
-the same question applies to every library that fronts more than one public
-surface.
+**`import std.http.server` resolves now** — it didn't, and the fix reshaped
+`std.http`. See the Changelog entry; the short version is that the server and
+`sse` are separate _directories_ because from outside a directory library only
+the barrel is importable, and that forced the shared codec into
+`std.http.common` for the same reason. A sweep of `sdk/std` found no other
+unreachable surface.
 
 The larger arc all of this feeds is [api-access.md](api-access.md) — calling
 third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans the rest
@@ -1038,6 +1032,50 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`std.http` regains a reachable server** (2026-08). `import std.http.server`
+  was a check error — `server.thera` was a plain file inside the `std/http`
+  directory library, so from outside it the only importable surface was the
+  barrel, and the server was reachable solely from its sibling tests. Documented
+  in [stdlib.md](stdlib.md) in five places, used by nothing, unnoticed for that
+  reason.
+  - **The fix was not the obvious one.** Moving the file into `std/http/server/`
+    makes it a separate library, and a separate library cannot import a private
+    sibling of another — `import '../wire'` is the same error one level down. So
+    the codec they share became its own library too: `wire.thera` →
+    `std/http/common/common.thera`, re-exported by the barrel and imported
+    directly by the server. The alternatives were worse: having the server
+    import the `std.http` barrel would drag in the client and its TLS dial,
+    which is the coupling the split exists to prevent, and re-exporting the
+    server through the barrel would do the same while changing every documented
+    spelling.
+  - **The cost is one redundant name.** `import std.http.common` resolves, and
+    nobody needs it: the barrel re-exports all of it, so the types stay
+    `http.Request` / `http.Response` / `http.HttpError`. A second spelling for
+    the same declarations, not a second concept — and `http.get(url)` is
+    untouched.
+  - **The rename is not cosmetic.** `wire` was a good private name for a codec;
+    as a name a reader can encounter it says nothing, and `common` says what the
+    library is for.
+  - **A sweep found no others**, and it is repeatable — `dev/import_surface.py`.
+    Every directory under `sdk/std` is fronted by its own barrel, there are no
+    loose files, and every other `import std.…` spelling in the tree resolves.
+    `pkgs/cli` has two non-re-exported siblings, both imported by their barrel
+    with a plain `import` — the intended internal shape.
+  - **And something outside the SDK now imports the server:**
+    `examples/http_server.thera`, whose output `bin/test.sh` pins. The absence
+    of exactly that is why the gap survived.
+  - **Namespace derivation was reconsidered and left alone.** A nested library
+    binds its _trailing_ segment, so `std.http.server` is `server.serve(…)` —
+    context-free at the call site. Concatenating segments (`http_server`) was
+    considered and rejected: `../ast` and `../ast/ast` are both in use for the
+    same library and language.md promises they are interchangeable, so joining
+    written segments would bind two different names for one library; and
+    `bytecode/` and `lsp/` have no barrels, so it would rename dozens of
+    front-end call sites. The import list at the top of a file is the context,
+    each library's `//! Import as:` header is the canonical spelling, and `as`
+    handles a genuine clash. Revisit when a package ecosystem makes cross-vendor
+    collisions real ([scale.md](scale.md) item 4).
 
 - **Streaming response bodies and SSE** (2026-08) — a `text/event-stream` now
   reaches a caller event by event over `http` or `https`. The item

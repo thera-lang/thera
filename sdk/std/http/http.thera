@@ -33,17 +33,23 @@
 //! ```
 //!
 //! This is a barrel: it re-exports its sibling files (see docs/language.md) and
-//! defines nothing of its own. The split is deliberate — `std.http.server` imports
-//! the `wire` sibling **directly**, so importing the server never pulls in the
-//! client, nor (once it lands) TLS. `wire` is the shared third library; it just
-//! isn't a third public name, because the namespace is the last dotted segment and
-//! `http.get(url)` should stay the spelling of the most-written line here.
+//! defines nothing of its own — it re-exports [std.http.common](common/common.thera)
+//! (the shared codec and types) and the `client` sibling, so `http.get(url)` stays
+//! the spelling of the most-written line here.
 //!
-//! Serving requests is `std.http.server`, a separate import — see docs/stdlib.md
-//! § `std.http`. Decoding a `text/event-stream` is `std.http.sse`, likewise
-//! separate: it needs nothing from here (any `io.Reader` will do), and keeping it
-//! out of this namespace keeps `Event` and `Decoder` from becoming `http.Event` and
-//! `http.Decoder`.
+//! **The layout, and why.** `std.http.server` and `std.http.sse` are separate
+//! libraries — separate *directories*, since from outside a directory library the
+//! only importable surface is its barrel. That is what forces `common` to be a
+//! directory too: the server cannot reach a private sibling of `std.http`, so the
+//! code they share has to be a library of its own. The payoff is that serving never
+//! pulls in the client, and that `sse` (which needs nothing but `io.Reader`) doesn't
+//! put `Event` and `Decoder` into the namespace whose main line is `http.get(url)`.
+//! The client stays a private sibling *here* because the client is what `std.http`
+//! is for.
+//!
+//! So: `import std.http` for the client and the types, `import std.http.server` to
+//! serve, `import std.http.sse` to decode an event stream. See docs/stdlib.md
+//! § `std.http`.
 
-pub import 'wire'; // Request, Response, HttpError, status codes, the HTTP/1.1 codec
+pub import 'common'; // Request, Response, HttpError, status codes, the HTTP/1.1 codec
 pub import 'client'; // get / post / send

@@ -797,9 +797,9 @@ checksum, not a hash.
 
 ### `std.http` / `std.http.server` / `std.http.sse` — HTTP client + simple server
 
-_Status: the **wire codec**, the **server**, and the **client** are implemented,
-over the provisional `std.net` — and the client now speaks **`https`**,
-verifying the chain and host name against the bundled roots
+_Status: the **shared codec**, the **server**, and the **client** are
+implemented, over the provisional `std.net` — and the client now speaks
+**`https`**, verifying the chain and host name against the bundled roots
 ([http-tls.md](http-tls.md), complete). A certificate that doesn't verify is an
 `HttpError.Tls`, distinct from `Connect` because retrying won't fix it. The
 client **streams a response body** (`http.stream` / `http.with_stream`, whose
@@ -813,26 +813,35 @@ are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both
 depend on `std.fiber` for concurrent, blocking-looking I/O (see § `std.fiber`
 and § Sequencing), so this lands after the scheduler.
 
-The **client** lives in `std.http`; the **simple server** is a sibling,
-`std.http.server` (sharing `Request`/`Response`/`HttpError`, a separate import
-so "the server is its own surface" stays explicit). **As laid out today that
-import does not resolve**, and the server is reachable only from inside the
-directory: `server.thera` is a plain file inside the `std/http` directory
-library, so `import std.http.server` is a check error
-(`… resolves inside the library 'std/http/'; import its barrel instead`) — which
-is why its only callers are the sibling test files. The fix is mechanical, and
-is the layout `std.http.sse` already uses: a file that is meant to be its own
-public surface needs its own directory and barrel
-(`std/http/server/server.thera`). Tracked in the roadmap's _Networking
-punchlist_. Lightweight servers — a webhook receiver, a local endpoint, a health
-check — are common enough in agent/CLI tooling to deserve a built-in answer.
-**The line: bind + handle (a handler function, plus a tiny built-in path
-matcher) is core; routing DSLs, middleware stacks, and enterprise servers are
-ecosystem.** The server can land **plaintext-HTTP/1.1 first** — a simple
-server's TLS is usually terminated upstream (a reverse proxy), so it is _not_
-gated on the client's TLS native and can ship alongside or ahead of it. Its
-accept loop is also one of the real I/O clients that should **drive** the
-`std.fiber` API design before that surface is frozen (see § `std.fiber`).
+The **client** lives in `std.http`; the **simple server** is `std.http.server`,
+a separate import so "the server is its own surface" stays explicit, sharing
+`Request`/`Response`/`HttpError` with it.
+
+**The layout is what makes those two spellings work**, and it is worth stating
+because it isn't arbitrary. From outside a directory library the only importable
+surface is its barrel, so anything meant to be its own public spelling needs its
+own directory: hence `std/http/server/`, `std/http/sse/`. That in turn forces
+the shared codec into a directory too — `std/http/common/` — because the server
+is a _separate library_ and so cannot import a private sibling of `std.http`.
+The client stays a private sibling of the barrel, because the client is what
+`std.http` is for.
+
+So `import std.http.common` does resolve, and is the one spelling nobody needs:
+the barrel re-exports all of it, so the types are `http.Request`,
+`http.Response`, `http.HttpError`. It is a redundant name, not a second concept.
+What the arrangement buys is that **serving never pulls in the client**, nor its
+TLS dial — the property the split has always been for, and the reason `common`
+is not simply folded into the barrel.
+
+Lightweight servers — a webhook receiver, a local endpoint, a health check — are
+common enough in agent/CLI tooling to deserve a built-in answer. **The line:
+bind + handle (a handler function, plus a tiny built-in path matcher) is core;
+routing DSLs, middleware stacks, and enterprise servers are ecosystem.** The
+server can land **plaintext-HTTP/1.1 first** — a simple server's TLS is usually
+terminated upstream (a reverse proxy), so it is _not_ gated on the client's TLS
+native and can ship alongside or ahead of it. Its accept loop is also one of the
+real I/O clients that should **drive** the `std.fiber` API design before that
+surface is frozen (see § `std.fiber`).
 
 ```
 pub struct Request { let method: String; let url: String;
@@ -1363,9 +1372,10 @@ remains:
 
    What remains is **`std.http`** itself (client + simple server, both committed
    to core). The order to build it in, and why:
-   - **The wire codec first** — `Request`/`Response`, status codes, and HTTP/1.1
-     framing (`Content-Length`, chunked). Pure Thera over `io.Reader`/`Writer`,
-     so it unit-tests against `Bytes`/`StringWriter` with no sockets at all.
+   - **The shared codec first** — `Request`/`Response`, status codes, and
+     HTTP/1.1 framing (`Content-Length`, chunked). Pure Thera over
+     `io.Reader`/`Writer`, so it unit-tests against `Bytes`/`StringWriter` with
+     no sockets at all.
    - **Then the server**, which is not gated on TLS (terminated upstream) and
      writes the harder half of that codec — parsing an untrusted request is
      strictly harder than serializing one. Its accept loop is also the named
@@ -1377,11 +1387,13 @@ remains:
      runtime native.
 
    Layout: `std.http` is the **client** plus the public types, as a barrel over
-   private `wire`/`client` siblings (the `std.core` pattern); `std.http.server`
-   imports the `wire` sibling directly, so it never pulls in the client or TLS.
-   `wire` is the shared third library — it just isn't a third public name, since
-   the namespace is the last dotted segment and `http.get(url)` should stay the
-   spelling of the most-written line in the surface.
+   a private `client` sibling and the shared `std.http.common` codec;
+   `std.http.server` imports `common` rather than the barrel, so it never pulls
+   in the client or its TLS dial. (`common` began as a private `wire` sibling —
+   it had to become its own directory once the server did, since one library
+   cannot reach another's private files. See § `std.http` for the full
+   reasoning.) `http.get(url)` stays the spelling of the most-written line in
+   the surface.
 
    One correction to the sketch in § `std.http` above:
    `headers: Map<String, String>` models neither the case-insensitivity of

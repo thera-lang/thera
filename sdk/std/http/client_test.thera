@@ -4,7 +4,7 @@
 //!
 //! Note what that does and does not prove. It exercises the client against a
 //! correct peer; it cannot catch the two of us agreeing on the same misreading of
-//! HTTP. `wire_test.thera` is the guard for that — it pins each direction against
+//! HTTP. `common_test.thera` is the guard for that — it pins each direction against
 //! literal bytes, so a shared misconception has to survive being spelled out.
 
 import std.testing;
@@ -20,11 +20,11 @@ import std.http.sse;
 // surface users touch, so it is the one worth testing.
 import std.http;
 
-import 'wire';
+import 'common';
 import 'server';
 
 /// Serve `handler` on loopback and return its base `http://127.0.0.1:<port>`.
-fn serving(_ handler: (wire.Request) -> Result<wire.Response, Error>) -> Result<String, Error> {
+fn serving(_ handler: (common.Request) -> Result<common.Response, Error>) -> Result<String, Error> {
     let listener = net.listen('127.0.0.1:0')?;
     let addr = listener.local_addr()?;
     fiber.spawn(() => server.serve_listener(listener, handler));
@@ -33,7 +33,7 @@ fn serving(_ handler: (wire.Request) -> Result<wire.Response, Error>) -> Result<
 
 /// Echoes the request back as JSON, so a test can assert on what the server
 /// actually received — the client's real output.
-fn echo(_ req: wire.Request) -> Result<wire.Response, Error> {
+fn echo(_ req: common.Request) -> Result<common.Response, Error> {
     let seen: Map<String, json.Json> = [:];
     for key in req.headers.keys() {
         seen[key] = json.str(req.headers[key]);
@@ -47,7 +47,7 @@ fn echo(_ req: wire.Request) -> Result<wire.Response, Error> {
 }
 
 /// A field of the echo handler's JSON report.
-fn field(_ resp: wire.Response, _ name: String) -> Result<String, Error> {
+fn field(_ resp: common.Response, _ name: String) -> Result<String, Error> {
     let doc = resp.json()?;
     return match doc {
         Object(fields) => match fields.get(name) {
@@ -62,7 +62,7 @@ fn field(_ resp: wire.Response, _ name: String) -> Result<String, Error> {
 }
 
 /// A header as the server saw it.
-fn seen_header(_ resp: wire.Response, _ name: String) -> Result<String, Error> {
+fn seen_header(_ resp: common.Response, _ name: String) -> Result<String, Error> {
     let doc = resp.json()?;
     return match doc {
         Object(fields) => match fields.get('headers') {
@@ -108,7 +108,7 @@ fn posts_a_body() -> Result<Void, Error> {
     let resp = http.post(base + '/submit', body: 'the payload'.bytes())?;
     testing.assert_eq(field(resp, 'method')?, 'POST')?;
     testing.assert_eq(field(resp, 'body')?, 'the payload')?;
-    // wire derives content-length from the body.
+    // The codec derives content-length from the body.
     return testing.assert_eq(seen_header(resp, 'content-length')?, '11');
 }
 
@@ -207,7 +207,7 @@ fn reads_a_chunked_response() -> Result<Void, Error> {
     fiber.spawn(() => {
         let conn = listener.accept()?;
         // Drain the request head so the client's write completes.
-        let _ = wire.Wire.new(conn).read_request()?;
+        let _ = common.Wire.new(conn).read_request()?;
         io.write_all(to: conn, ('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
             + '4\r\nchun\r\n' + '4\r\nked!\r\n' + '0\r\n\r\n').bytes())?;
         return conn.close();
@@ -226,7 +226,7 @@ fn a_url_without_a_path_requests_root() -> Result<Void, Error> {
     return testing.assert_eq(field(resp, 'url')?, '/');
 }
 
-/// A fragment is client-side only and never goes on the wire.
+/// A fragment is client-side only and never goes on the common.
 @test
 fn a_fragment_is_not_sent() -> Result<Void, Error> {
     let base = serving(echo)?;
@@ -364,7 +364,7 @@ fn a_truncated_response_is_a_body_error() -> Result<Void, Error> {
     let addr = listener.local_addr()?;
     fiber.spawn(() => {
         let conn = listener.accept()?;
-        let _ = wire.Wire.new(conn).read_request()?;
+        let _ = common.Wire.new(conn).read_request()?;
         // Promise ten bytes, send four, hang up.
         io.write_all(to: conn, 'HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nfour'.bytes())?;
         return conn.close();
@@ -402,18 +402,18 @@ fn a_non_http_peer_is_a_protocol_error() -> Result<Void, Error> {
 
 // --- streaming ---
 
-/// A GET as a `wire.Request`, since the streaming entry points take one directly —
+/// A GET as a `common.Request`, since the streaming entry points take one directly —
 /// there is no `http.stream_get`, and there shouldn't be.
-fn get_request(_ url: String) -> wire.Request {
-    return wire.Request { method: 'GET', url: url, headers: [:], body: Bytes.empty() };
+fn get_request(_ url: String) -> common.Request {
+    return common.Request { method: 'GET', url: url, headers: [:], body: Bytes.empty() };
 }
 
 /// A handler that answers with an event stream.
-fn event_source(_ req: wire.Request) -> Result<wire.Response, Error> {
+fn event_source(_ req: common.Request) -> Result<common.Response, Error> {
     let body = 'event: message_start\ndata: {"n":0}\n\n'
         + ': keep-alive\n\n'
         + 'event: message_stop\ndata: {"n":1}\n\n';
-    return Result.Ok(wire.Response {
+    return Result.Ok(common.Response {
         status: 200,
         headers: ['content-type': 'text/event-stream'],
         body: body.bytes(),
@@ -458,7 +458,7 @@ fn streams_a_response_body() -> Result<Void, Error> {
 fn a_streamed_body_decodes_as_server_sent_events() -> Result<Void, Error> {
     let base = serving(event_source)?;
     let s = http.stream(get_request(base + '/events'))?;
-    let content_type = wire.header(s.headers, 'content-type').unwrap_or('');
+    let content_type = common.header(s.headers, 'content-type').unwrap_or('');
     testing.assert_eq(content_type, 'text/event-stream')?;
     let names = sse.events(s.body).map((ev) => ev.name).to_list();
     let _ = s.close();
@@ -551,7 +551,7 @@ fn write_two_events(_ listener: net.TcpListener, _ go: fiber.Channel<Bool>) -> R
     let first = 'event: a\ndata: 1\n\n';
     let second = 'event: b\ndata: 2\n\n';
     let conn = listener.accept()?;
-    let _ = wire.Wire.new(conn).read_request()?;
+    let _ = common.Wire.new(conn).read_request()?;
     // `content-length`, not chunked: the total is known up front, and what makes a
     // body streamable is that the *client* doesn't wait for all of it.
     let head = 'HTTP/1.1 200 OK\r\n'

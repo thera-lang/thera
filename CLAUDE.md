@@ -17,7 +17,11 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 - `sdk/std/` — Thera standard library sources (`.thera`, with `native fn`
   decls). Each library lives in its own named subdir
   (`sdk/std/path/path.thera`), with Thera tests beside it as
-  `<name>_test.thera`.
+  `<name>_test.thera`. A library fronting more than one public surface
+  **nests**, because from outside a directory only its barrel is importable:
+  `std.http` is `http/http.thera` (client + types) plus `http/server/`,
+  `http/sse/`, and `http/common/` — the shared codec, which had to become a
+  library of its own so the server could reach it.
 - `bootstrap/frontend.thera-bc` — the checked-in self-hosting bootstrap (the
   front-end compiled to bytecode); compiles the next revision of the front-end
   so the build needs no external toolchain. See `bootstrap/README.md`.
