@@ -23,18 +23,20 @@
 //! tables only; a key that itself contains a dot (quoted in the source) is
 //! reachable via `as_table` and direct map access.
 //!
-//! Stages 1–2 of docs/toml.md's plan: scalar values, arrays, inline tables,
-//! dotted keys, and the full table grammar — `[table]` and
-//! `[[array-of-tables]]` headers with TOML's definition rules (a table is
-//! defined once; dotted keys extend only their own block's tables; inline
-//! tables and static arrays are closed). Date-times arrive in stage 3 — a
-//! clean parse error until then, never a misparse.
+//! The full TOML 1.0.0 grammar (docs/toml.md stages 1–3): scalar values
+//! including the four date-time kinds, arrays, inline tables, dotted keys,
+//! and `[table]` / `[[array-of-tables]]` headers with TOML's definition
+//! rules (a table is defined once; dotted keys extend only their own block's
+//! tables; inline tables and static arrays are closed). Conformance is
+//! pinned by the vendored toml-test snapshot in `testdata/` (see
+//! `conformance_test.thera`).
 //!
 //! Implementation: a hand-written scanner + recursive-descent parser, pure
 //! Thera, following std.json's.
 
 import std.char;
 import std.math;
+import std.time;
 
 /// The structural TOML value. `Int` and `Double` mirror TOML's own
 /// integer/float split; there is no null variant because TOML has none.
@@ -56,12 +58,30 @@ pub enum DatetimeKind {
     LocalTime,         // 07:32:00
 }
 
-/// A TOML date-time: the kind plus the validated, normalized source text.
-/// `parse` constructs these starting in stage 3 (docs/toml.md); until then a
-/// date-time in the input is a clean parse error.
+/// A TOML date-time: the kind plus the validated, normalized source text
+/// (the date/time delimiter as `T`, zone `z` as `Z`; components as written,
+/// each range-checked — including the day against its month and leap year).
 pub struct Datetime {
     let kind: DatetimeKind;
     let text: String;
+}
+
+impl Datetime {
+    /// The instant this date-time names, via `time.DateTime.parse_rfc3339` —
+    /// for `OffsetDateTime` only. The three local kinds carry no zone, so
+    /// they name no instant; converting one is an error, not a guess.
+    pub fn to_datetime(self) -> Result<time.DateTime, Error> {
+        let offset = match self.kind {
+            OffsetDateTime => true,
+            _ => false,
+        };
+        if !offset {
+            let err: Error = TomlError.Syntax(
+                '${self.text} is a local date-time and names no instant');
+            return Result.Err(err);
+        }
+        return time.DateTime.parse_rfc3339(self.text);
+    }
 }
 
 /// What `parse` can reject. A domain error: implements the common `Error`.
@@ -970,10 +990,10 @@ impl Parser {
         return Result.Ok(value);
     }
 
-    // --- numbers ---
+    // --- numbers and date-times ---
 
     /// A value starting with a digit or sign: a number, unless the lookahead
-    /// spells a date (`DDDD-`) or time (`DD:`) — those arrive in stage 3.
+    /// spells a date (`DDDD-`) or time (`DD:`).
     fn parse_number_or_datetime(self) -> Result<Toml, TomlError> {
         let c = self.peek();
         if char.is_digit(c) {
@@ -983,12 +1003,128 @@ impl Parser {
                 && self.cp_at(self.pos + 4) == char.MINUS;
             let time = char.is_digit(self.cp_at(self.pos + 1))
                 && self.cp_at(self.pos + 2) == char.COLON;
-            if date || time {
-                return Result.Err(self.syntax(
-                    'date-time values are not supported yet (std.toml stage 3)'));
+            if date {
+                return self.parse_datetime(true);
+            }
+            if time {
+                return self.parse_datetime(false);
             }
         }
         return self.parse_number();
+    }
+
+    /// A date-time (TOML 1.0.0 § Offset Date-Time through § Local Time). The
+    /// text is normalized as it is scanned — the delimiter to `T`, `z` to `Z`
+    /// — and every component is range-checked, including the day against its
+    /// month and leap year. Which of the four kinds this is falls out of what
+    /// follows the date: nothing (LocalDate), a time (LocalDateTime), a time
+    /// plus `Z` or a numeric offset (OffsetDateTime).
+    fn parse_datetime(self, _ with_date: Bool) -> Result<Toml, TomlError> {
+        let mut out: List<Int> = [];
+        let mut kind = DatetimeKind.LocalTime;
+        if with_date {
+            let year = self.read_fixed_digits(4, out)?;
+            self.expect_cp(char.MINUS, out)?;
+            let month = self.read_fixed_digits(2, out)?;
+            self.expect_cp(char.MINUS, out)?;
+            let day = self.read_fixed_digits(2, out)?;
+            if month < 1 || month > 12 {
+                return Result.Err(self.syntax('month out of range in date-time'));
+            }
+            if day < 1 || day > days_in_month(year, month) {
+                return Result.Err(self.syntax('day out of range in date-time'));
+            }
+            // A time part follows via 'T'/'t', or a space that is genuinely a
+            // delimiter (the next chars spell HH:) — otherwise the space ends
+            // a plain local date.
+            let c = self.peek();
+            let delimited = c == 84 || c == 116; // 'T' 't'
+            let spaced = c == char.SPACE
+                && char.is_digit(self.cp_at(self.pos + 1))
+                && char.is_digit(self.cp_at(self.pos + 2))
+                && self.cp_at(self.pos + 3) == char.COLON;
+            if !delimited && !spaced {
+                return Result.Ok(Toml.Datetime(Datetime {
+                    kind: DatetimeKind.LocalDate,
+                    text: String.from_chars(out),
+                }));
+            }
+            self.pos = self.pos + 1;
+            out.push(84); // normalize the delimiter to 'T'
+            kind = DatetimeKind.LocalDateTime;
+        }
+
+        let hour = self.read_fixed_digits(2, out)?;
+        self.expect_cp(char.COLON, out)?;
+        let minute = self.read_fixed_digits(2, out)?;
+        self.expect_cp(char.COLON, out)?;
+        let second = self.read_fixed_digits(2, out)?;
+        if hour > 23 {
+            return Result.Err(self.syntax('hour out of range in date-time'));
+        }
+        if minute > 59 {
+            return Result.Err(self.syntax('minute out of range in date-time'));
+        }
+        if second > 60 { // 60 admits a leap second, per RFC 3339
+            return Result.Err(self.syntax('second out of range in date-time'));
+        }
+        if self.peek() == char.DOT {
+            self.expect_cp(char.DOT, out)?;
+            if !char.is_digit(self.peek()) {
+                return Result.Err(self.syntax('expected a digit after . in date-time'));
+            }
+            while char.is_digit(self.peek()) {
+                out.push(self.peek());
+                self.pos = self.pos + 1;
+            }
+        }
+
+        if with_date {
+            let c = self.peek();
+            if c == 90 || c == 122 { // 'Z' 'z'
+                self.pos = self.pos + 1;
+                out.push(90); // normalize to 'Z'
+                kind = DatetimeKind.OffsetDateTime;
+            } else if c == char.PLUS || c == char.MINUS {
+                out.push(c);
+                self.pos = self.pos + 1;
+                let oh = self.read_fixed_digits(2, out)?;
+                self.expect_cp(char.COLON, out)?;
+                let om = self.read_fixed_digits(2, out)?;
+                if oh > 23 || om > 59 {
+                    return Result.Err(self.syntax('offset out of range in date-time'));
+                }
+                kind = DatetimeKind.OffsetDateTime;
+            }
+        }
+        return Result.Ok(Toml.Datetime(Datetime { kind: kind, text: String.from_chars(out) }));
+    }
+
+    /// Exactly `n` ASCII digits, appended to `out`; returns their value.
+    fn read_fixed_digits(self, _ n: Int, _ out: List<Int>) -> Result<Int, TomlError> {
+        let mut value = 0;
+        let mut i = 0;
+        while i < n {
+            let c = self.peek();
+            if !char.is_digit(c) {
+                return Result.Err(self.syntax('expected a digit in date-time'));
+            }
+            value = value * 10 + (c - char.DIGIT_0);
+            out.push(c);
+            self.pos = self.pos + 1;
+            i = i + 1;
+        }
+        return Result.Ok(value);
+    }
+
+    /// The exact code point, appended to `out`.
+    fn expect_cp(self, _ cp: Int, _ out: List<Int>) -> Result<Void, TomlError> {
+        if self.peek() != cp {
+            return Result.Err(self.syntax('malformed date-time'));
+        }
+        out.push(cp);
+        self.pos = self.pos + 1;
+        return Result.Ok(void);
     }
 
     fn parse_number(self) -> Result<Toml, TomlError> {
@@ -1190,6 +1326,21 @@ fn array_of(_ v: Toml) -> List<Toml> {
         Array(items) => items,
         _ => [],
     };
+}
+
+/// Days in a month, honoring the Gregorian leap-year rule.
+fn days_in_month(_ year: Int, _ month: Int) -> Int {
+    if month == 2 {
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        if leap {
+            return 29;
+        }
+        return 28;
+    }
+    if month == 4 || month == 6 || month == 9 || month == 11 {
+        return 30;
+    }
+    return 31;
 }
 
 /// The first `count + 1` segments of a key path, dotted, for error messages.

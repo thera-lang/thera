@@ -323,12 +323,77 @@ fn test_document_errors() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+fn datetime_of(_ v: Option<Toml>) -> Datetime {
+    let fallback = Datetime { kind: DatetimeKind.LocalDate, text: 'missing' };
+    return match v {
+        Some(t) => t.as_datetime().unwrap_or(fallback),
+        None => fallback,
+    };
+}
+
 @test
-fn test_staged_constructs_error_cleanly() -> Result<Void, Error> {
-    // Stage 3: date-times. A clean error, never a misparse.
-    testing.assert_err(parse('d = 1979-05-27\n'))?;
-    testing.assert_err(parse('d = 1979-05-27T07:32:00Z\n'))?;
-    testing.assert_err(parse('t = 07:32:00\n'))?;
+fn test_datetime_kinds() -> Result<Void, Error> {
+    let doc = parse(
+        'a = 1979-05-27T07:32:00Z\nb = 1979-05-27T00:32:00.999999-07:00\nc = 1979-05-27T07:32:00\nd = 1979-05-27\ne = 07:32:00\nf = 00:32:00.999\n'
+    )?;
+    let a = datetime_of(doc.get('a'));
+    testing.assert_eq(actual: a.kind, expected: DatetimeKind.OffsetDateTime)?;
+    testing.assert_eq(actual: a.text, expected: '1979-05-27T07:32:00Z')?;
+    let b = datetime_of(doc.get('b'));
+    testing.assert_eq(actual: b.kind, expected: DatetimeKind.OffsetDateTime)?;
+    testing.assert_eq(actual: b.text, expected: '1979-05-27T00:32:00.999999-07:00')?;
+    testing.assert_eq(
+        actual: datetime_of(doc.get('c')).kind,
+        expected: DatetimeKind.LocalDateTime,
+    )?;
+    testing.assert_eq(actual: datetime_of(doc.get('d')).kind, expected: DatetimeKind.LocalDate)?;
+    testing.assert_eq(actual: datetime_of(doc.get('e')).kind, expected: DatetimeKind.LocalTime)?;
+    testing.assert_eq(actual: datetime_of(doc.get('f')).text, expected: '00:32:00.999')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_datetime_normalization() -> Result<Void, Error> {
+    // Lowercase t/z and the space delimiter normalize; components stay as
+    // written.
+    let doc = parse('a = 1979-05-27t07:32:00z\nb = 1979-05-27 07:32:00Z\n')?;
+    testing.assert_eq(actual: datetime_of(doc.get('a')).text, expected: '1979-05-27T07:32:00Z')?;
+    testing.assert_eq(actual: datetime_of(doc.get('b')).text, expected: '1979-05-27T07:32:00Z')?;
+    // A space not followed by a time is the end of a local date.
+    let d = parse('d = 1979-05-27 # released\n')?;
+    testing.assert_eq(actual: datetime_of(d.get('d')).kind, expected: DatetimeKind.LocalDate)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_datetime_validation() -> Result<Void, Error> {
+    testing.assert_err(parse('d = 1979-13-01\n'))?;              // month 13
+    testing.assert_err(parse('d = 1979-00-01\n'))?;              // month 0
+    testing.assert_err(parse('d = 1979-02-30\n'))?;              // February 30th
+    testing.assert_err(parse('d = 2100-02-29\n'))?;              // 2100 is not a leap year
+    testing.assert_err(parse('d = 1979-05-27T24:00:00Z\n'))?;    // hour 24
+    testing.assert_err(parse('d = 1979-05-27T07:61:00Z\n'))?;    // minute 61
+    testing.assert_err(parse('d = 1979-05-27T07:32:61Z\n'))?;    // second 61
+    testing.assert_err(parse('d = 1979-05-27T07:32:00+24:00\n'))?; // offset hour 24
+    testing.assert_err(parse('d = 1979-05-27T07:32\n'))?;        // seconds required in 1.0
+    testing.assert_err(parse('d = 1979-05-27T07:32:00.\n'))?;    // empty fraction
+    testing.assert_err(parse('t = 07:32\n'))?;                   // seconds required
+    // Leap cases that must pass.
+    let ok = parse('a = 2000-02-29\nb = 2024-02-29\nc = 1990-12-31T23:59:60Z\n')?;
+    testing.assert_eq(actual: datetime_of(ok.get('a')).text, expected: '2000-02-29')?;
+    testing.assert_eq(actual: datetime_of(ok.get('c')).text, expected: '1990-12-31T23:59:60Z')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_datetime_bridge() -> Result<Void, Error> {
+    // An offset date-time names an instant; the local kinds refuse to guess.
+    let doc = parse('a = 2023-11-14T22:13:20Z\nb = 2023-11-14T23:13:20+01:00\nc = 1979-05-27\n')?;
+    let a = datetime_of(doc.get('a')).to_datetime()?;
+    testing.assert_eq(actual: a.unix_seconds(), expected: 1700000000)?;
+    let b = datetime_of(doc.get('b')).to_datetime()?;
+    testing.assert_eq(actual: b.unix_seconds(), expected: 1700000000)?;
+    testing.assert_err(datetime_of(doc.get('c')).to_datetime())?;
     return Result.Ok(void);
 }
 
