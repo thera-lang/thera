@@ -1,0 +1,38 @@
+//! spec: fn-types
+//! mode: run
+
+// A **namespace-qualified** function referenced as a value: `json.str` where
+// `fn_reference.thera` covers the bare `double`. language.md §Functions says
+// functions are first-class values, and §Imports says a qualified name selects a
+// member of the namespace's surface — so the two compose, and `ns.fn` is a function
+// value wherever `fn` would be one.
+//
+// This is a regression test as much as a spec test. The reference type-checked and
+// then failed to *compile*: codegen's namespace branch knew `ns.CONST` and
+// `ns.global` but not `ns.fn`, so it fell through to struct field access and
+// reported "field access on non-struct value" on a program `check` had passed. A
+// check-clean program that cannot be compiled is the worst shape a front-end bug
+// can take, which is why this pins both an ordinary `pub fn` and a `native fn`.
+
+import std.char;
+import std.json;
+
+fn apply(_ f: (String) -> json.Json, _ s: String) -> json.Json {
+    return f(s);
+}
+
+fn main() -> Void {
+    // An ordinary `pub fn` from another library, passed as an argument.
+    println(json.stringify(apply(json.str, 'hi'))); // expect: "hi"
+
+    // Bound to a local first, then called through it.
+    let wrap = json.str;
+    println(json.stringify(wrap('there'))); // expect: "there"
+
+    // Handed to a higher-order method, which is the shape that found this.
+    let doc = json.arr(['a', 'b'].map(json.str));
+    println(json.stringify(doc)); // expect: ["a","b"]
+
+    // A `native fn` resolves the same way ('0' is a digit, 'A' is not).
+    println('${[48, 65].map(char.is_digit)}'); // expect: [true, false]
+}

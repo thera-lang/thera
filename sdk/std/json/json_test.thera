@@ -151,3 +151,47 @@ fn test_error_implements_error() -> Result<Void, Error> {
     testing.assert(m.contains('line 1'), message: 'error should report a position')?;
     return Result.Ok(void);
 }
+
+// --- encoding an optional field (json.opt + obj's omit_nulls) ---
+
+@test
+fn test_opt_lifts_an_option_to_json() -> Result<Void, Error> {
+    testing.assert_eq(actual: opt(Option.Some(3), int), expected: Json.Int(3))?;
+    let none: Option<Int> = Option.None;
+    testing.assert_eq(actual: opt(none, int), expected: Json.Null)?;
+    // The encoder is any `(T) -> Json`, not just a leaf constructor.
+    let tags: Option<List<String>> = Option.Some(['a']);
+    let encoded = opt(tags, (xs) => arr(xs.map(str)));
+    return testing.assert_eq(actual: stringify(encoded), expected: '["a"]');
+}
+
+@test
+fn test_omit_nulls_drops_null_entries() -> Result<Void, Error> {
+    let none: Option<Int> = Option.None;
+    let fields: Map<String, Json> = [
+        'kept': str('yes'),
+        'dropped': opt(none, int),
+        'also_kept': opt(Option.Some(1), int),
+    ];
+    testing.assert_eq(
+        actual: stringify(obj(fields, omit_nulls: true)),
+        expected: '{"kept":"yes","also_kept":1}',
+    )?;
+    // Off by default, so an explicit null still round-trips for an API that means
+    // something by it.
+    return testing.assert_eq(
+        actual: stringify(obj(fields)),
+        expected: '{"kept":"yes","dropped":null,"also_kept":1}',
+    );
+}
+
+@test
+fn test_omit_nulls_is_not_recursive() -> Result<Void, Error> {
+    // Only this object's own entries are filtered — a nested object keeps whatever
+    // it was built with, so the caller stays in control at each level.
+    let inner = obj(['n': null()]);
+    return testing.assert_eq(
+        actual: stringify(obj(['outer': null(), 'inner': inner], omit_nulls: true)),
+        expected: '{"inner":{"n":null}}',
+    );
+}

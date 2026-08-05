@@ -4,6 +4,7 @@
 #   - the Rust runtime's cargo tests
 #   - the front-end's own @test suite (pkgs/cli)
 #   - the standard library's @test suite (sdk/std)
+#   - the other packages' @test suites (pkgs/*, everything but the front-end)
 #   - CLI/diagnostic behavior guards, language conformance, and examples
 #
 # Each `thera` invocation uses the launcher in $THERA_LAUNCHER, defaulting to the
@@ -14,7 +15,7 @@
 # Usage: test.sh [group...]
 #   With no args, runs every group (the full local suite). Named groups run
 #   just those, in the given order — this is how CI shards the work in parallel:
-#     cargo frontend stdlib checks conformance examples
+#     cargo frontend stdlib packages checks conformance examples
 
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,6 +38,20 @@ phase_stdlib() {
   "$THERA" test sdk/std || fail=1
 }
 
+# Every package under pkgs/ except the front-end, which has its own group above
+# (running `thera test pkgs` would re-run its ~660 tests in a second shard). The
+# loop is deliberately not a hardcoded list, so a new package under pkgs/ is picked
+# up without editing this file.
+phase_packages() {
+  echo "==> thera test pkgs/* (packages other than the front-end)"
+  for d in pkgs/*/; do
+    case "$d" in
+      pkgs/cli/) continue ;;
+    esac
+    "$THERA" test "$d" || fail=1
+  done
+}
+
 # CLI/diagnostic behavior guards + whole-corpus invariants.
 #
 # The process-level guards (LSP transport, profiler determinism, stream split,
@@ -53,25 +68,25 @@ phase_checks() {
   # clean. This also subsumes the old bare-reference guard (bare cross-library
   # refs are `check` errors). We echo check's output so the offending diagnostics
   # are visible. See docs/language.md.
-  chk_out="$("$THERA" check --fatal-warnings pkgs/cli sdk/std examples 2>/dev/null)"; chk_code=$?
+  chk_out="$("$THERA" check --fatal-warnings pkgs sdk/std examples 2>/dev/null)"; chk_code=$?
   if [ -n "$chk_out" ]; then
     printf '%s\n' "$chk_out" | sed 's/^/       /'
   fi
   if [ "$chk_code" -eq 0 ]; then
     echo "  ok   corpus type-checks clean (no errors or warnings)"
   else
-    echo "  FAIL corpus has errors or warnings; run: thera check --fatal-warnings pkgs/cli sdk/std examples"
+    echo "  FAIL corpus has errors or warnings; run: thera check --fatal-warnings pkgs sdk/std examples"
     fail=1
   fi
 
   echo "==> fmt --check (corpus stays canonically formatted)"
   # The whole corpus is kept formatted; `fmt --check` lists any file that would
   # change and exits non-zero. A drift fails the build with the fix command.
-  fmt_out="$("$THERA" fmt --check pkgs/cli sdk/std examples bench 2>/dev/null)"; fmt_code=$?
+  fmt_out="$("$THERA" fmt --check pkgs sdk/std examples bench 2>/dev/null)"; fmt_code=$?
   if [ "$fmt_code" -eq 0 ] && [ -z "$fmt_out" ]; then
     echo "  ok   corpus is a fmt fixpoint"
   else
-    echo "  FAIL these files need formatting; run: thera fmt pkgs/cli sdk/std examples bench"
+    echo "  FAIL these files need formatting; run: thera fmt pkgs sdk/std examples bench"
     printf '%s\n' "$fmt_out" | sed 's/^/         /'
     fail=1
   fi
@@ -143,17 +158,18 @@ phase_examples() {
 # No args = the full local suite; otherwise run just the named groups (CI shards).
 groups=("$@")
 if [ "${#groups[@]}" -eq 0 ]; then
-  groups=(cargo frontend stdlib checks conformance examples)
+  groups=(cargo frontend stdlib packages checks conformance examples)
 fi
 for g in "${groups[@]}"; do
   case "$g" in
     cargo)       phase_cargo ;;
     frontend)    phase_frontend ;;
     stdlib)      phase_stdlib ;;
+    packages)    phase_packages ;;
     checks)      phase_checks ;;
     conformance) phase_conformance ;;
     examples)    phase_examples ;;
-    *) echo "test.sh: unknown group '$g' (want: cargo frontend stdlib checks conformance examples)" >&2; fail=1 ;;
+    *) echo "test.sh: unknown group '$g' (want: cargo frontend stdlib packages checks conformance examples)" >&2; fail=1 ;;
   esac
 done
 

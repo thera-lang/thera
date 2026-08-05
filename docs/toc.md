@@ -41,6 +41,10 @@ this is"; read top-down for progressive detail.
   (HTTPS, SSE streaming, typed JSON, retries), one hand-written client as a
   forcing function, an OpenAPI generator to scale past it, and a measurable
   method for ranking target APIs.
+- [typed-json.md](typed-json.md) — **Typed JSON**: api-access.md item 3 in
+  flight — getting structs into and out of JSON well enough to write an API
+  client, with a hand-decoded Anthropic Messages response as the forcing
+  function.
 - [scale.md](scale.md) — **Thera at scale**: the plan for keeping large
   codebases workable for agents — the four scaling failure modes (reading
   radius, discoverability, feedback latency, trustworthy prose), and the work

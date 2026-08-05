@@ -14,6 +14,10 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 - `pkgs/cli/` — **the active front-end**, written in Thera: lexer → parser →
   resolver → checker → inference → codegen → encoder, plus the
   `check`/`emit`/`run`/`test`/`fmt`/`lsp` CLI. It self-hosts.
+- `pkgs/` — also where **non-`std` libraries** are authored, since Thera has no
+  package manager yet and "where does a third-party package live" is still open
+  (`docs/scale.md` item 4 owns it). `pkgs/anthropic/` is the first; a `pkgs/*`
+  library may find another home later.
 - `sdk/std/` — Thera standard library sources (`.thera`, with `native fn`
   decls). Each library lives in its own named subdir
   (`sdk/std/path/path.thera`), with Thera tests beside it as
@@ -70,7 +74,7 @@ with the checked-in bootstrap snapshot and runs the result on `thera-rt`
 (caching the dev front-end in `build/`, rebuilt when `pkgs/cli`/`sdk/std`
 change). No external toolchain.
 
-`bin/test.sh` runs everything: cargo tests, the `pkgs/cli` and `sdk/std` @test
+`bin/test.sh` runs everything: cargo tests, the `pkgs/` and `sdk/std` @test
 suites, and the examples.
 
 `bin/fmt_docs.sh` formats every tracked `*.md` (prettier, per `.prettierrc`);

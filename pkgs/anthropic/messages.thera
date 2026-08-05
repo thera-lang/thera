@@ -1,0 +1,159 @@
+// The Anthropic Messages API's response types, and their decoders.
+//
+// Chosen as docs/typed-json.md's specimen because one response covers most of
+// docs/api-access.md § Typed JSON's schema-to-type mapping table: a nested `struct`
+// (`usage`), a `oneOf` over a `discriminator` (the content blocks), a string `enum`
+// (`stop_reason`), nullable and absent fields (`Option`), an `array` (`List<T>`),
+// and a deliberately unmodeled subschema (`tool_use.input` → `Json`).
+//
+// Stage 1 wrote these decoders against `std.json`'s lenient accessors and needed a
+// 101-line plumbing sibling to do it. That file is gone: `json.Cursor` carries each
+// value's path, so a field is one line and an error names itself.
+
+import std.json;
+
+/// A `text` block — the one every response has.
+pub struct TextBlock {
+    let text: String;
+}
+
+/// A `thinking` block. `signature` is opaque and has to survive round-tripping, so
+/// it is carried rather than dropped.
+pub struct ThinkingBlock {
+    let thinking: String;
+    let signature: String;
+}
+
+/// A `tool_use` block. `input` stays a `Json`: its shape is the *tool's* own schema,
+/// which the API does not model — the mapping table's "unmodeled → `Json`" row, and
+/// the honest answer rather than a `Map<String, String>` that would be wrong.
+pub struct ToolUseBlock {
+    let id: String;
+    let name: String;
+    let input: json.Json;
+}
+
+/// One block of an assistant message's content — the API's `oneOf` over a `type`
+/// discriminator.
+///
+/// `Unknown` is the forward-compatibility variant
+/// ([api-access.md](../../docs/api-access.md) item 4). The block list grows —
+/// `redacted_thinking`, `server_tool_use`, `web_search_tool_result` — and a client
+/// that errored on an unrecognized `type` would break for every user at once,
+/// remotely triggered, with no change on our side. So decode never fails on an
+/// unknown tag; it keeps the raw `Json` so a caller can still see what arrived. A
+/// *missing* or non-string `type` is still an error: the discriminator itself is
+/// required, and its absence is a malformed document rather than a new feature.
+pub enum ContentBlock {
+    Text(TextBlock),
+    Thinking(ThinkingBlock),
+    ToolUse(ToolUseBlock),
+    Unknown(json.Json),
+}
+
+/// Why the model stopped. A string enum on the wire, and `Unknown` for the same
+/// reason `ContentBlock.Unknown` exists — `pause_turn` and `refusal` were both
+/// added after the API shipped. The raw tag is kept so a log can name it.
+pub enum StopReason {
+    EndTurn,
+    MaxTokens,
+    StopSequence,
+    ToolUse,
+    PauseTurn,
+    Refusal,
+    Unknown(String),
+}
+
+/// Token counts. The two cache fields are absent unless prompt caching was used,
+/// which is why they are `Option` rather than defaulting to zero: "no cache read"
+/// and "a cache read of zero tokens" are different claims.
+pub struct Usage {
+    let input_tokens: Int;
+    let output_tokens: Int;
+    let cache_creation_input_tokens: Option<Int>;
+    let cache_read_input_tokens: Option<Int>;
+}
+
+/// A `POST /v1/messages` response.
+///
+/// The wire form also carries `"type": "message"`, a constant this does not keep —
+/// there is nothing to branch on, and a generator emitting a field that can only
+/// hold one value is emitting noise.
+pub struct Message {
+    let id: String;
+    let model: String;
+    let role: String;
+    let content: List<ContentBlock>;
+    /// `None` mid-stream, `Some` once the turn ends.
+    let stop_reason: Option<StopReason>;
+    /// The sequence that triggered a `StopSequence` stop, if that is why.
+    let stop_sequence: Option<String>;
+    let usage: Usage;
+}
+
+/// Decode a Messages response body.
+pub fn message_from_json(_ at: json.Cursor) -> Result<Message, json.DecodeError> {
+    let root = at.object()?;
+    let mut content: List<ContentBlock> = [];
+    for block in root.field('content').list()? {
+        content.push(block_from_json(block)?);
+    }
+    return Result.Ok(Message {
+        id: root.field('id').string()?,
+        model: root.field('model').string()?,
+        role: root.field('role').string()?,
+        content: content,
+        stop_reason: root.field('stop_reason').opt_string()?.map(stop_reason_of),
+        stop_sequence: root.field('stop_sequence').opt_string()?,
+        usage: usage_from_json(root.field('usage').object()?)?,
+    });
+}
+
+/// Decode one content block.
+///
+/// The dispatch is a `match` on the discriminator's string value, which reads much
+/// the way the spec's `oneOf` does — one arm per branch, the fallback arm carrying
+/// the forward-compatibility rule.
+pub fn block_from_json(_ at: json.Cursor) -> Result<ContentBlock, json.DecodeError> {
+    let block = at.object()?;
+    return match block.field('type').string()? {
+        'text' => Result.Ok(ContentBlock.Text(TextBlock { text: block.field('text').string()? })),
+        'thinking' => Result.Ok(ContentBlock.Thinking(ThinkingBlock {
+            thinking: block.field('thinking').string()?,
+            signature: block.field('signature').string()?,
+        })),
+        'tool_use' => Result.Ok(ContentBlock.ToolUse(ToolUseBlock {
+            id: block.field('id').string()?,
+            name: block.field('name').string()?,
+            // Required, and an object — but its *contents* are the tool's schema,
+            // so the check stops there and the value is carried through raw.
+            input: block.field('input').object()?.value,
+        })),
+        // A tag these types have not heard of — keep the raw value, never fail.
+        _ => Result.Ok(ContentBlock.Unknown(block.value)),
+    };
+}
+
+fn usage_from_json(_ at: json.Cursor) -> Result<Usage, json.DecodeError> {
+    return Result.Ok(Usage {
+        input_tokens: at.field('input_tokens').int()?,
+        output_tokens: at.field('output_tokens').int()?,
+        cache_creation_input_tokens: at.field('cache_creation_input_tokens').opt_int()?,
+        cache_read_input_tokens: at.field('cache_read_input_tokens').opt_int()?,
+    });
+}
+
+/// The wire tag as a `StopReason`. Total by construction: an unrecognized tag is
+/// `Unknown`, never an error — which is what lets `message_from_json` reach it
+/// through `Option.map` rather than a `match` on the read.
+pub fn stop_reason_of(_ tag: String) -> StopReason {
+    return match tag {
+        'end_turn' => StopReason.EndTurn,
+        'max_tokens' => StopReason.MaxTokens,
+        'stop_sequence' => StopReason.StopSequence,
+        'tool_use' => StopReason.ToolUse,
+        'pause_turn' => StopReason.PauseTurn,
+        'refusal' => StopReason.Refusal,
+        _ => StopReason.Unknown(tag),
+    };
+}

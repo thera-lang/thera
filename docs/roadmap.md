@@ -1033,6 +1033,67 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Typed JSON — `json.Cursor`, and a client to prove it on** (2026-08).
+  [api-access.md](api-access.md) Arc 1 item 3, pulled ahead of item 5 because a
+  codec convention gets copied into every file a generator emits while a retry
+  policy slides in under an unchanged `http.send` at any time. The method was
+  the one Arc 2 prescribes: hand-write the client first, against the library
+  unchanged, and let it name the gaps. Full record in
+  [typed-json.md](typed-json.md).
+  - **The gap was not "no derive", it was "no location".** `std.json`'s
+    accessors suit a _lenient_ reader — navigation never fails, absent is
+    `None`, nothing is an error, which is how the LSP reads requests it must not
+    crash on. A client needs the opposite, and needs a failure to name a
+    **path**. A bare `Json` cannot: it has no idea where it came from, so the
+    path gets threaded alongside it by hand at every level with nothing checking
+    the two agree. Stage 1 measured that at **101 lines of generic plumbing to
+    support 62 lines of decoders**, and 10 hand-written path literals.
+  - **`json.Cursor` is a value paired with its location.** `field`/`index` never
+    fail (a missing key gives an absent cursor at the extended path); the
+    readers do — `string`/`int`/`double`/`bool`/`object`/`list`/`raw`, each with
+    an `opt_` twin. `list()` indexes each element's path, so `$.content[2].text`
+    costs the caller nothing. New `json.DecodeError` (`Missing`/`Shape`), kept
+    distinct from `JsonError`: a syntax error and a shape mismatch are different
+    problems.
+  - **An optional field of the wrong kind is still an error.** "May be absent"
+    is the schema speaking; "a number where a string belongs" is a bug or a
+    breaking change, and reporting it as `None` would turn a loud failure into a
+    silently missing value. Separately, `present` tells absent from
+    explicitly-null for the rarer API that means different things by them.
+  - **The plumbing file went to zero**, decoders 62 → 51 lines, threaded paths
+    10 → 0 — and two messages got _more accurate_, not just cheaper: a
+    fractional number read as an integer used to say "expected number … got
+    number", and a required field that was present but `null` used to say
+    "missing required field", which was simply wrong.
+  - **Encoding needed two small functions**, not a layer:
+    `json.opt(value, encode)` lifts an `Option` (`None` → `Null`), and
+    `obj(fields, omit_nulls: true)` drops the nulls — so a request body is one
+    line per field with no conditional insert and no `mut` map.
+  - **Default arguments beat the alternatives, at one specific cost.** A struct
+    literal has no per-field defaults so it would force all nine fields every
+    time, and a wither chain reimplements what the language has; the direct call
+    names three arguments for a minimal request. But an `Option<T>` parameter
+    does not accept a bare `T`, so every optional argument a caller passes is
+    `Option.Some(0.5)`. No implicit `Some`-wrap is proposed: the implicit `Ok`
+    is a return-position rule, this would be an argument-position coercion, and
+    language.md says there are no implicit conversions of any kind. The cost is
+    recorded instead.
+  - **One front-end bug, fixed rather than worked around.** A
+    namespace-qualified function used as a value (`xs.map(json.str)`)
+    type-checked and then failed to compile — codegen's namespace branch knew
+    `ns.CONST` and `ns.global` but not `ns.fn`, so it fell through to struct
+    field access and reported "field access on non-struct value" on a
+    check-clean program. One branch in `codegen.thera` emitting `ClosureNew`,
+    the qualified counterpart of `load_function_value`; ordinary and `native`
+    fns both resolve. Pinned by
+    `tests/lang/functions/qualified_fn_reference.thera`. Same shape as the TLS
+    arc's dividend: composing two documented features across a library boundary,
+    and finding the combination had never been exercised.
+  - **`pkgs/` is now where non-`std` libraries are authored** — `pkgs/anthropic`
+    is the first, `bin/test.sh` gained a `packages` group that picks up any
+    `pkgs/*` other than the front-end, and its `check`/`fmt` corpus widened from
+    `pkgs/cli` to `pkgs`. Where third-party packages ultimately live is still
+    [scale.md](scale.md) item 4's question.
 - **`std.http` regains a reachable server** (2026-08). `import std.http.server`
   was a check error — `server.thera` was a plain file inside the `std/http`
   directory library, so from outside it the only importable surface was the

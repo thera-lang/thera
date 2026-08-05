@@ -1,0 +1,107 @@
+// The Anthropic Messages API's request side — the other half of docs/typed-json.md,
+// and the concrete form of docs/api-access.md's most interesting Thera-specific
+// question: three required fields and a long tail of optional ones, which most
+// languages answer with a builder or an options struct.
+//
+// Thera has default arguments, so `create`'s direct call is viable — and that is
+// the shape here. What it costs at the call site is recorded in
+// docs/typed-json.md § Findings; the short version is that an `Option<T>` parameter
+// does not accept a bare `T`, so every optional argument a caller *does* pass is
+// spelled `Option.Some(…)`.
+
+import std.json;
+
+/// One turn of the conversation. `content` is the simple string form; the block
+/// form (`[{"type": "text", …}]`) is what a tool result or an image needs, and is
+/// deliberately not modeled yet — Arc 2 territory, not the JSON question.
+pub struct InputMessage {
+    let role: String;
+    let content: String;
+}
+
+pub fn user(_ content: String) -> InputMessage {
+    return InputMessage { role: 'user', content: content };
+}
+
+pub fn assistant(_ content: String) -> InputMessage {
+    return InputMessage { role: 'assistant', content: content };
+}
+
+/// A `POST /v1/messages` request.
+///
+/// Every optional field is an `Option`, never a sentinel: `top_k: 0` and "no
+/// `top_k`" are different requests, and the wire form distinguishes them by the key
+/// being absent rather than by a magic value.
+pub struct Request {
+    let model: String;
+    let messages: List<InputMessage>;
+    let max_tokens: Int;
+    let system: Option<String>;
+    let temperature: Option<Double>;
+    let top_p: Option<Double>;
+    let top_k: Option<Int>;
+    let stop_sequences: Option<List<String>>;
+    let stream: Option<Bool>;
+}
+
+/// Build a request. The three required fields have no default; the rest default to
+/// absent, so a minimal call names three arguments and a maximal one names nine.
+///
+/// This is the direct-call shape rather than a builder or an all-fields struct
+/// literal, for two reasons. A struct literal has no per-field defaults in Thera,
+/// so it would force all nine fields at every construction; and a wither chain
+/// (`.with_temperature(0.7)`) is 30-odd lines of library code to work around the
+/// absence of exactly the feature Thera has.
+pub fn create(
+    model: String,
+    messages: List<InputMessage>,
+    max_tokens: Int,
+    system: Option<String> = Option.None,
+    temperature: Option<Double> = Option.None,
+    top_p: Option<Double> = Option.None,
+    top_k: Option<Int> = Option.None,
+    stop_sequences: Option<List<String>> = Option.None,
+    stream: Option<Bool> = Option.None,
+) -> Request {
+    return Request {
+        model: model,
+        messages: messages,
+        max_tokens: max_tokens,
+        system: system,
+        temperature: temperature,
+        top_p: top_p,
+        top_k: top_k,
+        stop_sequences: stop_sequences,
+        stream: stream,
+    };
+}
+
+/// The request as a body to send.
+///
+/// `omit_nulls` is what keeps this one line per field: an absent optional encodes to
+/// `Json.Null` via `json.opt` and is then dropped, so there is no conditional insert
+/// and no `mut` map — and the function reads as the request's shape, the same way
+/// the decoders read as the response's.
+pub fn request_to_json(_ req: Request) -> json.Json {
+    return json.obj([
+        'model': json.str(req.model),
+        'messages': json.arr(req.messages.map(message_to_json)),
+        'max_tokens': json.int(req.max_tokens),
+        'system': json.opt(req.system, json.str),
+        'temperature': json.opt(req.temperature, json.double),
+        'top_p': json.opt(req.top_p, json.double),
+        'top_k': json.opt(req.top_k, json.int),
+        'stop_sequences': json.opt(req.stop_sequences, strings),
+        'stream': json.opt(req.stream, json.bool),
+    ], omit_nulls: true);
+}
+
+fn message_to_json(_ msg: InputMessage) -> json.Json {
+    return json.obj(['role': json.str(msg.role), 'content': json.str(msg.content)]);
+}
+
+/// A `List<String>` as a JSON array — the encoder `json.opt` needs for a field
+/// whose payload isn't a single leaf.
+fn strings(_ values: List<String>) -> json.Json {
+    return json.arr(values.map(json.str));
+}

@@ -1,0 +1,232 @@
+//! Tests for `json.Cursor` — the strict, path-carrying reading surface.
+//!
+//! Two things are being pinned. The values, obviously; but also **what a failure
+//! says**, because the whole reason the cursor carries a path is that a decode
+//! failure has to be findable in a document it may be pages deep in. So most cases
+//! here assert on `DecodeError.message()` rather than just that an error happened.
+
+import std.testing;
+
+import 'json' as _;
+
+/// A cursor on the document root of `text`.
+fn root(_ text: String) -> Result<Cursor, Error> {
+    return Result.Ok(cursor(parse(text)?));
+}
+
+/// The message from a read that must fail.
+fn failure<T>(_ read: Result<T, DecodeError>) -> Result<String, Error> {
+    match read {
+        Ok(_) => throw error('expected a DecodeError, got Ok'),
+        Err(e) => return Result.Ok(e.message()),
+    }
+}
+
+const DOC: String = '{"name":"ada","age":36,"score":9.5,"admin":true,'
+    + '"tags":["x","y"],"home":{"city":"london"},"note":null}';
+
+// --- reading required values ---
+
+@test
+fn reads_the_primitive_kinds() -> Result<Void, Error> {
+    let at = root(DOC)?;
+    testing.assert_eq(at.field('name').string()?, 'ada')?;
+    testing.assert_eq(at.field('age').int()?, 36)?;
+    testing.assert_eq(at.field('score').double()?, 9.5)?;
+    return testing.assert_eq(at.field('admin').bool()?, true);
+}
+
+/// An `Int` widens to a `Double` and an integral `Double` narrows to an `Int` — the
+/// cursor inherits that from the accessors, which matters because JSON has one
+/// number type and a schema's `integer` and `number` both land on it.
+@test
+fn numbers_cross_between_int_and_double() -> Result<Void, Error> {
+    let at = root('{"n":7,"x":2.0,"frac":2.5}')?;
+    testing.assert_eq(at.field('n').double()?, 7.0)?;
+    testing.assert_eq(at.field('x').int()?, 2)?;
+    return testing.assert_eq(
+        failure(at.field('frac').int())?,
+        'expected an integer at $.frac, got number',
+    );
+}
+
+@test
+fn reads_a_nested_object_as_a_cursor() -> Result<Void, Error> {
+    let at = root(DOC)?;
+    let home = at.field('home').object()?;
+    testing.assert_eq(home.path, '$.home')?;
+    return testing.assert_eq(home.field('city').string()?, 'london');
+}
+
+/// `raw` is the escape hatch for a subschema the API doesn't model: presence is
+/// checked, the kind is not.
+@test
+fn raw_accepts_any_kind_but_still_requires_presence() -> Result<Void, Error> {
+    let at = root(DOC)?;
+    testing.assert_eq(at.field('home').raw()?.kind(), 'object')?;
+    testing.assert_eq(at.field('age').raw()?.kind(), 'number')?;
+    testing.assert_eq(at.field('note').raw()?.kind(), 'null')?;
+    return testing.assert_eq(failure(at.field('nope').raw())?, 'missing required field $.nope');
+}
+
+// --- lists ---
+
+@test
+fn a_list_hands_back_a_cursor_per_element() -> Result<Void, Error> {
+    let items = root(DOC)?.field('tags').list()?;
+    testing.assert_eq(items.len(), 2)?;
+    testing.assert_eq(items[0].string()?, 'x')?;
+    return testing.assert_eq(items[1].string()?, 'y');
+}
+
+/// The point of the per-element cursors: the index is in the path already, so a
+/// decoder over a list never builds that string itself.
+@test
+fn an_element_carries_its_index_in_its_path() -> Result<Void, Error> {
+    let items = root('{"rows":[{"v":1},{"v":"two"}]}')?.field('rows').list()?;
+    testing.assert_eq(items[1].path, '$.rows[1]')?;
+    return testing.assert_eq(
+        failure(items[1].field('v').int())?,
+        'expected an integer at $.rows[1].v, got string',
+    );
+}
+
+@test
+fn an_empty_list_is_not_a_failure() -> Result<Void, Error> {
+    return testing.assert_eq(root('{"rows":[]}')?.field('rows').list()?.len(), 0);
+}
+
+@test
+fn index_navigates_into_an_array() -> Result<Void, Error> {
+    let at = root('{"rows":[10, 20, 30]}')?;
+    testing.assert_eq(at.field('rows').index(1).int()?, 20)?;
+    return testing.assert_eq(
+        failure(at.field('rows').index(9).int())?,
+        'missing required field $.rows[9]',
+    );
+}
+
+// --- reading optional values ---
+
+@test
+fn an_absent_optional_field_is_none() -> Result<Void, Error> {
+    let at = root(DOC)?;
+    testing.assert_eq(at.field('nope').opt_string()?, Option.None)?;
+    testing.assert_eq(at.field('nope').opt_int()?, Option.None)?;
+    testing.assert_eq(at.field('nope').opt_double()?, Option.None)?;
+    testing.assert_eq(at.field('nope').opt_bool()?, Option.None)?;
+    return testing.assert_eq(at.field('nope').opt_list()?, Option.None);
+}
+
+@test
+fn an_explicitly_null_optional_field_is_also_none() -> Result<Void, Error> {
+    return testing.assert_eq(root(DOC)?.field('note').opt_string()?, Option.None);
+}
+
+@test
+fn a_present_optional_field_is_some() -> Result<Void, Error> {
+    let at = root(DOC)?;
+    testing.assert_eq(at.field('name').opt_string()?, Option.Some('ada'))?;
+    return testing.assert_eq(at.field('age').opt_int()?, Option.Some(36));
+}
+
+/// The line the optional readers deliberately do **not** cross. "This field may be
+/// absent" is the schema speaking; "this field is a number when it should be a
+/// string" is a bug or a breaking change, and swallowing it as `None` would turn a
+/// loud failure into a silently missing value.
+@test
+fn an_optional_field_of_the_wrong_kind_is_still_an_error() -> Result<Void, Error> {
+    return testing.assert_eq(
+        failure(root(DOC)?.field('age').opt_string())?,
+        'expected a string at $.age, got number',
+    );
+}
+
+// --- absent versus null ---
+
+/// Both read as `None`, and for almost every API that is what they mean. The pair a
+/// caller needs when they differ — `null` to clear a field, absent to leave it
+/// alone — is `present` and `is_null`.
+@test
+fn present_and_is_null_tell_absent_from_null() -> Result<Void, Error> {
+    let at = root(DOC)?;
+    testing.assert_eq(at.field('note').present, true)?;
+    testing.assert_eq(at.field('note').is_null(), true)?;
+    testing.assert_eq(at.field('nope').present, false)?;
+    return testing.assert_eq(at.field('nope').is_null(), true);
+}
+
+/// And the distinction the required readers make with it, which is the difference
+/// between "you forgot a field" and "you sent the wrong thing".
+@test
+fn a_required_field_distinguishes_absent_from_null() -> Result<Void, Error> {
+    let at = root(DOC)?;
+    testing.assert_eq(failure(at.field('nope').string())?, 'missing required field $.nope')?;
+    return testing.assert_eq(
+        failure(at.field('note').string())?,
+        'expected a string at $.note, got null',
+    );
+}
+
+// --- failures name the path ---
+
+@test
+fn a_wrong_kind_names_the_path_and_both_kinds() -> Result<Void, Error> {
+    return testing.assert_eq(
+        failure(root(DOC)?.field('age').string())?,
+        'expected a string at $.age, got number',
+    );
+}
+
+@test
+fn a_chained_navigation_accumulates_the_path() -> Result<Void, Error> {
+    let at = root('{"a":{"b":{"c":[{"d":true}]}}}')?;
+    testing.assert_eq(at.field('a').field('b').field('c').index(0).field('d').bool()?, true)?;
+    return testing.assert_eq(
+        failure(at.field('a').field('b').field('c').index(0).field('d').string())?,
+        'expected a string at $.a.b.c[0].d, got boolean',
+    );
+}
+
+/// Navigating through something that isn't an object doesn't trap — it produces an
+/// absent cursor at the extended path, so the failure surfaces at the read. Opening
+/// a decoder with `object()` is what blames the real culprit instead.
+@test
+fn navigating_into_a_non_object_defers_the_failure() -> Result<Void, Error> {
+    let at = root('{"a":"scalar"}')?;
+    testing.assert_eq(
+        failure(at.field('a').field('b').string())?,
+        'missing required field $.a.b',
+    )?;
+    return testing.assert_eq(
+        failure(at.field('a').object())?,
+        'expected an object at $.a, got string',
+    );
+}
+
+@test
+fn a_non_object_root_is_blamed_at_the_root() -> Result<Void, Error> {
+    return testing.assert_eq(
+        failure(root('[1, 2]')?.object())?,
+        'expected an object at $, got array',
+    );
+}
+
+@test
+fn unexpected_rejects_on_the_callers_own_terms() -> Result<Void, Error> {
+    let at = root('{"created_at":"not a date"}')?;
+    let read: Result<Int, DecodeError> =
+        at.field('created_at').unexpected('an ISO-8601 timestamp');
+    return testing.assert_eq(
+        failure(read)?,
+        'expected an ISO-8601 timestamp at $.created_at, got string',
+    );
+}
+
+// --- the error type itself ---
+
+@test
+fn a_decode_error_displays_as_its_message() -> Result<Void, Error> {
+    let e = DecodeError.Missing('$.id');
+    return testing.assert_eq('${e}', 'missing required field $.id');
+}

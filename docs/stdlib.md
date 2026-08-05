@@ -687,7 +687,9 @@ pub enum Json {
 }
 
 // Lowercase constructors (the building API):
-pub fn null() / bool(b) / int(n) / double(x) / str(s) / arr(items) / obj(fields) -> Json;
+pub fn null() / bool(b) / int(n) / double(x) / str(s) / arr(items) -> Json;
+pub fn obj(_ fields: Map<String, Json>, omit_nulls: Bool = false) -> Json;
+pub fn opt<T>(_ value: Option<T>, _ encode: (T) -> Json) -> Json;   // None -> Null
 
 pub fn parse(_ text: String) -> Result<Json, JsonError>;
 pub fn stringify(_ value: Json, pretty: Bool = false) -> String;
@@ -698,6 +700,7 @@ impl Json {
     pub fn as_bool / as_int / as_double / as_string (self) -> Option<...>;
     pub fn as_array(self) -> Option<List<Json>>;    // + as_object
     pub fn is_null(self) -> Bool;
+    pub fn kind(self) -> String;   // 'object' | 'array' | 'string' | 'number' | …
 }
 pub enum JsonError { Syntax(String) }                // implements Error + Display
 ```
@@ -708,9 +711,102 @@ and construct cleanly (`json.int(42)`); the parser picks the variant by syntax
 return `Json` (Null on miss) rather than `Option`, so navigation chains —
 `root.get('user').get('name').as_string()` — which matters because Thera's
 `Option` has no `and_then` yet. Strings handle the full escape set including
-`\uXXXX` with surrogate-pair combining. `JsonError` is `Syntax`-only for v1
-(parse is the only fallible op; a `Type`/`Missing` variant returns with typed
-`decode`).
+`\uXXXX` with surrogate-pair combining. `JsonError` stays `Syntax`-only: it is
+the **parser's** failure, and a shape mismatch is `DecodeError` below — a
+different problem with a different fix.
+
+**Decoding into types — `Cursor`.** The accessors above suit a **lenient**
+reader: navigation never fails, an absent value is `None`, nothing is an error.
+That is right for a server reading a request it must not crash on (the LSP reads
+this way). A client of a typed API wants the opposite — a required field that is
+absent or the wrong type is an error, and the error must name the field, as a
+**path**, because `expected string, got number` with no location is not
+debuggable once a program decodes hundreds of schemas. A bare `Json` cannot
+report that: it has no idea where it came from, so the path would have to be
+threaded alongside it by hand at every level, with nothing checking the two
+agree. `Cursor` carries both.
+
+```
+pub enum DecodeError {            // implements Error + Display
+    Missing(String),              // path of a required field the document lacks
+    Shape(String, String, String) // path, what was expected, what was found
+}
+
+pub struct Cursor { let value: Json; let path: String; let present: Bool; }
+pub fn cursor(_ value: Json) -> Cursor;              // a root cursor, path `$`
+
+impl Cursor {
+    // navigating never fails — a missing key gives an absent cursor at the path
+    pub fn field(self, _ key: String) -> Cursor;      // + index(i) for arrays
+    pub fn is_null(self) -> Bool;
+
+    // reading does: absent is Missing, the wrong kind is Shape
+    pub fn string / int / double / bool (self) -> Result<..., DecodeError>;
+    pub fn object(self) -> Result<Cursor, DecodeError>;        // validates, returns self
+    pub fn list(self) -> Result<List<Cursor>, DecodeError>;    // paths carry the index
+    pub fn raw(self) -> Result<Json, DecodeError>;             // presence only
+
+    // absent or null is None; the wrong kind is still Shape
+    pub fn opt_string / opt_int / opt_double / opt_bool (self) -> Result<Option<...>, …>;
+    pub fn opt_object / opt_list (self) -> Result<Option<...>, DecodeError>;
+
+    pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError>;
+}
+```
+
+So a decoder is one line per field, and its body is the type's own shape:
+
+```thera
+fn usage_from_json(_ at: json.Cursor) -> Result<Usage, json.DecodeError> {
+    return Result.Ok(Usage {
+        input_tokens: at.field('input_tokens').int()?,
+        cache_read: at.field('cache_read_input_tokens').opt_int()?,
+    });
+}
+```
+
+Four decisions worth knowing:
+
+- **Navigation never fails, reading does.** `field`/`index` always answer a
+  cursor, so a field costs one `?`, at the read, where the wanted type is known
+  — and chains compose: `at.field('a').field('b').string()?`.
+- **An optional field of the wrong kind is still an error.** "May be absent" is
+  the schema speaking; "is a number where a string belongs" is a bug or a
+  breaking change, and reporting it as `None` would turn a loud failure into a
+  silently missing value.
+- **`present` distinguishes absent from null.** The optional readers treat both
+  as `None`, which is what almost every API means; `present` and `is_null` are
+  there for one that gives them different meanings (`null` to clear a field,
+  absent to leave it alone).
+- **A decoder that may be handed a non-object opens with `at.object()?`**, so
+  the failure is blamed on the value's own path rather than on the first field
+  read out of it.
+
+Reflection-based `encode<T>`/`decode<T>` is still the eventual layer (below);
+`Cursor` is deliberately not waiting on it, and explicit codecs are what an
+OpenAPI generator would emit anyway — see [api-access.md](api-access.md) § Typed
+JSON.
+
+**Optional fields on the way out.** The mirror of `Cursor`'s `opt_` readers, and
+the shape a request body with a long optional tail wants: `json.opt` lifts an
+`Option` (encoding `Some` with the constructor you pass, `None` to `Json.Null`),
+and `obj`'s `omit_nulls` then drops the nulls — so every field is written
+unconditionally, and an unset one is _absent_ from the body rather than
+`"temperature": null`.
+
+```thera
+json.obj([
+    'model': json.str(req.model),                           // always sent
+    'temperature': json.opt(req.temperature, json.double),   // sent when Some
+    'stop_sequences': json.opt(req.stop, (xs) => json.arr(xs.map(json.str))),
+], omit_nulls: true);
+```
+
+`omit_nulls` filters this object's own entries, not recursively, and it is
+per-call — so an API that means something by an explicit `null` (clear the
+field, as against leave it alone) builds that part with the flag off. `opt`'s
+`encode` being a plain `(T) -> Json` is why this is one function rather than an
+`opt_int`/`opt_str`/`opt_bool` family.
 
 **Encoding ergonomics — three layers.** Building a heterogeneous value needs
 `Json` (Thera has no heterogeneous map/list literal — a raw
