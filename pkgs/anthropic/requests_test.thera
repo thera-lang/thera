@@ -1,0 +1,121 @@
+// Tests for the Messages request side — docs/typed-json.md stage 3.
+//
+// The interesting assertions here are about the *call sites*, not the bytes: what a
+// minimal request costs to write, what a maximal one costs, and whether an optional
+// field a caller doesn't set actually stays off the wire. `stringify` is stable
+// (`Json.Object` keeps insertion order), so a body can be compared as text.
+
+import std.json;
+import std.testing;
+
+import 'requests' as _;
+
+/// A request as the text that would be sent.
+fn body(_ req: Request) -> String {
+    return json.stringify(request_to_json(req));
+}
+
+// --- what a caller writes ---
+
+/// The minimal call: three arguments, no ceremony, and nothing optional reaches the
+/// wire. This is the line an agent writes most often, so it is the one that matters.
+@test
+fn a_minimal_request_names_three_arguments() -> Result<Void, Error> {
+    let req = create(
+        model: 'claude-sonnet-4-5-20250929',
+        messages: [user('hello')],
+        max_tokens: 1024,
+    );
+    return testing.assert_eq(
+        body(req),
+        '{"model":"claude-sonnet-4-5-20250929",'
+        + '"messages":[{"role":"user","content":"hello"}],'
+        + '"max_tokens":1024}',
+    );
+}
+
+/// The maximal call, which is where the cost shows up: every optional argument the
+/// caller passes is wrapped in `Option.Some`, because an `Option<Double>` parameter
+/// does not accept a bare `Double`. Nine fields, six of them wrapped. See
+/// docs/typed-json.md § Findings — this test is the evidence for it.
+@test
+fn a_full_request_carries_every_field() -> Result<Void, Error> {
+    let req = create(
+        model: 'claude-opus-4-1-20250805',
+        messages: [user('hi'), assistant('hello'), user('again')],
+        max_tokens: 64,
+        system: Option.Some('be brief'),
+        temperature: Option.Some(0.5),
+        top_p: Option.Some(0.9),
+        top_k: Option.Some(40),
+        stop_sequences: Option.Some(['STOP']),
+        stream: Option.Some(true),
+    );
+    return testing.assert_eq(
+        body(req),
+        '{"model":"claude-opus-4-1-20250805",'
+        + '"messages":[{"role":"user","content":"hi"},'
+        + '{"role":"assistant","content":"hello"},'
+        + '{"role":"user","content":"again"}],'
+        + '"max_tokens":64,"system":"be brief","temperature":0.5,'
+        + '"top_p":0.9,"top_k":40,"stop_sequences":["STOP"],"stream":true}',
+    );
+}
+
+// --- absent means absent ---
+
+/// The property `omit_nulls` exists for: an optional field the caller didn't set is
+/// not `"temperature":null` on the wire, it is not there at all. Sending an explicit
+/// null would be a different request, and for several fields an invalid one.
+@test
+fn an_unset_optional_field_is_absent_not_null() -> Result<Void, Error> {
+    let req = create(model: 'm', messages: [user('x')], max_tokens: 1);
+    let text = body(req);
+    testing.assert_eq(text.contains('null'), false)?;
+    testing.assert_eq(text.contains('temperature'), false)?;
+    return testing.assert_eq(text.contains('stream'), false);
+}
+
+/// And one set field arrives without dragging the others along.
+@test
+fn setting_one_optional_field_leaves_the_rest_off() -> Result<Void, Error> {
+    let req = create(
+        model: 'm',
+        messages: [user('x')],
+        max_tokens: 1,
+        temperature: Option.Some(0.0),
+    );
+    let text = body(req);
+    testing.assert_eq(text.contains('"temperature":0.0'), true)?;
+    return testing.assert_eq(text.contains('top_p'), false);
+}
+
+/// `0` is a real value, not "unset" — the reason every optional field is an `Option`
+/// and not a sentinel. A request that pins `top_k` to zero has to be distinguishable
+/// from one that says nothing about it.
+@test
+fn a_zero_valued_optional_field_is_still_sent() -> Result<Void, Error> {
+    let zeroed = create(model: 'm', messages: [user('x')], max_tokens: 1, top_k: Option.Some(0));
+    let silent = create(model: 'm', messages: [user('x')], max_tokens: 1);
+    testing.assert_eq(body(zeroed).contains('"top_k":0'), true)?;
+    return testing.assert_eq(body(silent).contains('top_k'), false);
+}
+
+@test
+fn an_empty_optional_list_is_sent_as_an_empty_array() -> Result<Void, Error> {
+    let req = create(
+        model: 'm',
+        messages: [user('x')],
+        max_tokens: 1,
+        stop_sequences: Option.Some([]),
+    );
+    return testing.assert_eq(body(req).contains('"stop_sequences":[]'), true);
+}
+
+// --- roles ---
+
+@test
+fn user_and_assistant_tag_their_turns() -> Result<Void, Error> {
+    testing.assert_eq(user('a').role, 'user')?;
+    return testing.assert_eq(assistant('b').role, 'assistant');
+}

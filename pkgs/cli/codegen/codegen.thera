@@ -1853,10 +1853,11 @@ impl FnCompiler {
     }
 
     fn field_expr(self, _ object: Expr, _ field: String, _ span: SourceSpan) -> Void {
-        // A namespace-qualified constant or global: `ns.NAME` → inline the const
-        // initializer, or load the global slot. Resolved within `ns`'s owning
-        // library (owner-correct): the member must be on the namespace's own
-        // surface, so two libraries' same-named consts inline their own values.
+        // A namespace-qualified constant, global, or function *value*: `ns.NAME` →
+        // inline the const initializer, load the global slot, or push the function
+        // as a closure. Resolved within `ns`'s owning library (owner-correct): the
+        // member must be on the namespace's own surface, so two libraries'
+        // same-named consts inline their own values.
         if let Ident(_, ns_name) = object {
             if self.is_namespace(ns_name) {
                 if let Some(owner) = file_scope(
@@ -1869,6 +1870,15 @@ impl FnCompiler {
                     }
                     if self.scope.global_in_file(owner, field).is_some() {
                         self.emit_global(owner, field);
+                        return;
+                    }
+                    // `xs.map(json.str)` — the qualified counterpart of the bare
+                    // `xs.map(str)` that `load_function_value` handles. Without this
+                    // the checker accepted the reference and codegen then read it as
+                    // a field access on the namespace, so it was a check-clean
+                    // program that failed to compile.
+                    if let Some(fn_idx) = self.scope.function_in_file(owner, field) {
+                        self.emit(Instr.ClosureNew(fn_idx, 0));
                         return;
                     }
                 }

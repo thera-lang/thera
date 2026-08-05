@@ -687,7 +687,9 @@ pub enum Json {
 }
 
 // Lowercase constructors (the building API):
-pub fn null() / bool(b) / int(n) / double(x) / str(s) / arr(items) / obj(fields) -> Json;
+pub fn null() / bool(b) / int(n) / double(x) / str(s) / arr(items) -> Json;
+pub fn obj(_ fields: Map<String, Json>, omit_nulls: Bool = false) -> Json;
+pub fn opt<T>(_ value: Option<T>, _ encode: (T) -> Json) -> Json;   // None -> Null
 
 pub fn parse(_ text: String) -> Result<Json, JsonError>;
 pub fn stringify(_ value: Json, pretty: Bool = false) -> String;
@@ -784,6 +786,27 @@ Reflection-based `encode<T>`/`decode<T>` is still the eventual layer (below);
 `Cursor` is deliberately not waiting on it, and explicit codecs are what an
 OpenAPI generator would emit anyway — see [api-access.md](api-access.md) § Typed
 JSON.
+
+**Optional fields on the way out.** The mirror of `Cursor`'s `opt_` readers, and
+the shape a request body with a long optional tail wants: `json.opt` lifts an
+`Option` (encoding `Some` with the constructor you pass, `None` to `Json.Null`),
+and `obj`'s `omit_nulls` then drops the nulls — so every field is written
+unconditionally, and an unset one is _absent_ from the body rather than
+`"temperature": null`.
+
+```thera
+json.obj([
+    'model': json.str(req.model),                           // always sent
+    'temperature': json.opt(req.temperature, json.double),   // sent when Some
+    'stop_sequences': json.opt(req.stop, (xs) => json.arr(xs.map(json.str))),
+], omit_nulls: true);
+```
+
+`omit_nulls` filters this object's own entries, not recursively, and it is
+per-call — so an API that means something by an explicit `null` (clear the
+field, as against leave it alone) builds that part with the flag off. `opt`'s
+`encode` being a plain `(T) -> Json` is why this is one function rather than an
+`opt_int`/`opt_str`/`opt_bool` family.
 
 **Encoding ergonomics — three layers.** Building a heterogeneous value needs
 `Json` (Thera has no heterogeneous map/list literal — a raw

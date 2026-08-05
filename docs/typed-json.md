@@ -73,21 +73,28 @@ paired with its location, make that a type, let navigation accumulate the path,
 and let the readers report it. See [stdlib.md](stdlib.md) § `std.json` for the
 surface and § The delta below for what it bought.
 
-### Stage 3 — the encode direction
+### Stage 3 — the encode direction — **done**
 
-Request construction: a Messages request has three required fields and a long
-optional tail, which is the concrete form of api-access.md's most interesting
-Thera-specific question — **default arguments versus an options struct**. Today
-every leaf is wrapped (`json.str(x)`) and an absent optional field means a
-conditional insert into a `mut` map, so this stage is where whether Thera's
-default arguments actually pay off here gets an answer instead of a prediction.
+Request construction: a Messages request has three required fields and a tail of
+six optional ones, which is the concrete form of api-access.md's most
+interesting Thera-specific question — **default arguments versus an options
+struct**. The library side turned out to be two small functions (`json.opt` and
+`obj`'s `omit_nulls`); the answer to the question, and the one language gap the
+whole arc found, are in § Encoding, and the ergonomics below.
 
-### Stage 4 — graduate
+### Stage 4 — graduate — **mostly done**
 
-Decided semantics into [stdlib.md](stdlib.md) or [language.md](language.md),
-mapping-table rows marked validated in api-access.md, and this document deleted
-— the same way the streaming plan was folded away when its arc closed (see the
-[roadmap](roadmap.md)'s _Changelog_).
+Landed: the surface in [stdlib.md](stdlib.md) § `std.json`; api-access.md item 3
+rewritten with the mapping table's six exercised rows marked validated, item 4
+marked settled, and three of its open questions closed; the arc summarized in
+the [roadmap](roadmap.md)'s _Changelog_.
+
+**What keeps this document alive** is the evidence below — the measurements, and
+the two things deliberately _not_ changed (no `try_map`, no implicit
+`Some`-wrap), which are worth being able to re-read before anyone proposes them
+again. It should be folded away and deleted once Arc 3 has a schema that
+exercises `allOf`, `additionalProperties`, and an undiscriminated `anyOf`, since
+those are the three mapping-table rows this arc could not validate by hand.
 
 ## Findings
 
@@ -256,3 +263,90 @@ almost every API means, and `present`/`is_null` are there for the API that gives
 them different meanings. Finding 5 is closed by `DecodeError` living in
 `std.json`, so two libraries' decode failures are now the same type and an
 application composing them can handle "a decode failed" once.
+
+## Encoding
+
+[requests.thera](../pkgs/anthropic/requests.thera) is the request side: a
+`Request` struct, a `create` constructor, and `request_to_json`. Two library
+additions carried it, both small enough to argue that encoding was never the
+hard direction:
+
+- **`json.opt(value, encode)`** — `Some(v)` through `encode`, `None` as
+  `Json.Null`. `encode` is normally a constructor
+  (`json.opt(req.top_k, json.int)`), which is what makes this one function
+  rather than six `opt_int`/`opt_str` variants.
+- **`json.obj(fields, omit_nulls: true)`** — drops the `Null`-valued entries, so
+  an absent optional field is absent from the body rather than
+  `"temperature": null`. Own entries only, not recursive, and per-call, so an
+  API that means something by an explicit `null` builds that part with the flag
+  off.
+
+Together they make `request_to_json` one line per field, with no conditional
+insert and no `mut` map — the encoder reads as the request's shape, the same way
+the decoders read as the response's.
+
+### Default arguments do pay off — with one specific tax
+
+`create` takes the three required fields and defaults the six optional ones to
+`Option.None`, so the common call names three arguments and nothing else:
+
+```thera
+let req = anthropic.create(
+    model: 'claude-sonnet-4-5-20250929',
+    messages: [anthropic.user('hello')],
+    max_tokens: 1024,
+);
+```
+
+That is the shape api-access.md hoped for, and it beats the alternatives on real
+grounds rather than taste. An all-fields **struct literal** is not viable: Thera
+struct fields have no per-field defaults, so every construction would spell all
+nine. A **wither chain** (`.with_temperature(0.7)`) is thirty-odd lines of
+library code to reimplement the feature the language already has.
+
+**The tax:** an `Option<T>` parameter does not accept a bare `T`, so every
+optional argument a caller _does_ pass is spelled `Option.Some(…)`.
+
+```thera
+    temperature: Option.Some(0.5),     // what you write
+    temperature: 0.5,                  // what you want to write
+```
+
+Thirteen characters of ceremony per optional argument, on the calls agents write
+most, and it lands squarely on the feature that was supposed to be the
+advantage. `a_full_request_carries_every_field` in
+[requests_test.thera](../pkgs/anthropic/requests_test.thera) is the evidence:
+nine arguments, six of them wrapped.
+
+**No change is proposed here, deliberately.** The obvious fix is an implicit
+`Some`-wrap, by analogy with the implicit `Ok`-wrap Thera already has — but that
+analogy is weaker than it looks. The implicit `Ok` is a **return-position** rule
+([language.md](language.md) § `throw`), while this would be an
+**argument-position** coercion, and language.md states flatly that there are "no
+implicit conversions of any kind". A new coercion site is a language-design
+decision with reach far beyond JSON, and it should be made on more evidence than
+one client's request builder. What this arc contributes is the evidence: the
+cost is real, it is concentrated in exactly the high-volume position, and it is
+the only ergonomic complaint the whole arc produced.
+
+### One front-end bug, found and fixed
+
+`json.arr(values.map(json.str))` — a **namespace-qualified function used as a
+value** — type-checked and then failed to compile, with
+`field access on non-struct value` blamed on the reference. Codegen's namespace
+branch knew `ns.CONST` and `ns.global` but not `ns.fn`, so it fell through to
+struct field access; the bare `xs.map(str)` had always worked.
+
+A check-clean program that cannot be compiled is the worst shape a front-end bug
+can take, so it is fixed here rather than worked around
+([codegen.thera](../pkgs/cli/codegen/codegen.thera) — one branch, emitting
+`ClosureNew` over the resolved unit, the qualified counterpart of
+`load_function_value`). Ordinary `pub fn`s and `native fn`s both resolve. Pinned
+by
+[tests/lang/functions/qualified_fn_reference.thera](../tests/lang/functions/qualified_fn_reference.thera),
+which covers both.
+
+This is the arc's one language-level finding, and it is the same shape as the
+TLS arc's: reaching for an ordinary composition of two documented features
+(first-class functions, qualified names) across a library boundary, and finding
+the combination had never been exercised.

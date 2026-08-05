@@ -156,55 +156,78 @@ that into an API's own event enum needs that API's schema. Choosing between an
 iterator, a fiber `channel`, and a callback is one line on § the client-shape
 checklist; all three are buildable over an `Iterator<Event>`.
 
-### 3. Typed JSON — structs in, structs out
+### 3. Typed JSON — structs in, structs out — **substrate done**
 
 **Problem.** A generated client is mostly types. Getting a Thera struct into and
-out of JSON is the single highest-volume operation in every client. **Today.**
-`std.json` is a dynamic `Json` enum with `parse`/`stringify` and constructors.
-There is no struct mapping and no JSON derive; `Response.json()` hands back a
-`Json`. Hand-decoding one Anthropic response by pattern-matching `Json` is
-roughly a page of code. **Direction.** The key observation is that **a generator
-does not need a derive** — it can emit an explicit `from_json` / `to_json` pair
-per struct, and that emitted code is ordinary, readable, greppable Thera that
-participates in checking and refactors. The alternative, a `@derive(json)`
-attribute alongside the existing `eq`/`debug` derives, is a language feature
-with a much larger blast radius. **Recommendation: explicit emitted codecs
-first.** Revisit a derive only if hand-written clients (which do want one) prove
-painful enough. The schema-to-type mapping this implies:
+out of JSON is the single highest-volume operation in every client. **Was.**
+`std.json` was a dynamic `Json` enum with `parse`/`stringify` and constructors,
+whose accessors suit a _lenient_ reader and not a client: hand-decoding one
+Anthropic response cost roughly a page.
 
-| OpenAPI construct               | Thera                                 |
-| ------------------------------- | ------------------------------------- |
-| `object` with fixed properties  | `struct`                              |
-| `oneOf` + `discriminator`       | `enum` with a variant per branch      |
-| `enum` of strings               | `enum` (plus a raw-string round trip) |
-| nullable / not in `required`    | `Option<T>`                           |
-| `array`                         | `List<T>`                             |
-| `additionalProperties: {T}`     | `Map<String, T>`                      |
-| `allOf`                         | flattened into one struct             |
-| `anyOf` without a discriminator | **open question** — see below         |
-| unmodeled / `true` schema       | `Json` (the honest escape hatch)      |
+**Now.** `json.Cursor` is the strict counterpart — a `Json` paired with where it
+came from, so navigating accumulates a path and a failure names it
+(`expected a string at $.content[1].text, got number`) — plus
+`json.DecodeError`, `json.opt`, and `obj`'s `omit_nulls` for the encode
+direction. Surface in [stdlib.md](stdlib.md) § `std.json`; the arc, its
+measurements, and the alternatives rejected along the way are in
+[typed-json.md](typed-json.md).
+
+**The recommendation held.** Explicit codecs, no `@derive(json)` and no
+reflection: a generator does not need a derive, and emitted
+`from_json`/`to_json` pairs are ordinary, greppable Thera that participate in
+checking and refactors. Hand-writing them against the cursor is 51 code lines
+for the whole Messages response, which is not painful enough to reopen the
+question.
+
+The schema-to-type mapping, validated by hand against a real response rather
+than assumed:
+
+| OpenAPI construct               | Thera                                 | Validated                       |
+| ------------------------------- | ------------------------------------- | ------------------------------- |
+| `object` with fixed properties  | `struct`                              | ✓                               |
+| `oneOf` + `discriminator`       | `enum` with a variant per branch      | ✓ (string-literal `match` arms) |
+| `enum` of strings               | `enum` (plus a raw-string round trip) | ✓                               |
+| nullable / not in `required`    | `Option<T>`                           | ✓                               |
+| `array`                         | `List<T>`                             | ✓                               |
+| unmodeled / `true` schema       | `Json` (the honest escape hatch)      | ✓                               |
+| `additionalProperties: {T}`     | `Map<String, T>`                      | not exercised                   |
+| `allOf`                         | flattened into one struct             | not exercised                   |
+| `anyOf` without a discriminator | **open question** — see below         | not exercised                   |
 
 Anthropic's spec alone contains 928 component schemas with 527 `anyOf`, 238
 `oneOf`, 229 `discriminator`, and 165 `allOf` occurrences — so none of these
-rows is hypothetical, and undiscriminated `anyOf` is the row that will hurt.
-**Status.** Open; the mapping table is the deliverable Arc 2 should validate by
-hand before Arc 3 automates it.
+rows is hypothetical, and undiscriminated `anyOf` is still the row that will
+hurt. **Status.** The library is done and the six rows a real response exercises
+are validated; the last three want a schema that uses them, which is Arc 3's
+problem rather than a reason to guess now.
 
-### 4. Forward compatibility — the strongly-typed client's classic failure
+### 4. Forward compatibility — **settled**
 
 **Problem.** Tomorrow the API adds a content-block type, a stop reason, or an
 error code. A client that decodes into a closed Thera enum and matches
 exhaustively will **fail on a response it should have tolerated** — and it will
 fail for every user at once, remotely triggered, with no code change on our
 side. This is the defining bug class of generated clients and it interacts
-directly with Thera's exhaustive `match`. **Today.** Not a problem yet, because
-there are no typed clients. **Direction.** Every generated enum decoded from the
-wire gets an `Unknown(Json)` variant (name TBD), and decode never fails on an
-unrecognized tag. The cost is that every consumer's `match` grows an arm — which
-is arguably correct, since the case is real. The open question is whether that
-is a convention the generator applies uniformly, or something the spec's `x-`
-extensions can opt out of. **Status.** Open. Small, and cheap to get wrong
-permanently — decide it in Arc 2, before any generated code exists to migrate.
+directly with Thera's exhaustive `match`.
+
+**Decided, with tests behind it** ([typed-json.md](typed-json.md) § Findings 6).
+Two rules, and they are a pair:
+
+1. **Every wire-decoded enum gets an `Unknown` variant, uniformly** —
+   `Unknown(Json)` where the branch carries a body, `Unknown(String)` for a bare
+   string enum, so the raw value survives for a caller to inspect or log. Decode
+   never fails on an unrecognized tag. The cost is one `match` arm per consumer,
+   which is correct rather than regrettable: the case is real. Uniform, not
+   opt-out-able by an `x-` extension — a spec cannot know it will never be
+   extended, and a per-schema exception is a footgun with no upside.
+2. **Tolerating an unknown tag is not tolerating a missing one.** A block with
+   no `type` at all is a decode error, because there is nothing to dispatch on:
+   that is a malformed document, not a new feature. Losing this distinction
+   would turn every shape bug in the discriminator into a silent `Unknown`.
+
+**Status.** Settled and exercised — `pkgs/anthropic` decodes a real
+`web_search_tool_result` block it has never heard of, with the blocks around it
+still decoding.
 
 ### 5. Reliability — retries, timeouts, redirects, pooling
 
@@ -312,13 +335,15 @@ a real caller in front of it.
   `Client.new(api_key:, base_url:, timeout:, max_retries:)` versus ambient free
   functions. The ambient-capability model from [stdlib.md](stdlib.md) is the
   precedent to follow or consciously break.
-- **Optional fields.** A Messages request has a handful of required fields and a
-  long tail of optional ones. Most languages force a builder or an options
-  struct here; **Thera has default arguments**, so the direct call
-  `messages.create(model: …, messages: …, max_tokens: …, temperature: …)` is
-  actually viable. Whether it stays readable at 20 parameters is the question —
-  and it is one of the clearest tests of whether a Thera-idiomatic client beats
-  the SDK shapes other languages settle for.
+- ~~**Optional fields.**~~ **Answered: the direct call, with default
+  arguments.** An all-fields struct literal is not viable (Thera struct fields
+  have no per-field defaults, so every construction would spell all of them) and
+  a wither chain reimplements the feature the language already has. A minimal
+  request names three arguments and nothing else. **The one tax:** an
+  `Option<T>` parameter does not accept a bare `T`, so every optional argument a
+  caller passes is spelled `Option.Some(0.5)`. See
+  [typed-json.md](typed-json.md) § Encoding — the cost is recorded, and no
+  implicit `Some`-wrap is proposed on one client's evidence.
 - **Errors.** How HTTP status maps onto a client error enum (rate-limited,
   overloaded, invalid-request, auth-failed, server-error), and how that composes
   with `HttpError` underneath. `Result` throughout; the question is the shape of
@@ -479,13 +504,19 @@ streaming work, in parallel with Arc 3.
 
 - **Where do non-`std` packages live?** Blocks Arc 2's landing spot; belongs to
   [scale.md](scale.md) item 4, not here.
-- **Emitted JSON codecs vs. a `@derive(json)`.** Recommendation is emitted; the
-  counter-case is hand-written clients.
-- **Default arguments vs. an options struct** for large optional-field sets —
-  the most interesting Thera-specific question in the doc.
+- ~~**Emitted JSON codecs vs. a `@derive(json)`.**~~ **Settled: emitted.** The
+  counter-case was that hand-written clients want a derive; hand-writing the
+  whole Messages response against `json.Cursor` is 51 code lines, which is not
+  painful enough to buy a language feature.
+- ~~**Default arguments vs. an options struct**~~ **Settled: default
+  arguments**, with the `Option.Some(…)` tax recorded at item 3's checklist
+  entry above.
 - **Undiscriminated `anyOf`** — 527 occurrences in Anthropic's spec alone, and
   no obvious Thera type. Untagged union decode by trial? A `Json` fallback?
-- **Forward-compat `Unknown(Json)`** — universal convention, or opt-out?
+  Still open: the Messages response does not use one, so the typed-JSON arc
+  could not settle it by hand.
+- ~~**Forward-compat `Unknown(Json)`**~~ **Settled: universal, no opt-out** —
+  see item 4.
 - **Flat names vs. a resource tree** for generated API surfaces.
 - **Does the generator ship as a `thera api` subcommand** (sharing the AST
   printer and formatter with `pkgs/cli`) or as a separate tool?

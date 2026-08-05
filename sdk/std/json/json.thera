@@ -5,21 +5,31 @@
 //! The structural `Json` value models any JSON document; `parse` reads text into
 //! one and `stringify` writes it back. A typed `decode<T>`/`encode<T>` (struct ↔
 //! JSON) awaits the reflection arc — until then, `Json` plus the lowercase
-//! constructors (`json.obj`, `json.int`, …) are how you build values.
+//! constructors (`json.obj`, `json.int`, …) are how you build values, and
+//! `json.Cursor` is how you read them into types.
 //!
 //! ```thera
-//! // Decode + navigate:
+//! // Navigate leniently — nothing fails, a miss is None:
 //! let root = json.parse(text)?;
 //! let name = root.get('user').get('name').as_string().unwrap_or('?');
 //!
+//! // Or read strictly, where a bad shape is an error that names its path:
+//! let at = json.cursor(root);
+//! let name = at.field('user').field('name').string()?;   // $.user.name
+//!
 //! // Encode (each leaf wrapped — Thera has no heterogeneous literal):
-//! let doc = json.obj({
+//! let doc = json.obj([
 //!     'name': json.str('build'),
 //!     'tags': json.arr([json.str('a'), json.str('b')]),
 //!     'count': json.int(3),
-//! });
+//! ]);
 //! let text = json.stringify(doc, pretty: true);
 //! ```
+//!
+//! The two reading styles are deliberate and not redundant: the accessors suit a
+//! server that must not crash on a bad request, `Cursor` suits a client of a typed
+//! API where a wrong shape is a failure that has to be findable. See `Cursor` below
+//! and docs/stdlib.md § `std.json`.
 //!
 //! Implementation: a hand-written scanner + recursive-descent parser, pure Thera.
 
@@ -82,8 +92,46 @@ pub fn arr(_ items: List<Json>) -> Json {
     return Json.Array(items);
 }
 
-pub fn obj(_ fields: Map<String, Json>) -> Json {
-    return Json.Object(fields);
+/// An object.
+///
+/// With `omit_nulls`, entries whose value is `Json.Null` are left out rather than
+/// written as `null` — which is what turns a struct with a long tail of optional
+/// fields into a request body without a conditional insert per field:
+///
+/// ```thera
+/// json.obj([
+///     'model': json.str(req.model),                          // always sent
+///     'temperature': json.opt(req.temperature, json.double),  // sent when Some
+///     'top_k': json.opt(req.top_k, json.int),
+/// ], omit_nulls: true);
+/// ```
+///
+/// It applies to this object's own entries, not recursively, and it is per-call —
+/// so an API that distinguishes "field absent" from "field explicitly null" builds
+/// the null-carrying part with `omit_nulls` off.
+pub fn obj(_ fields: Map<String, Json>, omit_nulls: Bool = false) -> Json {
+    if !omit_nulls {
+        return Json.Object(fields);
+    }
+    let mut kept: Map<String, Json> = [:];
+    for key in fields.keys() {
+        let value = fields[key];
+        if !value.is_null() {
+            kept[key] = value;
+        }
+    }
+    return Json.Object(kept);
+}
+
+/// `Some(v)` encoded by `encode`, `None` as `Json.Null` — the lifter that lets an
+/// optional field be written unconditionally, then dropped by `obj`'s `omit_nulls`.
+/// `encode` is normally one of the constructors above:
+/// `json.opt(req.top_k, json.int)`.
+pub fn opt<T>(_ value: Option<T>, _ encode: (T) -> Json) -> Json {
+    return match value {
+        Some(inner) => encode(inner),
+        None => Json.Null,
+    };
 }
 
 // --- accessors ---

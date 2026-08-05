@@ -21,4 +21,5 @@
 //!
 //! This is a barrel: it re-exports its sibling files and defines nothing itself.
 
+pub import 'requests'; // Request, InputMessage, create, request_to_json
 pub import 'messages'; // Message, ContentBlock, StopReason, Usage
