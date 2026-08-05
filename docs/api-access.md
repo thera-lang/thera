@@ -411,11 +411,98 @@ out of band in the manifest step, which breaks the build's no-external-toolchain
 property. It has to be decided before Arc 3 can regenerate its own acceptance
 test.
 
+### The manifest — a config file per generated API
+
 **A manifest per generated client**, checked in: the spec URL, a **content hash
 pin**, the selected operations, and any name overrides. The pin is what makes
 regeneration reproducible and makes an upstream spec change a visible, reviewed
 event rather than a silent drift. It is also the natural place for the
 `.stats.yml` indirection Anthropic requires.
+
+**The survey promoted it from a convenience to a load-bearing input.**
+Everything in the list above is an optimization — you could generate without it,
+just worse. Three of § Choosing targets' findings are not like that: they are
+facts the client does not work without, and the spec cannot state any of them.
+
+| The fact                                                | Why only the manifest can hold it                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| auth is an `x-api-key` request header                   | 4 of 7 slate specs declare no `securitySchemes`; Anthropic's credential appears only in prose and examples                  |
+| `messages_post` can stream, and what arrives if it does | the spec has `stream: boolean` going in and an `application/json`-only 200 coming back — zero occurrences of `event-stream` |
+| which `?beta=true` lane this client is on               | 80 of 89 Anthropic paths exist in both lanes, with the query string inside the _path key_                                   |
+
+Without those three a generated Anthropic client cannot authenticate, cannot
+stream, and emits 120 operations whose URL path contains a literal `?beta=true`.
+So the manifest is on the critical path for target #1, not a hook for edge cases
+later.
+
+**The rule that keeps it from rotting: every assertion is checked against the
+pinned spec, and a stale assertion is a generation error.** If the manifest
+renames an operation the pinned spec no longer has, generation fails loudly. The
+alternative — an override that silently stops applying — is how a manifest
+becomes a patch set nobody trusts: upstream renames something, the override
+no-ops, and the generated surface changes shape on a clean CI run. This is the
+same property the hash pin already buys for the spec, extended to the things
+said _about_ the spec.
+
+**The failure mode to design against** is the manifest becoming a second, worse
+schema language — a fork of upstream's spec in a format with no tooling. The
+test for each proposed knob: **could the spec express this?** If yes, the spec's
+answer wins, or fix it upstream. If no, it belongs here. That admits auth,
+streaming, and lane selection, which OpenAPI genuinely cannot say; it rejects
+"override this field's type because I'd rather it were something else".
+Filtering is the boundary case — the spec _can_ describe the whole surface and
+the manifest is subtracting from it — but that is selection rather than
+contradiction, and the closure numbers (3–18%) make it mandatory.
+
+**Format is open, and constrained.** There is no `std.toml`; the only
+hand-editable format Thera reads today is JSON, and a manifest is exactly the
+file where you want a comment recording _why_ an override exists. Writing
+`std.toml` is the better answer and [scale.md](scale.md) item 4 will want a
+config format too; JSON with a `note` field per override is the cheap fallback.
+Note also that item 4's package manifest and this one would sit in the same
+directory with different lifecycles (dependencies change when you add a
+dependency; this changes when upstream moves), so they should be separate files
+whose formats do not diverge for no reason.
+
+### Hand-written code beside generated code
+
+A generated client will always have a seam the generator cannot reach across —
+the typed event stream is the immediate one, since no spec on the slate
+describes it. So the unit of generation is **files inside an existing directory
+library**, not a directory the generator owns.
+
+Thera already has the seam, and it costs nothing: a directory library exposes
+only what its barrel re-exports, and **the barrel is hand-written**.
+
+```
+pkgs/anthropic/
+  anthropic.thera      hand-written barrel — decides the public surface
+  api.toml             the manifest
+  messages_gen.thera   @generated
+  schemas_gen.thera    @generated
+  streaming.thera      hand-written — the typed event stream no spec describes
+  client.thera         hand-written — auth, base_url, retry
+```
+
+Because the barrel decides the surface, hand-written code can **wrap** generated
+code and expose only the wrapper: the generated `messages_post` returns a
+`Message`, a hand-written `messages_stream` returns an `Iterator<Event>` over
+`sse.events`, and the generated one can stay a private sibling if that reads
+better. No partial classes, no extension points, no merge step.
+
+**One safety rule makes this workable.** Every generated file opens with a
+marker, and the generator **refuses to write a file that exists and does not
+carry it**:
+
+```thera
+// @generated by `thera api` from anthropic@6d5c96a4 — do not edit
+```
+
+That buys three things at once: a hand-written file can never be eaten by a
+regeneration; the CI regenerate-and-diff check gets its file list without the
+manifest having to enumerate one; and review tooling can collapse generated
+diffs. The repo has **no `@generated` convention today**, so this establishes
+one — worth wording deliberately rather than by accident.
 
 **Output is committed, not generated at build time.** This is the opposite of
 [scale.md](scale.md) item 5's decision to reject committed doc artifacts, and
@@ -621,5 +708,12 @@ streaming work, in parallel with Arc 3.
 - ~~**Forward-compat `Unknown(Json)`**~~ **Settled: universal, no opt-out** —
   see item 4.
 - **Flat names vs. a resource tree** for generated API surfaces.
+- **The manifest's format** — no `std.toml` exists, JSON has no comments, and a
+  manifest is exactly where the reason for an override belongs. Write
+  `std.toml`, or JSON with a `note` convention? Shared with [scale.md](scale.md)
+  item 4's package manifest, or a separate file? (Separate files, same format,
+  is the current lean.)
+- **The exact `@generated` marker wording**, since it becomes a repo-wide
+  convention the moment the first file carries it.
 - **Does the generator ship as a `thera api` subcommand** (sharing the AST
   printer and formatter with `pkgs/cli`) or as a separate tool?
