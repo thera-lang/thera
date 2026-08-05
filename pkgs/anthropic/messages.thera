@@ -1,14 +1,16 @@
 // The Anthropic Messages API's response types, and their decoders.
 //
-// Chosen as docs/typed-json.md stage 1's specimen because one response covers most
-// of docs/api-access.md § Typed JSON's schema-to-type mapping table: a nested
-// `struct` (`usage`), a `oneOf` over a `discriminator` (the content blocks), a
-// string `enum` (`stop_reason`), nullable and absent fields (`Option`), an `array`
-// (`List<T>`), and a deliberately unmodeled subschema (`tool_use.input` → `Json`).
+// Chosen as docs/typed-json.md's specimen because one response covers most of
+// docs/api-access.md § Typed JSON's schema-to-type mapping table: a nested `struct`
+// (`usage`), a `oneOf` over a `discriminator` (the content blocks), a string `enum`
+// (`stop_reason`), nullable and absent fields (`Option`), an `array` (`List<T>`),
+// and a deliberately unmodeled subschema (`tool_use.input` → `Json`).
+//
+// Stage 1 wrote these decoders against `std.json`'s lenient accessors and needed a
+// 101-line plumbing sibling to do it. That file is gone: `json.Cursor` carries each
+// value's path, so a field is one line and an error names itself.
 
 import std.json;
-
-import 'decode' as _;
 
 /// A `text` block — the one every response has.
 pub struct TextBlock {
@@ -89,75 +91,61 @@ pub struct Message {
     let usage: Usage;
 }
 
-/// Decode a Messages response body. `$` is the document root, and every path below
-/// is built from it by hand — see docs/typed-json.md § Findings.
-pub fn message_from_json(_ value: json.Json) -> Result<Message, DecodeError> {
-    let root = as_object(value, '$')?;
+/// Decode a Messages response body.
+pub fn message_from_json(_ at: json.Cursor) -> Result<Message, json.DecodeError> {
+    let root = at.object()?;
     let mut content: List<ContentBlock> = [];
-    for block in req_array(root, '$', 'content')?.enumerate() {
-        content.push(block_from_json(block.value, '$.content[${block.index}]')?);
+    for block in root.field('content').list()? {
+        content.push(block_from_json(block)?);
     }
     return Result.Ok(Message {
-        id: req_string(root, '$', 'id')?,
-        model: req_string(root, '$', 'model')?,
-        role: req_string(root, '$', 'role')?,
+        id: root.field('id').string()?,
+        model: root.field('model').string()?,
+        role: root.field('role').string()?,
         content: content,
-        stop_reason: stop_reason_from_json(root, '$')?,
-        stop_sequence: opt_string(root, '$', 'stop_sequence')?,
-        usage: usage_from_json(req_object(root, '$', 'usage')?, '$.usage')?,
+        stop_reason: root.field('stop_reason').opt_string()?.map(stop_reason_of),
+        stop_sequence: root.field('stop_sequence').opt_string()?,
+        usage: usage_from_json(root.field('usage').object()?)?,
     });
 }
 
-/// Decode one content block. `path` is where it sits in the document.
+/// Decode one content block.
 ///
 /// The dispatch is a `match` on the discriminator's string value, which reads much
 /// the way the spec's `oneOf` does — one arm per branch, the fallback arm carrying
 /// the forward-compatibility rule.
-pub fn block_from_json(_ value: json.Json, _ path: String)
-    -> Result<ContentBlock, DecodeError> {
-    let block = as_object(value, path)?;
-    return match req_string(block, path, 'type')? {
-        'text' => Result.Ok(ContentBlock.Text(TextBlock {
-            text: req_string(block, path, 'text')?,
-        })),
+pub fn block_from_json(_ at: json.Cursor) -> Result<ContentBlock, json.DecodeError> {
+    let block = at.object()?;
+    return match block.field('type').string()? {
+        'text' => Result.Ok(ContentBlock.Text(TextBlock { text: block.field('text').string()? })),
         'thinking' => Result.Ok(ContentBlock.Thinking(ThinkingBlock {
-            thinking: req_string(block, path, 'thinking')?,
-            signature: req_string(block, path, 'signature')?,
+            thinking: block.field('thinking').string()?,
+            signature: block.field('signature').string()?,
         })),
         'tool_use' => Result.Ok(ContentBlock.ToolUse(ToolUseBlock {
-            id: req_string(block, path, 'id')?,
-            name: req_string(block, path, 'name')?,
-            input: req_object(block, path, 'input')?,
+            id: block.field('id').string()?,
+            name: block.field('name').string()?,
+            // Required, and an object — but its *contents* are the tool's schema,
+            // so the check stops there and the value is carried through raw.
+            input: block.field('input').object()?.value,
         })),
         // A tag these types have not heard of — keep the raw value, never fail.
-        _ => Result.Ok(ContentBlock.Unknown(value)),
+        _ => Result.Ok(ContentBlock.Unknown(block.value)),
     };
 }
 
-fn usage_from_json(_ value: json.Json, _ path: String) -> Result<Usage, DecodeError> {
-    let created = opt_int(value, path, 'cache_creation_input_tokens')?;
+fn usage_from_json(_ at: json.Cursor) -> Result<Usage, json.DecodeError> {
     return Result.Ok(Usage {
-        input_tokens: req_int(value, path, 'input_tokens')?,
-        output_tokens: req_int(value, path, 'output_tokens')?,
-        cache_creation_input_tokens: created,
-        cache_read_input_tokens: opt_int(value, path, 'cache_read_input_tokens')?,
+        input_tokens: at.field('input_tokens').int()?,
+        output_tokens: at.field('output_tokens').int()?,
+        cache_creation_input_tokens: at.field('cache_creation_input_tokens').opt_int()?,
+        cache_read_input_tokens: at.field('cache_read_input_tokens').opt_int()?,
     });
 }
 
-/// `Option<String>` on the wire to `Option<StopReason>`. Four lines rather than a
-/// `map`, because the read is fallible and `Option.map`'s lambda has nowhere to put
-/// a failure — the shape shows up once per nullable enum field, so a generator will
-/// emit it hundreds of times.
-fn stop_reason_from_json(_ at: json.Json, _ path: String)
-    -> Result<Option<StopReason>, DecodeError> {
-    return match opt_string(at, path, 'stop_reason')? {
-        Some(tag) => Result.Ok(Option.Some(stop_reason_of(tag))),
-        None => Result.Ok(Option.None),
-    };
-}
-
 /// The wire tag as a `StopReason`. Total by construction: an unrecognized tag is
-/// `Unknown`, never an error.
+/// `Unknown`, never an error — which is what lets `message_from_json` reach it
+/// through `Option.map` rather than a `match` on the read.
 pub fn stop_reason_of(_ tag: String) -> StopReason {
     return match tag {
         'end_turn' => StopReason.EndTurn,

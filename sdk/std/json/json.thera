@@ -164,11 +164,266 @@ impl Json {
             _ => false,
         };
     }
+
+    /// The name of this value's kind — `'object'`, `'array'`, `'string'`,
+    /// `'number'`, `'boolean'`, `'null'`. What a decode failure reports as *found*.
+    pub fn kind(self) -> String {
+        return match self {
+            Null => 'null',
+            Bool(_) => 'boolean',
+            Int(_) => 'number',
+            Double(_) => 'number',
+            Str(_) => 'string',
+            Array(_) => 'array',
+            Object(_) => 'object',
+        };
+    }
 }
 
 fn int_if_integral(_ x: Double) -> Option<Int> {
     let n = x.to_int(); // truncates toward zero
     return if n.to_double() == x { Option.Some(n) } else { Option.None };
+}
+
+// --- typed decoding ---
+
+/// What reading a typed value out of a document rejects: the JSON parsed, but was
+/// not the shape the reader needed. Distinct from `JsonError`, which is the
+/// *parser's* failure — a syntax error and a shape mismatch are different problems
+/// with different fixes, and a program often handles only one of them.
+///
+/// Both variants lead with a path, because that is what makes a failure findable.
+/// Build them through `Cursor`'s readers rather than by hand.
+pub enum DecodeError {
+    /// The path of a required field the document does not have.
+    Missing(String),
+    /// A path, what was expected there, and what was found (`Json.kind()`).
+    Shape(String, String, String),
+}
+
+impl Error for DecodeError {
+    pub fn message(self) -> String {
+        return match self {
+            Missing(path) => 'missing required field ${path}',
+            Shape(path, expected, found) => 'expected ${expected} at ${path}, got ${found}',
+        };
+    }
+}
+
+impl Display for DecodeError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+/// A `Json` paired with where in the document it came from.
+///
+/// The accessors above (`get`, `as_string`, …) suit a **lenient** reader:
+/// navigation never fails, an absent value is `Option.None`, and nothing is an
+/// error — which is how a server should read a request it must not crash on. A
+/// client of a typed API wants the opposite: a required field that is absent or the
+/// wrong type is an error, and the error has to name the field. It has to name it as
+/// a **path**, too — `expected string, got number` with no location is not
+/// debuggable once a program decodes hundreds of schemas.
+///
+/// A bare `Json` cannot report that, because it has no idea where it came from: the
+/// path has to be threaded alongside it by hand, at every level of every decoder,
+/// with nothing checking that the two agree. A `Cursor` carries both, so navigating
+/// accumulates the path and the readers can report it.
+///
+/// ```thera
+/// fn usage_from_json(_ at: json.Cursor) -> Result<Usage, json.DecodeError> {
+///     return Result.Ok(Usage {
+///         input_tokens: at.field('input_tokens').int()?,
+///         output_tokens: at.field('output_tokens').int()?,
+///         cache_read: at.field('cache_read_input_tokens').opt_int()?,
+///     });
+/// }
+///
+/// let root = json.cursor(json.parse(body)?);
+/// let usage = usage_from_json(root.field('usage').object()?)?;
+/// ```
+///
+/// **Navigating never fails; reading does.** `field` and `index` always answer a
+/// cursor — for a key the document doesn't have, one at the extended path holding
+/// `Null` and marked absent — so a field is one `?`, at the read, where the wanted
+/// type is known. Chains work the same way: `at.field('a').field('b').string()?`.
+/// A decoder that can be handed a non-object (a list element, say) should open with
+/// `let obj = at.object()?;`, which validates and reports `at`'s own path.
+pub struct Cursor {
+    let value: Json;
+    /// Where `value` sits, as a JSONPath-ish string: `$.content[2].text`.
+    let path: String;
+    /// False only for a cursor produced by navigating to a key or an index the
+    /// document does not have. It is what lets a required read tell
+    /// `missing required field $.id` from `expected string at $.id, got null`, and
+    /// what lets a caller tell "absent" from "explicitly null" for an API that
+    /// gives the two different meanings (`null` to clear a field, absent to leave
+    /// it alone). The optional readers deliberately treat both as `None`, which is
+    /// what almost every API means.
+    let present: Bool;
+}
+
+/// A cursor on `value` as a document root, whose path is `$`.
+pub fn cursor(_ value: Json) -> Cursor {
+    return Cursor { value: value, path: '$', present: true };
+}
+
+impl Cursor {
+    // --- navigating (never fails) ---
+
+    /// The cursor at `key` of this object — at the extended path, marked absent if
+    /// this is not an object or has no such key.
+    pub fn field(self, _ key: String) -> Cursor {
+        let at = '${self.path}.${key}';
+        return match self.value {
+            Object(fields) => match fields.get(key) {
+                Some(found) => Cursor { value: found, path: at, present: true },
+                None => absent(at),
+            },
+            _ => absent(at),
+        };
+    }
+
+    /// The cursor at element `i` of this array — marked absent if this is not an
+    /// array or `i` is out of range.
+    pub fn index(self, _ i: Int) -> Cursor {
+        let at = '${self.path}[${i}]';
+        return match self.value {
+            Array(items) => match items.get(i) {
+                Some(found) => Cursor { value: found, path: at, present: true },
+                None => absent(at),
+            },
+            _ => absent(at),
+        };
+    }
+
+    pub fn is_null(self) -> Bool {
+        return self.value.is_null();
+    }
+
+    // --- reading a required value ---
+
+    pub fn string(self) -> Result<String, DecodeError> {
+        return self.require('a string', self.value.as_string());
+    }
+
+    pub fn int(self) -> Result<Int, DecodeError> {
+        return self.require('an integer', self.value.as_int());
+    }
+
+    pub fn double(self) -> Result<Double, DecodeError> {
+        return self.require('a number', self.value.as_double());
+    }
+
+    pub fn bool(self) -> Result<Bool, DecodeError> {
+        return self.require('a boolean', self.value.as_bool());
+    }
+
+    /// This cursor, having checked it holds an object — the shape a decoder opens
+    /// with so that a non-object is blamed on its own path rather than on the first
+    /// field read out of it.
+    pub fn object(self) -> Result<Cursor, DecodeError> {
+        return self.require('an object', self.as_self_if_object());
+    }
+
+    /// The elements of this array, each as a cursor whose path carries its index —
+    /// so a failure deep in a list says `$.content[2].text` without the caller
+    /// building that string.
+    pub fn list(self) -> Result<List<Cursor>, DecodeError> {
+        return self.require('an array', self.as_element_cursors());
+    }
+
+    /// The value itself, checked only for presence. For a subschema the API does not
+    /// model, where any JSON is legitimate and a type check would be a lie.
+    pub fn raw(self) -> Result<Json, DecodeError> {
+        return self.require('a value', Option.Some(self.value));
+    }
+
+    // --- reading an optional value ---
+    //
+    // Absent and explicitly-null both read as `Option.None`; `present` is there for
+    // the rarer API that distinguishes them.
+
+    pub fn opt_string(self) -> Result<Option<String>, DecodeError> {
+        return self.allow('a string', self.value.as_string());
+    }
+
+    pub fn opt_int(self) -> Result<Option<Int>, DecodeError> {
+        return self.allow('an integer', self.value.as_int());
+    }
+
+    pub fn opt_double(self) -> Result<Option<Double>, DecodeError> {
+        return self.allow('a number', self.value.as_double());
+    }
+
+    pub fn opt_bool(self) -> Result<Option<Bool>, DecodeError> {
+        return self.allow('a boolean', self.value.as_bool());
+    }
+
+    pub fn opt_object(self) -> Result<Option<Cursor>, DecodeError> {
+        return self.allow('an object', self.as_self_if_object());
+    }
+
+    pub fn opt_list(self) -> Result<Option<List<Cursor>>, DecodeError> {
+        return self.allow('an array', self.as_element_cursors());
+    }
+
+    // --- rejecting on your own terms ---
+
+    /// A `Shape` error at this cursor's path, for a check the readers can't make:
+    /// `at.field('created_at').unexpected('an ISO-8601 timestamp')`.
+    pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError> {
+        return Result.Err(DecodeError.Shape(self.path, expected, self.value.kind()));
+    }
+
+    // --- the two readers everything above shares ---
+
+    /// Absent is `Missing`; the wrong kind is `Shape`; otherwise the value.
+    fn require<T>(self, _ expected: String, _ read: Option<T>) -> Result<T, DecodeError> {
+        if !self.present {
+            return Result.Err(DecodeError.Missing(self.path));
+        }
+        return match read {
+            Some(value) => Result.Ok(value),
+            None => self.unexpected(expected),
+        };
+    }
+
+    /// Absent or null is `None`; the wrong kind is still `Shape`. Tolerating an
+    /// absent field is not tolerating a field of the wrong type — the first is the
+    /// schema saying "optional", the second is a bug or a breaking change.
+    fn allow<T>(self, _ expected: String, _ read: Option<T>) -> Result<Option<T>, DecodeError> {
+        if !self.present || self.value.is_null() {
+            return Result.Ok(Option.None);
+        }
+        return match read {
+            Some(value) => Result.Ok(Option.Some(value)),
+            None => self.unexpected(expected),
+        };
+    }
+
+    fn as_self_if_object(self) -> Option<Cursor> {
+        return match self.value {
+            Object(_) => Option.Some(self),
+            _ => Option.None,
+        };
+    }
+
+    fn as_element_cursors(self) -> Option<List<Cursor>> {
+        return match self.value {
+            Array(items) => Option.Some(items.enumerate().map((it) => Cursor {
+                value: it.value,
+                path: '${self.path}[${it.index}]',
+                present: true,
+            }).to_list()),
+            _ => Option.None,
+        };
+    }
+}
+
+fn absent(_ path: String) -> Cursor {
+    return Cursor { value: Json.Null, path: path, present: false };
 }
 
 // --- parsing ---

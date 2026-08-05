@@ -12,7 +12,6 @@
 import std.json;
 import std.testing;
 
-import 'decode' as _;
 import 'messages' as _;
 
 // --- fixtures ---
@@ -93,12 +92,12 @@ const MINIMAL: String =
 // --- helpers ---
 
 fn decode(_ body: String) -> Result<Message, Error> {
-    return Result.Ok(message_from_json(json.parse(body)?)?);
+    return Result.Ok(message_from_json(json.cursor(json.parse(body)?))?);
 }
 
 /// The message from a decode that must fail.
 fn decode_error(_ body: String) -> Result<String, Error> {
-    match message_from_json(json.parse(body)?) {
+    match message_from_json(json.cursor(json.parse(body)?)) {
         Ok(_) => throw error('expected a decode failure, got Ok'),
         Err(e) => return Result.Ok(e.message()),
     }
@@ -246,12 +245,12 @@ fn a_missing_required_field_names_it() -> Result<Void, Error> {
 fn a_wrong_typed_field_names_the_path_and_both_types() -> Result<Void, Error> {
     let body = '{"id":7,"role":"assistant","model":"x","content":[],'
         + '"usage":{"input_tokens":1,"output_tokens":2}}';
-    return testing.assert_eq(decode_error(body)?, 'expected string at $.id, got number');
+    return testing.assert_eq(decode_error(body)?, 'expected a string at $.id, got number');
 }
 
 /// The path has to carry the index, or a failure in a long content list is
-/// unfindable. This is the case that argues loudest in § Findings: the index is
-/// interpolated into a string by hand, one decoder at a time.
+/// unfindable. Nothing here builds that path: `Cursor.list` indexes each element's
+/// path when it hands the element over.
 @test
 fn a_failure_inside_the_content_list_carries_the_index() -> Result<Void, Error> {
     let body = '{"id":"m","role":"assistant","model":"x",'
@@ -259,7 +258,7 @@ fn a_failure_inside_the_content_list_carries_the_index() -> Result<Void, Error> 
         + '"usage":{"input_tokens":1,"output_tokens":2}}';
     return testing.assert_eq(
         decode_error(body)?,
-        'expected string at $.content[1].text, got number',
+        'expected a string at $.content[1].text, got number',
     );
 }
 
@@ -269,13 +268,39 @@ fn a_nested_struct_failure_names_the_nesting() -> Result<Void, Error> {
         + '"usage":{"input_tokens":"lots","output_tokens":2}}';
     return testing.assert_eq(
         decode_error(body)?,
-        'expected number at $.usage.input_tokens, got string',
+        'expected an integer at $.usage.input_tokens, got string',
     );
 }
 
 @test
 fn a_non_object_root_is_an_error() -> Result<Void, Error> {
-    return testing.assert_eq(decode_error('[1, 2]')?, 'expected object at $, got array');
+    return testing.assert_eq(decode_error('[1, 2]')?, 'expected an object at $, got array');
+}
+
+/// A content element that isn't an object at all is blamed on the element, not on
+/// the first field read out of it — which is what opening `block_from_json` with
+/// `at.object()?` buys.
+@test
+fn a_non_object_content_element_is_blamed_on_the_element() -> Result<Void, Error> {
+    let body = '{"id":"m","role":"assistant","model":"x","content":["hi"],'
+        + '"usage":{"input_tokens":1,"output_tokens":2}}';
+    return testing.assert_eq(
+        decode_error(body)?,
+        'expected an object at $.content[0], got string',
+    );
+}
+
+/// `input` is unmodeled *inside*, not unmodeled entirely: the API says it is an
+/// object, so a scalar there is a decode failure rather than something to carry.
+@test
+fn a_non_object_tool_input_is_an_error() -> Result<Void, Error> {
+    let body = '{"id":"m","role":"assistant","model":"x",'
+        + '"content":[{"type":"tool_use","id":"t","name":"n","input":"nope"}],'
+        + '"usage":{"input_tokens":1,"output_tokens":2}}';
+    return testing.assert_eq(
+        decode_error(body)?,
+        'expected an object at $.content[0].input, got string',
+    );
 }
 
 @test

@@ -64,11 +64,14 @@ flattering rather than informative.
 
 **Deliverable:** working decoders, fixture tests, and § Findings below.
 
-### Stage 2 — the `std.json` decode surface
+### Stage 2 — the `std.json` decode surface — **done**
 
-Determined by stage 1's findings, deliberately not specified in advance. Then
-rewrite stage 1's decoders on top of it and report the delta — in lines, and in
-what a decode failure says.
+`json.Cursor` and `json.DecodeError`, 129 code lines in
+[json.thera](../sdk/std/json/json.thera) with 20 tests of their own. The design
+falls straight out of finding 2: if the unit of decoding has to be a value
+paired with its location, make that a type, let navigation accumulate the path,
+and let the readers report it. See [stdlib.md](stdlib.md) § `std.json` for the
+surface and § The delta below for what it bought.
 
 ### Stage 3 — the encode direction
 
@@ -89,10 +92,11 @@ mapping-table rows marked validated in api-access.md, and this document deleted
 ## Findings
 
 From stage 1 — [pkgs/anthropic/](../pkgs/anthropic/), decoding the Messages
-response against `std.json` unchanged. The baseline to beat: **101 code lines of
-generic plumbing** ([decode.thera](../pkgs/anthropic/decode.thera)) to support
+response against `std.json` unchanged. The baseline to beat was **101 code lines
+of generic plumbing** (a `decode.thera` sibling, deleted in stage 2) to support
 **62 code lines of actual decoders**
-([messages.thera](../pkgs/anthropic/messages.thera)), covered by 16 tests.
+([messages.thera](../pkgs/anthropic/messages.thera)), covered by 16 tests. The
+code below is quoted from that state, not from the tree.
 
 ### 1. Two thirds of the code is plumbing no client should own
 
@@ -198,7 +202,13 @@ Two decisions this settles rather than merely surveys:
   malformed document, not a new feature. Pinned by
   `a_block_with_no_type_is_an_error`.
 
-### 7. No front-end holes
+### 7. No front-end holes — and one thing better than expected
+
+**String-literal `match` patterns work.** Both dispatches were first written as
+`if` chains on the tag; they are `match`es now, and the discriminator dispatch
+reads the way the spec's `oneOf` does. `stop_reason_of` went from 20 lines to 8.
+
+Otherwise:
 
 Unlike the TLS arc, which hit a language gap on day one (a generic bound could
 not name a qualified type), everything here type-checked on the first attempt:
@@ -206,5 +216,43 @@ generic functions returning `Result<T, DecodeError>`,
 `for … in list.enumerate()`, structural `Eq` on `Option<StopReason>` in
 assertions, string-literal `match` arms, and `?` inside a struct literal's field
 initializers. **The language was not the problem; the library is.** So stage 2
-is expected to be library work, and no language change is proposed on this
-evidence.
+was library work, and no language change is proposed on this evidence.
+
+## The delta
+
+Stage 1's decoders rewritten on `json.Cursor`, keeping the same tests plus two
+the cursor made worth adding. Every number is the same file measured the same
+way (non-blank, non-comment lines):
+
+|                                 | stage 1     | stage 2                           |
+| ------------------------------- | ----------- | --------------------------------- |
+| generic plumbing in the package | 101 lines   | **0** — `decode.thera` deleted    |
+| the decoders themselves         | 62 lines    | **51 lines**                      |
+| error paths threaded by hand    | 10 literals | **0**                             |
+| shared, in `std.json`           | —           | 129 lines, once, for every client |
+
+The line counts are the least of it. Three things changed in kind:
+
+- **The path duplication is gone.**
+  `usage_from_json(root.field('usage').object()?)` spells `usage` once. There is
+  no longer a way to write a decoder that reports a location it is not reading.
+- **Two failure messages got more accurate**, not just cheaper. A fractional
+  number read as an integer said `expected number at $.frac, got number` and now
+  says `expected an integer`; and a required field that is present but `null`
+  said `missing required field $.id`, which was simply wrong, and now says
+  `expected a string at $.id, got null`. Stage 1 could not tell those apart —
+  `get` answers `Null` for both — and the cursor's `present` flag is what does.
+- **Finding 4 partly dissolved.** `Option<String>` → `Option<StopReason>` is now
+  `.opt_string()?.map(stop_reason_of)`, one line, because `stop_reason_of` is
+  total. A fallible `map` is still absent, but the case that seemed to want one
+  was an artifact of reading and converting in a single step. What remains is
+  the list loop, two lines and now building no paths — so **no `try_map` is
+  proposed**.
+
+Two findings are deliberately left standing rather than fixed. Finding 3's
+absent-versus-null conflation is _resolved_ for required fields and _exposed_
+for optional ones: `opt_*` still reads both as `None`, because that is what
+almost every API means, and `present`/`is_null` are there for the API that gives
+them different meanings. Finding 5 is closed by `DecodeError` living in
+`std.json`, so two libraries' decode failures are now the same type and an
+application composing them can handle "a decode failed" once.
