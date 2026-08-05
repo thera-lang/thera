@@ -32,6 +32,11 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 - `examples/` — example `.thera` programs. `bench/` — perf/GC benchmark
   harnesses. `bin/` — dev entry scripts. `dev/` — one-off analysis helpers (not
   part of the build).
+- `third_party/` — vendored content from other projects, one directory per
+  source, each with a README (version pinned, subset taken, how to update), the
+  upstream LICENSE, and the files (e.g. `toml-test/`, the TOML conformance suite
+  run by `sdk/std/toml/conformance_test.thera`). See its README for the
+  convention.
 - `docs/` — design docs.
 
 ## Current state

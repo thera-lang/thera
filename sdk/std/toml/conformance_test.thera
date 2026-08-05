@@ -1,0 +1,255 @@
+//! The toml-test conformance suite, run against std.toml.
+//!
+//! Walks the vendored snapshot in third_party/toml-test (see its README):
+//! every valid case must parse and match its expected value, rendered in
+//! toml-test's tagged-JSON encoding and read back with std.json; every
+//! invalid case must be rejected. Paths are relative to the repo root, which
+//! is where bin/test.sh and bin/thera.sh run.
+
+import std.fs;
+import std.json;
+import std.math;
+import std.testing;
+
+import 'toml' as _;
+
+let base: String = 'third_party/toml-test/tests';
+
+@test
+fn test_conformance_valid() -> Result<Void, Error> {
+    let mut checked = 0;
+    let mut failures: List<String> = [];
+    for rel in case_list()? {
+        if rel.starts_with('valid/') && rel.ends_with('.toml') {
+            checked = checked + 1;
+            let failed = run_valid_case(rel);
+            if failed.is_some() {
+                failures.push(failed.unwrap_or(''));
+            }
+        }
+    }
+    testing.assert_eq(actual: checked > 0, expected: true)?; // a path bug reads as zero cases
+    testing.assert_eq(actual: failures.join(' | '), expected: '')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_conformance_invalid() -> Result<Void, Error> {
+    let mut checked = 0;
+    let mut accepted: List<String> = [];
+    for rel in case_list()? {
+        if rel.starts_with('invalid/') && rel.ends_with('.toml') {
+            checked = checked + 1;
+            // An unreadable case (the encoding files carry invalid UTF-8) is
+            // rejected by the String type before it can reach parse — which
+            // is the rejection, for an API that takes a String.
+            let read = fs.read_text('${base}/${rel}');
+            if read.is_ok() {
+                if parse(read.unwrap_or('')).is_ok() {
+                    accepted.push(rel);
+                }
+            }
+        }
+    }
+    testing.assert_eq(actual: checked > 0, expected: true)?;
+    testing.assert_eq(actual: accepted.join(' | '), expected: '')?;
+    return Result.Ok(void);
+}
+
+/// The vendored case list — upstream's own index of TOML 1.0.0 cases.
+fn case_list() -> Result<List<String>, Error> {
+    let text = fs.read_text('${base}/files-toml-1.0.0')?;
+    return Result.Ok(text.lines());
+}
+
+/// One valid case: parse the .toml, decode the sibling .json, compare.
+/// None on success, a description on failure.
+fn run_valid_case(_ rel: String) -> Option<String> {
+    let read = fs.read_text('${base}/${rel}');
+    if read.is_err() {
+        return Option.Some('${rel}: unreadable');
+    }
+    let parsed = parse(read.unwrap_or(''));
+    if parsed.is_err() {
+        let msg = match parsed {
+            Ok(_) => '',
+            Err(e) => e.message(),
+        };
+        return Option.Some('${rel}: rejected (${msg})');
+    }
+    let doc = parsed.unwrap_or(Toml.Bool(false));
+
+    let jpath = '${base}/${rel.slice(0, rel.len() - 5)}.json';
+    let jread = fs.read_text(jpath);
+    if jread.is_err() {
+        return Option.Some('${rel}: expected-value file unreadable');
+    }
+    let jparsed = json.parse(jread.unwrap_or(''));
+    if jparsed.is_err() {
+        return Option.Some('${rel}: expected-value file did not parse');
+    }
+    let expected = jparsed.unwrap_or(json.null());
+
+    if !matches(doc, expected) {
+        return Option.Some('${rel}: value mismatch');
+    }
+    return Option.None;
+}
+
+/// Structural comparison between a parsed `Toml` and toml-test's tagged-JSON
+/// encoding: tables are plain objects, arrays plain arrays, and every scalar
+/// a `{"type": …, "value": …}` pair with the value carried as a string.
+fn matches(_ ours: Toml, _ theirs: json.Json) -> Bool {
+    let kind = ours.kind();
+    if kind == 'table' {
+        let table = match ours.as_table() {
+            Some(m) => m,
+            None => [:],
+        };
+        let obj = match theirs.as_object() {
+            Some(o) => o,
+            None => {
+                return false;
+            },
+        };
+        if table.keys().len() != obj.keys().len() {
+            return false;
+        }
+        for key in table.keys() {
+            if obj.get(key).is_none() {
+                return false;
+            }
+            if !matches(table[key], theirs.get(key)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if kind == 'array' {
+        let items = match ours.as_array() {
+            Some(l) => l,
+            None => [],
+        };
+        let jitems = match theirs.as_array() {
+            Some(l) => l,
+            None => {
+                return false;
+            },
+        };
+        if items.len() != jitems.len() {
+            return false;
+        }
+        for pair in items.enumerate() {
+            if !matches(pair.value, jitems[pair.index]) {
+                return false;
+            }
+        }
+        return true;
+    }
+    // A scalar: the expected side must be a tagged leaf.
+    let ttype = theirs.get('type').as_string();
+    let tvalue = theirs.get('value').as_string();
+    if ttype.is_none() || tvalue.is_none() {
+        return false;
+    }
+    return leaf_matches(ours, ttype.unwrap_or(''), tvalue.unwrap_or(''));
+}
+
+fn leaf_matches(_ ours: Toml, _ ttype: String, _ tvalue: String) -> Bool {
+    let kind = ours.kind();
+    if kind == 'bool' {
+        return ttype == 'bool' && '${ours.as_bool().unwrap_or(false)}' == tvalue;
+    }
+    if kind == 'integer' {
+        if ttype != 'integer' {
+            return false;
+        }
+        return match tvalue.to_int() {
+            Some(n) => ours.as_int().is_some() && ours.as_int().unwrap_or(n - 1) == n,
+            None => false,
+        };
+    }
+    if kind == 'float' {
+        if ttype != 'float' {
+            return false;
+        }
+        let d = ours.as_double().unwrap_or(0.0);
+        if tvalue.contains('nan') {
+            return d != d;
+        }
+        return match float_value(tvalue) {
+            Some(x) => d == x,
+            None => false,
+        };
+    }
+    if kind == 'string' {
+        return ttype == 'string' && ours.as_string().unwrap_or('') == tvalue;
+    }
+    if kind == 'date-time' {
+        let dt = match ours.as_datetime() {
+            Some(v) => v,
+            None => Datetime { kind: DatetimeKind.LocalDate, text: '' },
+        };
+        let want = match dt.kind {
+            OffsetDateTime => 'datetime',
+            LocalDateTime => 'datetime-local',
+            LocalDate => 'date-local',
+            LocalTime => 'time-local',
+        };
+        return ttype == want && norm_datetime(dt.text) == norm_datetime(tvalue);
+    }
+    return false;
+}
+
+/// The expected side spells inf as a word; everything else `to_double` reads.
+fn float_value(_ s: String) -> Option<Double> {
+    if s == 'inf' || s == '+inf' {
+        return Option.Some(math.INFINITY);
+    }
+    if s == '-inf' {
+        return Option.Some(0.0 - math.INFINITY);
+    }
+    return s.to_double();
+}
+
+/// Normalize a date-time string for comparison: uppercase T/Z, the space
+/// delimiter to T, and the fractional part stripped of trailing zeros (an
+/// all-zero fraction drops entirely) — the spellings RFC 3339 treats as one.
+fn norm_datetime(_ s: String) -> String {
+    let cps = s.chars();
+    let mut out: List<Int> = [];
+    let mut i = 0;
+    while i < cps.len() {
+        let c = cps[i];
+        if c == 116 || c == 32 { // 't' or the space delimiter
+            out.push(84); // 'T'
+            i = i + 1;
+        } else if c == 122 { // 'z'
+            out.push(90); // 'Z'
+            i = i + 1;
+        } else if c == 46 { // '.' — copy the fraction, then trim its zeros
+            let mut frac: List<Int> = [];
+            i = i + 1;
+            while i < cps.len() && cps[i] >= 48 && cps[i] <= 57 {
+                frac.push(cps[i]);
+                i = i + 1;
+            }
+            let mut keep = frac.len();
+            while keep > 0 && frac[keep - 1] == 48 {
+                keep = keep - 1;
+            }
+            if keep > 0 {
+                out.push(46);
+                let mut k = 0;
+                while k < keep {
+                    out.push(frac[k]);
+                    k = k + 1;
+                }
+            }
+        } else {
+            out.push(c);
+            i = i + 1;
+        }
+    }
+    return String.from_chars(out);
+}

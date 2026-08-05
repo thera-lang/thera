@@ -154,15 +154,22 @@ features:
 
 ```
 sdk/std/toml/
-  toml.thera          the library: model, parser, accessors, Cursor
-  toml_test.thera     unit tests
-  testdata/           the vendored conformance snapshot (see below)
+  toml.thera               the library: model, parser, accessors, Cursor
+  toml_test.thera          unit tests
+  conformance_test.thera   runs the vendored toml-test snapshot (see below)
 ```
 
 Pure Thera, no natives. `std.json`'s scanner + recursive-descent parser is 983
 lines including `Cursor`; TOML's grammar is meaningfully wider (four string
 forms, four integer bases, datetimes, and the table-definition semantics), so
 expect ~1,400–1,600 lines — still comfortably a single-file library.
+
+The conformance snapshot itself lives in **`third_party/toml-test/`**, not under
+the library: vendored content from another project gets a top-level
+`third_party/<name>/` directory carrying its upstream LICENSE, a README naming
+the version pinned and the subset taken, and an `update.sh` that refreshes it —
+so a suite bump is one reviewed change. (This landed as a repo convention with
+stage 3; `third_party/README.md` states it.)
 
 ## Conformance — `toml-test`
 
@@ -174,15 +181,18 @@ it, and it concentrates exactly where TOML is genuinely hard: the
 table-definition and dotted-key rules (what may be defined, extended, or
 appended to, and when).
 
-Plan: **vendor a snapshot** under `sdk/std/toml/testdata/` (MIT-licensed small
-text files), with a `@test` runner in `toml_test.thera` that walks it — valid
-cases decode the expected-value JSON **with `std.json`** and compare; invalid
-cases assert an `Err`. Checked in rather than fetched, for the same reason the
+Done: the **full TOML 1.0.0 subset of toml-test v2.2.0** (upstream's
+`files-toml-1.0.0` index — 205 valid pairs, 474 invalid cases) is vendored in
+`third_party/toml-test/`, checked in rather than fetched for the same reason the
 bootstrap snapshot is: the build tolerates no external toolchain and CI stays
-hermetic. A `dev/` refresh script (the `spec_survey.py` pattern) re-pulls the
-suite when the pin moves. If the full snapshot proves bulky, curate — but start
-from "all of it" and cut with evidence, since the invalid set is where the value
-is.
+hermetic. `conformance_test.thera` walks the index — valid cases decode the
+expected-value JSON **with `std.json`** and compare structurally (tagged scalar
+leaves matched semantically: integers and floats by value, date-times after RFC
+3339-equivalence normalization); invalid cases must be rejected, with the
+handful of invalid-encoding cases rejected by the `String` type itself, since
+undecodable bytes cannot reach a `parse` that takes `String`. **All 679 cases
+pass.** The runner's sensitivity was verified both ways — a corrupted expected
+value and a valid document planted in the invalid set are each caught and named.
 
 ## Staged plan
 
@@ -218,11 +228,18 @@ as a pseudo-segment so each `[[a]]` element gets a fresh sub-namespace. A table
 with data but no state is a value's interior (inline table, static array),
 closed to everything — one absence encoding both sealing rules.
 
-### Stage 3 — datetimes and the conformance snapshot
+### Stage 3 — datetimes and the conformance snapshot — **landed**
 
-The four `Datetime` kinds with validation and normalization, the `to_datetime()`
-bridge, then vendor `toml-test` and drive the pass rate to 100% — expect this to
-flush out edge cases from stages 1–2 (that is its job).
+The four `Datetime` kinds with validation (every component range-checked,
+including the day against its month and leap year; seconds required per 1.0;
+`:60` admitted for leap seconds) and normalization (delimiter to `T`, `z` to
+`Z`, components as written), plus the `to_datetime()` bridge — offset date-times
+convert via `time.DateTime.parse_rfc3339`, and the three local kinds refuse
+rather than guess an offset. Then the vendored suite, at 100% on arrival:
+**stages 1–2 needed zero fixes** — the expected flush-out of edge cases did not
+materialize, which upgrades "the semantics match the spec's rules as written"
+from a claim to a measured result. The suite now pins it that way: any future
+regression in the definition rules fails `conformance_test.thera` by name.
 
 ### Stage 4 — `Cursor`
 
@@ -269,8 +286,10 @@ the doc's residue is a changelog line, not a document:
   returns `Option<Toml>`, with typed `get_*` helpers for the common one-call
   read. The chainability constraint dissolved rather than being met: a path
   lookup replaces the chain (see § The reading surface).
-- **Snapshot size.** Vendor all of `toml-test` or a curated subset? Start full,
-  measure, cut with evidence.
+- ~~**Snapshot size.**~~ **Settled: the full 1.0.0 subset** (884 files, ~600 KB
+  of content) — small enough that curation never earned its keep. It lives in
+  `third_party/toml-test/` under the new vendoring convention rather than inside
+  the library.
 - **Error granularity.** One `Syntax(String)` variant (the `std.json` precedent)
   vs. splitting lexical from semantic document errors. Default to one until a
   caller needs to dispatch.

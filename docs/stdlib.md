@@ -868,13 +868,15 @@ impl Toml {
 }
 ```
 
-Status: stages 1–2 landed — the full grammar except date-times: scalars (all
-string forms, all integer bases, floats), arrays, inline tables, dotted keys,
-and `[table]`/`[[array-of-tables]]` headers with TOML's definition rules (a
-table is defined once; dotted keys extend only their own block's tables; inline
-tables and static arrays are closed). Date-times (stage 3) are a clean parse
-error until their stage lands; the strict `Cursor` (stage 4) and `stringify`
-(stage 5) follow. Parse-only by design until a tool needs to write a manifest.
+Status: stages 1–3 landed — the complete TOML 1.0.0 grammar: scalars (all string
+forms, all integer bases, floats, the four date-time kinds), arrays, inline
+tables, dotted keys, and `[table]`/`[[array-of-tables]]` headers with TOML's
+definition rules (a table is defined once; dotted keys extend only their own
+block's tables; inline tables and static arrays are closed). Conformance is
+pinned by the official `toml-test` suite, vendored in `third_party/toml-test/` —
+all 679 TOML 1.0.0 cases pass via `conformance_test.thera`. The strict `Cursor`
+(stage 4) and `stringify` (stage 5) follow. Parse-only by design until a tool
+needs to write a manifest.
 
 ### `std.encoding` — base64 / hex / url _(implemented, pure Thera)_
 
