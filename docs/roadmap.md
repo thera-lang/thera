@@ -1033,6 +1033,41 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **The OpenAPI spec survey — "which API next" is a table now** (2026-08).
+  `dev/spec_survey.py` fetches the seven-API hand-list (following Anthropic's
+  `.stats.yml` indirection), caches under `build/spec-cache/`, and reports a
+  ranking table, a construct histogram, and the transitive schema closure of a
+  named operation set. `--guru N` adds an APIs.guru sample for the
+  population-wide view. Results in [api-access.md](api-access.md) § Choosing
+  targets; it is a `dev/` analysis helper, not part of the build.
+  - **It corrected three things the plan had wrong.** api-access.md's "527
+    `anyOf` occurrences, the row that will hurt" — 480 of those are
+    `anyOf: [T, {type: null}]`, which is 3.1's spelling of `Option<T>` and not a
+    union at all, leaving **47** genuinely untagged. Anthropic's `?beta=true`
+    path variants are **80 of 89 paths and 120 of 131 operations**, so they are
+    a gating Arc 3 decision rather than a footnote. And **no spec on the slate
+    models streaming**: Anthropic has a `stream: boolean` request property, an
+    `application/json`-only 200 response, and zero occurrences of `event-stream`
+    — so layer (c) cannot be generated, which retroactively justifies leaving it
+    to Arc 2.
+  - **Filtering is a number, not an assertion.** A realistic three-operation
+    client reaches 165 of Anthropic's 928 schemas (18%), 28 of GitHub's 969
+    (3%), 73 of OpenAI's 1394 (5%). Generating GitHub whole would emit 34× what
+    a pull-request tool needs.
+  - **Construct priority, by measured frequency**, with the slate and the
+    population disagreeing sharply:
+    `$ref`/`enum`/`format`/`additionalProperties` are universal, `oneOf` +
+    `discriminator` are dominant in the slate but appear in **2 of 177** sampled
+    3.x specs, `allOf` is the reverse, and untagged
+    `anyOf`/`not`/`patternProperties` are rare enough for a `Json` fallback.
+  - **`operationId` coverage was dropped as a ranking criterion** — 100% on all
+    seven, so it discriminates nothing. Four of seven declare no
+    `securitySchemes` at all, so auth is not derivable from the spec for most of
+    the slate, Anthropic included.
+  - **`std.json` can ingest these specs** — 1.4 s for 12.9 MB, 2.5 s for 23.3 MB
+    on the Tier-0 interpreter, counts matching a Python reference. Arc 3's
+    ingestion is not gated on performance; **it is gated on YAML**, since
+    Anthropic publishes only `.yml` and Thera has no YAML reader.
 - **Typed JSON — `json.Cursor`, and a client to prove it on** (2026-08).
   [api-access.md](api-access.md) Arc 1 item 3, pulled ahead of item 5 because a
   codec convention gets copied into every file a generator emits while a retry
