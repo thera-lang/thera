@@ -203,14 +203,20 @@ definition rules (create vs. extend vs. closed) landed here too, scoped to the
 root and inline tables; stage 2 extends the same `open`-set bookkeeping to
 headers.
 
-### Stage 2 — the table semantics
+### Stage 2 — the table semantics — **landed**
 
 `[table]` headers, `[[array-of-tables]]`, dotted-key table creation, and the
 full definition/extension rules — implicit vs. explicit definition, redefinition
 errors, the inline-table and static-array sealing rules. This is the hard middle
-of TOML and where most of the invalid conformance cases point; the stage is done
-when the semantics match the spec's rules as written, with the suite as the
-referee in stage 3.
+of TOML and where most of the invalid conformance cases point; the semantics now
+match the spec's rules as written, with the suite as the referee in stage 3. The
+mechanism: one `states` map from NUL-rendered path to how that table came to
+exist — `header`, `implicit`, `array`, or `dotted:<block>` (the dotted states
+carry the block that wrote them, which is what enforces "dotted keys extend only
+their own block's tables") — with array-of-tables elements carrying their index
+as a pseudo-segment so each `[[a]]` element gets a fresh sub-namespace. A table
+with data but no state is a value's interior (inline table, static array),
+closed to everything — one absence encoding both sealing rules.
 
 ### Stage 3 — datetimes and the conformance snapshot
 

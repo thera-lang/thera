@@ -325,12 +325,170 @@ fn test_document_errors() -> Result<Void, Error> {
 
 @test
 fn test_staged_constructs_error_cleanly() -> Result<Void, Error> {
-    // Stage 2: table headers. Stage 3: date-times. Clean errors, never a misparse.
-    testing.assert_err(parse('[server]\nhost = "x"\n'))?;
-    testing.assert_err(parse('[[items]]\n'))?;
+    // Stage 3: date-times. A clean error, never a misparse.
     testing.assert_err(parse('d = 1979-05-27\n'))?;
     testing.assert_err(parse('d = 1979-05-27T07:32:00Z\n'))?;
     testing.assert_err(parse('t = 07:32:00\n'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_table_headers() -> Result<Void, Error> {
+    let doc = parse(
+        'title = "root"\n\n[server]\nhost = "x"\nport = 80\n\n[server.limits]\nrate = 5\n\n[owner]\nname = "ada"\n'
+    )?;
+    testing.assert_eq(actual: doc.get_string('title'), expected: Option.Some('root'))?;
+    testing.assert_eq(actual: doc.get_string('server.host'), expected: Option.Some('x'))?;
+    testing.assert_eq(actual: doc.get_int('server.port'), expected: Option.Some(80))?;
+    testing.assert_eq(actual: doc.get_int('server.limits.rate'), expected: Option.Some(5))?;
+    testing.assert_eq(actual: doc.get_string('owner.name'), expected: Option.Some('ada'))?;
+    // Header trivia: whitespace around the path, comments after, blank lines.
+    let laid = parse('[ a . b ] # comment\nx = 1\n')?;
+    testing.assert_eq(actual: laid.get_int('a.b.x'), expected: Option.Some(1))?;
+    // Quoted segments in headers.
+    let q = parse('["dotted.name".sub]\nv = 1\n')?;
+    let v = q.as_table()
+        .and_then((m) => m.get('dotted.name'))
+        .and_then((t) => t.get('sub.v'))
+        .and_then((t) => t.as_int());
+    testing.assert_eq(actual: v, expected: Option.Some(1))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_super_table_after_subtable() -> Result<Void, Error> {
+    // [x.y.z.w] creates x, x.y, x.y.z implicitly; defining [x] later is legal
+    // — once.
+    let doc = parse('[x.y.z.w]\na = 1\n[x]\nb = 2\n')?;
+    testing.assert_eq(actual: doc.get_int('x.y.z.w.a'), expected: Option.Some(1))?;
+    testing.assert_eq(actual: doc.get_int('x.b'), expected: Option.Some(2))?;
+    testing.assert_err(parse('[x.y]\n[x]\n[x]\n'))?;      // second [x] redefines
+    testing.assert_err(parse('[a]\nx = 1\n[a]\ny = 2\n'))?; // plain duplicate
+    return Result.Ok(void);
+}
+
+@test
+fn test_array_of_tables() -> Result<Void, Error> {
+    let doc = parse(
+        '[[products]]\nname = "hammer"\nsku = 1\n\n[[products]]\n\n[[products]]\nname = "nail"\n'
+    )?;
+    let products = doc.get_array('products');
+    testing.assert_eq(actual: len_of(products), expected: 3)?;
+    testing.assert_eq(
+        actual: doc.get('products').and_then((v) => v.at(0)).and_then((v) => v.get_string('name')),
+        expected: Option.Some('hammer'),
+    )?;
+    testing.assert_eq(
+        actual: doc.get('products').and_then((v) => v.at(1)).and_then((v) => v.as_table()).map(
+            (m) => m.keys().len()
+        ),
+        expected: Option.Some(0),
+    )?;
+    testing.assert_eq(
+        actual: doc.get('products').and_then((v) => v.at(2)).and_then((v) => v.get_string('name')),
+        expected: Option.Some('nail'),
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_nested_arrays_of_tables() -> Result<Void, Error> {
+    // The spec's fruit example: sub-tables and nested arrays attach to the
+    // most recent element of the enclosing array.
+    let doc = parse(
+        '[[fruit]]\nname = "apple"\n\n[fruit.physical]\ncolor = "red"\n\n[[fruit.variety]]\nname = "red delicious"\n\n[[fruit.variety]]\nname = "granny smith"\n\n[[fruit]]\nname = "banana"\n\n[[fruit.variety]]\nname = "plantain"\n'
+    )?;
+    let apple = doc.get('fruit').and_then((v) => v.at(0));
+    testing.assert_eq(
+        actual: apple.and_then((v) => v.get_string('physical.color')),
+        expected: Option.Some('red'),
+    )?;
+    testing.assert_eq(
+        actual: apple.and_then((v) => v.get_array('variety')).map((l) => l.len()),
+        expected: Option.Some(2),
+    )?;
+    let banana = doc.get('fruit').and_then((v) => v.at(1));
+    testing.assert_eq(
+        actual: banana.and_then((v) => v.get_array('variety')).map((l) => l.len()),
+        expected: Option.Some(1),
+    )?;
+    // Each [[fruit]] element gets its own sub-namespace: defining
+    // [fruit.physical] again under the second element is legal.
+    let two = parse('[[f]]\n[f.p]\nx = 1\n[[f]]\n[f.p]\nx = 2\n')?;
+    testing.assert_eq(
+        actual: two.get('f').and_then((v) => v.at(1)).and_then((v) => v.get_int('p.x')),
+        expected: Option.Some(2),
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_header_redefinition_errors() -> Result<Void, Error> {
+    // A value or static array can never become a table or array of tables.
+    testing.assert_err(parse('a = 1\n[a]\n'))?;
+    testing.assert_err(parse('a = 1\n[a.b]\n'))?;
+    testing.assert_err(parse('fruit = []\n[[fruit]]\n'))?;
+    testing.assert_err(parse('t = { x = 1 }\n[t]\n'))?;      // inline tables are closed
+    testing.assert_err(parse('t = { x = 1 }\n[t.y]\n'))?;
+    // A table and an array of tables cannot trade places.
+    testing.assert_err(parse('[a]\n[[a]]\n'))?;
+    testing.assert_err(parse('[[a]]\n[a]\n'))?;
+    testing.assert_err(parse('[fruit.physical]\n[[fruit]]\n'))?; // implicit table, not array
+    return Result.Ok(void);
+}
+
+@test
+fn test_dotted_vs_header_rules() -> Result<Void, Error> {
+    // A table defined by dotted keys cannot be reopened by a header …
+    testing.assert_err(parse('[fruit]\napple.color = "red"\n[fruit.apple]\n'))?;
+    testing.assert_err(parse('apple.color = "red"\n[apple]\n'))?;
+    // … but a header may add a new sub-table beneath one.
+    let doc = parse('[fruit]\napple.color = "red"\n[fruit.apple.texture]\nsmooth = true\n')?;
+    testing.assert_eq(actual: doc.get_string('fruit.apple.color'), expected: Option.Some('red'))?;
+    testing.assert_eq(
+        actual: doc.get_bool('fruit.apple.texture.smooth'),
+        expected: Option.Some(true),
+    )?;
+    // And dotted keys cannot extend a table another block defined.
+    testing.assert_err(parse('[a.b.c]\nz = 9\n[a]\nb.c.t = 9\n'))?;
+    testing.assert_err(parse('[a.b]\nx = 1\n[a]\nb.y = 2\n'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_header_key_collisions() -> Result<Void, Error> {
+    // A key/value cannot land on a header-defined table, and vice versa.
+    testing.assert_err(parse('[a.b]\nx = 1\n[a]\nb = 1\n'))?;
+    testing.assert_err(parse('[a]\nb = 1\n[a.b]\n'))?;
+    testing.assert_err(parse('[a]\nb = 1\n[a.b.c]\n'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_header_syntax_errors() -> Result<Void, Error> {
+    testing.assert_err(parse('[a\n'))?;          // unclosed
+    testing.assert_err(parse('[]\n'))?;          // empty
+    testing.assert_err(parse('[a.]\n'))?;        // trailing dot
+    testing.assert_err(parse('[a] junk\n'))?;    // trailing junk
+    testing.assert_err(parse('[[a]\n'))?;        // mismatched close
+    testing.assert_err(parse('[[a]]]\n'))?;
+    testing.assert_err(parse('[a]]\n'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_manifest_shape() -> Result<Void, Error> {
+    // The driving use case, end to end: an api.toml-shaped document.
+    let doc = parse(
+        '# The Anthropic client manifest.\nspec_url = "https://example.com/openapi.yml"\nspec_hash = "6d5c96a4"\n\n[generate]\noperations = [\n  "messages_post",     # the flagship call\n  "models_get",\n]\n\n[auth]\nheader = "x-api-key"\n\n[overrides.messages_post]\nname = "create_message"\nnote = "matches the hand-written client"\n'
+    )?;
+    testing.assert_eq(actual: doc.get_string('spec_hash'), expected: Option.Some('6d5c96a4'))?;
+    testing.assert_eq(actual: len_of(doc.get_array('generate.operations')), expected: 2)?;
+    testing.assert_eq(actual: doc.get_string('auth.header'), expected: Option.Some('x-api-key'))?;
+    testing.assert_eq(
+        actual: doc.get_string('overrides.messages_post.name'),
+        expected: Option.Some('create_message'),
+    )?;
     return Result.Ok(void);
 }
 

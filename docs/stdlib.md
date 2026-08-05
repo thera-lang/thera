@@ -868,12 +868,13 @@ impl Toml {
 }
 ```
 
-Status: stage 1 landed — scalars (all string forms, all integer bases, floats),
-arrays, inline tables, and dotted keys, in documents without table headers.
-`[table]`/`[[array-of-tables]]` headers (stage 2) and date-times (stage 3) are
-clean parse errors until their stages land; the strict `Cursor` (stage 4) and
-`stringify` (stage 5) follow. Parse-only by design until a tool needs to write a
-manifest.
+Status: stages 1–2 landed — the full grammar except date-times: scalars (all
+string forms, all integer bases, floats), arrays, inline tables, dotted keys,
+and `[table]`/`[[array-of-tables]]` headers with TOML's definition rules (a
+table is defined once; dotted keys extend only their own block's tables; inline
+tables and static arrays are closed). Date-times (stage 3) are a clean parse
+error until their stage lands; the strict `Cursor` (stage 4) and `stringify`
+(stage 5) follow. Parse-only by design until a tool needs to write a manifest.
 
 ### `std.encoding` — base64 / hex / url _(implemented, pure Thera)_
 
