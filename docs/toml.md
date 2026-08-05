@@ -11,25 +11,25 @@ open questions: "there is no `std.toml`". This doc is the plan to remove it.
 
 ## Why TOML, and why core
 
-**Why TOML.** Both use cases are hand-edited, comment-bearing configuration
-read by the toolchain. JSON — the only hand-editable format Thera reads today —
-has no comments, and a manifest is exactly the file where the reason for an
-override belongs ([api-access.md](api-access.md) § The manifest). YAML is the
-other candidate and loses on spec surface: TOML 1.0.0 is a short, stable spec
-with an unambiguous data model and a standard conformance suite; YAML is
-neither short nor unambiguous. (A `std.yaml` may still happen for a different
-reason — Anthropic publishes its OpenAPI spec only as YAML — but that is an
-ingestion problem, not a config-format problem, and it should not decide this.)
+**Why TOML.** Both use cases are hand-edited, comment-bearing configuration read
+by the toolchain. JSON — the only hand-editable format Thera reads today — has
+no comments, and a manifest is exactly the file where the reason for an override
+belongs ([api-access.md](api-access.md) § The manifest). YAML is the other
+candidate and loses on spec surface: TOML 1.0.0 is a short, stable spec with an
+unambiguous data model and a standard conformance suite; YAML is neither short
+nor unambiguous. (A `std.yaml` may still happen for a different reason —
+Anthropic publishes its OpenAPI spec only as YAML — but that is an ingestion
+problem, not a config-format problem, and it should not decide this.)
 
 **Why core rather than ecosystem.** [stdlib.md](stdlib.md) placed TOML in
 ecosystem with an explicit promotion clause: _"the first candidate to promote
 into core if real use cases pile up. Pivot when the demand is demonstrated, not
-speculatively."_ This is that clause firing — two in-repo use cases, both on
-the toolchain's critical path: if `check` enforces a package manifest (scale.md
+speculatively."_ This is that clause firing — two in-repo use cases, both on the
+toolchain's critical path: if `check` enforces a package manifest (scale.md
 item 4) then the compiler itself is a TOML reader, and a format the compiler
-reads cannot live downstream of the compiler. The library needs no natives
-(pure Thera over `String`, like `std.json` and `std.encoding`), so promotion
-costs nothing on the runtime side.
+reads cannot live downstream of the compiler. The library needs no natives (pure
+Thera over `String`, like `std.json` and `std.encoding`), so promotion costs
+nothing on the runtime side.
 
 **Version target: TOML 1.0.0.** 1.1 remains unreleased; adopt it when it ships
 if the manifests want anything it adds (trailing commas in inline tables is the
@@ -91,59 +91,62 @@ Two deliberate differences from `Json`, both forced by the format:
 validated it against a real client; `std.toml` copies it name-for-name so an
 agent learns one idiom:
 
-- **Lenient accessors** for exploratory reads: `get(key)` / `at(index)`
-  chainable with a miss propagating (a miss yields a sentinel the `as_*`
-  accessors all reject — the role `Json.Null` plays in `std.json`; without a
-  `Null` variant the likely spelling is `get` returning `Option<Toml>` with
-  `as_*` also on `Option<Toml>`, settled in stage 1), plus
-  `as_bool/as_int/as_double/as_string/as_array/as_table` returning `Option`,
-  and `kind()` for error messages.
-- **`toml.Cursor`** for the strict path — and the manifests are exactly its
-  use case: a typo'd key or mistyped value should fail with the path that
-  names it. Mirrors `json.Cursor`: `field`/`index` navigate and accumulate the
-  path, `string()/int()/double()/bool()/datetime()/table()/list()/raw()`
-  demand a shape, `opt_*` variants read absent-as-`None`, `unexpected()` for
-  caller-side shape errors, `toml.DecodeError` carrying `path` + `message`.
+- **Lenient accessors** for exploratory reads — **settled in stage 1, and
+  path-shaped rather than chain-shaped**. Without a `Null` variant there is no
+  sentinel to chain through, and the fix was not to invent one: TOML is a config
+  format, and what a config consumer writes every time is "read one value at a
+  dotted path". So `get` takes the whole path — `get('server.port')` returning
+  `Option<Toml>`, the dotted spelling being the format's own — and the typed
+  `get_bool/get_int/get_double/get_string/get_array/get_table` helpers compose
+  it with one `as_*`, so the common read is a single call with an `unwrap_or`
+  default. `at(index)`, the `as_*` accessors, and `kind()` round it out. One
+  documented limit: the path splits on `.`, so a quoted key containing a literal
+  dot is reached via `as_table` and direct map access.
+- **`toml.Cursor`** for the strict path — and the manifests are exactly its use
+  case: a typo'd key or mistyped value should fail with the path that names it.
+  Mirrors `json.Cursor`: `field`/`index` navigate and accumulate the path,
+  `string()/int()/double()/bool()/datetime()/table()/list()/raw()` demand a
+  shape, `opt_*` variants read absent-as-`None`, `unexpected()` for caller-side
+  shape errors, `toml.DecodeError` carrying `path` + `message`.
 
 One deliberate divergence: **paths render in TOML's own spelling** —
 `expected a string at tool.dependencies[2], got integer` — not `json.Cursor`'s
 `$.a.b[0]`. The error points at a line the user wrote in TOML syntax; dotted
 keys are how that file spells the path already.
 
-**Mirrored, not shared.** Sharing `Cursor` between the two libraries would
-mean a generic cursor over a common value interface — machinery with real
-design cost, bought to deduplicate ~150 lines of straightforward code that is
-finished the week it is written. Two small copies with identical names is the
-better trade; revisit only if a third format reader ever appears.
+**Mirrored, not shared.** Sharing `Cursor` between the two libraries would mean
+a generic cursor over a common value interface — machinery with real design
+cost, bought to deduplicate ~150 lines of straightforward code that is finished
+the week it is written. Two small copies with identical names is the better
+trade; revisit only if a third format reader ever appears.
 
 ## Errors
 
-`toml.TomlError` follows `json.JsonError`: a domain error implementing
-`Error`, message carrying line/column. TOML has a class JSON lacks — document
-errors that are not lexical (duplicate key, redefining a table, extending an
-inline table or a static array) — but they are still "this document is
-invalid, here's where", and one variant whose message names the violated rule
-serves the caller exactly as well as an enum of rule names would. Start with
-`Syntax(String)`; split only if a caller demonstrates a need to dispatch on
-the class.
+`toml.TomlError` follows `json.JsonError`: a domain error implementing `Error`,
+message carrying line/column. TOML has a class JSON lacks — document errors that
+are not lexical (duplicate key, redefining a table, extending an inline table or
+a static array) — but they are still "this document is invalid, here's where",
+and one variant whose message names the violated rule serves the caller exactly
+as well as an enum of rule names would. Start with `Syntax(String)`; split only
+if a caller demonstrates a need to dispatch on the class.
 
 ## Writing — staged behind demand
 
-Both driving use cases are read-only: manifests are written by hand and read
-by tools. So v1 is parse-only, and the write side splits into two very
-different features:
+Both driving use cases are read-only: manifests are written by hand and read by
+tools. So v1 is parse-only, and the write side splits into two very different
+features:
 
 - **`toml.stringify` — deferred to its own stage**, landing the week a tool
   first writes a manifest (`thera api init` sketching an `api.toml` is the
   plausible trigger). Deterministic emit with fixed style rules (nested tables
   as `[a.b]` headers, arrays of tables as `[[x]]`, leaves inline, bare keys
-  where legal), plus the `json`-style lowercase constructors
-  (`toml.str`, `toml.int`, …) which have no purpose before it.
+  where legal), plus the `json`-style lowercase constructors (`toml.str`,
+  `toml.int`, …) which have no purpose before it.
 - **Comment-preserving editing — explicitly out of scope.** Updating one field
-  in a hand-written manifest without disturbing its comments and layout
-  requires a lossless document model (what Rust's `toml_edit` is), which is a
-  different, much larger library. If a `thera pkg add`-shaped tool ever needs
-  it, it gets its own design; nothing in this arc should pretend to be it.
+  in a hand-written manifest without disturbing its comments and layout requires
+  a lossless document model (what Rust's `toml_edit` is), which is a different,
+  much larger library. If a `thera pkg add`-shaped tool ever needs it, it gets
+  its own design; nothing in this arc should pretend to be it.
 
 ## Where the code lives
 
@@ -165,11 +168,11 @@ expect ~1,400–1,600 lines — still comfortably a single-file library.
 
 TOML has what JSON never had: **an official conformance suite**,
 [toml-lang/toml-test](https://github.com/toml-lang/toml-test) — hundreds of
-valid documents paired with a JSON encoding of the expected value, and
-hundreds of invalid documents that must be rejected. Every serious
-implementation runs it, and it concentrates exactly where TOML is genuinely
-hard: the table-definition and dotted-key rules (what may be defined, extended,
-or appended to, and when).
+valid documents paired with a JSON encoding of the expected value, and hundreds
+of invalid documents that must be rejected. Every serious implementation runs
+it, and it concentrates exactly where TOML is genuinely hard: the
+table-definition and dotted-key rules (what may be defined, extended, or
+appended to, and when).
 
 Plan: **vendor a snapshot** under `sdk/std/toml/testdata/` (MIT-licensed small
 text files), with a `@test` runner in `toml_test.thera` that walks it — valid
@@ -177,63 +180,68 @@ cases decode the expected-value JSON **with `std.json`** and compare; invalid
 cases assert an `Err`. Checked in rather than fetched, for the same reason the
 bootstrap snapshot is: the build tolerates no external toolchain and CI stays
 hermetic. A `dev/` refresh script (the `spec_survey.py` pattern) re-pulls the
-suite when the pin moves. If the full snapshot proves bulky, curate — but
-start from "all of it" and cut with evidence, since the invalid set is where
-the value is.
+suite when the pin moves. If the full snapshot proves bulky, curate — but start
+from "all of it" and cut with evidence, since the invalid set is where the value
+is.
 
 ## Staged plan
 
-Small, self-contained increments, each landing `cargo test`/`bin/test.sh`
-clean, per the working conventions.
+Small, self-contained increments, each landing `cargo test`/`bin/test.sh` clean,
+per the working conventions.
 
-### Stage 1 — the model and flat documents
+### Stage 1 — the model and flat documents — **landed**
 
 The `Toml` enum, the lenient accessors, and `toml.parse` for documents without
 table headers: bare/quoted/dotted keys at the root, comments, all four string
 forms (with the escape set, `\u`/`\U` scalar validation, control-character
-rejection, CRLF), integers in four bases with underscore rules, floats
-including `inf`/`nan` (`math.INFINITY`/`math.NAN` exist), booleans, arrays,
-inline tables. Settles the `get`-miss spelling (sentinel vs. `Option`).
+rejection, CRLF), integers in four bases with underscore rules, floats including
+`inf`/`nan`, booleans, arrays, inline tables. Settled the `get`-miss spelling as
+the dotted-path read (see § The reading surface). Table headers and date-times
+are clean parse errors naming their stage, never a misparse — including the
+lookahead that keeps `1979-05-27` from half-parsing as an integer. Dotted-key
+definition rules (create vs. extend vs. closed) landed here too, scoped to the
+root and inline tables; stage 2 extends the same `open`-set bookkeeping to
+headers.
 
 ### Stage 2 — the table semantics
 
 `[table]` headers, `[[array-of-tables]]`, dotted-key table creation, and the
-full definition/extension rules — implicit vs. explicit definition,
-redefinition errors, the inline-table and static-array sealing rules. This is
-the hard middle of TOML and where most of the invalid conformance cases point;
-the stage is done when the semantics match the spec's rules as written, with
-the suite as the referee in stage 3.
+full definition/extension rules — implicit vs. explicit definition, redefinition
+errors, the inline-table and static-array sealing rules. This is the hard middle
+of TOML and where most of the invalid conformance cases point; the stage is done
+when the semantics match the spec's rules as written, with the suite as the
+referee in stage 3.
 
 ### Stage 3 — datetimes and the conformance snapshot
 
-The four `Datetime` kinds with validation and normalization, the
-`to_datetime()` bridge, then vendor `toml-test` and drive the pass rate to
-100% — expect this to flush out edge cases from stages 1–2 (that is its job).
+The four `Datetime` kinds with validation and normalization, the `to_datetime()`
+bridge, then vendor `toml-test` and drive the pass rate to 100% — expect this to
+flush out edge cases from stages 1–2 (that is its job).
 
 ### Stage 4 — `Cursor`
 
 The strict reader, mirrored from `json.Cursor` with TOML-spelled paths. Ends
 with a forcing-function test in the typed-json spirit: decode a realistic
 `api.toml` (the [api-access.md](api-access.md) § manifest sketch — spec URL,
-pin, operations list, overrides table) into typed structs, and let that
-exercise report any surface gaps before a real consumer exists.
+pin, operations list, overrides table) into typed structs, and let that exercise
+report any surface gaps before a real consumer exists.
 
 ### Stage 5 — `stringify` and constructors, when a writer appears
 
-Deferred until a tool writes a manifest. Deterministic style rules decided
-then; tested by round-trip against the parser plus golden files.
+Deferred until a tool writes a manifest. Deterministic style rules decided then;
+tested by round-trip against the parser plus golden files.
 
 ### Graduation — and this doc's retirement
 
 **This doc is transient**: it exists to carry the design through the arc, and
 when stage 4 lands (stage 5 being demand-triggered) it is retired rather than
-maintained. Anything durable therefore gets inlined elsewhere as it lands,
-and the doc's residue is a changelog line, not a document:
+maintained. Anything durable therefore gets inlined elsewhere as it lands, and
+the doc's residue is a changelog line, not a document:
 
-- [stdlib.md](stdlib.md) gains the § `std.toml` catalog entry — the durable
-  home for the surface and its rationale: the value model and its two
-  deliberate deltas from `Json` (no null, the `Datetime` text-carrying shape),
-  the mirrored-not-shared `Cursor` decision with TOML-spelled paths, the
+- [stdlib.md](stdlib.md) gains the § `std.toml` catalog entry — the durable home
+  for the surface and its rationale: the value model and its two deliberate
+  deltas from `Json` (no null, the `Datetime` text-carrying shape), the
+  mirrored-not-shared `Cursor` decision with TOML-spelled paths, the
   parse-only-until-a-writer-appears line, and the conformance-snapshot
   convention. The "intentionally not in core" list is edited: TOML moves out
   (recording that the promotion clause fired as designed — demand demonstrated
@@ -250,17 +258,17 @@ and the doc's residue is a changelog line, not a document:
 
 ## Open questions
 
-- **The `get`-miss spelling.** `Json.get` returns `Json.Null` on a miss to
-  keep chains flowing; `Toml` has no null. `Option<Toml>` with accessors on
-  the option, or a private miss sentinel, or `get` chains only via `Cursor`?
-  Stage 1 settles it; the constraint is that the lenient style must stay
-  chainable or it has no reason to exist.
-- **Snapshot size.** Vendor all of `toml-test` or a curated subset? Start
-  full, measure, cut with evidence.
-- **Error granularity.** One `Syntax(String)` variant (the `std.json`
-  precedent) vs. splitting lexical from semantic document errors. Default to
-  one until a caller needs to dispatch.
-- **Where the first `api.toml` schema is specified.** This doc owns the
-  format; [api-access.md](api-access.md) § The manifest owns the fields. The
-  stage-4 forcing-function test should be written against that section's
-  sketch so the two documents cannot drift silently.
+- ~~**The `get`-miss spelling.**~~ **Settled in stage 1: the dotted-path read.**
+  No sentinel and no chain — `get('server.port')` takes the whole path and
+  returns `Option<Toml>`, with typed `get_*` helpers for the common one-call
+  read. The chainability constraint dissolved rather than being met: a path
+  lookup replaces the chain (see § The reading surface).
+- **Snapshot size.** Vendor all of `toml-test` or a curated subset? Start full,
+  measure, cut with evidence.
+- **Error granularity.** One `Syntax(String)` variant (the `std.json` precedent)
+  vs. splitting lexical from semantic document errors. Default to one until a
+  caller needs to dispatch.
+- **Where the first `api.toml` schema is specified.** This doc owns the format;
+  [api-access.md](api-access.md) § The manifest owns the fields. The stage-4
+  forcing-function test should be written against that section's sketch so the
+  two documents cannot drift silently.

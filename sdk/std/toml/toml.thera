@@ -1,0 +1,1055 @@
+//! std.toml — parse TOML 1.0.0 configuration.
+//!
+//! Import as: import std.toml
+//!
+//! The structural `Toml` value models any TOML document; `parse` reads text
+//! into one (the root is always a `Table`). TOML is a config format, so the
+//! reading surface is config-shaped: `get` takes a dotted path — the format's
+//! own spelling — and the typed `get_*` helpers read one value leniently.
+//!
+//! ```thera
+//! let doc = toml.parse(text)?;
+//! let name = doc.get_string('package.name').unwrap_or('unnamed');
+//! let port = doc.get_int('server.port').unwrap_or(8080);
+//! let ops = doc.get_array('generate.operations').unwrap_or([]);
+//! ```
+//!
+//! Unlike JSON there is no null: absence is the only optionality, so every
+//! lenient read is an `Option` and a miss is `None`. (A strict `Cursor` whose
+//! errors name the failing path — the `json.Cursor` counterpart — arrives in a
+//! later stage; see docs/toml.md.)
+//!
+//! `get`'s path splits on `.` before matching, so it addresses bare-keyed
+//! tables only; a key that itself contains a dot (quoted in the source) is
+//! reachable via `as_table` and direct map access.
+//!
+//! Stage 1 of docs/toml.md's plan: scalar values, arrays, inline tables, and
+//! dotted keys, in documents without table headers. `[table]` /
+//! `[[array-of-tables]]` headers arrive in stage 2, date-times in stage 3 —
+//! both are clean parse errors until then, never a misparse.
+//!
+//! Implementation: a hand-written scanner + recursive-descent parser, pure
+//! Thera, following std.json's.
+
+import std.char;
+import std.math;
+
+/// The structural TOML value. `Int` and `Double` mirror TOML's own
+/// integer/float split; there is no null variant because TOML has none.
+pub enum Toml {
+    Bool(Bool),
+    Int(Int),
+    Double(Double),
+    Str(String),
+    Datetime(Datetime),
+    Array(List<Toml>),
+    Table(Map<String, Toml>),    // insertion-ordered
+}
+
+/// Which of TOML's four date-time shapes a `Datetime` carries.
+pub enum DatetimeKind {
+    OffsetDateTime,    // 1979-05-27T07:32:00Z
+    LocalDateTime,     // 1979-05-27T07:32:00
+    LocalDate,         // 1979-05-27
+    LocalTime,         // 07:32:00
+}
+
+/// A TOML date-time: the kind plus the validated, normalized source text.
+/// `parse` constructs these starting in stage 3 (docs/toml.md); until then a
+/// date-time in the input is a clean parse error.
+pub struct Datetime {
+    let kind: DatetimeKind;
+    let text: String;
+}
+
+/// What `parse` can reject. A domain error: implements the common `Error`.
+/// One variant covers both lexical errors and TOML's document-level rules
+/// (duplicate keys, extending a closed table) — the message names the rule
+/// and the position.
+pub enum TomlError {
+    Syntax(String),
+}
+
+impl Error for TomlError {
+    pub fn message(self) -> String {
+        return match self {
+            Syntax(msg) => msg,
+        };
+    }
+}
+
+impl Display for TomlError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+// --- accessors ---
+
+impl Toml {
+    /// The value at a dotted path (`'server.port'`), or None anywhere along
+    /// the way — a missing key, a non-table in the middle, a non-table self.
+    /// Segments are matched literally after splitting on `.`, so quoted keys
+    /// containing dots are not addressable here (use `as_table`).
+    pub fn get(self, _ path: String) -> Option<Toml> {
+        let mut cur = self;
+        for seg in path.split('.') {
+            let next = match cur {
+                Table(m) => m.get(seg),
+                _ => Option.None,
+            };
+            if next.is_none() {
+                return Option.None;
+            }
+            cur = match next {
+                Some(v) => v,
+                None => cur, // unreachable: next is Some
+            };
+        }
+        return Option.Some(cur);
+    }
+
+    /// An array element by index (None if not an array or out of range).
+    pub fn at(self, _ index: Int) -> Option<Toml> {
+        return match self {
+            Array(items) => items.get(index),
+            _ => Option.None,
+        };
+    }
+
+    pub fn as_bool(self) -> Option<Bool> {
+        return match self {
+            Bool(b) => Option.Some(b),
+            _ => Option.None,
+        };
+    }
+
+    /// The value as an Int — for an `Int` only; a TOML float never quietly
+    /// narrows.
+    pub fn as_int(self) -> Option<Int> {
+        return match self {
+            Int(n) => Option.Some(n),
+            _ => Option.None,
+        };
+    }
+
+    /// The value as a Double — for a `Double`, or an `Int` widened.
+    pub fn as_double(self) -> Option<Double> {
+        return match self {
+            Double(x) => Option.Some(x),
+            Int(n) => Option.Some(n.to_double()),
+            _ => Option.None,
+        };
+    }
+
+    pub fn as_string(self) -> Option<String> {
+        return match self {
+            Str(s) => Option.Some(s),
+            _ => Option.None,
+        };
+    }
+
+    pub fn as_datetime(self) -> Option<Datetime> {
+        return match self {
+            Datetime(dt) => Option.Some(dt),
+            _ => Option.None,
+        };
+    }
+
+    pub fn as_array(self) -> Option<List<Toml>> {
+        return match self {
+            Array(items) => Option.Some(items),
+            _ => Option.None,
+        };
+    }
+
+    pub fn as_table(self) -> Option<Map<String, Toml>> {
+        return match self {
+            Table(m) => Option.Some(m),
+            _ => Option.None,
+        };
+    }
+
+    /// The value's kind, in TOML's own vocabulary — for error messages.
+    pub fn kind(self) -> String {
+        return match self {
+            Bool(_) => 'bool',
+            Int(_) => 'integer',
+            Double(_) => 'float',
+            Str(_) => 'string',
+            Datetime(_) => 'date-time',
+            Array(_) => 'array',
+            Table(_) => 'table',
+        };
+    }
+
+    // The typed path reads — `get` composed with one `as_*`, since that pair
+    // is what a config consumer writes every time.
+
+    pub fn get_bool(self, _ path: String) -> Option<Bool> {
+        return self.get(path).and_then((v) => v.as_bool());
+    }
+
+    pub fn get_int(self, _ path: String) -> Option<Int> {
+        return self.get(path).and_then((v) => v.as_int());
+    }
+
+    pub fn get_double(self, _ path: String) -> Option<Double> {
+        return self.get(path).and_then((v) => v.as_double());
+    }
+
+    pub fn get_string(self, _ path: String) -> Option<String> {
+        return self.get(path).and_then((v) => v.as_string());
+    }
+
+    pub fn get_array(self, _ path: String) -> Option<List<Toml>> {
+        return self.get(path).and_then((v) => v.as_array());
+    }
+
+    pub fn get_table(self, _ path: String) -> Option<Map<String, Toml>> {
+        return self.get(path).and_then((v) => v.as_table());
+    }
+}
+
+// --- parsing ---
+
+/// A cursor over the input's code points.
+struct Parser {
+    let chars: List<Int>;
+    let mut pos: Int;
+    let len: Int;
+}
+
+/// The separator used to render a key path into the `open` bookkeeping map —
+/// NUL, which no decoded key can contain a run of alongside real segments
+/// ambiguously enough to collide.
+let path_sep: String = String.from_chars([0]);
+
+pub fn parse(_ text: String) -> Result<Toml, TomlError> {
+    let cps = text.chars();
+    let p = Parser { chars: cps, pos: 0, len: cps.len() };
+    // The document root, built key by key. `open` records which tables were
+    // created implicitly by dotted keys and may still be extended by later
+    // ones; everything else (a value, an inline table) is closed.
+    let mut root: Map<String, Toml> = [:];
+    let mut open: Map<String, Bool> = [:];
+
+    let mut going = true;
+    while going {
+        p.skip_inline_ws();
+        let c = p.peek();
+        if c == -1 {
+            going = false;
+        } else if c == char.HASH {
+            p.skip_comment()?;
+        } else if c == char.LF || c == char.CR {
+            p.expect_newline()?;
+        } else if c == char.LBRACKET {
+            return Result.Err(p.syntax(
+                'table headers ([table] / [[array]]) are not supported yet (std.toml stage 2)'));
+        } else {
+            let path = p.parse_key()?;
+            if p.peek() != char.EQ {
+                return Result.Err(p.syntax('expected = after key'));
+            }
+            p.pos = p.pos + 1;
+            p.skip_inline_ws();
+            let value = p.parse_value()?;
+            p.insert(root, open, '', path, value)?;
+            p.expect_line_end()?;
+        }
+    }
+    return Result.Ok(Toml.Table(root));
+}
+
+impl Parser {
+    /// The current code point, or -1 at end of input.
+    fn peek(self) -> Int {
+        return self.cp_at(self.pos);
+    }
+
+    /// The code point at an absolute index, or -1 out of range.
+    fn cp_at(self, _ i: Int) -> Int {
+        if i < 0 || i >= self.len {
+            return -1;
+        }
+        return self.chars[i];
+    }
+
+    /// Skip spaces and tabs — TOML's inline whitespace; never a newline.
+    fn skip_inline_ws(self) -> Void {
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if c == char.SPACE || c == char.TAB {
+                self.pos = self.pos + 1;
+            } else {
+                going = false;
+            }
+        }
+        return void;
+    }
+
+    fn syntax(self, _ msg: String) -> TomlError {
+        return TomlError.Syntax('${msg} at ${self.position()}');
+    }
+
+    /// A human-readable line/column for the current position.
+    fn position(self) -> String {
+        let mut line = 1;
+        let mut col = 1;
+        let mut i = 0;
+        while i < self.pos {
+            if self.chars[i] == char.LF {
+                line = line + 1;
+                col = 1;
+            } else {
+                col = col + 1;
+            }
+            i = i + 1;
+        }
+        return 'line ${line} col ${col}';
+    }
+
+    /// True (and consumes) if the upcoming code points spell `lit`.
+    fn match_literal(self, _ lit: String) -> Bool {
+        let want = lit.chars();
+        for p in want.enumerate() {
+            if self.cp_at(self.pos + p.index) != p.value {
+                return false;
+            }
+        }
+        self.pos = self.pos + want.len();
+        return true;
+    }
+
+    /// Consume one newline: LF, or CRLF (a bare CR is an error).
+    fn expect_newline(self) -> Result<Void, TomlError> {
+        let c = self.peek();
+        if c == char.LF {
+            self.pos = self.pos + 1;
+            return Result.Ok(void);
+        }
+        if c == char.CR {
+            if self.cp_at(self.pos + 1) == char.LF {
+                self.pos = self.pos + 2;
+                return Result.Ok(void);
+            }
+            return Result.Err(self.syntax('bare carriage return'));
+        }
+        return Result.Err(self.syntax('expected a newline'));
+    }
+
+    /// After a key/value pair: optional whitespace and comment, then a
+    /// newline or end of input. Anything else is trailing junk.
+    fn expect_line_end(self) -> Result<Void, TomlError> {
+        self.skip_inline_ws();
+        if self.peek() == char.HASH {
+            self.skip_comment()?;
+        }
+        if self.peek() == -1 {
+            return Result.Ok(void);
+        }
+        return self.expect_newline();
+    }
+
+    /// Consume `#` to end of line, validating the comment's characters
+    /// (control characters other than tab are not permitted).
+    fn skip_comment(self) -> Result<Void, TomlError> {
+        self.pos = self.pos + 1; // consume '#'
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if c == -1 || c == char.LF || c == char.CR {
+                going = false;
+            } else if c == char.TAB || (c >= char.SPACE && c != char.DEL) {
+                self.pos = self.pos + 1;
+            } else {
+                return Result.Err(self.syntax('control character in comment'));
+            }
+        }
+        return Result.Ok(void);
+    }
+
+    // --- keys ---
+
+    /// A key: one or more dot-separated segments, each bare or quoted.
+    fn parse_key(self) -> Result<List<String>, TomlError> {
+        let mut segs: List<String> = [];
+        let mut going = true;
+        while going {
+            self.skip_inline_ws();
+            let c = self.peek();
+            if c == char.DQUOTE {
+                segs.push(self.parse_basic_string()?);
+            } else if c == char.SQUOTE {
+                segs.push(self.parse_literal_string()?);
+            } else if is_bare_key_char(c) {
+                let start = self.pos;
+                while is_bare_key_char(self.peek()) {
+                    self.pos = self.pos + 1;
+                }
+                segs.push(String.from_chars(self.chars.slice(start, self.pos)));
+            } else {
+                return Result.Err(self.syntax('expected a key'));
+            }
+            self.skip_inline_ws();
+            if self.peek() == char.DOT {
+                self.pos = self.pos + 1;
+            } else {
+                going = false;
+            }
+        }
+        return Result.Ok(segs);
+    }
+
+    /// Insert `value` at the dotted `path` under `root`, enforcing TOML's
+    /// definition rules: intermediate segments may create tables or descend
+    /// into ones still `open` (created by earlier dotted keys under `prefix`);
+    /// a value, an inline table, or anything else already there is closed.
+    fn insert(
+        self,
+        _ root: Map<String, Toml>,
+        _ open: Map<String, Bool>,
+        _ prefix: String,
+        _ path: List<String>,
+        _ value: Toml,
+    ) -> Result<Void, TomlError> {
+        let mut cur = root;
+        let mut opened = open;
+        let mut walked = prefix;
+        let mut i = 0;
+        while i < path.len() - 1 {
+            let seg = path[i];
+            walked = '${walked}${path_sep}${seg}';
+            let found = cur.get(seg);
+            if found.is_none() {
+                let child: Map<String, Toml> = [:];
+                cur[seg] = Toml.Table(child);
+                opened[walked] = true;
+                cur = child;
+            } else {
+                let existing = match found {
+                    Some(v) => v,
+                    None => Toml.Bool(false), // unreachable: found is Some
+                };
+                if opened.get(walked).is_none() {
+                    if existing.kind() == 'table' {
+                        return Result.Err(self.syntax(
+                            'cannot extend inline table ${render_path(path, i)}'));
+                    }
+                    return Result.Err(self.syntax(
+                        '${render_path(path, i)} is already a ${existing.kind()}, not a table'));
+                }
+                cur = table_of(existing);
+            }
+            i = i + 1;
+        }
+        let leaf = path[path.len() - 1];
+        if cur.get(leaf).is_some() {
+            return Result.Err(self.syntax('duplicate key ${render_path(path, path.len() - 1)}'));
+        }
+        cur[leaf] = value;
+        return Result.Ok(void);
+    }
+
+    // --- values ---
+
+    fn parse_value(self) -> Result<Toml, TomlError> {
+        let c = self.peek();
+        if c == char.DQUOTE {
+            if self.cp_at(self.pos + 1) == char.DQUOTE && self.cp_at(self.pos + 2) == char.DQUOTE {
+                let s = self.parse_ml_basic_string()?;
+                return Result.Ok(Toml.Str(s));
+            }
+            let s = self.parse_basic_string()?;
+            return Result.Ok(Toml.Str(s));
+        }
+        if c == char.SQUOTE {
+            if self.cp_at(self.pos + 1) == char.SQUOTE && self.cp_at(self.pos + 2) == char.SQUOTE {
+                let s = self.parse_ml_literal_string()?;
+                return Result.Ok(Toml.Str(s));
+            }
+            let s = self.parse_literal_string()?;
+            return Result.Ok(Toml.Str(s));
+        }
+        if c == char.LBRACKET {
+            return self.parse_array();
+        }
+        if c == char.LBRACE {
+            return self.parse_inline_table();
+        }
+        if self.match_literal('true') {
+            return Result.Ok(Toml.Bool(true));
+        }
+        if self.match_literal('false') {
+            return Result.Ok(Toml.Bool(false));
+        }
+        if c == char.PLUS || c == char.MINUS || c == 105 || c == 110 || char.is_digit(c) {
+            return self.parse_number_or_datetime(); // 'i'nf, 'n'an
+        }
+        if c == -1 {
+            return Result.Err(self.syntax('unexpected end of input'));
+        }
+        return Result.Err(self.syntax('expected a value'));
+    }
+
+    fn parse_array(self) -> Result<Toml, TomlError> {
+        self.pos = self.pos + 1; // consume '['
+        let mut items: List<Toml> = [];
+        let mut going = true;
+        while going {
+            self.skip_array_trivia()?;
+            if self.peek() == char.RBRACKET {
+                self.pos = self.pos + 1;
+                going = false;
+            } else {
+                let value = self.parse_value()?;
+                items.push(value);
+                self.skip_array_trivia()?;
+                let c = self.peek();
+                if c == char.COMMA {
+                    self.pos = self.pos + 1; // trailing comma is legal: loop re-checks ']'
+                } else if c == char.RBRACKET {
+                    self.pos = self.pos + 1;
+                    going = false;
+                } else {
+                    return Result.Err(self.syntax('expected , or ] in array'));
+                }
+            }
+        }
+        return Result.Ok(Toml.Array(items));
+    }
+
+    /// Whitespace, newlines, and comments — all legal between array elements.
+    fn skip_array_trivia(self) -> Result<Void, TomlError> {
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if c == char.SPACE || c == char.TAB {
+                self.pos = self.pos + 1;
+            } else if c == char.HASH {
+                self.skip_comment()?;
+            } else if c == char.LF || c == char.CR {
+                self.expect_newline()?;
+            } else {
+                going = false;
+            }
+        }
+        return Result.Ok(void);
+    }
+
+    /// `{ key = value, … }` — single-line, no trailing comma; dotted keys
+    /// work inside, scoped to this table. An inline table is closed: nothing
+    /// may extend it later.
+    fn parse_inline_table(self) -> Result<Toml, TomlError> {
+        self.pos = self.pos + 1; // consume '{'
+        let mut fields: Map<String, Toml> = [:];
+        let mut open: Map<String, Bool> = [:];
+        self.skip_inline_ws();
+        if self.peek() == char.RBRACE {
+            self.pos = self.pos + 1;
+            return Result.Ok(Toml.Table(fields));
+        }
+        let mut going = true;
+        while going {
+            let path = self.parse_key()?;
+            if self.peek() != char.EQ {
+                return Result.Err(self.syntax('expected = after key'));
+            }
+            self.pos = self.pos + 1;
+            self.skip_inline_ws();
+            let value = self.parse_value()?;
+            self.insert(fields, open, '', path, value)?;
+            self.skip_inline_ws();
+            let c = self.peek();
+            if c == char.COMMA {
+                self.pos = self.pos + 1; // the next pair is required — no trailing comma
+            } else if c == char.RBRACE {
+                self.pos = self.pos + 1;
+                going = false;
+            } else {
+                return Result.Err(self.syntax('expected , or } in inline table'));
+            }
+        }
+        return Result.Ok(Toml.Table(fields));
+    }
+
+    // --- strings ---
+
+    /// The current char is the opening `"`; single-line.
+    fn parse_basic_string(self) -> Result<String, TomlError> {
+        self.pos = self.pos + 1; // consume opening '"'
+        let mut out: List<Int> = [];
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if c == -1 || c == char.LF || c == char.CR {
+                return Result.Err(self.syntax('unterminated string'));
+            }
+            self.pos = self.pos + 1;
+            if c == char.DQUOTE {
+                going = false;
+            } else if c == char.BACKSLASH {
+                self.parse_escape(out)?;
+            } else if is_forbidden_string_char(c) {
+                return Result.Err(self.syntax('control character in string'));
+            } else {
+                out.push(c);
+            }
+        }
+        return Result.Ok(String.from_chars(out));
+    }
+
+    /// The current char is the opening `'`; single-line, no escapes.
+    fn parse_literal_string(self) -> Result<String, TomlError> {
+        self.pos = self.pos + 1; // consume opening '\''
+        let mut out: List<Int> = [];
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if c == -1 || c == char.LF || c == char.CR {
+                return Result.Err(self.syntax('unterminated string'));
+            }
+            self.pos = self.pos + 1;
+            if c == char.SQUOTE {
+                going = false;
+            } else if is_forbidden_string_char(c) {
+                return Result.Err(self.syntax('control character in string'));
+            } else {
+                out.push(c);
+            }
+        }
+        return Result.Ok(String.from_chars(out));
+    }
+
+    /// The upcoming chars are `"""`. Trims a newline immediately after the
+    /// opener, normalizes CRLF to LF, and supports the line-ending backslash.
+    fn parse_ml_basic_string(self) -> Result<String, TomlError> {
+        self.pos = self.pos + 3; // consume '"""'
+        self.trim_leading_newline()?;
+        let mut out: List<Int> = [];
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if c == -1 {
+                return Result.Err(self.syntax('unterminated multiline string'));
+            }
+            if c == char.DQUOTE && self.quotes_ahead(char.DQUOTE) >= 3 {
+                self.close_ml_delimiter(char.DQUOTE, out)?;
+                going = false;
+            } else if c == char.BACKSLASH {
+                self.pos = self.pos + 1;
+                if self.at_line_ending_backslash() {
+                    self.skip_escaped_whitespace()?;
+                } else {
+                    self.parse_escape(out)?;
+                }
+            } else if c == char.LF {
+                self.pos = self.pos + 1;
+                out.push(char.LF);
+            } else if c == char.CR {
+                self.expect_newline()?; // validates CRLF; a bare CR errors
+                out.push(char.LF);
+            } else if is_forbidden_string_char(c) {
+                return Result.Err(self.syntax('control character in string'));
+            } else {
+                self.pos = self.pos + 1;
+                out.push(c);
+            }
+        }
+        return Result.Ok(String.from_chars(out));
+    }
+
+    /// The upcoming chars are `'''`. Same shape, no escapes.
+    fn parse_ml_literal_string(self) -> Result<String, TomlError> {
+        self.pos = self.pos + 3; // consume "'''"
+        self.trim_leading_newline()?;
+        let mut out: List<Int> = [];
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if c == -1 {
+                return Result.Err(self.syntax('unterminated multiline string'));
+            }
+            if c == char.SQUOTE && self.quotes_ahead(char.SQUOTE) >= 3 {
+                self.close_ml_delimiter(char.SQUOTE, out)?;
+                going = false;
+            } else if c == char.LF {
+                self.pos = self.pos + 1;
+                out.push(char.LF);
+            } else if c == char.CR {
+                self.expect_newline()?;
+                out.push(char.LF);
+            } else if is_forbidden_string_char(c) {
+                return Result.Err(self.syntax('control character in string'));
+            } else {
+                self.pos = self.pos + 1;
+                out.push(c);
+            }
+        }
+        return Result.Ok(String.from_chars(out));
+    }
+
+    /// A newline immediately after an opening multiline delimiter is trimmed.
+    fn trim_leading_newline(self) -> Result<Void, TomlError> {
+        let c = self.peek();
+        if c == char.LF || c == char.CR {
+            return self.expect_newline();
+        }
+        return Result.Ok(void);
+    }
+
+    /// How many consecutive `quote` chars start at the current position.
+    fn quotes_ahead(self, _ quote: Int) -> Int {
+        let mut n = 0;
+        while self.cp_at(self.pos + n) == quote {
+            n = n + 1;
+        }
+        return n;
+    }
+
+    /// The current position starts a run of >= 3 `quote`s: the last three are
+    /// the closing delimiter, up to two before it belong to the content, and
+    /// three or more before it are malformed.
+    fn close_ml_delimiter(self, _ quote: Int, _ out: List<Int>) -> Result<Void, TomlError> {
+        let run = self.quotes_ahead(quote);
+        if run > 5 {
+            return Result.Err(self.syntax('too many quotes in multiline string'));
+        }
+        let mut extra = run - 3;
+        while extra > 0 {
+            out.push(quote);
+            extra = extra - 1;
+        }
+        self.pos = self.pos + run;
+        return Result.Ok(void);
+    }
+
+    /// After a backslash in a multiline basic string: is this the line-ending
+    /// form (only whitespace up to a newline)? Peeks; consumes nothing.
+    fn at_line_ending_backslash(self) -> Bool {
+        let mut i = self.pos;
+        while self.cp_at(i) == char.SPACE || self.cp_at(i) == char.TAB {
+            i = i + 1;
+        }
+        let c = self.cp_at(i);
+        return c == char.LF || c == char.CR;
+    }
+
+    /// Consume the whitespace (including newlines) a line-ending backslash
+    /// escapes, up to the next non-whitespace character.
+    fn skip_escaped_whitespace(self) -> Result<Void, TomlError> {
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if c == char.SPACE || c == char.TAB {
+                self.pos = self.pos + 1;
+            } else if c == char.LF || c == char.CR {
+                self.expect_newline()?;
+            } else {
+                going = false;
+            }
+        }
+        return Result.Ok(void);
+    }
+
+    /// Decode one escape sequence (the `\` is already consumed) into `out`.
+    /// TOML's set — note `\/` is not in it, and `\uXXXX`/`\UXXXXXXXX` must
+    /// name a Unicode scalar value (no surrogates, unlike JSON's pairing).
+    fn parse_escape(self, _ out: List<Int>) -> Result<Void, TomlError> {
+        let e = self.peek();
+        if e == -1 {
+            return Result.Err(self.syntax('unterminated escape'));
+        }
+        self.pos = self.pos + 1;
+        if e == char.DQUOTE {
+            out.push(char.DQUOTE);
+        } else if e == char.BACKSLASH {
+            out.push(char.BACKSLASH);
+        } else if e == 98 {
+            out.push(char.BS); // \b
+        } else if e == 102 {
+            out.push(char.FF); // \f
+        } else if e == 110 {
+            out.push(char.LF); // \n
+        } else if e == 114 {
+            out.push(char.CR); // \r
+        } else if e == 116 {
+            out.push(char.TAB); // \t
+        } else if e == 117 {
+            out.push(self.parse_unicode_escape(4)?); // \u
+        } else if e == 85 {
+            out.push(self.parse_unicode_escape(8)?); // \U
+        } else {
+            return Result.Err(self.syntax('invalid escape'));
+        }
+        return Result.Ok(void);
+    }
+
+    /// `digits` hex digits naming a Unicode scalar value.
+    fn parse_unicode_escape(self, _ digits: Int) -> Result<Int, TomlError> {
+        let mut value = 0;
+        let mut i = 0;
+        while i < digits {
+            let d = match char.hex_digit_value(self.peek()) {
+                Some(v) => v,
+                None => -1,
+            };
+            if d < 0 {
+                return Result.Err(self.syntax('invalid hex digit in unicode escape'));
+            }
+            value = value * 16 + d;
+            self.pos = self.pos + 1;
+            i = i + 1;
+        }
+        if (value >= 55296 && value <= 57343) || value > 1114111 {
+            return Result.Err(self.syntax('escape is not a unicode scalar value'));
+        }
+        return Result.Ok(value);
+    }
+
+    // --- numbers ---
+
+    /// A value starting with a digit or sign: a number, unless the lookahead
+    /// spells a date (`DDDD-`) or time (`DD:`) — those arrive in stage 3.
+    fn parse_number_or_datetime(self) -> Result<Toml, TomlError> {
+        let c = self.peek();
+        if char.is_digit(c) {
+            let date = char.is_digit(self.cp_at(self.pos + 1))
+                && char.is_digit(self.cp_at(self.pos + 2))
+                && char.is_digit(self.cp_at(self.pos + 3))
+                && self.cp_at(self.pos + 4) == char.MINUS;
+            let time = char.is_digit(self.cp_at(self.pos + 1))
+                && self.cp_at(self.pos + 2) == char.COLON;
+            if date || time {
+                return Result.Err(self.syntax(
+                    'date-time values are not supported yet (std.toml stage 3)'));
+            }
+        }
+        return self.parse_number();
+    }
+
+    fn parse_number(self) -> Result<Toml, TomlError> {
+        let mut negative = false;
+        let mut signed = false;
+        let c = self.peek();
+        if c == char.PLUS {
+            self.pos = self.pos + 1;
+            signed = true;
+        } else if c == char.MINUS {
+            self.pos = self.pos + 1;
+            negative = true;
+            signed = true;
+        }
+
+        if self.match_literal('inf') {
+            if negative {
+                return Result.Ok(Toml.Double(0.0 - math.INFINITY));
+            }
+            return Result.Ok(Toml.Double(math.INFINITY));
+        }
+        if self.match_literal('nan') {
+            return Result.Ok(Toml.Double(math.NAN)); // sign of nan is not observable
+        }
+
+        // Hex / octal / binary — prefix forms take no sign.
+        if !signed && self.peek() == char.DIGIT_0 {
+            let marker = self.cp_at(self.pos + 1);
+            if marker == 120 { // 'x'
+                return self.parse_radix_int(16);
+            }
+            if marker == 111 { // 'o'
+                return self.parse_radix_int(8);
+            }
+            if marker == 98 { // 'b'
+                return self.parse_radix_int(2);
+            }
+        }
+
+        // Decimal: int part, optional fraction, optional exponent.
+        let int_digits = self.digit_run()?;
+        if int_digits.len() > 1 && int_digits[0] == char.DIGIT_0 {
+            return Result.Err(self.syntax('number cannot have a leading zero'));
+        }
+        let mut is_double = false;
+        let mut token: List<Int> = [];
+        if negative {
+            token.push(char.MINUS);
+        }
+        for d in int_digits {
+            token.push(d);
+        }
+        if self.peek() == char.DOT {
+            is_double = true;
+            token.push(char.DOT);
+            self.pos = self.pos + 1;
+            for d in self.digit_run()? {
+                token.push(d);
+            }
+        }
+        if self.peek() == 101 || self.peek() == 69 { // 'e' 'E'
+            is_double = true;
+            token.push(101);
+            self.pos = self.pos + 1;
+            let s = self.peek();
+            if s == char.PLUS || s == char.MINUS {
+                token.push(s);
+                self.pos = self.pos + 1;
+            }
+            for d in self.digit_run()? { // zero-prefixed exponents are legal
+                token.push(d);
+            }
+        }
+
+        let text = String.from_chars(token);
+        if is_double {
+            return match text.to_double() {
+                Some(x) => Result.Ok(Toml.Double(x)),
+                None => Result.Err(self.syntax('invalid number')),
+            };
+        }
+        if exceeds_i64(int_digits, negative) {
+            return Result.Err(self.syntax('integer is out of range'));
+        }
+        return match text.to_int() {
+            Some(n) => Result.Ok(Toml.Int(n)),
+            None => Result.Err(self.syntax('invalid number')),
+        };
+    }
+
+    /// A run of ASCII digits with underscores allowed strictly between them.
+    /// Returns the digits with the underscores removed.
+    fn digit_run(self) -> Result<List<Int>, TomlError> {
+        if !char.is_digit(self.peek()) {
+            return Result.Err(self.syntax('expected a digit'));
+        }
+        let mut out: List<Int> = [];
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if char.is_digit(c) {
+                out.push(c);
+                self.pos = self.pos + 1;
+            } else if c == char.UNDERSCORE {
+                self.pos = self.pos + 1;
+                if !char.is_digit(self.peek()) {
+                    return Result.Err(self.syntax('an underscore must sit between digits'));
+                }
+            } else {
+                going = false;
+            }
+        }
+        return Result.Ok(out);
+    }
+
+    /// A `0x`/`0o`/`0b` integer (the `0` is current; the marker is next).
+    /// Leading zeros are legal here; the value must fit in a 64-bit signed
+    /// integer.
+    fn parse_radix_int(self, _ base: Int) -> Result<Toml, TomlError> {
+        self.pos = self.pos + 2; // consume '0x' / '0o' / '0b'
+        let mut digits: List<Int> = [];
+        let mut seen = false;
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            let d = match char.hex_digit_value(c) {
+                Some(v) => v,
+                None => -1,
+            };
+            if d >= 0 && d < base {
+                digits.push(d);
+                seen = true;
+                self.pos = self.pos + 1;
+            } else if c == char.UNDERSCORE && seen {
+                self.pos = self.pos + 1;
+                let next = match char.hex_digit_value(self.peek()) {
+                    Some(v) => v,
+                    None => -1,
+                };
+                if next < 0 || next >= base {
+                    return Result.Err(self.syntax('an underscore must sit between digits'));
+                }
+            } else {
+                going = false;
+            }
+        }
+        if !seen {
+            return Result.Err(self.syntax('expected a digit'));
+        }
+        // Strip leading zeros, then bound the magnitude to i64.
+        let mut start = 0;
+        while start < digits.len() - 1 && digits[start] == 0 {
+            start = start + 1;
+        }
+        let significant = digits.slice(start, digits.len());
+        let mut over = false;
+        if base == 16 {
+            over = significant.len() > 16 || (significant.len() == 16 && significant[0] > 7);
+        } else if base == 8 {
+            over = significant.len() > 21;
+        } else {
+            over = significant.len() > 63; // binary
+        }
+        if over {
+            return Result.Err(self.syntax('integer is out of range'));
+        }
+        let mut value = 0;
+        for d in significant {
+            value = value * base + d;
+        }
+        return Result.Ok(Toml.Int(value));
+    }
+}
+
+// --- helpers ---
+
+/// Bare keys are ASCII letters, digits, `_`, and `-`.
+fn is_bare_key_char(_ c: Int) -> Bool {
+    return char.is_alphanumeric(c) || c == char.UNDERSCORE || c == char.MINUS;
+}
+
+/// Raw control characters are not permitted in any string form; tab is the
+/// one exception (newlines are handled by each form's own rules).
+fn is_forbidden_string_char(_ c: Int) -> Bool {
+    return (c < char.SPACE && c != char.TAB) || c == char.DEL;
+}
+
+/// The table inside a `Toml.Table` — caller has already established the kind.
+fn table_of(_ v: Toml) -> Map<String, Toml> {
+    return match v {
+        Table(m) => m,
+        _ => [:],
+    };
+}
+
+/// The first `count + 1` segments of a key path, dotted, for error messages.
+fn render_path(_ path: List<String>, _ last: Int) -> String {
+    let mut parts: List<String> = [];
+    let mut i = 0;
+    while i <= last {
+        parts.push(path[i]);
+        i = i + 1;
+    }
+    return parts.join('.');
+}
+
+/// Does a decimal magnitude (digit code points, no leading zeros) exceed the
+/// i64 range for its sign? Compared textually so overflow never wraps.
+fn exceeds_i64(_ digits: List<Int>, _ negative: Bool) -> Bool {
+    let mut limit = '9223372036854775807'.chars();
+    if negative {
+        limit = '9223372036854775808'.chars();
+    }
+    if digits.len() != limit.len() {
+        return digits.len() > limit.len();
+    }
+    let mut i = 0;
+    while i < digits.len() {
+        if digits[i] != limit[i] {
+            return digits[i] > limit[i];
+        }
+        i = i + 1;
+    }
+    return false;
+}

@@ -1,0 +1,366 @@
+//! Tests for std.toml.
+
+import std.math;
+import std.testing;
+
+import 'toml' as _;
+
+// A single-quote character, for building TOML literal-string inputs without
+// leaning on escape support in Thera's own string literals.
+let sq: String = String.from_chars([39]);
+
+fn len_of(_ items: Option<List<Toml>>) -> Int {
+    return match items {
+        Some(l) => l.len(),
+        None => -1,
+    };
+}
+
+fn key_count(_ table: Option<Map<String, Toml>>) -> Int {
+    return match table {
+        Some(m) => m.keys().len(),
+        None => -1,
+    };
+}
+
+@test
+fn test_parse_scalars() -> Result<Void, Error> {
+    let doc = parse('a = true\nb = false\nc = 42\nd = -17\ne = +8\nf = 1_000_000\n')?;
+    testing.assert_eq(actual: doc.get_bool('a'), expected: Option.Some(true))?;
+    testing.assert_eq(actual: doc.get_bool('b'), expected: Option.Some(false))?;
+    testing.assert_eq(actual: doc.get_int('c'), expected: Option.Some(42))?;
+    testing.assert_eq(actual: doc.get_int('d'), expected: Option.Some(-17))?;
+    testing.assert_eq(actual: doc.get_int('e'), expected: Option.Some(8))?;
+    testing.assert_eq(actual: doc.get_int('f'), expected: Option.Some(1000000))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_integer_bases() -> Result<Void, Error> {
+    let doc = parse('a = 0xDEADbeef\nb = 0o755\nc = 0b1101\nd = 0x0000_00ff\ne = 0o0\n')?;
+    testing.assert_eq(actual: doc.get_int('a'), expected: Option.Some(3735928559))?;
+    testing.assert_eq(actual: doc.get_int('b'), expected: Option.Some(493))?;
+    testing.assert_eq(actual: doc.get_int('c'), expected: Option.Some(13))?;
+    testing.assert_eq(actual: doc.get_int('d'), expected: Option.Some(255))?;
+    testing.assert_eq(actual: doc.get_int('e'), expected: Option.Some(0))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_integer_range() -> Result<Void, Error> {
+    let doc = parse('max = 9223372036854775807\nmin = -9223372036854775808\n')?;
+    testing.assert_eq(actual: doc.get_int('max'), expected: Option.Some(9223372036854775807))?;
+    testing.assert_eq(
+        actual: doc.get_int('min'),
+        expected: Option.Some(-9223372036854775807 - 1),
+    )?;
+    let hex = parse('v = 0x7FFFFFFFFFFFFFFF\n')?;
+    testing.assert_eq(actual: hex.get_int('v'), expected: Option.Some(9223372036854775807))?;
+
+    testing.assert_err(parse('v = 9223372036854775808\n'))?;    // i64 max + 1
+    testing.assert_err(parse('v = -9223372036854775809\n'))?;   // i64 min - 1
+    testing.assert_err(parse('v = 0x8000000000000000\n'))?;     // sign bit set
+    testing.assert_err(parse('v = 0o1000000000000000000000\n'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_integer_syntax_errors() -> Result<Void, Error> {
+    testing.assert_err(parse('v = 03\n'))?;        // leading zero
+    testing.assert_err(parse('v = 1__2\n'))?;      // doubled underscore
+    testing.assert_err(parse('v = 1_\n'))?;        // trailing underscore
+    testing.assert_err(parse('v = _1\n'))?;        // leading underscore
+    testing.assert_err(parse('v = 0x\n'))?;        // no digits after prefix
+    testing.assert_err(parse('v = 0x_1\n'))?;      // underscore before first digit
+    testing.assert_err(parse('v = 0o8\n'))?;       // digit out of base
+    testing.assert_err(parse('v = -0x1\n'))?;      // prefix forms take no sign
+    return Result.Ok(void);
+}
+
+@test
+fn test_floats() -> Result<Void, Error> {
+    let doc = parse(
+        'a = 3.5\nb = 1e3\nc = 2E-2\nd = +5e+2\ne = 0.0\nf = 6.26e-34\ng = 9_224_617.445_991\nh = 1e00\n'
+    )?;
+    testing.assert_eq(actual: doc.get_double('a'), expected: Option.Some(3.5))?;
+    testing.assert_eq(actual: doc.get_double('b'), expected: Option.Some(1000.0))?;
+    testing.assert_eq(actual: doc.get_double('c'), expected: Option.Some(0.02))?;
+    testing.assert_eq(actual: doc.get_double('d'), expected: Option.Some(500.0))?;
+    testing.assert_eq(actual: doc.get_double('e'), expected: Option.Some(0.0))?;
+    testing.assert_eq(actual: doc.get_double('g'), expected: Option.Some(9224617.445991))?;
+    testing.assert_eq(actual: doc.get_double('h'), expected: Option.Some(1.0))?;
+    // An Int widens through get_double; a float never narrows to Int.
+    let n = parse('i = 10\nx = 10.5\n')?;
+    testing.assert_eq(actual: n.get_double('i'), expected: Option.Some(10.0))?;
+    testing.assert_eq(actual: n.get_int('x'), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_float_specials() -> Result<Void, Error> {
+    let doc = parse('a = inf\nb = +inf\nc = -inf\nd = nan\ne = -nan\n')?;
+    testing.assert_eq(actual: doc.get_double('a'), expected: Option.Some(math.INFINITY))?;
+    testing.assert_eq(actual: doc.get_double('b'), expected: Option.Some(math.INFINITY))?;
+    testing.assert_eq(actual: doc.get_double('c'), expected: Option.Some(0.0 - math.INFINITY))?;
+    let d = doc.get_double('d').unwrap_or(0.0);
+    testing.assert_eq(actual: d != d, expected: true)?;   // NaN is unequal to itself
+    let e = doc.get_double('e').unwrap_or(0.0);
+    testing.assert_eq(actual: e != e, expected: true)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_float_syntax_errors() -> Result<Void, Error> {
+    testing.assert_err(parse('v = .5\n'))?;        // digits required before the dot
+    testing.assert_err(parse('v = 5.\n'))?;        // and after it
+    testing.assert_err(parse('v = 1.e3\n'))?;
+    testing.assert_err(parse('v = 7e\n'))?;        // empty exponent
+    testing.assert_err(parse('v = 03.14\n'))?;     // leading zero
+    return Result.Ok(void);
+}
+
+@test
+fn test_basic_strings() -> Result<Void, Error> {
+    let doc = parse(
+        'a = "plain"\nb = "tab\\there"\nc = "line\\nbreak"\nd = "quote \\" backslash \\\\"\ne = "\\u0041\\U0001F600"\nf = ""\n'
+    )?;
+    testing.assert_eq(actual: doc.get_string('a'), expected: Option.Some('plain'))?;
+    testing.assert_eq(actual: doc.get_string('b'), expected: Option.Some('tab\there'))?;
+    testing.assert_eq(actual: doc.get_string('c'), expected: Option.Some('line\nbreak'))?;
+    testing.assert_eq(actual: doc.get_string('d'), expected: Option.Some('quote " backslash \\'))?;
+    let grin = String.from_chars([65, 128512]); // 'A' + U+1F600
+    testing.assert_eq(actual: doc.get_string('e'), expected: Option.Some(grin))?;
+    testing.assert_eq(actual: doc.get_string('f'), expected: Option.Some(''))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_basic_string_errors() -> Result<Void, Error> {
+    testing.assert_err(parse('v = "no end\n'))?;             // unterminated
+    testing.assert_err(parse('v = "slash \\/ escape"\n'))?;  // \/ is JSON, not TOML
+    testing.assert_err(parse('v = "\\uD800"\n'))?;           // surrogate: not a scalar value
+    testing.assert_err(parse('v = "\\U00110000"\n'))?;       // beyond U+10FFFF
+    testing.assert_err(parse('v = "\\x41"\n'))?;             // \x is not in the set
+    // A raw control character must be escaped (tab is the exception).
+    let ctrl = String.from_chars([118, 32, 61, 32, 34, 7, 34, 10]); // v = "<BEL>"
+    testing.assert_err(parse(ctrl))?;
+    let doc = parse('v = "a\tb"\n')?; // a literal tab is fine
+    testing.assert_eq(actual: doc.get_string('v'), expected: Option.Some('a\tb'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_literal_strings() -> Result<Void, Error> {
+    // No escapes: backslashes ride through untouched. (The TOML input is
+    // 'C:\Users\nobody' — the Thera literal doubles its backslashes.)
+    let doc = parse('p = ${sq}C:\\Users\\nobody${sq}\nq = ${sq}no \\n escape${sq}\n')?;
+    testing.assert_eq(actual: doc.get_string('p'), expected: Option.Some('C:\\Users\\nobody'))?;
+    testing.assert_eq(actual: doc.get_string('q'), expected: Option.Some('no \\n escape'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_multiline_basic_strings() -> Result<Void, Error> {
+    // The newline right after the opener is trimmed; later ones are kept.
+    let doc = parse('a = """\nRoses are red\nViolets are blue"""\n')?;
+    testing.assert_eq(
+        actual: doc.get_string('a'),
+        expected: Option.Some('Roses are red\nViolets are blue'),
+    )?;
+    // One or two quotes are content; a run of four or five closes with extras.
+    let q = parse(
+        'a = """lone " and pair "" inside"""\nb = """ends with quote""""\nc = """ends with two"""""\n'
+    )?;
+    testing.assert_eq(
+        actual: q.get_string('a'),
+        expected: Option.Some('lone " and pair "" inside'),
+    )?;
+    testing.assert_eq(actual: q.get_string('b'), expected: Option.Some('ends with quote"'))?;
+    testing.assert_eq(actual: q.get_string('c'), expected: Option.Some('ends with two""'))?;
+    // The line-ending backslash trims all whitespace up to the next content.
+    let w = parse('a = """fold \\\n     these  \\\n\n     lines"""\n')?;
+    testing.assert_eq(actual: w.get_string('a'), expected: Option.Some('fold these  lines'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_multiline_literal_strings() -> Result<Void, Error> {
+    let tsq = '${sq}${sq}${sq}';
+    let doc = parse('a = ${tsq}\nfirst\\nsecond${tsq}\n')?;
+    // No escapes: the two characters backslash + n survive as written.
+    testing.assert_eq(actual: doc.get_string('a'), expected: Option.Some('first\\nsecond'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_crlf_handling() -> Result<Void, Error> {
+    let crlf = String.from_chars([13, 10]);
+    let doc = parse('a = 1${crlf}b = 2${crlf}')?;
+    testing.assert_eq(actual: doc.get_int('a'), expected: Option.Some(1))?;
+    testing.assert_eq(actual: doc.get_int('b'), expected: Option.Some(2))?;
+    // Inside a multiline string CRLF normalizes to LF.
+    let ml = parse('s = """${crlf}one${crlf}two"""${crlf}')?;
+    testing.assert_eq(actual: ml.get_string('s'), expected: Option.Some('one\ntwo'))?;
+    // A bare CR is never a newline.
+    let bare = String.from_chars([97, 32, 61, 32, 49, 13, 98, 32, 61, 32, 50, 10]);
+    testing.assert_err(parse(bare))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_keys() -> Result<Void, Error> {
+    let doc = parse(
+        'bare_key-1 = 1\n1234 = 2\n"quoted key" = 3\n${sq}literal.key${sq} = 4\n"" = 5\n'
+    )?;
+    testing.assert_eq(actual: doc.get_int('bare_key-1'), expected: Option.Some(1))?;
+    testing.assert_eq(actual: doc.get_int('1234'), expected: Option.Some(2))?;
+    testing.assert_eq(actual: doc.get_int('quoted key'), expected: Option.Some(3))?;
+    testing.assert_eq(actual: doc.get_int(''), expected: Option.Some(5))?;
+    // A quoted key containing a dot is reachable through the table, not `get`.
+    let lit = doc.as_table()
+        .and_then((m) => m.get('literal.key'))
+        .and_then((v) => v.as_int());
+    testing.assert_eq(actual: lit, expected: Option.Some(4))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_dotted_keys() -> Result<Void, Error> {
+    let doc = parse('server.host = "x"\nserver . port = 80\nserver.limits.rate = 5\n')?;
+    testing.assert_eq(actual: doc.get_string('server.host'), expected: Option.Some('x'))?;
+    testing.assert_eq(actual: doc.get_int('server.port'), expected: Option.Some(80))?;
+    testing.assert_eq(actual: doc.get_int('server.limits.rate'), expected: Option.Some(5))?;
+    testing.assert_eq(
+        actual: doc.get('server').and_then((v) => v.as_table()).is_some(),
+        expected: true,
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_key_semantics_errors() -> Result<Void, Error> {
+    testing.assert_err(parse('a = 1\na = 2\n'))?;             // duplicate key
+    testing.assert_err(parse('a = 1\na.b = 2\n'))?;           // a value is not a table
+    testing.assert_err(parse('a.b.c = 1\na.b = 2\n'))?;       // redefining a dotted table
+    testing.assert_err(parse('t = { x = 1 }\nt.y = 2\n'))?;   // inline tables are closed
+    testing.assert_err(parse('t = { x = 1, x = 2 }\n'))?;     // duplicate inside inline
+    testing.assert_err(parse('t = { a.b = 1, a.b.c = 2 }\n'))?;
+    // A shared dotted prefix is legal — only the leaves must be new.
+    let doc = parse('a.b = 1\na.c = 2\n')?;
+    testing.assert_eq(actual: doc.get_int('a.b'), expected: Option.Some(1))?;
+    testing.assert_eq(actual: doc.get_int('a.c'), expected: Option.Some(2))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_arrays() -> Result<Void, Error> {
+    let doc = parse(
+        'empty = []\nnums = [1, 2, 3]\nmixed = [1, "two", true]\nnested = [[1], [2, 3]]\n'
+    )?;
+    testing.assert_eq(actual: len_of(doc.get_array('empty')), expected: 0)?;
+    testing.assert_eq(
+        actual: doc.get('nums').and_then((v) => v.at(2)).and_then((v) => v.as_int()),
+        expected: Option.Some(3),
+    )?;
+    testing.assert_eq(
+        actual: doc.get('mixed').and_then((v) => v.at(1)).and_then((v) => v.as_string()),
+        expected: Option.Some('two'),
+    )?;
+    testing.assert_eq(
+        actual: doc.get('nested').and_then((v) => v.at(1)).and_then((v) => v.at(0)).and_then(
+            (v) => v.as_int()
+        ),
+        expected: Option.Some(2),
+    )?;
+    // Newlines, comments, and a trailing comma are all legal inside.
+    let ml = parse('v = [\n  1, # one\n  2,\n]\n')?;
+    testing.assert_eq(actual: len_of(ml.get_array('v')), expected: 2)?;
+    testing.assert_err(parse('v = [1 2]\n'))?;    // a comma is required
+    return Result.Ok(void);
+}
+
+@test
+fn test_inline_tables() -> Result<Void, Error> {
+    let doc = parse(
+        'empty = {}\npoint = { x = 1, y = 2 }\nname = { first.a = 1, first.b = 2 }\nnest = { inner = { v = 3 } }\n'
+    )?;
+    testing.assert_eq(actual: key_count(doc.get_table('empty')), expected: 0)?;
+    testing.assert_eq(actual: doc.get_int('point.x'), expected: Option.Some(1))?;
+    testing.assert_eq(actual: doc.get_int('name.first.b'), expected: Option.Some(2))?;
+    testing.assert_eq(actual: doc.get_int('nest.inner.v'), expected: Option.Some(3))?;
+
+    testing.assert_err(parse('v = { a = 1, }\n'))?;           // no trailing comma
+    testing.assert_err(parse('v = { a = 1\n, b = 2 }\n'))?;   // single-line only
+    // ... though a value inside may still span lines (an array can).
+    let arr = parse('v = { a = [\n1,\n2] }\n')?;
+    testing.assert_eq(actual: len_of(arr.get_array('v.a')), expected: 2)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_comments_and_layout() -> Result<Void, Error> {
+    let doc = parse('# a full-line comment\n\na = 1 # trailing\n\t \nb = 2\n')?;
+    testing.assert_eq(actual: doc.get_int('a'), expected: Option.Some(1))?;
+    testing.assert_eq(actual: doc.get_int('b'), expected: Option.Some(2))?;
+    // Empty documents (and comment-only ones) parse to an empty table.
+    testing.assert_eq(actual: key_count(parse('')?.as_table()), expected: 0)?;
+    testing.assert_eq(actual: key_count(parse('# only a comment')?.as_table()), expected: 0)?;
+    // The last line needs no newline.
+    testing.assert_eq(actual: parse('a = 1')?.get_int('a'), expected: Option.Some(1))?;
+    // Control characters (other than tab) are not permitted in comments.
+    let ctrl = String.from_chars([35, 7, 10]); // #<BEL>
+    testing.assert_err(parse(ctrl))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_document_errors() -> Result<Void, Error> {
+    testing.assert_err(parse('a\n'))?;             // key without =
+    testing.assert_err(parse('a =\n'))?;           // = without value
+    testing.assert_err(parse('a = 1 b = 2\n'))?;   // junk after a value
+    testing.assert_err(parse('= 1\n'))?;           // value without key
+    testing.assert_err(parse('a = truex\n'))?;     // not a boolean
+    return Result.Ok(void);
+}
+
+@test
+fn test_staged_constructs_error_cleanly() -> Result<Void, Error> {
+    // Stage 2: table headers. Stage 3: date-times. Clean errors, never a misparse.
+    testing.assert_err(parse('[server]\nhost = "x"\n'))?;
+    testing.assert_err(parse('[[items]]\n'))?;
+    testing.assert_err(parse('d = 1979-05-27\n'))?;
+    testing.assert_err(parse('d = 1979-05-27T07:32:00Z\n'))?;
+    testing.assert_err(parse('t = 07:32:00\n'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_navigation_misses() -> Result<Void, Error> {
+    let doc = parse('a.b = 1\ns = "x"\n')?;
+    testing.assert_eq(actual: doc.get('nope').is_none(), expected: true)?;
+    testing.assert_eq(actual: doc.get('a.b.c').is_none(), expected: true)?;  // through a value
+    testing.assert_eq(actual: doc.get_int('s'), expected: Option.None)?;     // wrong type
+    testing.assert_eq(actual: doc.get_int('a.b'), expected: Option.Some(1))?;
+    testing.assert_eq(actual: doc.get_int('missing.port').unwrap_or(8080), expected: 8080)?;
+    // at() on a non-array misses; kind() names kinds in TOML vocabulary.
+    testing.assert_eq(actual: doc.get('s').and_then((v) => v.at(0)).is_none(), expected: true)?;
+    testing.assert_eq(
+        actual: doc.get('a').map((v) => v.kind()),
+        expected: Option.Some('table'),
+    )?;
+    testing.assert_eq(actual: Toml.Int(1).kind(), expected: 'integer')?;
+    testing.assert_eq(actual: Toml.Double(1.0).kind(), expected: 'float')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_positions() -> Result<Void, Error> {
+    // Errors carry a line/column so a manifest typo is findable.
+    let err = parse('good = 1\nbad = 03\n');
+    let msg = match err {
+        Ok(_) => '',
+        Err(e) => e.message(),
+    };
+    testing.assert_eq(actual: msg.contains('line 2'), expected: true)?;
+    return Result.Ok(void);
+}

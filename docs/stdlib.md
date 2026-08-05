@@ -103,17 +103,17 @@ enough to reduce hallucination.
 
 ## The tiers
 
-| Tier          | Import          | Contents                                                                                                                                                                                |
-| ------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods                                      |
-| **Core std**  | `import std.x`  | `io iter fs path env process time fiber math random sort json encoding hash http log cli term char regex testing`                                                                       |
-| **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server _frameworks_ (a simple server is core), raw sockets (a provisional `std.net` backs `std.http`), compression, full crypto/TLS, UUID, templating, … |
+| Tier          | Import          | Contents                                                                                                                                                                           |
+| ------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods                                 |
+| **Core std**  | `import std.x`  | `io iter fs path env process time fiber math random sort json toml encoding hash http log cli term char regex testing`                                                             |
+| **Ecosystem** | package manager | databases, YAML/CSV, HTTP server _frameworks_ (a simple server is core), raw sockets (a provisional `std.net` backs `std.http`), compression, full crypto/TLS, UUID, templating, … |
 
 The line between core and ecosystem: core covers what a typical CLI tool or
 agent script needs **in almost every project**. The ecosystem covers the
 specialized and the long tail — but for every common task, core either provides
-it or names the ecosystem answer (e.g. JSON is core; YAML/TOML are ecosystem but
-called out under `std.json`).
+it or names the ecosystem answer (e.g. JSON and TOML are core; YAML is ecosystem
+but called out under `std.json`).
 
 ## Core types
 
@@ -841,8 +841,39 @@ that gap; **decode is the higher-value half** (typed parsing with
 deliberate arc — but the goal is explicit: a Thera struct should round-trip to
 JSON without manual wrapping. See § Sequencing #1.
 
-**YAML/TOML/CSV are ecosystem** — this is where an agent looks first and finds
-the pointer.
+**YAML/CSV are ecosystem** — this is where an agent looks first and finds the
+pointer. (TOML graduated to core — see § `std.toml`.)
+
+### `std.toml` — TOML 1.0.0 config _(in progress, pure Thera — see docs/toml.md)_
+
+The durable hand-edited config format — the API-generator manifest and the
+future package manifest are its driving use cases (docs/toml.md has the full
+design and staging). The structural `Toml` enum mirrors `Json`'s shape with two
+format-forced differences: **no null variant** (TOML has none; absence is the
+only optionality, so every lenient read is an `Option`) and a `Datetime` variant
+carrying the kind plus validated source text. Because TOML is a config format,
+the lenient surface is path-shaped rather than chain-shaped: `get` takes a
+**dotted path** — the format's own spelling — and typed `get_*` helpers compose
+it with one `as_*`:
+
+```
+pub fn parse(_ text: String) -> Result<Toml, TomlError>;  // root is always a Table
+
+impl Toml {
+    pub fn get(self, _ path: String) -> Option<Toml>;     // doc.get('server.port')
+    pub fn at(self, _ index: Int) -> Option<Toml>;
+    pub fn as_bool/as_int/as_double/as_string/as_datetime/as_array/as_table(self) -> Option<…>;
+    pub fn get_bool/get_int/get_double/get_string/get_array/get_table(self, _ path: String) -> Option<…>;
+    pub fn kind(self) -> String;                          // 'integer', 'table', … for messages
+}
+```
+
+Status: stage 1 landed — scalars (all string forms, all integer bases, floats),
+arrays, inline tables, and dotted keys, in documents without table headers.
+`[table]`/`[[array-of-tables]]` headers (stage 2) and date-times (stage 3) are
+clean parse errors until their stages land; the strict `Cursor` (stage 4) and
+`stringify` (stage 5) follow. Parse-only by design until a tool needs to write a
+manifest.
 
 ### `std.encoding` — base64 / hex / url _(implemented, pure Thera)_
 
@@ -1382,11 +1413,13 @@ structural `debug`. Self-tested in `testing_test.thera`. Because `Error` extends
 
 So the boundary is explicit (and so an agent knows where to look):
 
-- **Other config formats** — YAML, TOML, CSV → ecosystem (JSON is core).
-  Deferred deliberately, but **revisit with usage feedback**: TOML in particular
-  is common enough for CLI/tool config that it's the first candidate to promote
-  into core if real use cases pile up. Pivot when the demand is demonstrated,
-  not speculatively.
+- **Other config formats** — YAML, CSV → ecosystem (JSON and TOML are core).
+  Deferred deliberately, but **revisit with usage feedback** — and that clause
+  has fired once, exactly as designed: TOML was named here as the first
+  candidate to promote if real use cases piled up, and two in-repo manifests
+  (api-access.md's generator manifest, scale.md item 4's package manifest)
+  demonstrated the demand. It is now § `std.toml`. YAML and CSV stay ecosystem
+  under the same rule: pivot when the demand is demonstrated, not speculatively.
 - **HTTP server _frameworks_ (routing DSLs, middleware stacks), raw TCP/UDP
   sockets** → ecosystem. The HTTP _client_ and a _simple_ server (`std.http` /
   `std.http.server` — bind + handle + a tiny path matcher) **are core**; see §
