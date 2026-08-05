@@ -1,0 +1,164 @@
+// The decode plumbing the response types need, written against `std.json` exactly
+// as it is today — no library changes. That constraint is the point: this file is
+// the evidence for docs/typed-json.md § Findings, so it has to be the *best*
+// version the current library allows rather than a strawman.
+//
+// What the current library gives you is `Option`-returning accessors
+// (`as_string`, `as_int`, …) and a chainable `get` that answers `Json.Null` for
+// anything it can't navigate. That is the right shape for a lenient consumer — the
+// LSP reads requests that way and never fails — and the wrong shape for a client,
+// which wants a *required* field to be an error naming the field. So every reader
+// below is a two-line wrapper turning `Option` into `Result`, and every one of
+// them has to be told, as a separate argument, the path it is reading at.
+
+import std.json;
+
+/// What a decode rejects: the document parsed, but was not the shape expected.
+///
+/// Both variants carry a JSONPath-ish location (`$.content[2].text`) because a
+/// generated client will have hundreds of these and "expected string" with no
+/// location is not something you can debug. Payloads are positional, so build
+/// them with `shape`/`missing` rather than by hand.
+pub enum DecodeError {
+    /// path, what was expected, what was found.
+    Shape(String, String, String),
+    /// path of a required field the document does not have.
+    Missing(String),
+}
+
+impl Error for DecodeError {
+    pub fn message(self) -> String {
+        return match self {
+            Shape(path, expected, found) =>
+                'expected ${expected} at ${path}, got ${found}',
+            Missing(path) => 'missing required field ${path}',
+        };
+    }
+}
+
+impl Display for DecodeError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+/// The name of a `Json`'s kind, for the `found` half of a `Shape`.
+pub fn kind_of(_ value: json.Json) -> String {
+    return match value {
+        Null => 'null',
+        Bool(_) => 'boolean',
+        Int(_) => 'number',
+        Double(_) => 'number',
+        Str(_) => 'string',
+        Array(_) => 'array',
+        Object(_) => 'object',
+    };
+}
+
+/// A `Shape` error for `value` appearing where `expected` was needed.
+pub fn shape<T>(_ path: String, _ expected: String, _ value: json.Json)
+    -> Result<T, DecodeError> {
+    return Result.Err(DecodeError.Shape(path, expected, kind_of(value)));
+}
+
+// --- required fields ---
+//
+// Each takes the object being read, *and* the path that object is at, because the
+// value carries no idea where it came from. Keeping the two in sync is the
+// caller's job, in every decoder, at every level.
+
+pub fn req_string(_ at: json.Json, _ path: String, _ key: String)
+    -> Result<String, DecodeError> {
+    let value = at.get(key);
+    return match value.as_string() {
+        Some(s) => Result.Ok(s),
+        None => required(value, '${path}.${key}', 'string'),
+    };
+}
+
+pub fn req_int(_ at: json.Json, _ path: String, _ key: String)
+    -> Result<Int, DecodeError> {
+    let value = at.get(key);
+    return match value.as_int() {
+        Some(n) => Result.Ok(n),
+        None => required(value, '${path}.${key}', 'number'),
+    };
+}
+
+/// A required object field, handed back as a `Json` for a nested decode.
+pub fn req_object(_ at: json.Json, _ path: String, _ key: String)
+    -> Result<json.Json, DecodeError> {
+    let value = at.get(key);
+    return match value.as_object() {
+        Some(_) => Result.Ok(value),
+        None => required(value, '${path}.${key}', 'object'),
+    };
+}
+
+/// A required array field, handed back element-wise. Decoding the elements is the
+/// caller's `for` loop over `enumerate()`, pushing into a `mut` list — `List.map`
+/// can't carry the failure out of the lambda, so there is no fallible `map` to
+/// reach for and the index has to be in hand anyway to build the element's path.
+pub fn req_array(_ at: json.Json, _ path: String, _ key: String)
+    -> Result<List<json.Json>, DecodeError> {
+    let value = at.get(key);
+    return match value.as_array() {
+        Some(items) => Result.Ok(items),
+        None => required(value, '${path}.${key}', 'array'),
+    };
+}
+
+/// `Missing` when the field is simply absent, `Shape` when it is there and wrong.
+/// The distinction costs a helper because `get` answers `Json.Null` for both.
+fn required<T>(_ value: json.Json, _ path: String, _ expected: String)
+    -> Result<T, DecodeError> {
+    if value.is_null() {
+        return Result.Err(DecodeError.Missing(path));
+    }
+    return shape(path, expected, value);
+}
+
+// --- optional fields ---
+//
+// Absent and explicitly-null both decode to `Option.None`. That conflation is
+// right for this API (`"stop_sequence": null` and no `stop_sequence` mean the same
+// thing) but it is not a choice the library let us make: `at.get(key)` returns
+// `Json.Null` either way, so telling them apart means dropping to `as_object()`
+// and asking the `Map` — see § Findings.
+
+pub fn opt_string(_ at: json.Json, _ path: String, _ key: String)
+    -> Result<Option<String>, DecodeError> {
+    let value = at.get(key);
+    if value.is_null() {
+        return Result.Ok(Option.None);
+    }
+    return match value.as_string() {
+        Some(s) => Result.Ok(Option.Some(s)),
+        None => shape('${path}.${key}', 'string', value),
+    };
+}
+
+pub fn opt_int(_ at: json.Json, _ path: String, _ key: String)
+    -> Result<Option<Int>, DecodeError> {
+    let value = at.get(key);
+    if value.is_null() {
+        return Result.Ok(Option.None);
+    }
+    return match value.as_int() {
+        Some(n) => Result.Ok(Option.Some(n)),
+        None => shape('${path}.${key}', 'number', value),
+    };
+}
+
+// --- values already in hand ---
+//
+// An array element arrives as a `Json` with no key, so the required-field readers
+// above don't fit and the same two lines get written again at a different arity.
+
+/// `value` as an object, for a nested decode.
+pub fn as_object(_ value: json.Json, _ path: String) -> Result<json.Json, DecodeError> {
+    return match value.as_object() {
+        Some(_) => Result.Ok(value),
+        None => shape(path, 'object', value),
+    };
+}

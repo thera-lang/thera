@@ -19,7 +19,7 @@ Three checks, per docs/language.md -> Imports:
               resolves to something the writing file is allowed to import
 
 Usage:
-    dev/import_surface.py                 # sdk/std and pkgs/cli
+    dev/import_surface.py                 # sdk/std and pkgs
     dev/import_surface.py sdk/std
 
 Note the third check reads *all* tracked text files, comments and docs
@@ -158,7 +158,7 @@ def check_spellings():
 
 
 def main():
-    roots = sys.argv[1:] or [STD_ROOT, "pkgs/cli"]
+    roots = sys.argv[1:] or [STD_ROOT, "pkgs"]
     problems = 0
     for root in roots:
         print(f"== {root} ==")

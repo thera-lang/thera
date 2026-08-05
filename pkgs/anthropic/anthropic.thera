@@ -1,0 +1,25 @@
+//! anthropic — a hand-written client for the Anthropic Messages API.
+//!
+//! Import as: import anthropic
+//!
+//! **Status: a forcing function, not yet a client.** It exists to answer the
+//! typed-JSON question in [docs/typed-json.md](../../docs/typed-json.md) with real
+//! code rather than a prediction — so today it is the Messages *response* types
+//! and their decoders, exercised against recorded response bodies. No credential,
+//! no socket, no live call. The rest (auth, retries, streaming, the request side)
+//! is [docs/api-access.md](../../docs/api-access.md) Arc 2.
+//!
+//! ```thera
+//! let msg = anthropic.message_from_json(json.parse(body)?)?;
+//! for block in msg.content {
+//!     match block {
+//!         Text(t) => print(t.text),
+//!         _ => void,
+//!     }
+//! }
+//! ```
+//!
+//! This is a barrel: it re-exports its sibling files and defines nothing itself.
+
+pub import 'decode'; // DecodeError, and the field readers every decoder needs
+pub import 'messages'; // Message, ContentBlock, StopReason, Usage

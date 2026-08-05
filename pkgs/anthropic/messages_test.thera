@@ -1,0 +1,286 @@
+// Tests for the Messages response decoders — docs/typed-json.md stage 1.
+//
+// Every case runs over a recorded response body. A decode is a pure function of its
+// input, so there is no credential, no socket, and nothing to stub — which is why
+// this half of Arc 2 could be done first (api-access.md item 8 makes the same
+// point: the decode tests are the numerous ones, and they need no server).
+//
+// The bodies below are shaped after real responses. JSON's own `\` escapes would
+// have to be doubled inside a Thera text block, so the fixtures deliberately hold
+// no escaped content — std.json's own tests cover the scanner.
+
+import std.json;
+import std.testing;
+
+import 'decode' as _;
+import 'messages' as _;
+
+// --- fixtures ---
+
+const TEXT_RESPONSE: String = '''
+    {
+      "id": "msg_013Zva2CMHLNnXjNJJKqJ2EF",
+      "type": "message",
+      "role": "assistant",
+      "model": "claude-sonnet-4-5-20250929",
+      "content": [{ "type": "text", "text": "Hi! I am Claude." }],
+      "stop_reason": "end_turn",
+      "stop_sequence": null,
+      "usage": { "input_tokens": 2095, "output_tokens": 503 }
+    }
+    ''';
+
+const TOOL_USE_RESPONSE: String = '''
+    {
+      "id": "msg_01Aq9w938a2furi5WAp3rP",
+      "type": "message",
+      "role": "assistant",
+      "model": "claude-opus-4-1-20250805",
+      "content": [
+        { "type": "text", "text": "Let me check the weather." },
+        {
+          "type": "tool_use",
+          "id": "toolu_01A09q90qw90lq917835lq9",
+          "name": "get_weather",
+          "input": { "location": "San Francisco, CA", "unit": "celsius" }
+        }
+      ],
+      "stop_reason": "tool_use",
+      "stop_sequence": null,
+      "usage": {
+        "input_tokens": 472,
+        "output_tokens": 89,
+        "cache_read_input_tokens": 1024
+      }
+    }
+    ''';
+
+/// A thinking block, then a block type these types do not know, then text. The
+/// middle one is the forward-compatibility case: `web_search_tool_result` is real,
+/// carries a nested shape, and is not in `ContentBlock`.
+const EXTENDED_RESPONSE: String = '''
+    {
+      "id": "msg_01WsE4pQ8vNhK2mZ",
+      "type": "message",
+      "role": "assistant",
+      "model": "claude-opus-4-1-20250805",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The user wants today's forecast.",
+          "signature": "ErUBCkYIBxgCIkQ1a2ZvbwpQ"
+        },
+        {
+          "type": "web_search_tool_result",
+          "tool_use_id": "srvtoolu_01Xy",
+          "content": [
+            { "type": "web_search_result", "url": "https://example.com/weather" }
+          ]
+        },
+        { "type": "text", "text": "It will rain." }
+      ],
+      "stop_reason": "a_reason_from_the_future",
+      "usage": { "input_tokens": 12, "output_tokens": 34 }
+    }
+    ''';
+
+/// The smallest body that decodes — the base for the failure cases, which vary one
+/// field each so the assertion is about that field and nothing else.
+const MINIMAL: String =
+    '{"id":"m","role":"assistant","model":"x","content":[],'
+    + '"usage":{"input_tokens":1,"output_tokens":2}}';
+
+// --- helpers ---
+
+fn decode(_ body: String) -> Result<Message, Error> {
+    return Result.Ok(message_from_json(json.parse(body)?)?);
+}
+
+/// The message from a decode that must fail.
+fn decode_error(_ body: String) -> Result<String, Error> {
+    match message_from_json(json.parse(body)?) {
+        Ok(_) => throw error('expected a decode failure, got Ok'),
+        Err(e) => return Result.Ok(e.message()),
+    }
+}
+
+/// The text of content block `i`, or a failure naming what was there instead.
+fn text_at(_ msg: Message, _ i: Int) -> Result<String, Error> {
+    match msg.content[i] {
+        Text(block) => return Result.Ok(block.text),
+        _ => throw error('content[${i}] is not a text block'),
+    }
+}
+
+// --- the happy path ---
+
+@test
+fn decodes_a_text_response() -> Result<Void, Error> {
+    let msg = decode(TEXT_RESPONSE)?;
+    testing.assert_eq(msg.id, 'msg_013Zva2CMHLNnXjNJJKqJ2EF')?;
+    testing.assert_eq(msg.model, 'claude-sonnet-4-5-20250929')?;
+    testing.assert_eq(msg.role, 'assistant')?;
+    testing.assert_eq(msg.content.len(), 1)?;
+    testing.assert_eq(text_at(msg, 0)?, 'Hi! I am Claude.')?;
+    testing.assert_eq(msg.usage.input_tokens, 2095)?;
+    return testing.assert_eq(msg.usage.output_tokens, 503);
+}
+
+@test
+fn a_known_stop_reason_becomes_its_variant() -> Result<Void, Error> {
+    let msg = decode(TEXT_RESPONSE)?;
+    return testing.assert_eq(msg.stop_reason, Option.Some(StopReason.EndTurn));
+}
+
+/// `"stop_sequence": null` is present-and-null, and means the same as absent. The
+/// library cannot tell the two apart (see the notes in decode.thera), so this pins
+/// the behavior rather than the mechanism.
+@test
+fn an_explicit_null_is_none() -> Result<Void, Error> {
+    let msg = decode(TEXT_RESPONSE)?;
+    return testing.assert_eq(msg.stop_sequence, Option.None);
+}
+
+@test
+fn absent_cache_fields_are_none() -> Result<Void, Error> {
+    let msg = decode(TEXT_RESPONSE)?;
+    testing.assert_eq(msg.usage.cache_read_input_tokens, Option.None)?;
+    return testing.assert_eq(msg.usage.cache_creation_input_tokens, Option.None);
+}
+
+@test
+fn a_present_cache_field_is_some() -> Result<Void, Error> {
+    let msg = decode(TOOL_USE_RESPONSE)?;
+    testing.assert_eq(msg.usage.cache_read_input_tokens, Option.Some(1024))?;
+    return testing.assert_eq(msg.usage.cache_creation_input_tokens, Option.None);
+}
+
+/// `input` stays a `Json` because its shape belongs to the tool, not the API — so
+/// the test navigates it the structural way, which is the honest cost of that row
+/// of the mapping table.
+@test
+fn decodes_a_tool_use_block_keeping_input_as_json() -> Result<Void, Error> {
+    let msg = decode(TOOL_USE_RESPONSE)?;
+    testing.assert_eq(msg.content.len(), 2)?;
+    testing.assert_eq(text_at(msg, 0)?, 'Let me check the weather.')?;
+    match msg.content[1] {
+        ToolUse(block) => {
+            testing.assert_eq(block.id, 'toolu_01A09q90qw90lq917835lq9')?;
+            testing.assert_eq(block.name, 'get_weather')?;
+            return testing.assert_eq(
+                block.input.get('location').as_string(),
+                Option.Some('San Francisco, CA'),
+            );
+        },
+        _ => throw error('content[1] is not a tool_use block'),
+    }
+}
+
+@test
+fn decodes_a_thinking_block() -> Result<Void, Error> {
+    let msg = decode(EXTENDED_RESPONSE)?;
+    match msg.content[0] {
+        Thinking(block) => {
+            testing.assert_eq(block.thinking, 'The user wants today\'s forecast.')?;
+            return testing.assert_eq(block.signature, 'ErUBCkYIBxgCIkQ1a2ZvbwpQ');
+        },
+        _ => throw error('content[0] is not a thinking block'),
+    }
+}
+
+// --- forward compatibility (api-access.md item 4) ---
+
+/// The assertion this whole arc most needs to hold: a block type these types have
+/// never heard of decodes, it does not fail, the blocks *around* it still decode,
+/// and the raw value survives so a caller can see what arrived.
+@test
+fn an_unknown_block_type_decodes_rather_than_failing() -> Result<Void, Error> {
+    let msg = decode(EXTENDED_RESPONSE)?;
+    testing.assert_eq(msg.content.len(), 3)?;
+    testing.assert_eq(text_at(msg, 2)?, 'It will rain.')?;
+    match msg.content[1] {
+        Unknown(raw) => {
+            testing.assert_eq(
+                raw.get('type').as_string(),
+                Option.Some('web_search_tool_result'),
+            )?;
+            return testing.assert_eq(
+                raw.get('content').at(0).get('url').as_string(),
+                Option.Some('https://example.com/weather'),
+            );
+        },
+        _ => throw error('content[1] should have decoded as Unknown'),
+    }
+}
+
+@test
+fn an_unknown_stop_reason_keeps_its_tag() -> Result<Void, Error> {
+    let msg = decode(EXTENDED_RESPONSE)?;
+    return testing.assert_eq(
+        msg.stop_reason,
+        Option.Some(StopReason.Unknown('a_reason_from_the_future')),
+    );
+}
+
+/// The other half of the forward-compat rule: tolerating an unknown *tag* is not
+/// tolerating a missing discriminator. Without `type` there is nothing to dispatch
+/// on, so this is a malformed document rather than a new feature.
+@test
+fn a_block_with_no_type_is_an_error() -> Result<Void, Error> {
+    let body = '{"id":"m","role":"assistant","model":"x",'
+        + '"content":[{"text":"hi"}],'
+        + '"usage":{"input_tokens":1,"output_tokens":2}}';
+    return testing.assert_eq(decode_error(body)?, 'missing required field $.content[0].type');
+}
+
+// --- failures name where they happened ---
+
+@test
+fn a_missing_required_field_names_it() -> Result<Void, Error> {
+    let body = '{"role":"assistant","model":"x","content":[],'
+        + '"usage":{"input_tokens":1,"output_tokens":2}}';
+    return testing.assert_eq(decode_error(body)?, 'missing required field $.id');
+}
+
+@test
+fn a_wrong_typed_field_names_the_path_and_both_types() -> Result<Void, Error> {
+    let body = '{"id":7,"role":"assistant","model":"x","content":[],'
+        + '"usage":{"input_tokens":1,"output_tokens":2}}';
+    return testing.assert_eq(decode_error(body)?, 'expected string at $.id, got number');
+}
+
+/// The path has to carry the index, or a failure in a long content list is
+/// unfindable. This is the case that argues loudest in § Findings: the index is
+/// interpolated into a string by hand, one decoder at a time.
+@test
+fn a_failure_inside_the_content_list_carries_the_index() -> Result<Void, Error> {
+    let body = '{"id":"m","role":"assistant","model":"x",'
+        + '"content":[{"type":"text","text":"ok"},{"type":"text","text":7}],'
+        + '"usage":{"input_tokens":1,"output_tokens":2}}';
+    return testing.assert_eq(
+        decode_error(body)?,
+        'expected string at $.content[1].text, got number',
+    );
+}
+
+@test
+fn a_nested_struct_failure_names_the_nesting() -> Result<Void, Error> {
+    let body = '{"id":"m","role":"assistant","model":"x","content":[],'
+        + '"usage":{"input_tokens":"lots","output_tokens":2}}';
+    return testing.assert_eq(
+        decode_error(body)?,
+        'expected number at $.usage.input_tokens, got string',
+    );
+}
+
+@test
+fn a_non_object_root_is_an_error() -> Result<Void, Error> {
+    return testing.assert_eq(decode_error('[1, 2]')?, 'expected object at $, got array');
+}
+
+@test
+fn the_minimal_body_decodes() -> Result<Void, Error> {
+    let msg = decode(MINIMAL)?;
+    testing.assert_eq(msg.content.len(), 0)?;
+    return testing.assert_eq(msg.stop_reason, Option.None);
+}

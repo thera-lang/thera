@@ -118,7 +118,7 @@ jobs:
       matrix:
         include:
           - name: suites
-            groups: frontend stdlib
+            groups: frontend stdlib packages
           - name: spec
             groups: conformance examples
           - name: guards
