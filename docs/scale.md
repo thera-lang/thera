@@ -235,7 +235,15 @@ boundaries.
 **Open questions.** (a) Manifest format and location; (b) is a package a
 directory-library or a coarser grouping of libraries? (c) does `std.*` get
 manifests? (d) relationship to a future third-party package story (don't design
-that here, but don't preclude it).
+that here, but don't preclude it). (e) **a second manifest already wants to
+exist** — [api-access.md](api-access.md) § The manifest needs a
+per-generated-API config file (spec URL, hash pin, selected operations, auth
+technique, per-call overrides), which would sit in the same directory as this
+one with a different lifecycle. Two files rather than one is the current lean,
+since dependencies change when you add a dependency and that one changes when an
+upstream spec moves; but (a) should pick a format both can use. It also notes
+the constraint that there is no `std.toml` yet, so JSON is the only
+hand-editable format Thera reads today.
 
 **Status:** open, deferred behind 1–3.
 

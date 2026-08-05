@@ -40,13 +40,14 @@ products that emit SDKs for a fixed language list, and there is no path to
 getting Thera onto it. What they all _consume_ is OpenAPI. Supporting OpenAPI
 puts Thera downstream of the same artifact that produces the official
 Python/TypeScript SDKs for the APIs we care about. The 2026-08 supply-side
-survey (all fetched and verified, not taken from documentation claims):
+survey (all fetched and verified, not taken from documentation claims; re-run it
+with `dev/spec_survey.py`, which is where every number below comes from):
 
 | API          | Spec                                                      | Version | Size    |
 | ------------ | --------------------------------------------------------- | ------- | ------- |
 | Anthropic    | the URL in `.stats.yml` of the official SDK repos         | 3.1.0   | 1.8 MB  |
 | OpenAI       | `openai/openai-openapi` (officially published)            | 3.1.0   | 2.8 MB  |
-| Gemini       | `generativelanguage.googleapis.com/$discovery/OPENAPI3_0` | 3.0.3   | 460 KB  |
+| Gemini       | `generativelanguage.googleapis.com/$discovery/OPENAPI3_0` | 3.0.3   | 100 KB  |
 | GitHub       | `github/rest-api-description`                             | 3.0.3   | 12.9 MB |
 | Cloudflare   | `cloudflare/api-schemas`                                  | 3.x     | 23 MB   |
 | Vercel       | `openapi.vercel.sh`                                       | 3.x     | 9.8 MB  |
@@ -196,10 +197,14 @@ than assumed:
 
 Anthropic's spec alone contains 928 component schemas with 527 `anyOf`, 238
 `oneOf`, 229 `discriminator`, and 165 `allOf` occurrences — so none of these
-rows is hypothetical, and undiscriminated `anyOf` is still the row that will
-hurt. **Status.** The library is done and the six rows a real response exercises
-are validated; the last three want a schema that uses them, which is Arc 3's
-problem rather than a reason to guess now.
+rows is hypothetical. **But the `anyOf` figure was misleading, and the survey
+caught it:** 480 of those 527 are `anyOf: [T, {type: null}]`, which is 3.1's
+idiomatic spelling of `Option<T>` and not a union at all. Only **47** are
+genuinely untagged, 22 of them unions of `$ref`s. Undiscriminated `anyOf` is a
+real row, but a far smaller one than "527" implied — see § Choosing targets.
+**Status.** The library is done and the six rows a real response exercises are
+validated; the last three want a schema that uses them, which is Arc 3's problem
+rather than a reason to guess now.
 
 ### 4. Forward compatibility — **settled**
 
@@ -372,6 +377,22 @@ generator emits those plus transitively-reachable schemas and nothing else. This
 is Kiota's URI-space-tree design, and it is the single most important structural
 decision in this arc.
 
+**Construct priority, from the survey.** The order to implement in, and the
+evidence for it. Two populations were measured and they disagree, so the order
+is by _slate_ frequency with the population as a tiebreak: the slate is what we
+are actually generating, while the population says what the long tail will need.
+
+| Tier                       | Constructs                                                   | Why                                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — universal**          | `$ref`, `enum`, `format`, `additionalProperties`, `nullable` | Present in nearly every spec in both populations (`$ref` in 163 of 177 sampled 3.x specs, `enum` 150, `format` 148). Nothing works without these.                                                        |
+| **2 — slate-critical**     | `oneOf` + `discriminator`                                    | Dominant in the slate (Anthropic 238/229, OpenAI 266/105) and **near-absent in the population** — `discriminator` appears in 2 of 177 sampled specs. A GenAI/Stainless shape, and our targets are GenAI. |
+| **3 — long-tail-critical** | `allOf` flattening                                           | Only 165 in Anthropic and 40 in OpenAI, but 49 of 177 sampled specs use it, and Cloudflare has 3708. Cheap to defer for the slate, mandatory past it.                                                    |
+| **4 — defer to `Json`**    | untagged `anyOf`, `not`, `patternProperties`                 | 660 untagged `anyOf` across the whole slate, 395 of them Cloudflare's; `not` 7 total; `patternProperties` 1. Below the threshold where a fallback is embarrassing.                                       |
+
+The population sample deliberately **excludes Swagger 2.0** (about 40% of
+APIs.guru): 2.0 is out of scope and has no `oneOf`/`anyOf`/`nullable` at all, so
+leaving it in described a format we are not targeting.
+
 **Pipeline.** Deliberately the same shape as the front-end's own, because it is
 the same kind of program and the pieces already exist:
 
@@ -380,11 +401,108 @@ spec (std.json) → resolve $refs → filter to selected operations
   → API model (operations, schemas) → Thera code model → emit → thera fmt
 ```
 
+**The first arrow is the one open gate.** `std.json` can ingest a spec of any
+size on the slate — 1.4 s for GitHub's 12.9 MB, 2.5 s for Cloudflare's 23.3 MB,
+counts matching a Python reference — so ingestion is not a performance problem.
+But **Anthropic publishes only YAML** (`.yml`; swapping the extension 404s) and
+Thera has no YAML reader. Three ways out, none free: add `std.yaml`; find or
+host a JSON rendition (OpenAI publishes both, Anthropic does not); or convert
+out of band in the manifest step, which breaks the build's no-external-toolchain
+property. It has to be decided before Arc 3 can regenerate its own acceptance
+test.
+
+### The manifest — a config file per generated API
+
 **A manifest per generated client**, checked in: the spec URL, a **content hash
 pin**, the selected operations, and any name overrides. The pin is what makes
 regeneration reproducible and makes an upstream spec change a visible, reviewed
 event rather than a silent drift. It is also the natural place for the
 `.stats.yml` indirection Anthropic requires.
+
+**The survey promoted it from a convenience to a load-bearing input.**
+Everything in the list above is an optimization — you could generate without it,
+just worse. Three of § Choosing targets' findings are not like that: they are
+facts the client does not work without, and the spec cannot state any of them.
+
+| The fact                                                | Why only the manifest can hold it                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| auth is an `x-api-key` request header                   | 4 of 7 slate specs declare no `securitySchemes`; Anthropic's credential appears only in prose and examples                  |
+| `messages_post` can stream, and what arrives if it does | the spec has `stream: boolean` going in and an `application/json`-only 200 coming back — zero occurrences of `event-stream` |
+| which `?beta=true` lane this client is on               | 80 of 89 Anthropic paths exist in both lanes, with the query string inside the _path key_                                   |
+
+Without those three a generated Anthropic client cannot authenticate, cannot
+stream, and emits 120 operations whose URL path contains a literal `?beta=true`.
+So the manifest is on the critical path for target #1, not a hook for edge cases
+later.
+
+**The rule that keeps it from rotting: every assertion is checked against the
+pinned spec, and a stale assertion is a generation error.** If the manifest
+renames an operation the pinned spec no longer has, generation fails loudly. The
+alternative — an override that silently stops applying — is how a manifest
+becomes a patch set nobody trusts: upstream renames something, the override
+no-ops, and the generated surface changes shape on a clean CI run. This is the
+same property the hash pin already buys for the spec, extended to the things
+said _about_ the spec.
+
+**The failure mode to design against** is the manifest becoming a second, worse
+schema language — a fork of upstream's spec in a format with no tooling. The
+test for each proposed knob: **could the spec express this?** If yes, the spec's
+answer wins, or fix it upstream. If no, it belongs here. That admits auth,
+streaming, and lane selection, which OpenAPI genuinely cannot say; it rejects
+"override this field's type because I'd rather it were something else".
+Filtering is the boundary case — the spec _can_ describe the whole surface and
+the manifest is subtracting from it — but that is selection rather than
+contradiction, and the closure numbers (3–18%) make it mandatory.
+
+**Format is open, and constrained.** There is no `std.toml`; the only
+hand-editable format Thera reads today is JSON, and a manifest is exactly the
+file where you want a comment recording _why_ an override exists. Writing
+`std.toml` is the better answer and [scale.md](scale.md) item 4 will want a
+config format too; JSON with a `note` field per override is the cheap fallback.
+Note also that item 4's package manifest and this one would sit in the same
+directory with different lifecycles (dependencies change when you add a
+dependency; this changes when upstream moves), so they should be separate files
+whose formats do not diverge for no reason.
+
+### Hand-written code beside generated code
+
+A generated client will always have a seam the generator cannot reach across —
+the typed event stream is the immediate one, since no spec on the slate
+describes it. So the unit of generation is **files inside an existing directory
+library**, not a directory the generator owns.
+
+Thera already has the seam, and it costs nothing: a directory library exposes
+only what its barrel re-exports, and **the barrel is hand-written**.
+
+```
+pkgs/anthropic/
+  anthropic.thera      hand-written barrel — decides the public surface
+  api.toml             the manifest
+  messages_gen.thera   @generated
+  schemas_gen.thera    @generated
+  streaming.thera      hand-written — the typed event stream no spec describes
+  client.thera         hand-written — auth, base_url, retry
+```
+
+Because the barrel decides the surface, hand-written code can **wrap** generated
+code and expose only the wrapper: the generated `messages_post` returns a
+`Message`, a hand-written `messages_stream` returns an `Iterator<Event>` over
+`sse.events`, and the generated one can stay a private sibling if that reads
+better. No partial classes, no extension points, no merge step.
+
+**One safety rule makes this workable.** Every generated file opens with a
+marker, and the generator **refuses to write a file that exists and does not
+carry it**:
+
+```thera
+// @generated by `thera api` from anthropic@6d5c96a4 — do not edit
+```
+
+That buys three things at once: a hand-written file can never be eaten by a
+regeneration; the CI regenerate-and-diff check gets its file list without the
+manifest having to enumerate one; and review tooling can collapse generated
+diffs. The repo has **no `@generated` convention today**, so this establishes
+one — worth wording deliberately rather than by accident.
 
 **Output is committed, not generated at build time.** This is the opposite of
 [scale.md](scale.md) item 5's decision to reject committed doc artifacts, and
@@ -430,10 +548,13 @@ and the Postman public network are secondary sources.
 1. **Is there an official machine-readable spec?** A near-binary gate and by far
    the biggest discriminator. Vendor-published and hash-pinnable beats
    community-maintained.
-2. **Spec quality**, and this is _measurable_: percentage of operations carrying
-   an `operationId`, schema nesting depth, the `oneOf`/`discriminator`
-   histogram, how often `additionalProperties: true` is used as an escape hatch,
-   whether the document validates at all.
+2. **Spec quality**, and this is _measurable_: schema nesting depth, the
+   `oneOf`/`discriminator` histogram, how often `additionalProperties: true` is
+   used as an escape hatch, whether the document validates at all. ~~percentage
+   of operations carrying an `operationId`~~ — **dropped, on evidence**: it is
+   100% on all seven hand-list APIs, so it discriminates nothing among the
+   candidates that matter. Keep it as a gate for a spec from the long tail, not
+   as a ranking column.
 3. **Filtered surface size** — how many operations does a realistic tool
    actually need? Five, or five hundred?
 4. **Feature demand** — does it require SSE, multipart, websockets, OAuth? Each
@@ -443,26 +564,89 @@ and the Postman public network are secondary sources.
 6. **Auth cost** — bearer/API-key (cheap) < OAuth device flow (moderate) < AWS
    SigV4 (expensive, and Smithy anyway).
 
-**How to actually run it.** A `dev/` script that fetches N specs from APIs.guru
-plus the hand-list and reports, per API: operation count, `operationId`
-coverage, and a histogram of OpenAPI constructs used. That turns criterion 2
-from a judgment call into a column — but the larger payoff is elsewhere: **the
-aggregate construct histogram tells the generator which OpenAPI features to
-implement first, in frequency order.** The survey is simultaneously the target
-ranking and the generator's work-prioritization, which is a good sign it is the
-right artifact to build early. It cheaply doubles as the generator's conformance
-corpus.
+**How to run it — `dev/spec_survey.py`.** It resolves each hand-list URL
+(following Anthropic's `.stats.yml` indirection), caches the specs under
+`build/spec-cache/`, and reports three things: the per-API ranking table, the
+construct histogram, and the transitive schema closure of a named operation set.
+`--guru N` adds a sample of APIs.guru for the population-wide view.
 
-**Initial slate**, subject to that survey:
+### The table
 
-1. **Anthropic** — Arc 2, hand-written.
+Measured 2026-08. `Depth` is maximum schema nesting; `SSE`/`Multipart` are
+whether the spec declares those media types anywhere.
+
+| API        | Version | Size    | Paths | Ops  | Schemas | Depth | SSE | Multipart | Auth declared       |
+| ---------- | ------- | ------- | ----- | ---- | ------- | ----- | --- | --------- | ------------------- |
+| anthropic  | 3.1.0   | 1.8 MB  | 89    | 131  | 928     | 10    | —   | yes       | — (none)            |
+| openai     | 3.1.0   | 2.8 MB  | 182   | 288  | 1394    | 20    | yes | yes       | http/bearer         |
+| gemini     | 3.0.3   | 100 KB  | 16    | 25   | 48      | 8     | —   | —         | — (none)            |
+| github     | 3.0.3   | 12.9 MB | 808   | 1220 | 969     | 20    | —   | —         | — (none)            |
+| cloudflare | 3.0.3   | 23.3 MB | 2039  | 3272 | 6542    | 43    | yes | yes       | apiKey, http/bearer |
+| vercel     | 3.0.3   | 10.0 MB | 272   | 377  | 88      | 35    | —   | —         | http/bearer, oauth2 |
+| fly        | 3.0.1   | 139 KB  | 68    | 98   | 173     | 9     | —   | —         | — (none)            |
+
+`operationId` coverage is **100% on all seven**, which is why criterion 2 lost
+that column. Four of seven declare no `securitySchemes` at all, so **auth is not
+derivable from the spec** for most of the slate — including Anthropic, whose
+`x-api-key` appears only in prose and examples. The generator has to be told.
+
+### What the survey changed
+
+- **Filtering is vindicated with numbers**, not asserted. A realistic
+  three-operation client needs a small fraction of the schemas: **Anthropic 165
+  of 928 (18%)**, Fly 45 of 173 (26%), OpenAI 73 of 1394 (5%), **GitHub 28 of
+  969 (3%)**. Generating GitHub whole would emit 34× the types a pull-request
+  tool needs. `--closure <api>` reproduces this.
+- **Anthropic's `?beta=true` variants are 91% of the paths**, not a footnote: 80
+  of 89 paths and 120 of 131 operations carry `?beta=true` inside the _path
+  key_. A generator that treats path keys as URL paths would emit 120 operations
+  with a literal `?beta=true` in the path, which is wrong — the query string
+  belongs in the query. This is now a gating decision for Arc 3 rather than
+  "something to decide later".
+- **Anthropic does not model streaming at all.** `CreateMessageParams` has a
+  `stream: boolean` property, and the 200 response declares only
+  `application/json` — zero occurrences of `event-stream` in the whole document.
+  So the spec says you may ask for a stream and never says what arrives. **Layer
+  (c), the typed event stream, cannot be generated from the spec**; it has to be
+  hand-written or hand-taught, which retroactively justifies leaving it to
+  Arc 2.
+- **Vercel inlines almost everything**: 88 component schemas for 377 operations,
+  at depth 35. A generator that emits one Thera type per component schema would
+  emit 88 types and have nowhere to put the rest, so most request/response types
+  need _synthesized_ names. Vercel is the specimen for that problem; nothing
+  else in the slate has it.
+- **Two nullability spellings, both in the slate.** 3.0 writes `nullable: true`
+  (GitHub 3955, Cloudflare 2226, Vercel 1977); 3.1 writes
+  `anyOf: [T, {type: null}]` (Anthropic 480, OpenAI 844). They look nothing
+  alike and both mean `Option<T>`. "The reader must accept both" was an abstract
+  claim; this is the concrete form.
+- **`std.json` can ingest these specs.** Parsing the 12.9 MB GitHub document
+  takes **1.4 s** and the 23.3 MB Cloudflare document **2.5 s** on the Tier-0
+  interpreter, with path and schema counts identical to Python's. Arc 3's
+  ingestion is not gated on performance. **It is gated on YAML**: Anthropic
+  publishes only `.yml` (swapping the extension 404s) and Thera has no YAML
+  reader. OpenAI publishes both `openapi.yaml` and `openapi.json`, and the rest
+  of the slate is JSON — so Anthropic is the single spec that needs `std.yaml`,
+  or a converted rendition, or a manifest step that breaks the
+  no-external-toolchain property.
+
+### Slate, unchanged by the survey but better justified
+
+1. **Anthropic** — Arc 2, hand-written. Half done
+   ([typed-json.md](typed-json.md)).
 2. **OpenAI + Gemini** — the first generated clients. Together they prove one
    generator handles three shapes of the same domain, and Gemini is valuably
    _different_: a Google-flavored 3.0.3 document derived from a Discovery
-   service, not a Stainless-shaped 3.1.
-3. **GitHub** — 12.9 MB and 3.0.3. Proves filtering under real load, and is the
-   single most-called API in the CLI-tool domain.
-4. Then whatever the survey ranks.
+   service, not a Stainless-shaped 3.1. Gemini is also the cheapest thing on the
+   slate — 25 operations, 48 schemas, depth 8, no SSE or multipart declared.
+3. **GitHub** — 12.9 MB and 3.0.3. Proves filtering under real load (3%
+   closure), and is the single most-called API in the CLI-tool domain.
+4. **Fly Machines** is the dark-horse fourth: 98 operations, 173 schemas, no
+   `oneOf`/`anyOf`/`discriminator` **at all**, and squarely in the agent domain.
+   It is the one spec on the slate a v1 generator could handle completely.
+5. **Cloudflare last, if ever.** It carries 395 of the slate's 660 untagged
+   `anyOf` and 3708 of its 4008 `allOf`, at depth 43 — most of the hard cases in
+   the whole survey, for an API that is not central to the target domain.
 
 ### MCP is a peer, not a downstream
 
@@ -492,8 +676,11 @@ streaming work, in parallel with Arc 3.
    deliberately left to Arc 2 for exactly that reason. Layers (a) and (b) are
    protocol, not API. Streaming Messages and Arc 1 item 8 (hermetic tests, on
    TLS stage 5) still belong with step 2.
-4. **The spec survey.** Cheap, and it sets Arc 3's construct priority — so it
-   pays for itself before Arc 3 starts rather than after.
+4. ~~**The spec survey.**~~ **Done** — `dev/spec_survey.py`, results in §
+   Choosing targets. It paid for itself as predicted: a construct priority
+   ordered by measured frequency, filtering vindicated with closure numbers, and
+   three things the plan had wrong (the `anyOf` count, Anthropic's `?beta=true`
+   share, and that no spec on the slate models streaming).
 5. **Arc 3 v1**, acceptance-tested by regenerating Anthropic and diffing against
    step 2.
 6. **Second and third targets** — Gemini, then GitHub.
@@ -511,12 +698,22 @@ streaming work, in parallel with Arc 3.
 - ~~**Default arguments vs. an options struct**~~ **Settled: default
   arguments**, with the `Option.Some(…)` tax recorded at item 3's checklist
   entry above.
-- **Undiscriminated `anyOf`** — 527 occurrences in Anthropic's spec alone, and
-  no obvious Thera type. Untagged union decode by trial? A `Json` fallback?
-  Still open: the Messages response does not use one, so the typed-JSON arc
-  could not settle it by hand.
+- **Undiscriminated `anyOf`** — still open, but **measured down from alarming to
+  ordinary**: 47 genuinely untagged occurrences in Anthropic (not 527 — 480 of
+  those are 3.1's `Option<T>` spelling), 50 in OpenAI, 34 in GitHub, 0 in Gemini
+  and Fly. 395 of the slate's 660 are Cloudflare's alone. Untagged union decode
+  by trial? A `Json` fallback? The Messages response uses none, so the
+  typed-JSON arc could not settle it by hand — and at these counts a `Json`
+  fallback may simply be the answer.
 - ~~**Forward-compat `Unknown(Json)`**~~ **Settled: universal, no opt-out** —
   see item 4.
 - **Flat names vs. a resource tree** for generated API surfaces.
+- **The manifest's format** — no `std.toml` exists, JSON has no comments, and a
+  manifest is exactly where the reason for an override belongs. Write
+  `std.toml`, or JSON with a `note` convention? Shared with [scale.md](scale.md)
+  item 4's package manifest, or a separate file? (Separate files, same format,
+  is the current lean.)
+- **The exact `@generated` marker wording**, since it becomes a repo-wide
+  convention the moment the first file carries it.
 - **Does the generator ship as a `thera api` subcommand** (sharing the AST
   printer and formatter with `pkgs/cli`) or as a separate tool?
