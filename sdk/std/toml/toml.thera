@@ -23,10 +23,12 @@
 //! tables only; a key that itself contains a dot (quoted in the source) is
 //! reachable via `as_table` and direct map access.
 //!
-//! Stage 1 of docs/toml.md's plan: scalar values, arrays, inline tables, and
-//! dotted keys, in documents without table headers. `[table]` /
-//! `[[array-of-tables]]` headers arrive in stage 2, date-times in stage 3 —
-//! both are clean parse errors until then, never a misparse.
+//! Stages 1–2 of docs/toml.md's plan: scalar values, arrays, inline tables,
+//! dotted keys, and the full table grammar — `[table]` and
+//! `[[array-of-tables]]` headers with TOML's definition rules (a table is
+//! defined once; dotted keys extend only their own block's tables; inline
+//! tables and static arrays are closed). Date-times arrive in stage 3 — a
+//! clean parse error until then, never a misparse.
 //!
 //! Implementation: a hand-written scanner + recursive-descent parser, pure
 //! Thera, following std.json's.
@@ -220,19 +222,27 @@ struct Parser {
     let len: Int;
 }
 
-/// The separator used to render a key path into the `open` bookkeeping map —
-/// NUL, which no decoded key can contain a run of alongside real segments
+/// The separator used to render a key path into the `states` bookkeeping map
+/// — NUL, which no decoded key can contain a run of alongside real segments
 /// ambiguously enough to collide.
 let path_sep: String = String.from_chars([0]);
 
 pub fn parse(_ text: String) -> Result<Toml, TomlError> {
     let cps = text.chars();
     let p = Parser { chars: cps, pos: 0, len: cps.len() };
-    // The document root, built key by key. `open` records which tables were
-    // created implicitly by dotted keys and may still be extended by later
-    // ones; everything else (a value, an inline table) is closed.
+    // The document root, built line by line. `states` records how each table
+    // was created — 'header' ([a]), 'implicit' (an intermediate of a header
+    // path), 'array' ([[a]]), or 'dotted:<block>' (a dotted key, scoped to
+    // the block that wrote it) — keyed by NUL-joined path. A table with data
+    // but no state is a value's interior (an inline table, a static array's
+    // element): closed to every later definition.
     let mut root: Map<String, Toml> = [:];
-    let mut open: Map<String, Bool> = [:];
+    let mut states: Map<String, String> = [:];
+    // Key/value lines land in the current block: the root until the first
+    // header, then the table (or array element) the latest header named.
+    let mut cur_map = root;
+    let mut cur_path = '';
+    let mut block = 0;
 
     let mut going = true;
     while going {
@@ -245,8 +255,28 @@ pub fn parse(_ text: String) -> Result<Toml, TomlError> {
         } else if c == char.LF || c == char.CR {
             p.expect_newline()?;
         } else if c == char.LBRACKET {
-            return Result.Err(p.syntax(
-                'table headers ([table] / [[array]]) are not supported yet (std.toml stage 2)'));
+            let is_array = p.cp_at(p.pos + 1) == char.LBRACKET;
+            if is_array {
+                p.pos = p.pos + 2;
+            } else {
+                p.pos = p.pos + 1;
+            }
+            let path = p.parse_key()?;
+            if p.peek() != char.RBRACKET {
+                return Result.Err(p.syntax('expected ] to close the table header'));
+            }
+            p.pos = p.pos + 1;
+            if is_array {
+                if p.peek() != char.RBRACKET {
+                    return Result.Err(p.syntax('expected ]] to close the array header'));
+                }
+                p.pos = p.pos + 1;
+            }
+            block = block + 1;
+            let target = p.open_table(root, states, path, is_array)?;
+            cur_map = target.map;
+            cur_path = target.path;
+            p.expect_line_end()?;
         } else {
             let path = p.parse_key()?;
             if p.peek() != char.EQ {
@@ -255,11 +285,19 @@ pub fn parse(_ text: String) -> Result<Toml, TomlError> {
             p.pos = p.pos + 1;
             p.skip_inline_ws();
             let value = p.parse_value()?;
-            p.insert(root, open, '', path, value)?;
+            p.insert(cur_map, states, cur_path, block, path, value)?;
             p.expect_line_end()?;
         }
     }
     return Result.Ok(Toml.Table(root));
+}
+
+/// Where a table header points: the table key/value lines now land in, and
+/// its rendered path (array elements carry their index as a pseudo-segment,
+/// so each `[[a]]` element gets distinct sub-paths in the state map).
+struct BlockTarget {
+    let map: Map<String, Toml>;
+    let path: String;
 }
 
 impl Parser {
@@ -403,20 +441,23 @@ impl Parser {
         return Result.Ok(segs);
     }
 
-    /// Insert `value` at the dotted `path` under `root`, enforcing TOML's
-    /// definition rules: intermediate segments may create tables or descend
-    /// into ones still `open` (created by earlier dotted keys under `prefix`);
-    /// a value, an inline table, or anything else already there is closed.
+    /// Insert `value` at the dotted `path` under the block rooted at `base`
+    /// (whose rendered path is `prefix`), enforcing TOML's dotted-key rules:
+    /// an intermediate segment may create a table, or descend into one that a
+    /// dotted key of the **same block** created. Everything else — a value,
+    /// an inline table, and any table defined by a header or by another
+    /// block's dotted keys — is closed to dotted extension.
     fn insert(
         self,
-        _ root: Map<String, Toml>,
-        _ open: Map<String, Bool>,
+        _ base: Map<String, Toml>,
+        _ states: Map<String, String>,
         _ prefix: String,
+        _ block: Int,
         _ path: List<String>,
         _ value: Toml,
     ) -> Result<Void, TomlError> {
-        let mut cur = root;
-        let mut opened = open;
+        let mut cur = base;
+        let mut marks = states;
         let mut walked = prefix;
         let mut i = 0;
         while i < path.len() - 1 {
@@ -426,20 +467,27 @@ impl Parser {
             if found.is_none() {
                 let child: Map<String, Toml> = [:];
                 cur[seg] = Toml.Table(child);
-                opened[walked] = true;
+                marks[walked] = 'dotted:${block}';
                 cur = child;
             } else {
                 let existing = match found {
                     Some(v) => v,
                     None => Toml.Bool(false), // unreachable: found is Some
                 };
-                if opened.get(walked).is_none() {
-                    if existing.kind() == 'table' {
+                let state = marks.get(walked).unwrap_or('');
+                if state != 'dotted:${block}' {
+                    if state == '' && existing.kind() == 'table' {
                         return Result.Err(self.syntax(
                             'cannot extend inline table ${render_path(path, i)}'));
                     }
+                    if state == '' {
+                        return Result.Err(
+                            self.syntax(
+                                '${render_path(path, i)} is already a ${existing.kind()}, not a table')
+                        );
+                    }
                     return Result.Err(self.syntax(
-                        '${render_path(path, i)} is already a ${existing.kind()}, not a table'));
+                        'dotted keys cannot extend ${render_path(path, i)}, which was defined elsewhere'));
                 }
                 cur = table_of(existing);
             }
@@ -451,6 +499,116 @@ impl Parser {
         }
         cur[leaf] = value;
         return Result.Ok(void);
+    }
+
+    /// Walk a `[table]` / `[[array]]` header path and return the block it
+    /// opens. Intermediates may be created (as 'implicit'), or descended
+    /// through — a header-defined or dotted-defined table directly, an array
+    /// of tables via its last element. The final segment carries the real
+    /// rules: a `[table]` may name a fresh key or promote an 'implicit'
+    /// table, exactly once; a `[[array]]` may name a fresh key or append to
+    /// an existing array of tables. Everything else is a redefinition error.
+    fn open_table(
+        self,
+        _ root: Map<String, Toml>,
+        _ states: Map<String, String>,
+        _ path: List<String>,
+        _ is_array: Bool,
+    ) -> Result<BlockTarget, TomlError> {
+        let mut cur = root;
+        let mut marks = states;
+        let mut walked = '';
+        let mut i = 0;
+        while i < path.len() - 1 {
+            let seg = path[i];
+            walked = '${walked}${path_sep}${seg}';
+            let found = cur.get(seg);
+            if found.is_none() {
+                let child: Map<String, Toml> = [:];
+                cur[seg] = Toml.Table(child);
+                marks[walked] = 'implicit';
+                cur = child;
+            } else {
+                let existing = match found {
+                    Some(v) => v,
+                    None => Toml.Bool(false), // unreachable: found is Some
+                };
+                let state = marks.get(walked).unwrap_or('');
+                if state == '' {
+                    return Result.Err(self.syntax(
+                        '${render_path(path, i)} is already a ${existing.kind()}, not a table'));
+                }
+                if state == 'array' {
+                    // Descend into the last element; its index becomes a
+                    // pseudo-segment so per-element sub-paths stay distinct.
+                    let items = array_of(existing);
+                    let last = items.len() - 1;
+                    cur = table_of(items[last]);
+                    walked = '${walked}${path_sep}#${last}';
+                } else {
+                    cur = table_of(existing); // 'header' / 'implicit' / 'dotted:*'
+                }
+            }
+            i = i + 1;
+        }
+
+        let leaf = path[path.len() - 1];
+        walked = '${walked}${path_sep}${leaf}';
+        let found = cur.get(leaf);
+        let state = marks.get(walked).unwrap_or('');
+        let full = render_path(path, path.len() - 1);
+
+        if is_array {
+            if found.is_none() {
+                let elem: Map<String, Toml> = [:];
+                let items: List<Toml> = [Toml.Table(elem)];
+                cur[leaf] = Toml.Array(items);
+                marks[walked] = 'array';
+                return Result.Ok(BlockTarget { map: elem, path: '${walked}${path_sep}#0' });
+            }
+            if state == 'array' {
+                let existing = match found {
+                    Some(v) => v,
+                    None => Toml.Bool(false), // unreachable: found is Some
+                };
+                let mut items = array_of(existing);
+                let elem: Map<String, Toml> = [:];
+                items.push(Toml.Table(elem));
+                let last = items.len() - 1;
+                return Result.Ok(BlockTarget { map: elem, path: '${walked}${path_sep}#${last}' });
+            }
+            return Result.Err(self.syntax('cannot redefine ${full} as an array of tables'));
+        }
+
+        if found.is_none() {
+            let child: Map<String, Toml> = [:];
+            cur[leaf] = Toml.Table(child);
+            marks[walked] = 'header';
+            return Result.Ok(BlockTarget { map: child, path: walked });
+        }
+        if state == 'implicit' {
+            let existing = match found {
+                Some(v) => v,
+                None => Toml.Bool(false), // unreachable: found is Some
+            };
+            marks[walked] = 'header'; // defining a previously-implicit super-table
+            return Result.Ok(BlockTarget { map: table_of(existing), path: walked });
+        }
+        if state == 'header' {
+            return Result.Err(self.syntax('table ${full} is already defined'));
+        }
+        if state == 'array' {
+            return Result.Err(self.syntax('${full} is already an array of tables'));
+        }
+        if state.starts_with('dotted:') {
+            return Result.Err(self.syntax(
+                'cannot reopen table ${full}, which dotted keys defined'));
+        }
+        let existing = match found {
+            Some(v) => v,
+            None => Toml.Bool(false), // unreachable: found is Some
+        };
+        return Result.Err(self.syntax('${full} is already a ${existing.kind()}, not a table'));
     }
 
     // --- values ---
@@ -545,7 +703,10 @@ impl Parser {
     fn parse_inline_table(self) -> Result<Toml, TomlError> {
         self.pos = self.pos + 1; // consume '{'
         let mut fields: Map<String, Toml> = [:];
-        let mut open: Map<String, Bool> = [:];
+        // A private state map: dotted keys inside the braces share one scope,
+        // and nothing here leaks into the document's states — which is what
+        // keeps an inline table's interior closed to later definitions.
+        let mut states: Map<String, String> = [:];
         self.skip_inline_ws();
         if self.peek() == char.RBRACE {
             self.pos = self.pos + 1;
@@ -560,7 +721,7 @@ impl Parser {
             self.pos = self.pos + 1;
             self.skip_inline_ws();
             let value = self.parse_value()?;
-            self.insert(fields, open, '', path, value)?;
+            self.insert(fields, states, '', 0, path, value)?;
             self.skip_inline_ws();
             let c = self.peek();
             if c == char.COMMA {
@@ -1020,6 +1181,14 @@ fn table_of(_ v: Toml) -> Map<String, Toml> {
     return match v {
         Table(m) => m,
         _ => [:],
+    };
+}
+
+/// The list inside a `Toml.Array` — caller has already established the kind.
+fn array_of(_ v: Toml) -> List<Toml> {
+    return match v {
+        Array(items) => items,
+        _ => [],
     };
 }
 
