@@ -1,0 +1,229 @@
+// The GitHub error model — the "Errors" row of docs/api-access.md Arc 2's checklist,
+// and the first decision `pkgs/anthropic` never had to make, because it never sent a
+// request.
+//
+// Three things are being settled here, and each is a claim a generator will then
+// repeat for every operation it emits.
+//
+// **What an operation's error type is.** `GitHubError` is one enum with a variant per
+// *kind of thing that went wrong*, not per status code. The distinction that matters
+// to a caller is not 404-vs-422, it is "the exchange never happened" (retry the
+// request) vs "the server refused it" (fix the request) vs "we cannot read what came
+// back" (fix the client). Status codes live inside `ApiError`, where a caller that
+// cares can still branch on them.
+//
+// **That the error path must not be able to fail.** `api_error_of` is total: an error
+// body that isn't the documented shape yields an `ApiError` carrying the raw text.
+// A strict decoder here would trade the server's explanation for a complaint about
+// the server's explanation, which is the one place strictness costs more than it buys
+// — and it is why `std.json`'s lenient accessors earn their place beside `Cursor`.
+//
+// **That some refusals are not about the request.** GitHub answers a rate limit with
+// 403 or 429 and puts the actual signal in headers the OpenAPI description does not
+// mention. Nothing in the spec can tell a generator that `403 + x-ratelimit-remaining:
+// 0` is a different event from `403 you may not do that`, so this is exactly the sort
+// of per-API knowledge the manifest has to carry (§ The manifest).
+
+import std.http;
+import std.json;
+
+/// One entry of a validation failure's `errors` array. `code` is the
+/// machine-readable part (`missing_field`, `already_exists`, `invalid`, `custom`);
+/// `message` is what GitHub sends instead when the code is `custom`.
+pub struct FieldError {
+    let resource: Option<String>;
+    let field: Option<String>;
+    let code: String;
+    let message: Option<String>;
+}
+
+impl FieldError {
+    /// The entry as one human-readable clause.
+    pub fn describe(self) -> String {
+        let name = self.field.unwrap_or(self.resource.unwrap_or('request'));
+        return match self.message {
+            Some(m) => '${name}: ${m}',
+            None => '${name}: ${self.code}',
+        };
+    }
+}
+
+/// A request that reached GitHub and was refused: the status, the server's `message`,
+/// and — on a validation failure — which fields it objected to.
+///
+/// `documentation_url` is kept because GitHub sends it and it is the most useful part
+/// of a 403: the difference between "you need a scope" and "this endpoint moved" is
+/// usually only in the link.
+pub struct ApiError {
+    let status: Int;
+    let message: String;
+    let documentation_url: Option<String>;
+    let errors: List<FieldError>;
+}
+
+impl ApiError {
+    /// The refusal as one line: status, message, and the field errors that explain it.
+    /// A 422's `message` is always the useless `Validation Failed`, so dropping the
+    /// `errors` array from the rendering would leave the caller with no idea what was
+    /// wrong.
+    pub fn describe(self) -> String {
+        let head = 'HTTP ${self.status}: ${self.message}';
+        if self.errors.is_empty() {
+            return head;
+        }
+        let clauses: List<String> = [];
+        for e in self.errors {
+            clauses.push(e.describe());
+        }
+        return head + ' (' + clauses.join('; ') + ')';
+    }
+}
+
+/// A refusal that is about *pace* rather than about the request — so the request is
+/// fine and re-sending it later is the correct response, which is the opposite of what
+/// every other 403 means.
+///
+/// Two mechanisms land here. The primary limit publishes a quota in
+/// `x-ratelimit-*` and refuses with 403 once `remaining` hits zero; the secondary
+/// ("abuse detection") limit refuses with 403 or 429 and sends `retry-after`. They
+/// are one variant because a caller does the same thing about both.
+pub struct RateLimit {
+    let message: String;
+    /// The quota per window (`x-ratelimit-limit`).
+    let limit: Option<Int>;
+    /// Requests left in this window (`x-ratelimit-remaining`) — `0` is why we are here.
+    let remaining: Option<Int>;
+    /// Unix seconds at which the window resets (`x-ratelimit-reset`).
+    let reset: Option<Int>;
+    /// Seconds to wait, from `retry-after` — what the secondary limit sends instead.
+    let retry_after: Option<Int>;
+}
+
+impl RateLimit {
+    /// The refusal as one line, including whichever "when to come back" the server
+    /// chose to send.
+    pub fn describe(self) -> String {
+        let head = 'rate limited: ' + self.message;
+        return match self.retry_after {
+            Some(secs) => '${head} (retry after ${secs}s)',
+            None => match self.reset {
+                Some(at) => '${head} (quota resets at unix ${at})',
+                None => head,
+            },
+        };
+    }
+}
+
+/// Why a GitHub call did not produce a value.
+///
+/// One variant per kind of failure, and the ordering is deliberate: the further down,
+/// the more likely the bug is ours rather than the network's or the caller's.
+pub enum GitHubError {
+    /// The exchange never happened — DNS, refused, reset, TLS, a timeout. Carries
+    /// `std.http`'s error unchanged rather than re-describing it, because the
+    /// distinctions it draws (notably `Tls`, which says *do not retry*) are ones a
+    /// caller wants and we would only lose.
+    Transport(http.HttpError),
+    /// Refused for going too fast. See `RateLimit` — the one refusal that is not
+    /// about the request.
+    RateLimited(RateLimit),
+    /// Refused on the merits: a 4xx or 5xx with GitHub's error body.
+    Status(ApiError),
+    /// The exchange happened, the server said yes, and the body was not what we could
+    /// read — not JSON, not UTF-8, or missing a field the types require. The message
+    /// carries the JSON path, so this names the field rather than the file.
+    Body(String),
+}
+
+impl Error for GitHubError {
+    pub fn message(self) -> String {
+        return match self {
+            Transport(e) => e.message(),
+            RateLimited(r) => r.describe(),
+            Status(e) => e.describe(),
+            Body(m) => m,
+        };
+    }
+}
+
+impl Display for GitHubError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+/// Classify a non-2xx response.
+///
+/// The rate-limit test comes first and is deliberately narrow: a 403 is only a rate
+/// limit if the server said so, either by publishing an exhausted quota or by sending
+/// `retry-after`. A plain 403 ("resource not accessible by integration") is a
+/// `Status`, because telling a caller to wait and retry a permission failure would
+/// turn one clear error into an infinite loop.
+pub fn error_of(_ status: Int, _ headers: Map<String, String>, _ body: String) -> GitHubError {
+    if status == 403 || status == 429 {
+        let retry_after = header_int(headers, 'retry-after');
+        let remaining = header_int(headers, 'x-ratelimit-remaining');
+        let throttled = retry_after.is_some() || remaining == Option.Some(0);
+        if throttled {
+            return GitHubError.RateLimited(RateLimit {
+                message: api_error_of(status, body).message,
+                limit: header_int(headers, 'x-ratelimit-limit'),
+                remaining: remaining,
+                reset: header_int(headers, 'x-ratelimit-reset'),
+                retry_after: retry_after,
+            });
+        }
+    }
+    return GitHubError.Status(api_error_of(status, body));
+}
+
+/// Read an error body into an `ApiError`.
+///
+/// **Total by construction** — every path returns a value. That is what the lenient
+/// accessors (`Json.get`, `as_string`) are for: navigation that cannot fail is the
+/// right tool when the alternative to a partial answer is no answer. Where the
+/// success path wants `Cursor` (a missing field is a bug, and its path is the news),
+/// here a missing field just means this server is not sending what the docs say, and
+/// the raw text is still worth handing to the caller.
+pub fn api_error_of(_ status: Int, _ body: String) -> ApiError {
+    let doc = match json.parse(body) {
+        Ok(d) => d,
+        // Not JSON at all — a proxy's HTML error page, or an empty body on a 304.
+        // The status is the whole message in that case.
+        Err(_) => {
+            return ApiError {
+                status: status,
+                message: if body.trim().is_empty() {
+                    http.reason_phrase(status)
+                } else { body.trim() },
+                documentation_url: Option.None,
+                errors: [],
+            };
+        },
+    };
+    let entries: List<FieldError> = [];
+    for entry in doc.get('errors').as_array().unwrap_or([]) {
+        entries.push(FieldError {
+            resource: entry.get('resource').as_string(),
+            field: entry.get('field').as_string(),
+            code: entry.get('code').as_string().unwrap_or('unknown'),
+            message: entry.get('message').as_string(),
+        });
+    }
+    return ApiError {
+        status: status,
+        message: doc.get('message').as_string().unwrap_or(http.reason_phrase(status)),
+        documentation_url: doc.get('documentation_url').as_string(),
+        errors: entries,
+    };
+}
+
+/// A header as an `Int`, absent if unset or unparseable.
+fn header_int(_ headers: Map<String, String>, _ name: String) -> Option<Int> {
+    return http.header(headers, name).and_then(to_int);
+}
+
+/// `String.to_int` as a function value, for `Option.and_then`.
+fn to_int(_ s: String) -> Option<Int> {
+    return s.trim().to_int();
+}

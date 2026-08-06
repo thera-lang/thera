@@ -1,0 +1,338 @@
+// Tests for the client and the error model.
+//
+// Every request goes to *our own server* on a loopback port in the same process — the
+// pattern `sdk/std/http/client_test.thera` established, and the reason `Client` has an
+// overridable `base_url`. So these are not unit tests of a request builder: the bytes
+// go over a socket, GitHub's answers are the ones it really sends, and the assertions
+// are about what a caller gets back.
+//
+// What it cannot prove is that we have GitHub's contract right — a fake GitHub agrees
+// with whatever misreading it was written from. The bodies below are therefore copied
+// from GitHub's documented error shapes rather than invented.
+
+import std.fiber;
+import std.http;
+import std.http.server;
+import std.json;
+import std.net;
+import std.testing;
+
+import 'client' as _;
+import 'errors' as _;
+
+/// Serve `handler` on loopback and return a `Client` pointed at it.
+fn serving(_ handler: (http.Request) -> Result<http.Response, Error>) -> Result<Client, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    fiber.spawn(() => server.serve_listener(listener, handler));
+    return Result.Ok(Client.new(token: Option.Some('ghp_secret'), base_url: 'http://' + addr));
+}
+
+/// A handler that answers every request with `status` and `body`, plus `headers`.
+fn answering(
+    _ status: Int,
+    _ body: String,
+    headers: Map<String, String> = [:],
+) -> (http.Request) -> Result<http.Response, Error> {
+    return (_req) => {
+        let all: Map<String, String> = ['content-type': 'application/json'];
+        for key in headers.keys() {
+            all[key] = headers[key];
+        }
+        return Result.Ok(http.Response { status: status, headers: all, body: body.bytes() });
+    };
+}
+
+/// Echoes the request back as JSON, so a test can assert on what the client sent.
+fn echo(_ req: http.Request) -> Result<http.Response, Error> {
+    let seen: Map<String, json.Json> = [:];
+    for key in req.headers.keys() {
+        seen[key] = json.str(req.headers[key]);
+    }
+    return Result.Ok(server.json(200, json.obj([
+        'method': json.str(req.method),
+        'url': json.str(req.url),
+        'body': json.str(req.body.to_string()?),
+        'headers': json.obj(seen),
+    ])));
+}
+
+/// The client's own view of the echo report — decoded through `decoded`, so the
+/// success path under test is the real one.
+struct Seen {
+    let method: String;
+    let url: String;
+    let body: String;
+    let headers: Map<String, String>;
+}
+
+fn seen_from_json(_ at: json.Cursor) -> Result<Seen, json.DecodeError> {
+    let root = at.object()?;
+    let headers: Map<String, String> = [:];
+    for key in root.field('headers').object()?.value.as_object().unwrap_or([:]).keys() {
+        headers[key] = root.field('headers').field(key).string()?;
+    }
+    return Result.Ok(Seen {
+        method: root.field('method').string()?,
+        url: root.field('url').string()?,
+        body: root.field('body').string()?,
+        headers: headers,
+    });
+}
+
+/// GET `path` on `client` and decode the echo report.
+fn observe(_ client: Client, _ path: String) -> Result<Seen, GitHubError> {
+    let resp = client.request('GET', client.url(path))?;
+    return decoded(resp, seen_from_json);
+}
+
+/// The failure a call produced, or an error if it unexpectedly succeeded.
+fn failure<T>(_ outcome: Result<T, GitHubError>) -> Result<GitHubError, Error> {
+    return match outcome {
+        Ok(_) => Result.Err(error('expected the call to fail')),
+        Err(e) => Result.Ok(e),
+    };
+}
+
+/// Which `GitHubError` variant this is — the coarse classification a caller branches
+/// on, and the thing most of these tests are really asserting.
+fn kind(_ e: GitHubError) -> String {
+    return match e {
+        Transport(_) => 'transport',
+        RateLimited(_) => 'rate-limited',
+        Status(_) => 'status',
+        Body(_) => 'body',
+    };
+}
+
+// --- what goes out ---
+
+/// The four headers the API contract requires, and the credential.
+@test
+fn a_request_carries_the_api_headers() -> Result<Void, Error> {
+    let client = serving(echo)?;
+    let seen = testing.assert_ok(observe(client, '/user'))?;
+    testing.assert_eq(actual: seen.headers['authorization'], expected: 'Bearer ghp_secret')?;
+    testing.assert_eq(actual: seen.headers['accept'], expected: 'application/vnd.github+json')?;
+    testing.assert_eq(actual: seen.headers['x-github-api-version'], expected: '2022-11-28')?;
+    return testing.assert_eq(actual: seen.headers['user-agent'], expected: 'thera-github/0.1');
+}
+
+/// No token, no `authorization` — not an empty one, which GitHub reads as a malformed
+/// credential and answers 401 rather than serving the public read.
+@test
+fn an_unauthenticated_client_sends_no_authorization() -> Result<Void, Error> {
+    let anon = serving(echo)?;
+    let client = Client.new(base_url: anon.base_url);
+    let seen = testing.assert_ok(observe(client, '/user'))?;
+    return testing.assert_eq(actual: seen.headers.has('authorization'), expected: false);
+}
+
+/// A body sets `content-type`; no body does not — a `content-type` on a GET is noise,
+/// and some proxies treat it as a reason to buffer.
+@test
+fn a_json_body_declares_its_content_type() -> Result<Void, Error> {
+    let client = serving(echo)?;
+    let resp = client.request(
+        'POST',
+        client.url('/repos/o/r/issues'),
+        body: Option.Some(json.obj(['title': json.str('hello')])),
+    )?;
+    let seen = testing.assert_ok(decoded(resp, seen_from_json))?;
+    testing.assert_eq(actual: seen.method, expected: 'POST')?;
+    testing.assert_eq(actual: seen.body, expected: '{"title":"hello"}')?;
+    return testing.assert_eq(actual: seen.headers['content-type'], expected: 'application/json');
+}
+
+@test
+fn a_get_sends_no_content_type() -> Result<Void, Error> {
+    let client = serving(echo)?;
+    let seen = testing.assert_ok(observe(client, '/user'))?;
+    return testing.assert_eq(actual: seen.headers.has('content-type'), expected: false);
+}
+
+/// The query string is percent-encoded per RFC 3986 and ordered by the call, so a URL
+/// can be compared as text.
+@test
+fn the_query_string_is_percent_encoded() -> Result<Void, Error> {
+    let client = Client.new();
+    return testing.assert_eq(
+        actual: client.url('/search/issues', query: ['q': 'repo:a/b is:open', 'per_page': '30']),
+        expected: 'https://api.github.com/search/issues?q=repo%3Aa%2Fb%20is%3Aopen&per_page=30',
+    );
+}
+
+/// A base URL with a trailing slash does not produce `//repos`.
+@test
+fn a_trailing_slash_on_the_base_url_is_dropped() -> Result<Void, Error> {
+    let client = Client.new(base_url: 'https://github.example.com/api/v3/');
+    return testing.assert_eq(
+        actual: client.url('/user'),
+        expected: 'https://github.example.com/api/v3/user',
+    );
+}
+
+// --- what comes back: the refusals ---
+
+/// The plainest failure: GitHub's 404 body, decoded.
+@test
+fn a_404_becomes_a_status_error_carrying_the_servers_message() -> Result<Void, Error> {
+    let client = serving(answering(404, '{"message":"Not Found",' +
+        '"documentation_url":"https://docs.github.com/rest"}'))?;
+    let e = failure(observe(client, '/repos/o/nope'))?;
+    testing.assert_eq(actual: kind(e), expected: 'status')?;
+    return testing.assert_eq(actual: e.message(), expected: 'HTTP 404: Not Found');
+}
+
+/// A 422's `message` is always `Validation Failed`, so the `errors` array is the only
+/// part that says what was wrong — and it has to survive into the rendered message.
+@test
+fn a_422_reports_which_fields_were_rejected() -> Result<Void, Error> {
+    let client = serving(answering(422, '{"message":"Validation Failed","errors":[' +
+        '{"resource":"Issue","code":"missing_field","field":"title"},' +
+        '{"resource":"Issue","code":"custom","field":"labels",' +
+        '"message":"labels must be an array"}],' +
+        '"documentation_url":"https://docs.github.com/rest"}'))?;
+    let e = failure(observe(client, '/repos/o/r/issues'))?;
+    testing.assert_eq(actual: kind(e), expected: 'status')?;
+    return testing.assert_eq(
+        actual: e.message(),
+        expected: 'HTTP 422: Validation Failed ' +
+        '(title: missing_field; labels: labels must be an array)',
+    );
+}
+
+/// An exhausted primary quota: 403, and the signal is in a header the OpenAPI
+/// description never mentions.
+@test
+fn a_403_with_no_quota_left_is_a_rate_limit() -> Result<Void, Error> {
+    let client = serving(answering(
+        403,
+        '{"message":"API rate limit exceeded for 1.2.3.4."}',
+        headers: [
+            'x-ratelimit-limit': '60',
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': '1780000000',
+        ],
+    ))?;
+    let e = failure(observe(client, '/user'))?;
+    testing.assert_eq(actual: kind(e), expected: 'rate-limited')?;
+    return testing.assert_eq(
+        actual: e.message(),
+        expected: 'rate limited: API rate limit exceeded for 1.2.3.4. ' +
+        '(quota resets at unix 1780000000)',
+    );
+}
+
+/// The secondary limit: 429 and `retry-after`, which wins over the reset time because
+/// it is the wait the server actually asked for.
+@test
+fn a_429_with_retry_after_is_a_rate_limit() -> Result<Void, Error> {
+    let client = serving(answering(
+        429,
+        '{"message":"You have exceeded a secondary rate limit."}',
+        headers: ['retry-after': '60', 'x-ratelimit-remaining': '42'],
+    ))?;
+    let e = failure(observe(client, '/user'))?;
+    testing.assert_eq(actual: kind(e), expected: 'rate-limited')?;
+    return testing.assert_eq(
+        actual: e.message(),
+        expected: 'rate limited: You have exceeded a secondary rate limit. (retry after 60s)',
+    );
+}
+
+/// The distinction the narrow test buys: a permission 403 is not a rate limit, so
+/// nothing tells the caller to wait and try again forever.
+@test
+fn a_403_that_is_not_about_quota_stays_a_status_error() -> Result<Void, Error> {
+    let client = serving(answering(
+        403,
+        '{"message":"Resource not accessible by integration"}',
+        headers: ['x-ratelimit-remaining': '4999'],
+    ))?;
+    let e = failure(observe(client, '/repos/o/r/pulls'))?;
+    testing.assert_eq(actual: kind(e), expected: 'status')?;
+    return testing.assert_eq(
+        actual: e.message(),
+        expected: 'HTTP 403: Resource not accessible by integration',
+    );
+}
+
+/// The error path is total: an error body that is not JSON still produces the
+/// server's text, because losing the explanation is worse than not parsing it.
+@test
+fn an_error_body_that_is_not_json_keeps_its_text() -> Result<Void, Error> {
+    let client = serving(answering(502, '<html><body>Bad gateway</body></html>'))?;
+    let e = failure(observe(client, '/user'))?;
+    testing.assert_eq(actual: kind(e), expected: 'status')?;
+    return testing.assert_eq(
+        actual: e.message(),
+        expected: 'HTTP 502: <html><body>Bad gateway</body></html>',
+    );
+}
+
+/// And an empty error body falls back to the status's reason phrase, which is the
+/// whole of what the server said.
+@test
+fn an_empty_error_body_falls_back_to_the_reason_phrase() -> Result<Void, Error> {
+    let client = serving(answering(503, ''))?;
+    let e = failure(observe(client, '/user'))?;
+    return testing.assert_eq(actual: e.message(), expected: 'HTTP 503: Service Unavailable');
+}
+
+// --- what comes back: the body we could not read ---
+
+/// A 200 whose body is not JSON — a proxy's interstitial, most often. Distinct from a
+/// refusal, because the fix is different.
+@test
+fn a_successful_response_that_is_not_json_is_a_body_error() -> Result<Void, Error> {
+    let client = serving(answering(200, '<html>hello</html>'))?;
+    let e = failure(observe(client, '/user'))?;
+    testing.assert_eq(actual: kind(e), expected: 'body')?;
+    return testing.assert_eq(
+        actual: e.message().starts_with('response body is not JSON'),
+        expected: true,
+    );
+}
+
+/// A field the types require and the document lacks. The message names the path, which
+/// is the whole point of decoding through `json.Cursor`.
+@test
+fn a_missing_field_is_a_body_error_that_names_the_path() -> Result<Void, Error> {
+    let client = serving(answering(200, '{"method":"GET","url":"/user","headers":{}}'))?;
+    let e = failure(observe(client, '/user'))?;
+    testing.assert_eq(actual: kind(e), expected: 'body')?;
+    return testing.assert_eq(actual: e.message(), expected: 'missing required field $.body');
+}
+
+// --- what comes back: nothing ---
+
+/// A connection that cannot be made is a `Transport`, carrying `std.http`'s error
+/// unchanged — the variant that says the request never happened, so re-sending it is
+/// not a duplicate.
+@test
+fn a_refused_connection_is_a_transport_error() -> Result<Void, Error> {
+    // Bind and immediately drop the listener, so the port is one nothing is serving.
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    listener.close()?;
+    let client = Client.new(base_url: 'http://' + addr);
+    let e = failure(observe(client, '/user'))?;
+    return testing.assert_eq(actual: kind(e), expected: 'transport');
+}
+
+// --- construction ---
+
+/// `from_env` prefers `GITHUB_TOKEN`, falls back to the `gh` CLI's `GH_TOKEN`, and
+/// treats neither being set as an unauthenticated client rather than an error.
+@test
+fn from_env_reads_either_token_variable() -> Result<Void, Error> {
+    let both = from_env(testing.fixed_env(['GITHUB_TOKEN': 'a', 'GH_TOKEN': 'b'], []));
+    testing.assert_eq(actual: both.token, expected: Option.Some('a'))?;
+
+    let fallback = from_env(testing.fixed_env(['GH_TOKEN': 'b'], []));
+    testing.assert_eq(actual: fallback.token, expected: Option.Some('b'))?;
+
+    let anonymous = from_env(testing.fixed_env([:], []));
+    return testing.assert_eq(actual: anonymous.token, expected: Option.None);
+}
