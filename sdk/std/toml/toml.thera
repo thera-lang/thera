@@ -15,21 +15,32 @@
 //! ```
 //!
 //! Unlike JSON there is no null: absence is the only optionality, so every
-//! lenient read is an `Option` and a miss is `None`. (A strict `Cursor` whose
-//! errors name the failing path — the `json.Cursor` counterpart — arrives in a
-//! later stage; see docs/toml.md.)
+//! lenient read is an `Option` and a miss is `None`.
+//!
+//! The strict counterpart is `Cursor` — `json.Cursor`'s mirror, deliberately
+//! name-for-name — for the reader where a wrong shape is a failure that has
+//! to be findable: navigating accumulates a path in TOML's own dotted
+//! spelling, and a failed read names it
+//! (`expected a string at generate.operations[2], got integer`).
+//!
+//! ```thera
+//! let at = toml.cursor(doc);
+//! let url = at.field('spec_url').string()?;          // required
+//! let lane = at.field('generate').field('beta_lane').opt_bool()?;  // absent → None
+//! ```
 //!
 //! `get`'s path splits on `.` before matching, so it addresses bare-keyed
 //! tables only; a key that itself contains a dot (quoted in the source) is
 //! reachable via `as_table` and direct map access.
 //!
-//! The full TOML 1.0.0 grammar (docs/toml.md stages 1–3): scalar values
-//! including the four date-time kinds, arrays, inline tables, dotted keys,
-//! and `[table]` / `[[array-of-tables]]` headers with TOML's definition
-//! rules (a table is defined once; dotted keys extend only their own block's
-//! tables; inline tables and static arrays are closed). Conformance is
-//! pinned by the vendored toml-test snapshot in `testdata/` (see
-//! `conformance_test.thera`).
+//! The full TOML 1.0.0 grammar: scalar values including the four date-time
+//! kinds, arrays, inline tables, dotted keys, and `[table]` /
+//! `[[array-of-tables]]` headers with TOML's definition rules (a table is
+//! defined once; dotted keys extend only their own block's tables; inline
+//! tables and static arrays are closed). Conformance is pinned by the
+//! vendored toml-test snapshot in `third_party/toml-test/` (run by
+//! `conformance_test.thera`). Parse-only until a tool needs to write a
+//! manifest — see docs/stdlib.md § `std.toml`.
 //!
 //! Implementation: a hand-written scanner + recursive-descent parser, pure
 //! Thera, following std.json's.
@@ -231,6 +242,258 @@ impl Toml {
     pub fn get_table(self, _ path: String) -> Option<Map<String, Toml>> {
         return self.get(path).and_then((v) => v.as_table());
     }
+}
+
+// --- the strict reader: Cursor ---
+
+/// What a strict read can reject, distinct from `TomlError` deliberately: a
+/// syntax error is the *document's* failure, a shape mismatch is a
+/// disagreement between the document and the reader's schema — different
+/// problems with different fixes.
+///
+/// Both variants lead with a path, because that is what makes a failure
+/// findable. Build them through `Cursor`'s readers rather than by hand.
+pub enum DecodeError {
+    /// The path of a required key the document does not have.
+    Missing(String),
+    /// A path, what was expected there, and what was found (`Toml.kind()`).
+    Shape(String, String, String),
+}
+
+impl Error for DecodeError {
+    pub fn message(self) -> String {
+        return match self {
+            Missing(path) => 'missing required key ${path}',
+            Shape(path, expected, found) => 'expected ${expected} at ${path}, got ${found}',
+        };
+    }
+}
+
+impl Display for DecodeError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+/// A `Toml` paired with where in the document it came from.
+///
+/// The accessors above (`get`, `get_int`, …) suit a **lenient** reader:
+/// navigation never fails and a miss is `Option.None` — the right reading for
+/// a config consumer with defaults. A manifest reader wants the opposite: a
+/// required key that is absent or the wrong type is an error, and the error
+/// has to name where — as a **path**, in TOML's own dotted spelling, because
+/// that is the line the user typed.
+///
+/// ```thera
+/// fn auth_from_toml(_ at: toml.Cursor) -> Result<Auth, toml.DecodeError> {
+///     return Result.Ok(Auth {
+///         header: at.field('header').string()?,
+///         env: at.field('env').opt_string()?,
+///     });
+/// }
+///
+/// let root = toml.cursor(toml.parse(text)?);
+/// let auth = auth_from_toml(root.field('auth').table()?)?;
+/// ```
+///
+/// **Navigating never fails; reading does.** `field` and `index` always
+/// answer a cursor — for a key the document doesn't have, one at the extended
+/// path marked absent — so a required field is one `?`, at the read, where
+/// the wanted type is known. Chains work the same way:
+/// `at.field('a').field('b').string()?`. A decoder that can be handed a
+/// non-table should open with `let t = at.table()?;`, which validates and
+/// reports `at`'s own path. With no null in TOML, absent is the only thing
+/// the `opt_*` readers tolerate — a present key of the wrong type is always
+/// a `Shape` error.
+pub struct Cursor {
+    let value: Toml;
+    /// Where `value` sits, in TOML's own spelling: `overrides.messages_post`
+    /// or `generate.operations[2]`. Empty for the document root.
+    let path: String;
+    /// False only for a cursor produced by navigating to a key or an index
+    /// the document does not have — what lets a required read say
+    /// `missing required key auth.header` rather than a shape error.
+    let present: Bool;
+}
+
+/// A cursor on `value` as a document root (its path is empty; errors at the
+/// root itself say `the document root`).
+pub fn cursor(_ value: Toml) -> Cursor {
+    return Cursor { value: value, path: '', present: true };
+}
+
+impl Cursor {
+    // --- navigating (never fails) ---
+
+    /// The cursor at `key` of this table — at the extended path, marked
+    /// absent if this is not a table or has no such key.
+    pub fn field(self, _ key: String) -> Cursor {
+        let mut at = key;
+        if self.path != '' {
+            at = '${self.path}.${key}';
+        }
+        return match self.value {
+            Table(fields) => match fields.get(key) {
+                Some(found) => Cursor { value: found, path: at, present: true },
+                None => absent(at),
+            },
+            _ => absent(at),
+        };
+    }
+
+    /// The cursor at element `i` of this array — marked absent if this is
+    /// not an array or `i` is out of range.
+    pub fn index(self, _ i: Int) -> Cursor {
+        let at = '${self.path}[${i}]';
+        return match self.value {
+            Array(items) => match items.get(i) {
+                Some(found) => Cursor { value: found, path: at, present: true },
+                None => absent(at),
+            },
+            _ => absent(at),
+        };
+    }
+
+    // --- reading a required value ---
+
+    pub fn string(self) -> Result<String, DecodeError> {
+        return self.require('a string', self.value.as_string());
+    }
+
+    pub fn int(self) -> Result<Int, DecodeError> {
+        return self.require('an integer', self.value.as_int());
+    }
+
+    pub fn double(self) -> Result<Double, DecodeError> {
+        return self.require('a float', self.value.as_double());
+    }
+
+    pub fn bool(self) -> Result<Bool, DecodeError> {
+        return self.require('a boolean', self.value.as_bool());
+    }
+
+    pub fn datetime(self) -> Result<Datetime, DecodeError> {
+        return self.require('a date-time', self.value.as_datetime());
+    }
+
+    /// This cursor, having checked it holds a table — the shape a decoder
+    /// opens with so that a non-table is blamed on its own path rather than
+    /// on the first field read out of it.
+    pub fn table(self) -> Result<Cursor, DecodeError> {
+        return self.require('a table', self.as_self_if_table());
+    }
+
+    /// The elements of this array, each as a cursor whose path carries its
+    /// index — so a failure deep in a list says `generate.operations[2]`
+    /// without the caller building that string.
+    pub fn list(self) -> Result<List<Cursor>, DecodeError> {
+        return self.require('an array', self.as_element_cursors());
+    }
+
+    /// The value itself, checked only for presence. For a subschema the
+    /// reader does not model, where any TOML is legitimate.
+    pub fn raw(self) -> Result<Toml, DecodeError> {
+        return self.require('a value', Option.Some(self.value));
+    }
+
+    // --- reading an optional value ---
+    //
+    // Absent reads as `Option.None`; a present key of the wrong type is
+    // still a `Shape` error. TOML has no null, so absent is the whole story.
+
+    pub fn opt_string(self) -> Result<Option<String>, DecodeError> {
+        return self.allow('a string', self.value.as_string());
+    }
+
+    pub fn opt_int(self) -> Result<Option<Int>, DecodeError> {
+        return self.allow('an integer', self.value.as_int());
+    }
+
+    pub fn opt_double(self) -> Result<Option<Double>, DecodeError> {
+        return self.allow('a float', self.value.as_double());
+    }
+
+    pub fn opt_bool(self) -> Result<Option<Bool>, DecodeError> {
+        return self.allow('a boolean', self.value.as_bool());
+    }
+
+    pub fn opt_datetime(self) -> Result<Option<Datetime>, DecodeError> {
+        return self.allow('a date-time', self.value.as_datetime());
+    }
+
+    pub fn opt_table(self) -> Result<Option<Cursor>, DecodeError> {
+        return self.allow('a table', self.as_self_if_table());
+    }
+
+    pub fn opt_list(self) -> Result<Option<List<Cursor>>, DecodeError> {
+        return self.allow('an array', self.as_element_cursors());
+    }
+
+    // --- rejecting on your own terms ---
+
+    /// A `Shape` error at this cursor's path, for a check the readers can't
+    /// make: `at.field('spec_hash').unexpected('a 40-char hex digest')`.
+    pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError> {
+        return Result.Err(DecodeError.Shape(self.spot(), expected, self.value.kind()));
+    }
+
+    // --- the two readers everything above shares ---
+
+    /// Absent is `Missing`; the wrong kind is `Shape`; otherwise the value.
+    fn require<T>(self, _ expected: String, _ read: Option<T>) -> Result<T, DecodeError> {
+        if !self.present {
+            return Result.Err(DecodeError.Missing(self.spot()));
+        }
+        return match read {
+            Some(value) => Result.Ok(value),
+            None => self.unexpected(expected),
+        };
+    }
+
+    /// Absent is `None`; the wrong kind is still `Shape`. Tolerating an
+    /// absent key is not tolerating a key of the wrong type — the first is
+    /// the schema saying "optional", the second is a bug in the document.
+    fn allow<T>(self, _ expected: String, _ read: Option<T>) -> Result<Option<T>, DecodeError> {
+        if !self.present {
+            return Result.Ok(Option.None);
+        }
+        return match read {
+            Some(value) => Result.Ok(Option.Some(value)),
+            None => self.unexpected(expected),
+        };
+    }
+
+    /// The path for an error message — the root's empty path made sayable.
+    fn spot(self) -> String {
+        if self.path == '' {
+            return 'the document root';
+        }
+        return self.path;
+    }
+
+    fn as_self_if_table(self) -> Option<Cursor> {
+        return match self.value {
+            Table(_) => Option.Some(self),
+            _ => Option.None,
+        };
+    }
+
+    fn as_element_cursors(self) -> Option<List<Cursor>> {
+        return match self.value {
+            Array(items) => Option.Some(items.enumerate().map((it) => Cursor {
+                value: it.value,
+                path: '${self.path}[${it.index}]',
+                present: true,
+            }).to_list()),
+            _ => Option.None,
+        };
+    }
+}
+
+/// An absent cursor. The placeholder value is unobservable through the
+/// readers — `require`/`allow` answer on `present` before looking at it.
+fn absent(_ path: String) -> Cursor {
+    return Cursor { value: Toml.Bool(false), path: path, present: false };
 }
 
 // --- parsing ---

@@ -1033,6 +1033,19 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **`std.toml` — a durable config format, conformance-pinned** (2026-08). A
+  complete TOML 1.0.0 reader in core, pure Thera, driven by the two manifests
+  that needed it (api-access.md's generator manifest, scale.md item 4's package
+  manifest) — the stdlib's "promote TOML when demand is demonstrated" clause
+  firing as designed. A `Json`-parallel value model with two format-forced
+  deltas (no null; a text-carrying `Datetime` with a `parse_rfc3339` bridge); a
+  path-shaped lenient surface (`get_int('server.port')`) plus a
+  `json.Cursor`-mirrored strict `Cursor` whose errors name TOML-spelled paths;
+  parse-only until a tool writes a manifest. Conformance is measured, not
+  claimed: the official toml-test suite (v2.2.0, all 679 TOML 1.0.0 cases)
+  passes, vendored under the `third_party/` convention this arc introduced.
+  Surface in [stdlib.md](stdlib.md) § `std.toml`; the design doc (docs/toml.md)
+  retired with the arc, per its own plan.
 - **The OpenAPI spec survey — "which API next" is a table now** (2026-08).
   `dev/spec_survey.py` fetches the seven-API hand-list (following Anthropic's
   `.stats.yml` indirection), caches under `build/spec-cache/`, and reports a

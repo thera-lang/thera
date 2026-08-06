@@ -587,3 +587,204 @@ fn test_error_positions() -> Result<Void, Error> {
     testing.assert_eq(actual: msg.contains('line 2'), expected: true)?;
     return Result.Ok(void);
 }
+
+// --- Cursor, the strict reader ---
+
+@test
+fn test_cursor_reads_and_paths() -> Result<Void, Error> {
+    let doc = parse(
+        'name = "x"\nn = 3\nok = true\nrate = 0.5\nwhen = 1979-05-27\n[t]\nlist = [10, 20]\n'
+    )?;
+    let at = cursor(doc);
+    testing.assert_eq(actual: at.field('name').string()?, expected: 'x')?;
+    testing.assert_eq(actual: at.field('n').int()?, expected: 3)?;
+    testing.assert_eq(actual: at.field('ok').bool()?, expected: true)?;
+    testing.assert_eq(actual: at.field('rate').double()?, expected: 0.5)?;
+    testing.assert_eq(actual: at.field('when').datetime()?.text, expected: '1979-05-27')?;
+    testing.assert_eq(actual: at.field('n').double()?, expected: 3.0)?; // Int widens
+    let items = at.field('t').field('list').list()?;
+    testing.assert_eq(actual: items.len(), expected: 2)?;
+    testing.assert_eq(actual: items[1].int()?, expected: 20)?;
+    testing.assert_eq(actual: items[1].path, expected: 't.list[1]')?;
+    testing.assert_eq(actual: at.field('t').table()?.field('list').path, expected: 't.list')?;
+    testing.assert_eq(actual: at.field('n').raw()?.kind(), expected: 'integer')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_cursor_errors_name_paths() -> Result<Void, Error> {
+    let doc = parse('[server]\nhost = "x"\nports = [1, "two"]\n')?;
+    let at = cursor(doc);
+    // A missing required key is Missing, with the full path.
+    let missing = at.field('server').field('port').int();
+    testing.assert_eq(
+        actual: decode_msg(missing.map((n) => '${n}')),
+        expected: 'missing required key server.port',
+    )?;
+    // A wrong type is Shape: path, expected, found.
+    let shape = at.field('server').field('host').int();
+    testing.assert_eq(
+        actual: decode_msg(shape.map((n) => '${n}')),
+        expected: 'expected an integer at server.host, got string',
+    )?;
+    let deep = at.field('server').field('ports').list()?[1].int();
+    testing.assert_eq(
+        actual: decode_msg(deep.map((n) => '${n}')),
+        expected: 'expected an integer at server.ports[1], got string',
+    )?;
+    // Navigating through a non-table marks absent rather than failing early.
+    let through = at.field('server').field('host').field('deep').string();
+    testing.assert_eq(
+        actual: decode_msg(through),
+        expected: 'missing required key server.host.deep',
+    )?;
+    // An error at the root itself still has something to say.
+    let root_err = cursor(Toml.Int(1)).table();
+    testing.assert_eq(actual: root_err.is_err(), expected: true)?;
+    let root_msg = match cursor(Toml.Int(1)).string() {
+        Ok(_) => '',
+        Err(e) => e.message(),
+    };
+    testing.assert_eq(
+        actual: root_msg,
+        expected: 'expected a string at the document root, got integer',
+    )?;
+    return Result.Ok(void);
+}
+
+fn decode_msg(_ r: Result<String, DecodeError>) -> String {
+    return match r {
+        Ok(v) => 'ok: ${v}',
+        Err(e) => e.message(),
+    };
+}
+
+@test
+fn test_cursor_optional_reads() -> Result<Void, Error> {
+    let doc = parse('a = 1\n[t]\nx = "s"\n')?;
+    let at = cursor(doc);
+    // Absent is None, at any depth.
+    testing.assert_eq(actual: at.field('missing').opt_int()?, expected: Option.None)?;
+    testing.assert_eq(actual: at.field('t').field('y').opt_string()?, expected: Option.None)?;
+    testing.assert_eq(actual: at.field('t').field('y').opt_table()?.is_none(), expected: true)?;
+    testing.assert_eq(actual: at.field('t').field('y').opt_list()?.is_none(), expected: true)?;
+    testing.assert_eq(actual: at.field('t').field('y').opt_datetime()?.is_none(), expected: true)?;
+    // Present is Some.
+    testing.assert_eq(actual: at.field('a').opt_int()?, expected: Option.Some(1))?;
+    // Present with the wrong type is a Shape error, not None.
+    testing.assert_err(at.field('t').field('x').opt_int())?;
+    // unexpected() rejects at the cursor's path on the caller's terms.
+    let custom: Result<Int, DecodeError> = at.field('a').unexpected('a semver string');
+    testing.assert_eq(
+        actual: decode_msg(custom.map((n) => '${n}')),
+        expected: 'expected a semver string at a, got integer',
+    )?;
+    return Result.Ok(void);
+}
+
+// --- the forcing function: decode a realistic api.toml into typed structs ---
+//
+// The manifest shape is api-access.md § The manifest: spec URL + content-hash
+// pin, the selected operations, auth (which the spec cannot state), the beta
+// lane, and per-operation overrides each carrying its why.
+
+struct ApiAuth {
+    let header: String;
+    let env: Option<String>;
+}
+
+struct ApiOverride {
+    let operation: String;
+    let name: String;
+    let note: Option<String>;
+}
+
+struct ApiManifest {
+    let spec_url: String;
+    let spec_hash: String;
+    let operations: List<String>;
+    let beta_lane: Bool;
+    let auth: ApiAuth;
+    let overrides: List<ApiOverride>;
+}
+
+fn manifest_from_toml(_ at: Cursor) -> Result<ApiManifest, DecodeError> {
+    let root = at.table()?;
+    let mut operations: List<String> = [];
+    for op in root.field('generate').field('operations').list()? {
+        operations.push(op.string()?);
+    }
+    let auth_at = root.field('auth').table()?;
+    let auth = ApiAuth {
+        header: auth_at.field('header').string()?,
+        env: auth_at.field('env').opt_string()?,
+    };
+    let mut overrides: List<ApiOverride> = [];
+    let overrides_table = root.field('overrides').opt_table()?;
+    if overrides_table.is_some() {
+        let ot = match overrides_table {
+            Some(c) => c,
+            None => root, // unreachable: checked is_some
+        };
+        let names = match ot.raw()?.as_table() {
+            Some(m) => m.keys(),
+            None => [],
+        };
+        for op_name in names {
+            let entry = ot.field(op_name).table()?;
+            overrides.push(ApiOverride {
+                operation: op_name,
+                name: entry.field('name').string()?,
+                note: entry.field('note').opt_string()?,
+            });
+        }
+    }
+    return Result.Ok(ApiManifest {
+        spec_url: root.field('spec_url').string()?,
+        spec_hash: root.field('spec_hash').string()?,
+        operations: operations,
+        beta_lane: root.field('generate').field('beta_lane').opt_bool()?.unwrap_or(false),
+        auth: auth,
+        overrides: overrides,
+    });
+}
+
+let api_toml: String = '# Generated-client manifest for pkgs/anthropic.\nspec_url = "https://raw.githubusercontent.com/anthropics/anthropic-sdk-python/main/.stats.yml"\nspec_hash = "6d5c96a4e77e63d5302e630e2d9dd7fc"\n\n[generate]\noperations = [\n  "messages_post",              # the flagship call\n  "messages_count_tokens_post",\n  "models_list",\n]\n\n[auth]\nheader = "x-api-key"            # 4 of 7 slate specs declare no securitySchemes\nenv = "ANTHROPIC_API_KEY"\n\n[overrides.messages_post]\nname = "create_message"\nnote = "matches the hand-written client"\n';
+
+@test
+fn test_manifest_forcing_function() -> Result<Void, Error> {
+    let doc = parse(api_toml)?;
+    let m = manifest_from_toml(cursor(doc))?;
+    testing.assert_eq(actual: m.spec_hash, expected: '6d5c96a4e77e63d5302e630e2d9dd7fc')?;
+    testing.assert_eq(actual: m.operations.len(), expected: 3)?;
+    testing.assert_eq(actual: m.operations[2], expected: 'models_list')?;
+    testing.assert_eq(actual: m.beta_lane, expected: false)?; // absent → the default
+    testing.assert_eq(actual: m.auth.header, expected: 'x-api-key')?;
+    testing.assert_eq(actual: m.auth.env, expected: Option.Some('ANTHROPIC_API_KEY'))?;
+    testing.assert_eq(actual: m.overrides.len(), expected: 1)?;
+    testing.assert_eq(actual: m.overrides[0].operation, expected: 'messages_post')?;
+    testing.assert_eq(actual: m.overrides[0].name, expected: 'create_message')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_manifest_typo_is_findable() -> Result<Void, Error> {
+    // The manifest case this reader exists for: a typo fails with the path.
+    let missing = parse(api_toml.replace('spec_hash', 'spec_hsah'))?;
+    let e1 = match manifest_from_toml(cursor(missing)) {
+        Ok(_) => '',
+        Err(e) => e.message(),
+    };
+    testing.assert_eq(actual: e1, expected: 'missing required key spec_hash')?;
+
+    let wrong = parse(api_toml.replace('"models_list"', '3'))?;
+    let e2 = match manifest_from_toml(cursor(wrong)) {
+        Ok(_) => '',
+        Err(e) => e.message(),
+    };
+    testing.assert_eq(
+        actual: e2,
+        expected: 'expected a string at generate.operations[2], got integer',
+    )?;
+    return Result.Ok(void);
+}

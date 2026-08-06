@@ -454,15 +454,18 @@ Filtering is the boundary case — the spec _can_ describe the whole surface and
 the manifest is subtracting from it — but that is selection rather than
 contradiction, and the closure numbers (3–18%) make it mandatory.
 
-**Format is open, and constrained.** There is no `std.toml`; the only
-hand-editable format Thera reads today is JSON, and a manifest is exactly the
-file where you want a comment recording _why_ an override exists. Writing
-`std.toml` is the better answer and [scale.md](scale.md) item 4 will want a
-config format too; JSON with a `note` field per override is the cheap fallback.
-Note also that item 4's package manifest and this one would sit in the same
+**Format: settled — TOML, and `std.toml` exists** (2026-08; surface in
+[stdlib.md](stdlib.md) § `std.toml`). The manifest is `api.toml`: a complete,
+conformance-pinned TOML 1.0.0 reader is in core, with a strict `Cursor` whose
+errors name TOML-spelled paths — built for exactly this file, and its decode was
+validated against a realistic `api.toml` (spec URL, hash pin, operations, auth,
+overrides-with-notes) as the arc's forcing-function test
+(`sdk/std/toml/toml_test.thera` § the manifest tests). Comments — the reason
+TOML won over JSON — hold the _why_ beside each override. [scale.md](scale.md)
+item 4's package manifest uses the same format: the two sit in the same
 directory with different lifecycles (dependencies change when you add a
-dependency; this changes when upstream moves), so they should be separate files
-whose formats do not diverge for no reason.
+dependency; this changes when upstream moves), so they stay separate files whose
+formats do not diverge.
 
 ### Hand-written code beside generated code
 
@@ -708,11 +711,9 @@ streaming work, in parallel with Arc 3.
 - ~~**Forward-compat `Unknown(Json)`**~~ **Settled: universal, no opt-out** —
   see item 4.
 - **Flat names vs. a resource tree** for generated API surfaces.
-- **The manifest's format** — no `std.toml` exists, JSON has no comments, and a
-  manifest is exactly where the reason for an override belongs. Write
-  `std.toml`, or JSON with a `note` convention? Shared with [scale.md](scale.md)
-  item 4's package manifest, or a separate file? (Separate files, same format,
-  is the current lean.)
+- ~~**The manifest's format**~~ **Settled: TOML — `std.toml` is core and
+  conformance-pinned** ([stdlib.md](stdlib.md) § `std.toml`), and the answer to
+  sharing is separate files, same format. See § The manifest.
 - **The exact `@generated` marker wording**, since it becomes a repo-wide
   convention the moment the first file carries it.
 - **Does the generator ship as a `thera api` subcommand** (sharing the AST
