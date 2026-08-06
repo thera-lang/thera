@@ -1,0 +1,156 @@
+// Pagination — the checklist row Anthropic could not reach, because Messages returns
+// one object and never a list.
+//
+// GitHub paginates with `?per_page=&page=` and answers with a `Link` header holding the
+// URLs of the neighbouring pages. That is the shape worth designing for, because it is
+// the common one (RFC 8288, and the same mechanism Gemini and Cloudflare use with
+// different spelling): **the server hands you the next URL**, so a client that
+// reconstructs it from a page number is doing arithmetic it was told the answer to.
+//
+// Two decisions here, and the second one is the interesting one.
+//
+// **A `Page<T>` carries its own decoder and its own client**, so `page.next()` takes no
+// arguments. The alternative — a plain `{items, next_url}` and a caller who re-supplies
+// the element decoder — makes the caller hold something the operation already knew, and
+// makes a generic "walk every page" helper impossible to write. It costs `Page` its
+// purity: it is a cursor, not a record. That is the right trade for a type whose whole
+// purpose is to be followed.
+//
+// **`all()` is bounded by default.** Following a `Link` chain is unbounded network I/O
+// behind a method call, and a repository with fifty thousand pull requests will happily
+// give you all of them. A `max_pages` default of 10 means the convenience cannot
+// silently become an outage; a caller who wants the whole history says so, and says it
+// in the code where someone can see it.
+
+import std.http;
+import std.json;
+
+import 'client' as _;
+import 'errors' as _;
+import 'types' as _;
+
+/// One page of a list response, and the means to get the next one.
+pub struct Page<T> {
+    let items: List<T>;
+    /// The next page's URL, from `Link`'s `rel="next"` — absent on the last page.
+    let next_url: Option<String>;
+    let client: Client;
+    /// The element decoder, carried so a page can fetch its successor without the
+    /// caller re-supplying what the operation already knew.
+    let decode: (json.Cursor) -> Result<T, json.DecodeError>;
+}
+
+impl Page<T> {
+    /// Whether the server offered a next page.
+    pub fn has_next(self) -> Bool {
+        return self.next_url.is_some();
+    }
+
+    /// The next page, or `None` if this is the last one.
+    ///
+    /// `Result<Option<Page<T>>, …>` rather than `Option<Result<…>>`: "there is no next
+    /// page" is an answer, and "I could not find out" is a failure, so the failure is
+    /// the outer layer. A `while let Some(p) = page.next()?` loop reads correctly and
+    /// stops for the right reason.
+    pub fn next(self) -> Result<Option<Page<T>>, GitHubError> {
+        let url = match self.next_url {
+            Some(u) => u,
+            None => {
+                return Result.Ok(Option.None);
+            },
+        };
+        let resp = self.client.request('GET', url)?;
+        return match page_of(self.client, resp, self.decode) {
+            Ok(page) => Result.Ok(Option.Some(page)),
+            Err(e) => Result.Err(e),
+        };
+    }
+
+    /// Every item from this page onward, following `Link` until the end — or until
+    /// `max_pages` pages have been fetched, **counting this one**.
+    ///
+    /// The bound is not paranoia: at `per_page: 100` the default still reaches a
+    /// thousand items, and the alternative is a method call that can run for an hour.
+    /// Raise it deliberately.
+    pub fn all(self, max_pages: Int = 10) -> Result<List<T>, GitHubError> {
+        let items: List<T> = [];
+        for item in self.items {
+            items.push(item);
+        }
+        let mut current = self;
+        let mut fetched = 1;
+        while fetched < max_pages {
+            match current.next()? {
+                Some(page) => {
+                    for item in page.items {
+                        items.push(item);
+                    }
+                    current = page;
+                    fetched = fetched + 1;
+                },
+                None => {
+                    return Result.Ok(items);
+                },
+            }
+        }
+        return Result.Ok(items);
+    }
+}
+
+/// A page from a list response: decode the array, and read the `Link` header.
+pub fn page_of<T>(
+    _ client: Client,
+    _ resp: http.Response,
+    _ decode: (json.Cursor) -> Result<T, json.DecodeError>,
+) -> Result<Page<T>, GitHubError> {
+    let items = decoded(resp, (at) => each(at, decode))?;
+    return Result.Ok(Page {
+        items: items,
+        next_url: next_link(resp.headers),
+        client: client,
+        decode: decode,
+    });
+}
+
+/// The `rel="next"` URL from a `Link` header, if there is one.
+///
+/// ```
+/// Link: <https://api.github.com/repos/o/r/pulls?page=2>; rel="next",
+///       <https://api.github.com/repos/o/r/pulls?page=9>; rel="last"
+/// ```
+///
+/// Splitting on `,` is not a general RFC 8288 parse — a comma inside a quoted parameter
+/// value would break it. GitHub sends URLs and `rel`s and nothing else, and the failure
+/// mode of getting it wrong is a missed page rather than a wrong one, so this is the
+/// version that fits in a paragraph. A real `Link` parser belongs in `std.http` if
+/// anything ever needs one.
+pub fn next_link(_ headers: Map<String, String>) -> Option<String> {
+    let value = match http.header(headers, 'link') {
+        Some(v) => v,
+        None => {
+            return Option.None;
+        },
+    };
+    for entry in value.split(',') {
+        let segments = entry.split(';');
+        let mut is_next = false;
+        for segment in segments.enumerate() {
+            // Skip index 0: that is the `<url>`, not a parameter. Both the quoted and
+            // bare forms of `rel` are legal (RFC 8288 §3), and GitHub sends the quoted
+            // one — but a proxy that rewrites the header may not.
+            if segment.index > 0 {
+                let param = segment.value.trim();
+                if param == 'rel="next"' || param == 'rel=next' {
+                    is_next = true;
+                }
+            }
+        }
+        if is_next {
+            let target = segments[0].trim();
+            if target.starts_with('<') && target.ends_with('>') {
+                return Option.Some(target.slice(1, target.len() - 1));
+            }
+        }
+    }
+    return Option.None;
+}

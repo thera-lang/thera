@@ -1,0 +1,388 @@
+// Tests for the operations and for pagination.
+//
+// Same hermetic loop as `client_test.thera` — a fake GitHub on a loopback port — but the
+// handlers here route on the request target, because the thing under test is a client
+// that *follows* what the server tells it. A pagination test whose second page is a
+// fixture rather than a fetch would not be testing pagination.
+
+import std.fiber;
+import std.http;
+import std.http.server;
+import std.net;
+import std.testing;
+
+import 'client' as _;
+import 'issues' as _;
+import 'pagination' as _;
+// Nothing here names `Pulls`, but this import is what makes `client.pulls()` resolve —
+// the accessor is an `impl Client` block over in `pulls.thera`.
+import 'pulls' as _;
+
+// --- harness ---
+
+/// The fake GitHub's state: every request target it answered, and its own base URL.
+///
+/// `base` is `mut` and filled in by `serving`, because a handler that emits a `Link`
+/// header has to point it back at us and the port is only known after the bind. The
+/// obvious spelling is a handler *factory* — `(String) -> ((Request) -> Response)` — and
+/// it cannot be written: a parenthesised function type is a parse error, and without the
+/// parentheses the nested result does not reach the inner lambda's inference. Function
+/// types do not nest, so the state goes in a struct instead.
+struct Fake {
+    let mut base: String;
+    let seen: List<String>;
+}
+
+fn fake() -> Fake {
+    return Fake { base: '', seen: [] };
+}
+
+/// Serve `handler` on loopback, filling in `state.base` before any request can arrive.
+fn serving(
+    _ state: Fake,
+    _ handler: (http.Request) -> Result<http.Response, Error>,
+) -> Result<Client, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    state.base = 'http://' + addr;
+    fiber.spawn(() => server.serve_listener(listener, handler));
+    return Result.Ok(Client.new(token: Option.Some('ghp_secret'), base_url: state.base));
+}
+
+/// A minimal pull request, as JSON, with `number` the only thing that varies.
+fn pr_json(_ number: Int) -> String {
+    return '{"number": ${number}, "title": "PR ${number}", "state": "open", ' +
+        '"body": null, "user": null, ' +
+        '"head": {"label": "o:f", "ref": "f", "sha": "abc"}, ' +
+        '"base": {"label": "o:main", "ref": "main", "sha": "def"}, ' +
+        '"labels": [], "created_at": "2026-08-06T02:00:00Z", ' +
+        '"updated_at": "2026-08-06T02:00:00Z", "closed_at": null, "merged_at": null, ' +
+        '"merge_commit_sha": null, "html_url": "https://github.com/o/r/pull/${number}"}';
+}
+
+fn issue_json(_ number: Int) -> String {
+    return '{"number": ${number}, "title": "Issue ${number}", "state": "open", ' +
+        '"body": null, "user": null, "assignee": null, "labels": ["bug"], ' +
+        '"created_at": "2026-08-06T02:00:00Z", "updated_at": "2026-08-06T02:00:00Z", ' +
+        '"closed_at": null, "html_url": "https://github.com/o/r/issues/${number}"}';
+}
+
+fn json_response(
+    _ status: Int,
+    _ body: String,
+    link: Option<String> = Option.None,
+) -> http.Response {
+    let headers: Map<String, String> = ['content-type': 'application/json'];
+    if let Some(value) = link {
+        headers['link'] = value;
+    }
+    return http.Response { status: status, headers: headers, body: body.bytes() };
+}
+
+// --- what a list call sends ---
+
+/// The URL a default `list` call builds: the spec's documented defaults, sent
+/// explicitly, in the order the call names them.
+@test
+fn list_builds_the_documented_query() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        log.seen.push(req.url);
+        return Result.Ok(json_response(200, '[]'));
+    })?;
+    let _ = testing.assert_ok(client.pulls().list(owner: 'thera-lang', repo: 'thera'))?;
+    return testing.assert_eq(
+        actual: log.seen[0],
+        expected: '/repos/thera-lang/thera/pulls?state=open&sort=created&per_page=30&page=1',
+    );
+}
+
+/// An optional parameter that was not passed does not appear at all — the query-string
+/// half of `omit_nulls`, and the reason `params` exists.
+@test
+fn an_unpassed_optional_parameter_is_absent() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        log.seen.push(req.url);
+        return Result.Ok(json_response(200, '[]'));
+    })?;
+    let _ = testing.assert_ok(client.pulls().list(
+        owner: 'o',
+        repo: 'r',
+        state: 'all',
+        base: Option.Some('main'),
+        per_page: 100,
+    ))?;
+    // `head` and `direction` were not passed, so they are not in the URL; `base` was.
+    return testing.assert_eq(
+        actual: log.seen[0],
+        expected: '/repos/o/r/pulls?state=all&base=main&sort=created&per_page=100&page=1',
+    );
+}
+
+/// Path segments are interpolated, and a repository name needing escapes is not this
+/// client's problem — GitHub owner/repo names are already restricted to the unreserved
+/// set. The assertion is that the path is *not* double-encoded.
+@test
+fn the_path_carries_owner_and_repo() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        log.seen.push(req.url);
+        return Result.Ok(json_response(200, '[]'));
+    })?;
+    let _ = testing.assert_ok(client.pulls().list(owner: 'thera-lang', repo: 'thera.dev'))?;
+    return testing.assert_eq(
+        actual: log.seen[0].starts_with('/repos/thera-lang/thera.dev/pulls?'),
+        expected: true,
+    );
+}
+
+// --- what a list call decodes ---
+
+@test
+fn list_decodes_a_page_of_pull_requests() -> Result<Void, Error> {
+    let client = serving(fake(), (_req) => Result.Ok(json_response(
+        200,
+        '[' + pr_json(1) + ',' + pr_json(2) + ']',
+    )))?;
+    let page = testing.assert_ok(client.pulls().list(owner: 'o', repo: 'r'))?;
+    testing.assert_eq(actual: page.items.len(), expected: 2)?;
+    testing.assert_eq(actual: page.items[0].number, expected: 1)?;
+    testing.assert_eq(actual: page.items[1].title, expected: 'PR 2')?;
+    return testing.assert_eq(actual: page.has_next(), expected: false);
+}
+
+/// An empty list is a page, not an absence.
+@test
+fn an_empty_list_is_an_empty_page() -> Result<Void, Error> {
+    let client = serving(fake(), (_req) => Result.Ok(json_response(200, '[]')))?;
+    let page = testing.assert_ok(client.pulls().list(owner: 'o', repo: 'r'))?;
+    testing.assert_eq(actual: page.items.is_empty(), expected: true)?;
+    return testing.assert_eq(actual: page.has_next(), expected: false);
+}
+
+/// One malformed element fails the whole page, naming its index — the array position is
+/// carried by the path, which is what makes a bad element findable in a 100-item page.
+@test
+fn a_malformed_element_names_its_index() -> Result<Void, Error> {
+    let client = serving(fake(), (_req) => Result.Ok(json_response(
+        200,
+        '[' + pr_json(1) + ',{"number": 2}]',
+    )))?;
+    let outcome = client.pulls().list(owner: 'o', repo: 'r');
+    let message = match outcome {
+        Ok(_) => 'unexpectedly succeeded',
+        Err(e) => e.message(),
+    };
+    return testing.assert_eq(actual: message, expected: 'missing required field $[1].title');
+}
+
+// --- following the Link header ---
+
+/// A two-page walk. The second request's URL is the one the *server* supplied, not one
+/// the client computed — including its query string, which is why the handler asserts on
+/// it rather than on a page number.
+@test
+fn next_follows_the_link_header() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        log.seen.push(req.url);
+        if req.url.contains('cursor=second') {
+            return Result.Ok(json_response(200, '[' + pr_json(3) + ']'));
+        }
+        return Result.Ok(json_response(
+            200,
+            '[' + pr_json(1) + ',' + pr_json(2) + ']',
+            link: Option.Some('<${log.base}/x?cursor=second>; rel="next", ' +
+                '<${log.base}/x?cursor=last>; rel="last"'),
+        ));
+    })?;
+    let first = testing.assert_ok(client.pulls().list(owner: 'o', repo: 'r'))?;
+    testing.assert_eq(actual: first.has_next(), expected: true)?;
+
+    let second = testing.assert_ok(first.next())?;
+    let page = testing.assert_ok(second.ok_or(error('expected a second page')))?;
+    testing.assert_eq(actual: page.items.len(), expected: 1)?;
+    testing.assert_eq(actual: page.items[0].number, expected: 3)?;
+    testing.assert_eq(actual: page.has_next(), expected: false)?;
+    // The client sent the server's URL back verbatim, path and query alike.
+    return testing.assert_eq(actual: log.seen[1], expected: '/x?cursor=second');
+}
+
+/// The last page's `next()` is `Ok(None)` — an answer, not a failure.
+@test
+fn next_on_the_last_page_is_none() -> Result<Void, Error> {
+    let client = serving(fake(), (_req) => Result.Ok(json_response(200, '[' + pr_json(1) + ']')))?;
+    let page = testing.assert_ok(client.pulls().list(owner: 'o', repo: 'r'))?;
+    let following = testing.assert_ok(page.next())?;
+    return testing.assert_eq(actual: following.is_none(), expected: true);
+}
+
+/// A `Link` header with neighbours but no `next` — the common shape of the last page of
+/// a multi-page result, and the one a naive `contains('rel=')` would get wrong.
+@test
+fn a_link_header_without_a_next_offers_no_next_page() -> Result<Void, Error> {
+    let client = serving(fake(), (_req) => Result.Ok(json_response(
+        200,
+        '[' + pr_json(9) + ']',
+        link: Option.Some('<http://h/x?page=1>; rel="prev", <http://h/x?page=1>; rel="first"'),
+    )))?;
+    let page = testing.assert_ok(client.pulls().list(owner: 'o', repo: 'r'))?;
+    return testing.assert_eq(actual: page.has_next(), expected: false);
+}
+
+/// The unquoted `rel` form, which RFC 8288 permits and a rewriting proxy may produce.
+@test
+fn an_unquoted_rel_parses() -> Result<Void, Error> {
+    let headers: Map<String, String> = ['link': '<http://h/next>; rel=next'];
+    return testing.assert_eq(actual: next_link(headers), expected: Option.Some('http://h/next'));
+}
+
+@test
+fn no_link_header_means_no_next_page() -> Result<Void, Error> {
+    return testing.assert_eq(actual: next_link([:]), expected: Option.None);
+}
+
+// --- walking every page ---
+
+/// `all` concatenates the chain in order.
+@test
+fn all_walks_the_whole_chain() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        if req.url.contains('walk=3') {
+            return Result.Ok(json_response(200, '[' + pr_json(3) + ']'));
+        }
+        if req.url.contains('walk=2') {
+            return Result.Ok(json_response(
+                200,
+                '[' + pr_json(2) + ']',
+                link: Option.Some('<${log.base}/x?walk=3>; rel="next"'),
+            ));
+        }
+        return Result.Ok(json_response(
+            200,
+            '[' + pr_json(1) + ']',
+            link: Option.Some('<${log.base}/x?walk=2>; rel="next"'),
+        ));
+    })?;
+    let page = testing.assert_ok(client.pulls().list(owner: 'o', repo: 'r'))?;
+    let every = testing.assert_ok(page.all())?;
+    testing.assert_eq(actual: every.len(), expected: 3)?;
+    testing.assert_eq(actual: every[0].number, expected: 1)?;
+    return testing.assert_eq(actual: every[2].number, expected: 3);
+}
+
+/// And it stops at `max_pages`, counting the page it started from — the bound that keeps
+/// a convenience method from becoming unbounded network I/O.
+@test
+fn all_stops_at_the_page_bound() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        log.seen.push(req.url);
+        // Every page offers another, so only the bound stops the walk.
+        return Result.Ok(json_response(
+            200,
+            '[' + pr_json(log.seen.len()) + ']',
+            link: Option.Some('<${log.base}/x?more>; rel="next"'),
+        ));
+    })?;
+    let page = testing.assert_ok(client.pulls().list(owner: 'o', repo: 'r'))?;
+    let every = testing.assert_ok(page.all(max_pages: 2))?;
+    testing.assert_eq(actual: every.len(), expected: 2)?;
+    // Two pages fetched in total, the first one being the `list` call itself.
+    return testing.assert_eq(actual: log.seen.len(), expected: 2);
+}
+
+/// `max_pages: 1` fetches nothing further.
+@test
+fn a_page_bound_of_one_fetches_nothing_more() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        log.seen.push(req.url);
+        return Result.Ok(json_response(
+            200,
+            '[' + pr_json(1) + ']',
+            link: Option.Some('<${log.base}/x?more>; rel="next"'),
+        ));
+    })?;
+    let page = testing.assert_ok(client.pulls().list(owner: 'o', repo: 'r'))?;
+    let every = testing.assert_ok(page.all(max_pages: 1))?;
+    testing.assert_eq(actual: every.len(), expected: 1)?;
+    return testing.assert_eq(actual: log.seen.len(), expected: 1);
+}
+
+// --- writes ---
+
+/// What `create` puts on the wire: the two required fields, the optionals that were
+/// passed, and nothing else.
+@test
+fn creating_a_pull_request_sends_only_what_was_given() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        log.seen.push(req.method + ' ' + req.url);
+        log.seen.push(req.body.to_string()?);
+        return Result.Ok(json_response(201, pr_json(77)));
+    })?;
+    let pr = testing.assert_ok(client.pulls().create(
+        owner: 'thera-lang',
+        repo: 'thera',
+        head: 'github_client',
+        base: 'main',
+        title: Option.Some('Add a GitHub client'),
+        draft: Option.Some(true),
+    ))?;
+    testing.assert_eq(actual: log.seen[0], expected: 'POST /repos/thera-lang/thera/pulls')?;
+    // `body` and `maintainer_can_modify` were not passed, so they are not in the JSON.
+    testing.assert_eq(
+        actual: log.seen[1],
+        expected: '{"head":"github_client","base":"main",' +
+        '"title":"Add a GitHub client","draft":true}',
+    )?;
+    return testing.assert_eq(actual: pr.number, expected: 77);
+}
+
+/// A 201 decodes like any other success.
+@test
+fn creating_an_issue_decodes_the_created_issue() -> Result<Void, Error> {
+    let log = fake();
+    let client = serving(log, (req) => {
+        log.seen.push(req.body.to_string()?);
+        return Result.Ok(json_response(201, issue_json(12)));
+    })?;
+    let issue = testing.assert_ok(client.issues().create(
+        owner: 'thera-lang',
+        repo: 'thera',
+        title: 'std.json should carry Cursor.each',
+        labels: Option.Some(['stdlib', 'enhancement']),
+    ))?;
+    testing.assert_eq(
+        actual: log.seen[0],
+        expected: '{"title":"std.json should carry Cursor.each",' +
+        '"labels":["stdlib","enhancement"]}',
+    )?;
+    testing.assert_eq(actual: issue.number, expected: 12)?;
+    testing.assert_eq(actual: issue.is_pull_request, expected: false)?;
+    return testing.assert_eq(actual: issue.labels[0].name(), expected: 'bug');
+}
+
+/// A validation failure on a write arrives as a `Status` with the fields named — the
+/// path that matters most in practice, since a create is where a caller gets it wrong.
+@test
+fn a_rejected_create_reports_the_fields() -> Result<Void, Error> {
+    let client = serving(fake(), (_req) => Result.Ok(json_response(
+        422,
+        '{"message":"Validation Failed","errors":[' +
+        '{"resource":"PullRequest","code":"custom","field":"base",' +
+        '"message":"base must be a branch"}]}',
+    )))?;
+    let outcome = client.pulls().create(owner: 'o', repo: 'r', head: 'f', base: 'nope');
+    let message = match outcome {
+        Ok(_) => 'unexpectedly succeeded',
+        Err(e) => e.message(),
+    };
+    return testing.assert_eq(
+        actual: message,
+        expected: 'HTTP 422: Validation Failed (base: base must be a branch)',
+    );
+}

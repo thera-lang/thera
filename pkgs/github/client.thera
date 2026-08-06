@@ -182,6 +182,31 @@ pub fn decoded<T>(
     };
 }
 
+/// The query parameters that were actually supplied, dropping the absent ones.
+///
+/// The counterpart of `json.obj(omit_nulls: true)` on the body side, and it exists for
+/// the same reason: without it, every optional query parameter costs an `if let` and a
+/// mutable map, so an operation with four of them is twelve lines of plumbing around
+/// one URL. With it, every parameter is exactly one line whether it is required or not
+/// — which is what makes the shape mechanical enough to generate.
+///
+/// ```thera
+/// let url = client.url('/repos/${owner}/${repo}/pulls', query: params([
+///     'state': Option.Some(state),
+///     'head': head,
+///     'per_page': Option.Some(per_page.display()),
+/// ]));
+/// ```
+pub fn params(_ values: Map<String, Option<String>>) -> Map<String, String> {
+    let supplied: Map<String, String> = [:];
+    for key in values.keys() {
+        if let Some(value) = values[key] {
+            supplied[key] = value;
+        }
+    }
+    return supplied;
+}
+
 /// A response body as text, or `''` if it is not UTF-8 — for the error path, where
 /// there is nothing useful to do about undecodable bytes and failing would replace the
 /// server's refusal with our complaint about it.
