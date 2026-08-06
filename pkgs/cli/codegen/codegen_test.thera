@@ -483,6 +483,25 @@ fn test_lowering_enum_name_hoists_one_tag() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+/// A declared `name` method wins over the built-in tag reader, so the call lowers to
+/// an ordinary method call and *not* to the tag→name hoist.
+///
+/// The regression this pins was silent: `method_lookup` already preferred the declared
+/// method, but `classify_callee` and the return-type inference checked the builtin
+/// first, so `impl Tag { fn name(…) }` type-checked and then compiled into the builtin
+/// — a check-clean program whose method body never ran.
+@test
+fn test_lowering_declared_enum_name_beats_the_builtin() -> Result<Void, Error> {
+    let src = 'enum Tag { Name(String), Count(Int) }\n'
+        + 'impl Tag { fn name(self) -> String { return match self '
+        + '{ Name(n) => n, Count(_) => \'?\' }; } }\n'
+        + 'fn label(_ t: Tag) -> String { return t.name(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'label'), enum_tag_tag()), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'label'), 'call'), expected: 1)?;
+    return Result.Ok(void);
+}
+
 @test
 fn test_lowering_user_static_method_emits_receiverless_call() -> Result<Void, Error> {
     let src = 'struct Box { let v: Int; }\n'

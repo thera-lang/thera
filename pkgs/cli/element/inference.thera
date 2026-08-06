@@ -992,8 +992,8 @@ fn infer_call_field(
 
     let recv_type = infer_expr(obj, scope, ctx, Option.None);
 
-    // `e.name()` on an enum value -> String.
-    if field == 'name' && is_enum_type(recv_type, ctx) {
+    // `e.name()` on an enum value -> String, unless the enum declares its own `name`.
+    if field == 'name' && uses_enum_name_builtin(recv_type, ctx) {
         return Type.Primitive(Primitive.Str);
     }
 
@@ -1077,8 +1077,8 @@ pub fn infer_callee_kind(
 
     let recv_type = infer_expr(obj, scope, ctx, Option.None);
 
-    // `e.name()` on an enum value.
-    if field == 'name' && arg_count == 0 && is_enum_type(recv_type, ctx) {
+    // `e.name()` on an enum value, unless the enum declares its own `name`.
+    if field == 'name' && arg_count == 0 && uses_enum_name_builtin(recv_type, ctx) {
         return CalleeKind.EnumName;
     }
 
@@ -1981,6 +1981,28 @@ fn combined_type_params(_ a: List<String>, _ b: List<String>) -> List<String> {
         }
     }
     return out;
+}
+
+// Whether `e.name()` means the built-in variant-name reader: the receiver is an enum
+// *and* it declares no `name` method of its own.
+//
+// An explicit `impl` method wins over the implicit builtin. `method_lookup` already
+// resolves it that way — it consults `find_method` first and only then falls back to
+// the builtin — and without this guard the two call sites below disagreed with it: a
+// declared `name()` checked clean (its return type inferred as the builtin's `String`)
+// and then compiled into the builtin, so the method's body never ran. A check-clean
+// program with a silently wrong answer, which is the worst shape a front-end bug comes
+// in.
+fn uses_enum_name_builtin(_ recv_type: Type, _ ctx: InferCtx) -> Bool {
+    if !is_enum_type(recv_type, ctx) {
+        return false;
+    }
+    if let Some(element) = type_def_for(recv_type, ctx) {
+        if let Some(_) = find_method(element, 'name') {
+            return false;
+        }
+    }
+    return true;
 }
 
 fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {

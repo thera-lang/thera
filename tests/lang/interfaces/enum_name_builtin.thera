@@ -1,0 +1,48 @@
+//! spec: iface-enum-name
+//! mode: run
+
+// Every enum value has a built-in `name()` returning its variant's name, and a
+// declared `name` method wins over it (language.md § Inherent methods).
+//
+// A regression test as much as a spec test. `method_lookup` already preferred the
+// declared method, but `classify_callee` and the return-type inference consulted the
+// builtin first — so `impl Tag { fn name(…) }` type-checked, compiled into the
+// builtin, and returned the variant name instead of running its own body. Nothing
+// failed; the answer was just wrong, which is why the precedence is pinned in both
+// directions here.
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Label {
+    Name(String),
+    Id(Int),
+}
+
+impl Label {
+    fn name(self) -> String {
+        return match self {
+            Name(n) => n,
+            Id(i) => i.display(),
+        };
+    }
+}
+
+fn main() -> Int {
+    // No declared `name` — the builtin, on a payload-free variant.
+    println(Color.Red.name()); // expect: Red
+    println(Color.Blue.name()); // expect: Blue
+
+    // A declared `name` — the method body runs, for both variants.
+    println(Label.Name('bug').name()); // expect: bug
+    println(Label.Id(42).name()); // expect: 42
+
+    // And through a binding, so the receiver's type comes from inference rather
+    // than from a literal constructor expression.
+    let tag = Label.Name('enhancement');
+    println(tag.name()); // expect: enhancement
+    return 0;
+}
