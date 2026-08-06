@@ -3,8 +3,8 @@
 **What this is:** the plan for letting Thera programs call third-party HTTP APIs
 — GenAI, MCP, GitHub, and the long tail. It has three arcs, deliberately
 ordered: (1) the **platform substrate** every API client needs and Thera mostly
-lacks; (2) **one hand-written client** as a forcing function that finds those
-gaps and settles what a Thera API client should look like; (3) an **OpenAPI
+lacks; (2) **hand-written clients** as a forcing function that finds those gaps
+and settles what a Thera API client should look like; (3) an **OpenAPI
 generator** that turns that shape into a repeatable one, so the Nth API costs
 days instead of weeks. It closes with a measurable method for choosing which
 APIs to target next. Items graduate the same way [scale.md](scale.md)'s do: a
@@ -183,17 +183,19 @@ question.
 The schema-to-type mapping, validated by hand against a real response rather
 than assumed:
 
-| OpenAPI construct               | Thera                                 | Validated                       |
-| ------------------------------- | ------------------------------------- | ------------------------------- |
-| `object` with fixed properties  | `struct`                              | ✓                               |
-| `oneOf` + `discriminator`       | `enum` with a variant per branch      | ✓ (string-literal `match` arms) |
-| `enum` of strings               | `enum` (plus a raw-string round trip) | ✓                               |
-| nullable / not in `required`    | `Option<T>`                           | ✓                               |
-| `array`                         | `List<T>`                             | ✓                               |
-| unmodeled / `true` schema       | `Json` (the honest escape hatch)      | ✓                               |
-| `additionalProperties: {T}`     | `Map<String, T>`                      | not exercised                   |
-| `allOf`                         | flattened into one struct             | not exercised                   |
-| `anyOf` without a discriminator | **open question** — see below         | not exercised                   |
+| OpenAPI construct                 | Thera                                     | Validated                       |
+| --------------------------------- | ----------------------------------------- | ------------------------------- |
+| `object` with fixed properties    | `struct`                                  | ✓                               |
+| `oneOf` + `discriminator`         | `enum` with a variant per branch          | ✓ (string-literal `match` arms) |
+| `enum` of strings                 | `enum` (plus a raw-string round trip)     | ✓                               |
+| nullable / not in `required`      | `Option<T>`                               | ✓ (3.1, and 3.0's `nullable`)   |
+| `array`                           | `List<T>`                                 | ✓                               |
+| unmodeled / `true` schema         | `Json` (the honest escape hatch)          | ✓                               |
+| `format: date-time`               | `time.DateTime`, via `Cursor.unexpected`  | ✓ (GitHub)                      |
+| `format: uri` and friends         | `String` — no std type to promote them to | ✓ (GitHub)                      |
+| `anyOf`/`oneOf`, no discriminator | `enum`, dispatched on `Json.kind()`       | ✓ (GitHub `issue.labels`)       |
+| `additionalProperties: {T}`       | `Map<String, T>`                          | not exercised                   |
+| `allOf`                           | flattened into one struct                 | not exercised                   |
 
 Anthropic's spec alone contains 928 component schemas with 527 `anyOf`, 238
 `oneOf`, 229 `discriminator`, and 165 `allOf` occurrences — so none of these
@@ -202,9 +204,17 @@ caught it:** 480 of those 527 are `anyOf: [T, {type: null}]`, which is 3.1's
 idiomatic spelling of `Option<T>` and not a union at all. Only **47** are
 genuinely untagged, 22 of them unions of `$ref`s. Undiscriminated `anyOf` is a
 real row, but a far smaller one than "527" implied — see § Choosing targets.
-**Status.** The library is done and the six rows a real response exercises are
-validated; the last three want a schema that uses them, which is Arc 3's problem
-rather than a reason to guess now.
+
+**And the untagged row is now answered.** GitHub's `issue.labels` is
+`oneOf: [string, object]`, and it decodes by dispatching on `Json.kind()` — the
+discriminator the spec failed to declare. That works exactly when the branches
+differ by JSON kind, which is the general rule _and_ the general refusal: a
+generator facing two branches of the same kind should decline rather than guess.
+See § Arc 2 § What the real description does.
+
+**Status.** The library is done and nine of the eleven rows are validated
+against a real response. The last two want a schema that uses them, which is Arc
+3's problem rather than a reason to guess now.
 
 ### 4. Forward compatibility — **settled**
 
@@ -297,7 +307,13 @@ worth having; the decode tests are far more numerous. **Status.** Open;
 **synergy worth noting** — stage 5 was already planned for TLS and now pays for
 two things.
 
-## Arc 2 — one hand-written client, as a forcing function
+## Arc 2 — hand-written clients, as a forcing function
+
+**Status: two clients, one of them finished.** `pkgs/anthropic` is the types and
+codecs that answered the typed-JSON question; `pkgs/github` is the complete
+small client that answered the call surface, the error model, and pagination.
+Streaming is the one checklist row still open. Jump to § When the shape is ready
+to evaluate for what is settled and what the specimens cost the language.
 
 **Why hand-write first.** Generating before you know what good output looks like
 means generating the wrong thing at scale — and at scale nobody notices, because
@@ -323,12 +339,12 @@ the order a real caller hits them rather than the order we guessed.
 API, or the `?beta=true` path variants (a Stainless spelling that the generator
 will have to decide about later, but not now).
 
-**Where it lives — open.** Not `sdk/std`: this is ecosystem tier by
-[stdlib.md](stdlib.md)'s own line. But Thera has no package manager and no
-third-party package story, so "where does a non-std library live" is genuinely
-unanswered — it is the same hole [scale.md](scale.md) item 4 (a package unit +
-manifest) is circling. Interim proposal: `pkgs/`, alongside `cli`. Flagging it
-rather than settling it here, because the answer should come from item 4.
+**Where it lives — interim, still open in principle.** Not `sdk/std`: this is
+ecosystem tier by [stdlib.md](stdlib.md)'s own line. But Thera has no package
+manager and no third-party package story, so "where does a non-std library live"
+is genuinely unanswered — it is the same hole [scale.md](scale.md) item 4 (a
+package unit + manifest) is circling. Both clients live in `pkgs/` alongside
+`cli`, which is where the answer from item 4 will find them.
 
 ### The client-shape checklist
 
@@ -363,10 +379,181 @@ a real caller in front of it.
   but the shape should be chosen before GitHub arrives.
 - **Forward compatibility.** Arc 1 item 4 — settle `Unknown(Json)` here.
 
+### When the shape is ready to evaluate
+
+Before Arc 3 emits anything, the hand-written code has to be reviewed as a
+_specimen_: is the API representation terse, clear, and legible to an LLM
+writing against it cold; and does it want changes to `std.json` or the language?
+That review is only worth doing once the hand-written code has exercised each
+decision the generator will then make hundreds of times — otherwise it evaluates
+a fragment and blesses a shape that the missing half would have changed.
+
+Against the checklist above, after `pkgs/github`:
+
+| Decision                       | Status                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| Optional fields                | ✅ default arguments, with the `Option.Some(…)` tax recorded                   |
+| Forward compatibility          | ✅ universal `Unknown`, missing discriminator still an error                   |
+| Construction and config        | ✅ `Client` value, three fields, no state; `base_url` overridable              |
+| Errors                         | ✅ one variant per kind of failure, not per status; the error decoder is total |
+| Naming (flat vs resource tree) | ✅ `client.pulls().list(…)`, on the completion-list argument                   |
+| Pagination                     | ✅ `Page<T>` that carries its decoder; `all()` bounded by default              |
+| Streaming surface              | ❌ iterator vs channel vs callback untouched — Anthropic's to answer           |
+
+**The order came out GitHub first.** The plan had Anthropic-end-to-end first,
+because Arc 3's acceptance test is defined as regenerating Anthropic. Going the
+other way got a _complete_ small client sooner — three operations, 28 schemas,
+no streaming to design — which meant every one of the rows above got decided
+against something finishable in one arc instead of half-decided against the
+harder API. Anthropic's remaining half is now the only thing between here and
+the review, and streaming is the only checklist row it still owes.
+
+#### What the specimen settled
+
+Six things the hand-written code decided, each of which the generator will
+repeat at scale. They are the reviewable output of the arc, more than the client
+is.
+
+- **The error type has one variant per kind of failure, not per status.** The
+  distinction a caller acts on is "the exchange never happened" (retry) vs "the
+  server refused" (fix the request) vs "the body was unreadable" (fix the
+  client). Status codes live _inside_ the refusal variant, where a caller that
+  cares can still branch on them.
+- **The error path must not be able to fail.** An error body that is not the
+  documented shape keeps its raw text. A strict decoder there trades the
+  server's explanation for a complaint about the explanation — the one place
+  strictness costs more than it buys, and the reason `std.json`'s lenient
+  accessors earn their place beside `Cursor` rather than being superseded by it.
+- **Grouped operations, on the completion-list argument.** 1220 operations
+  across ~40 tags: a flat surface puts all of them in one list and forces every
+  name to carry its resource, because `list` collides the moment a second
+  resource wants it. `client.pulls().list(…)` makes each step's choice small —
+  the reading-radius argument from [scale.md](scale.md) applied to an API
+  surface — and it is what every official SDK does, so it is what a model has
+  seen.
+- **The resource accessor lives in the resource's own file.** Thera allows an
+  `impl` block for a sibling file's type, so a generator adds a resource by
+  writing one new file and editing none. Worth a checker fix to keep (below).
+- **`Page<T>` carries its own decoder and client**, so `page.next()` takes no
+  arguments and a generic page-walk is writable at all. `Page` stops being a
+  pure record and becomes a cursor, which is the right trade for a type whose
+  purpose is to be followed. **`all()` is bounded by default** — following a
+  `Link` chain is unbounded network I/O behind a method call.
+- **Absent query parameters need the same treatment as absent body fields.**
+  `params()` is the query-string counterpart of `json.obj(omit_nulls: true)`:
+  without it every optional parameter costs an `if let` and a mutable map; with
+  it, required and optional both cost one line. Uniformity is what makes the
+  shape generable, and it matters more than brevity.
+
+#### What the real description does that the mapping table does not say
+
+Writing the decoders against `api.github.com.json` rather than from memory
+changed the answer four times. Each is a decision a generator must make and none
+is visible from a schema-to-type table:
+
+1. **Nullability hides behind a `$ref`.** OpenAPI 3.0 cannot express a nullable
+   `$ref`, so GitHub ships a byte-identical `nullable-simple-user` beside
+   `simple-user` and points at that. `user` is _required_ and still
+   `Option<User>`, discoverable only by resolving the ref. A schema-per-type
+   generator emits `User` and `NullableUser`; collapsing them is a manifest
+   rule.
+2. **Untagged unions decode, and the reason generalizes.** `issue.labels` is
+   string-or-object, and the branches differ by JSON _kind_ — so `Json.kind()`
+   is the discriminator the spec failed to declare. So does the refusal: a
+   generator should decline to emit a union whose branches share a kind, because
+   at that point the document is genuinely ambiguous and guessing beats failing
+   only until it doesn't.
+3. **Request-side and response-side unions are not the same problem.** You
+   receive whatever the server sends, so a response union must be modeled. You
+   control what you send, so a request union may pick a branch —
+   `issues/create`'s `title` is `string | integer`, and taking `String` costs
+   nothing real. Faithful output makes every caller wrap a string in a
+   constructor for a field nobody has ever sent a number to.
+4. **One resource, several response types.** `pulls/list` returns
+   `pull-request-simple` and `pulls/create` returns `pull-request`. The reflex
+   to "return the resource type" is wrong, and worth knowing before it is
+   written 1220 times.
+
+Three smaller ones, all in the same family — the schema is not the contract:
+
+- `draft` is absent from `required`, so `Option<Bool>`: three states for a
+  two-state fact.
+- An issue is really a pull request iff a `pull_request` key is **present**.
+  That is the most common filter anyone applies to the endpoint, and the
+  description marks it as nothing but an optional object.
+- A rate limit is `403 or 429` **plus** an exhausted `x-ratelimit-remaining` or
+  a `retry-after`. Nothing in the description says so, and conflating it with a
+  permission 403 turns one clear error into a retry loop that never clears.
+
+#### What it cost the language
+
+Two front-end bugs, both check-clean-and-wrong rather than loud, and both fixed
+here:
+
+- **A declared enum `name()` lost to the built-in tag reader.** `method_lookup`
+  already preferred the declared method; `classify_callee` and the return-type
+  inference consulted the builtin first. So `impl IssueLabel { fn name(…) }`
+  type-checked, compiled, ran, and returned the variant name. Pinned by
+  `iface-enum-name` and a codegen lowering test; the builtin is now documented
+  in [language.md](language.md) § Inherent methods, where it had never been
+  written down.
+- **`unused-import` fired on a load-bearing import.** A file that adds methods
+  to a foreign type contributes nothing to its own name surface, so the name
+  scan called it unused — and with `--fatal-warnings` gating the corpus there
+  was no correct fix available. The rule now abstains for that shape.
+
+And one limitation left standing, because nothing here needed it badly enough:
+**function types do not nest.** A parenthesised function type is a parse error,
+so `(String) -> ((Request) -> Response)` cannot be written; without the
+parentheses the nested result does not reach an inner lambda's inference; and
+`f(x)(y)` is an unsupported call target. Returning a function works when the
+annotation is unambiguous and the value is bound before being called. It cost
+one test harness a struct instead of a factory, which is a fair price for now.
+
+#### Two candidate library changes
+
+Both are shapes that appeared twice, which is the bar for moving them into
+`std.json` rather than leaving them in each client:
+
+- **`Cursor.each(decode)`** — every array field currently costs
+  `let xs = []; for … { xs.push(decode(e)?) }`, and there is one array field per
+  list-shaped response in the whole of GitHub.
+- **`Cursor.opt_with(decode)`** — a nullable `$ref` is the most common shape in
+  the description, and it needs three lines every time.
+
+A third does _not_ qualify. A `try_map` on `Option` would collapse
+`date_time_at`'s nested match into a line, and the case still fails on volume:
+the cost lands once per _format_, in a helper, not once per field. Twelve
+thousand `format` occurrences reduce to a handful of functions.
+
+#### Then the review
+
+One milestone left — **Anthropic, end to end**: `Client`, auth from the
+environment, the error body, a real call under hermetic TLS, and streaming
+Messages. Most of that is now a matter of applying decisions this arc made;
+streaming is the genuinely open one, and it drags in the idle-deadline question
+from Arc 1 item 5.
+
+Then the review, and it should be a written artifact rather than a vibe: the
+same operation side by side in Thera and in the official Python/TypeScript SDKs,
+lines per operation and per schema, and — since "natural to LLMs" is the actual
+criterion — **an empirical check**: hand a model the client and a task, and see
+whether it writes correct calls without reading the implementation.
+
 ## Arc 3 — the OpenAPI generator
 
-A `thera api` subcommand (name TBD) that reads an OpenAPI description and emits
-Thera source.
+**A separate tool in `pkgs/`** (name TBD) that reads an OpenAPI description and
+emits Thera source — not a `thera` subcommand.
+
+The case for a subcommand was sharing the AST printer and formatter with
+`pkgs/cli`, and the pipeline below dissolves it: the generator emits **text**
+and ends by shelling out to `thera fmt`, so it never needs the AST printer at
+all. What is left is a program that reads JSON and writes files, which has no
+business in the compiler's CLI. Keeping it out also keeps the `thera` binary's
+surface about the language, keeps generator changes off the bootstrap ratchet,
+and means the tool can **migrate to its own repo** later without extracting it
+from a subcommand first — which in turn argues it should not reach into
+`pkgs/cli`'s internals even though the nested libraries there are importable.
 
 **Filtering is mandatory, not an optimization.** Cloudflare is 23 MB of JSON;
 GitHub 12.9 MB; even Anthropic carries 928 component schemas. Whole-spec
@@ -435,6 +622,22 @@ stream, and emits 120 operations whose URL path contains a literal `?beta=true`.
 So the manifest is on the critical path for target #1, not a hook for edge cases
 later.
 
+**`pkgs/github` added four more of the same kind**, which is what settles the
+question of whether the pattern was Anthropic-specific. It was not:
+
+| The fact                                                        | Why only the manifest can hold it                                                                                          |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `nullable-simple-user` is `Option<simple-user>`                 | 3.0 cannot express a nullable `$ref`, so GitHub ships a duplicate schema; one-for-one type mapping emits both              |
+| a request-side untagged union should pick a branch              | `issues/create`'s `title` is `string \| integer`; faithful output makes every caller wrap a string in a constructor        |
+| a `pull_request` key's **presence** marks an issue as a PR      | the description marks it as nothing but an optional object, and filtering on it is the endpoint's commonest use            |
+| `403`/`429` + exhausted `x-ratelimit-remaining` is a rate limit | nothing in the description mentions the headers; conflating it with a permission 403 yields a retry loop that never clears |
+
+The first two are per-field overrides, which is a knob the § failure-mode test
+above has to be applied to carefully — "this `$ref` is nullable" and "prefer
+this union branch" are both things the spec _cannot_ say, so they pass, but they
+are one step away from "override this field's type because I'd rather it were
+something else", which does not.
+
 **The rule that keeps it from rotting: every assertion is checked against the
 pinned spec, and a stale assertion is a generation error.** If the manifest
 renames an operation the pinned spec no longer has, generation fails loudly. The
@@ -498,7 +701,7 @@ marker, and the generator **refuses to write a file that exists and does not
 carry it**:
 
 ```thera
-// @generated by `thera api` from anthropic@6d5c96a4 — do not edit
+// @generated by thera-apigen from anthropic@6d5c96a4 — do not edit
 ```
 
 That buys three things at once: a hand-written file can never be eaten by a
@@ -684,9 +887,17 @@ streaming work, in parallel with Arc 3.
    ordered by measured frequency, filtering vindicated with closure numbers, and
    three things the plan had wrong (the `anyOf` count, Anthropic's `?beta=true`
    share, and that no spec on the slate models streaming).
-5. **Arc 3 v1**, acceptance-tested by regenerating Anthropic and diffing against
+5. ~~**A small second client (GitHub)**~~ — **done**, and done _before_
+   finishing Anthropic rather than after. `pkgs/github`: three operations, 28
+   schemas, and six of the seven checklist rows now settled against something
+   finishable in one arc. See Arc 2 § When the shape is ready to evaluate.
+6. **Finish Anthropic** — streaming Messages is the last open checklist row, and
+   the one that drags in item 5's idle deadline.
+7. **Review the hand-written shape** before anything is generated. It gates step
+   8; steps 5 and 6 are its inputs.
+8. **Arc 3 v1**, acceptance-tested by regenerating Anthropic and diffing against
    step 2.
-6. **Second and third targets** — Gemini, then GitHub.
+9. **Second and third generated targets** — Gemini, then GitHub at full size.
 
 **MCP** can start any time after step 3, in parallel.
 
@@ -701,20 +912,27 @@ streaming work, in parallel with Arc 3.
 - ~~**Default arguments vs. an options struct**~~ **Settled: default
   arguments**, with the `Option.Some(…)` tax recorded at item 3's checklist
   entry above.
-- **Undiscriminated `anyOf`** — still open, but **measured down from alarming to
-  ordinary**: 47 genuinely untagged occurrences in Anthropic (not 527 — 480 of
-  those are 3.1's `Option<T>` spelling), 50 in OpenAI, 34 in GitHub, 0 in Gemini
-  and Fly. 395 of the slate's 660 are Cloudflare's alone. Untagged union decode
-  by trial? A `Json` fallback? The Messages response uses none, so the
-  typed-JSON arc could not settle it by hand — and at these counts a `Json`
-  fallback may simply be the answer.
+- ~~**Undiscriminated `anyOf`**~~ **Settled: an `enum` dispatched on
+  `Json.kind()`**, when the branches differ by kind — and a generation error
+  when two branches share one, because the document is then genuinely ambiguous.
+  GitHub's `issue.labels` is the worked case. It was also **measured down from
+  alarming to ordinary** first: 47 genuinely untagged occurrences in Anthropic
+  (not 527 — 480 of those are 3.1's `Option<T>` spelling), 50 in OpenAI, 34 in
+  GitHub, 0 in Gemini and Fly, and 395 of the slate's 660 are Cloudflare's
+  alone. The remaining wrinkle is not decode but _direction_: on the request
+  side a branch can simply be chosen, which is a manifest override rather than a
+  type.
 - ~~**Forward-compat `Unknown(Json)`**~~ **Settled: universal, no opt-out** —
   see item 4.
-- **Flat names vs. a resource tree** for generated API surfaces.
+- ~~**Flat names vs. a resource tree** for generated API surfaces.~~ **Settled:
+  a resource tree** — `client.pulls().list(…)`, on the completion-list argument.
+  See Arc 2 § What the specimen settled.
 - ~~**The manifest's format**~~ **Settled: TOML — `std.toml` is core and
   conformance-pinned** ([stdlib.md](stdlib.md) § `std.toml`), and the answer to
   sharing is separate files, same format. See § The manifest.
 - **The exact `@generated` marker wording**, since it becomes a repo-wide
   convention the moment the first file carries it.
-- **Does the generator ship as a `thera api` subcommand** (sharing the AST
-  printer and formatter with `pkgs/cli`) or as a separate tool?
+- ~~**Does the generator ship as a `thera api` subcommand** or as a separate
+  tool?~~ **Settled: a separate tool in `pkgs/`**, possibly its own repo later —
+  see § Arc 3. The AST-sharing argument for a subcommand went away once the
+  pipeline ended in `thera fmt`.

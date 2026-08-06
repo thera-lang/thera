@@ -1,0 +1,226 @@
+// The client — the "Construction and config" and "Naming" rows of
+// docs/api-access.md Arc 2's checklist.
+//
+// A `Client` is three fields and no state: no connection pool (`std.http` opens one
+// connection per request), no cached authentication, no retry policy yet (Arc 1 item
+// 5). So it is a value, freely copied, and every operation is a method on something
+// reachable from it.
+//
+// **`base_url` is here because the tests need it, not because callers do.** There is
+// no server-side TLS in `std.http` (docs/http-tls.md defers `serve_tls`), so the only
+// way to exercise a real request end to end in-process is a plaintext loopback server
+// — which means the base URL has to be overridable. That is a happy accident worth
+// naming: the field that makes a client testable is the same one that makes GitHub
+// Enterprise work.
+//
+// **Every operation goes through `request`.** Thera has no error conversion, so the
+// hop from `Result<_, http.HttpError>` to `Result<_, GitHubError>` needs a `match` at
+// the point of the call. Written once here that is a feature; written once per
+// operation it would be 1220 copies of the same six lines in generated output.
+
+import std.encoding;
+import std.env;
+import std.http;
+import std.json;
+
+import 'errors' as _;
+
+/// GitHub's public API host.
+pub const API_BASE: String = 'https://api.github.com';
+
+/// The REST API version to pin. GitHub versions by date and requires the header;
+/// omitting it opts into "whatever is current", which is how a working client breaks
+/// on someone else's release day.
+pub const API_VERSION: String = '2022-11-28';
+
+/// The media type that selects the versioned JSON representation.
+pub const ACCEPT: String = 'application/vnd.github+json';
+
+/// Our default `user-agent`. GitHub requires one and answers 403 without it.
+pub const USER_AGENT: String = 'thera-github/0.1';
+
+/// A configured GitHub API client.
+pub struct Client {
+    /// The API root, with no trailing slash (`https://api.github.com`).
+    let base_url: String;
+    /// The bearer token, or `None` for unauthenticated access.
+    let token: Option<String>;
+    let user_agent: String;
+}
+
+impl Client {
+    /// A client for `token`, or an unauthenticated one if it is `None`.
+    ///
+    /// ```thera
+    /// let gh = github.Client.new(token: Option.Some(secret));
+    /// let prs = gh.pulls().list(owner: 'thera-lang', repo: 'thera')?;
+    /// ```
+    pub fn new(
+        token: Option<String> = Option.None,
+        base_url: String = API_BASE,
+        user_agent: String = USER_AGENT,
+    ) -> Client {
+        return Client {
+            base_url: without_trailing_slash(base_url),
+            token: token,
+            user_agent: user_agent,
+        };
+    }
+
+    /// An absolute URL for `path` (which starts with `/`), with `query` percent-encoded.
+    ///
+    /// `Map` iterates in insertion order, so the query string is a function of the
+    /// call — which is what lets a test compare a URL as text.
+    pub fn url(self, _ path: String, query: Map<String, String> = [:]) -> String {
+        let head = self.base_url + path;
+        if query.is_empty() {
+            return head;
+        }
+        let pairs: List<String> = [];
+        for key in query.keys() {
+            pairs.push(encoding.url_encode(key) + '=' + encoding.url_encode(query[key]));
+        }
+        return head + '?' + pairs.join('&');
+    }
+
+    /// Send a request to `url` and return the response **only if the server said yes**.
+    ///
+    /// A non-2xx becomes a `GitHubError` here rather than reaching the caller as a
+    /// `Response`, which is the opposite of `std.http`'s convention and deliberately
+    /// so: `http.send` serves callers who might want the 404 body, while a typed API
+    /// client's whole job is to turn "the server refused" into an error value with the
+    /// refusal decoded. The 3xx band goes the same way — `std.http` does not follow
+    /// redirects, so GitHub's 301 for a renamed repository arrives as a `Status`, which
+    /// is at least honest about not having handled it.
+    pub fn request(
+        self,
+        _ method: String,
+        _ url: String,
+        body: Option<json.Json> = Option.None,
+    ) -> Result<http.Response, GitHubError> {
+        let headers = self.headers();
+        let payload = match body {
+            Some(value) => {
+                headers['content-type'] = 'application/json';
+                json.stringify(value).bytes()
+            },
+            None => Bytes.empty(),
+        };
+        let sent = http.Request { method: method, url: url, headers: headers, body: payload };
+        // The one place a transport failure is named. Every operation reaches the
+        // network through here, so this `match` is written once instead of per call.
+        let resp = match http.send(sent) {
+            Ok(r) => r,
+            Err(e) => {
+                return Result.Err(GitHubError.Transport(e));
+            },
+        };
+        if resp.is_ok() {
+            return Result.Ok(resp);
+        }
+        return Result.Err(error_of(resp.status, resp.headers, text_of(resp)));
+    }
+
+    /// The headers every request carries. A caller cannot override them, because none
+    /// of them is a choice: two are the API contract, one is required by GitHub, and
+    /// the fourth is the credential.
+    fn headers(self) -> Map<String, String> {
+        let headers: Map<String, String> = [
+            'accept': ACCEPT,
+            'x-github-api-version': API_VERSION,
+            'user-agent': self.user_agent,
+        ];
+        if let Some(t) = self.token {
+            headers['authorization'] = 'Bearer ' + t;
+        }
+        return headers;
+    }
+}
+
+/// A client whose token comes from the environment: `GITHUB_TOKEN`, else `GH_TOKEN`
+/// (the `gh` CLI's spelling, so a developer who has authenticated that way needs no
+/// second variable).
+///
+/// **An absent token is not an error.** GitHub serves public reads unauthenticated at
+/// a much lower rate limit, so returning an error here would refuse to do work the
+/// server would have done. The missing credential surfaces where it actually bites —
+/// as a `Status` 401 on the first call that needs one — which is a better error than
+/// anything this function could say, because it names the operation.
+pub fn from_env(_ environment: env.Env = env.system_env(), base_url: String = API_BASE) -> Client {
+    let token = match environment.get('GITHUB_TOKEN') {
+        Some(t) => Option.Some(t),
+        None => environment.get('GH_TOKEN'),
+    };
+    return Client.new(token: token, base_url: base_url);
+}
+
+/// Decode a successful response's body with `decode`.
+///
+/// The three ways this fails are three flavours of the same news — the body was not
+/// what we can read — so they share `GitHubError.Body` and differ only in the message.
+/// `json.DecodeError` already carries the failing path, so the third case names the
+/// field.
+pub fn decoded<T>(
+    _ resp: http.Response,
+    _ decode: (json.Cursor) -> Result<T, json.DecodeError>,
+) -> Result<T, GitHubError> {
+    let text = match resp.body.to_string() {
+        Ok(s) => s,
+        Err(e) => {
+            return Result.Err(GitHubError.Body('response body is not UTF-8: ' + e.message()));
+        },
+    };
+    let doc = match json.parse(text) {
+        Ok(d) => d,
+        Err(e) => {
+            return Result.Err(GitHubError.Body('response body is not JSON: ' + e.message()));
+        },
+    };
+    return match decode(json.cursor(doc)) {
+        Ok(value) => Result.Ok(value),
+        Err(e) => Result.Err(GitHubError.Body(e.message())),
+    };
+}
+
+/// The query parameters that were actually supplied, dropping the absent ones.
+///
+/// The counterpart of `json.obj(omit_nulls: true)` on the body side, and it exists for
+/// the same reason: without it, every optional query parameter costs an `if let` and a
+/// mutable map, so an operation with four of them is twelve lines of plumbing around
+/// one URL. With it, every parameter is exactly one line whether it is required or not
+/// — which is what makes the shape mechanical enough to generate.
+///
+/// ```thera
+/// let url = client.url('/repos/${owner}/${repo}/pulls', query: params([
+///     'state': Option.Some(state),
+///     'head': head,
+///     'per_page': Option.Some(per_page.display()),
+/// ]));
+/// ```
+pub fn params(_ values: Map<String, Option<String>>) -> Map<String, String> {
+    let supplied: Map<String, String> = [:];
+    for key in values.keys() {
+        if let Some(value) = values[key] {
+            supplied[key] = value;
+        }
+    }
+    return supplied;
+}
+
+/// A response body as text, or `''` if it is not UTF-8 — for the error path, where
+/// there is nothing useful to do about undecodable bytes and failing would replace the
+/// server's refusal with our complaint about it.
+fn text_of(_ resp: http.Response) -> String {
+    return match resp.body.to_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+}
+
+/// `base_url` without a trailing slash, so `base + '/repos/...'` never doubles it.
+fn without_trailing_slash(_ url: String) -> String {
+    if url.ends_with('/') {
+        return url.slice(0, url.len() - 1);
+    }
+    return url;
+}

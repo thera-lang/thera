@@ -1,0 +1,29 @@
+//! github — a deliberately small hand-written client for GitHub's REST API.
+//!
+//! Import as: import github
+//!
+//! **Status: a specimen, not a product.** It exists to answer the questions
+//! [docs/api-access.md](../../docs/api-access.md) Arc 2 lists under § When the shape is
+//! ready to evaluate — what a call surface, an error model, and pagination should look
+//! like before a generator emits 1220 of them — and to cover what
+//! [pkgs/anthropic](../anthropic/anthropic.thera) structurally cannot: pagination,
+//! OpenAPI 3.0's `nullable: true`, and `format: date-time`. Three operations are
+//! modeled, out of GitHub's 1220, and the types are documented subsets of schemas that
+//! run to forty fields.
+//!
+//! ```thera
+//! let gh = github.from_env();
+//! let page = gh.pulls().list(owner: 'thera-lang', repo: 'thera', state: 'open')?;
+//! for pr in page.items {
+//!     print('#${pr.number} ${pr.title}');
+//! }
+//! ```
+//!
+//! This is a barrel: it re-exports its sibling files and defines nothing itself.
+
+pub import 'errors'; // GitHubError, ApiError, FieldError, RateLimit
+pub import 'client'; // Client, from_env, decoded, the API constants
+pub import 'types'; // PullRequest, Issue, User, Label, IssueLabel, Ref + their decoders
+pub import 'pagination'; // Page, next_link
+pub import 'pulls'; // client.pulls() -> list, create
+pub import 'issues'; // client.issues() -> create

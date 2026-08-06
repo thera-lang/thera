@@ -38,9 +38,10 @@ this is"; read top-down for progressive detail.
   test strategy.
 - [api-access.md](api-access.md) — **API access for Thera tools**: the plan for
   calling third-party HTTP APIs (GenAI, MCP, GitHub) — the platform substrate
-  (HTTPS, SSE streaming, typed JSON, retries), one hand-written client as a
-  forcing function, an OpenAPI generator to scale past it, and a measurable
-  method for ranking target APIs.
+  (HTTPS, SSE streaming, typed JSON, retries), hand-written clients as a forcing
+  function (and what they settled about call surfaces, errors, and pagination),
+  an OpenAPI generator to scale past them, and a measurable method for ranking
+  target APIs.
 - [typed-json.md](typed-json.md) — **Typed JSON**: api-access.md item 3 in
   flight — getting structs into and out of JSON well enough to write an API
   client, with a hand-decoded Anthropic Messages response as the forcing

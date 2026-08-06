@@ -1,0 +1,332 @@
+// Tests for the response decoders.
+//
+// A decode is a pure function of its input, so these need no socket — the same reason
+// `pkgs/anthropic`'s decode tests came first. The fixtures are trimmed from GitHub's
+// own documented response bodies, keeping every field the types read and every field
+// whose *nullability* is the point.
+//
+// The assertions to read closely are the ones about `Option`: three different reasons
+// for a field to be absent (required-and-null, not-required, and a nullable `$ref`) all
+// arrive as `Option.None`, and each one is a case a generator has to get right from a
+// different part of the description.
+
+import std.json;
+import std.testing;
+
+import 'types' as _;
+
+// --- fixtures ---
+
+/// A merged pull request with everything present.
+const MERGED_PR: String = '''
+    {
+      "number": 76,
+      "title": "docs(api-access): the generator is a separate tool",
+      "state": "closed",
+      "body": "Re-lands the content of #74.",
+      "draft": false,
+      "user": {
+        "login": "devoncarew",
+        "id": 6721780,
+        "type": "User",
+        "site_admin": false,
+        "html_url": "https://github.com/devoncarew"
+      },
+      "head": {
+        "label": "thera-lang:apigen_separate_tool",
+        "ref": "apigen_separate_tool",
+        "sha": "46daf72f1a0e4c2b8d9f3e5a7c1b0d8e6f4a2c90"
+      },
+      "base": {
+        "label": "thera-lang:main",
+        "ref": "main",
+        "sha": "0856d35008a4d1ea3ca5ec1bebe8c65ae89ac7dd"
+      },
+      "labels": [
+        { "id": 208045946, "name": "documentation", "color": "0075ca", "description": "Improvements to the docs" },
+        { "id": 208045947, "name": "chore", "color": "cfd3d7", "description": null }
+      ],
+      "created_at": "2026-08-05T18:35:02Z",
+      "updated_at": "2026-08-06T01:51:14Z",
+      "closed_at": "2026-08-06T01:51:14Z",
+      "merged_at": "2026-08-06T01:51:14Z",
+      "merge_commit_sha": "9ebb8eacddb3816fa43e274d864dc464f4d6b287",
+      "html_url": "https://github.com/thera-lang/thera/pull/76"
+    }
+    ''';
+
+/// An open pull request from a deleted account, with no description, no labels, and no
+/// `draft` key at all — the three flavours of absence in one document.
+const OPEN_PR: String = '''
+    {
+      "number": 77,
+      "title": "Add a GitHub client",
+      "state": "open",
+      "body": null,
+      "user": null,
+      "head": { "label": "thera-lang:github_client", "ref": "github_client", "sha": "6a9f195" },
+      "base": { "label": "thera-lang:main", "ref": "main", "sha": "0856d35" },
+      "labels": [],
+      "created_at": "2026-08-06T02:00:00Z",
+      "updated_at": "2026-08-06T02:00:00Z",
+      "closed_at": null,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "html_url": "https://github.com/thera-lang/thera/pull/77"
+    }
+    ''';
+
+/// An issue whose `labels` array mixes both branches of the untagged union.
+const ISSUE: String = '''
+    {
+      "number": 12,
+      "title": "std.json should carry Cursor.each",
+      "state": "open",
+      "body": "Every array field costs three lines.",
+      "user": {
+        "login": "devoncarew",
+        "id": 6721780,
+        "type": "User",
+        "site_admin": false,
+        "html_url": "https://github.com/devoncarew"
+      },
+      "assignee": null,
+      "labels": [
+        "enhancement",
+        { "id": 208045948, "name": "stdlib", "color": "a2eeef", "description": null }
+      ],
+      "created_at": "2026-08-06T02:10:00Z",
+      "updated_at": "2026-08-06T02:10:00Z",
+      "closed_at": null,
+      "html_url": "https://github.com/thera-lang/thera/issues/12"
+    }
+    ''';
+
+/// The same endpoint answering with something that is really a pull request — the
+/// `pull_request` key is the only thing that says so.
+const ISSUE_THAT_IS_A_PR: String = '''
+    {
+      "number": 76,
+      "title": "docs(api-access): the generator is a separate tool",
+      "state": "closed",
+      "body": null,
+      "user": null,
+      "assignee": null,
+      "labels": [],
+      "created_at": "2026-08-05T18:35:02Z",
+      "updated_at": "2026-08-06T01:51:14Z",
+      "closed_at": "2026-08-06T01:51:14Z",
+      "html_url": "https://github.com/thera-lang/thera/pull/76",
+      "pull_request": {
+        "url": "https://api.github.com/repos/thera-lang/thera/pulls/76",
+        "merged_at": "2026-08-06T01:51:14Z"
+      }
+    }
+    ''';
+
+// --- helpers ---
+
+fn pr(_ text: String) -> Result<PullRequest, Error> {
+    let doc = json.parse(text)?;
+    return match pull_request_from_json(json.cursor(doc)) {
+        Ok(value) => Result.Ok(value),
+        Err(e) => Result.Err(error(e.message())),
+    };
+}
+
+fn issue(_ text: String) -> Result<Issue, Error> {
+    let doc = json.parse(text)?;
+    return match issue_from_json(json.cursor(doc)) {
+        Ok(value) => Result.Ok(value),
+        Err(e) => Result.Err(error(e.message())),
+    };
+}
+
+/// The message a failing decode produced, so a test can assert on the path.
+fn failure<T>(_ outcome: Result<T, json.DecodeError>) -> Result<String, Error> {
+    return match outcome {
+        Ok(_) => Result.Err(error('expected the decode to fail')),
+        Err(e) => Result.Ok(e.message()),
+    };
+}
+
+fn decode_pr(_ text: String) -> Result<PullRequest, json.DecodeError> {
+    // A parse failure would be a bug in the fixture, so it is not the interesting
+    // outcome here; `Json.Null` decodes to the same "expected an object" error.
+    let doc = json.parse(text).unwrap_or(json.null());
+    return pull_request_from_json(json.cursor(doc));
+}
+
+// --- the ordinary case ---
+
+@test
+fn a_pull_request_decodes() -> Result<Void, Error> {
+    let it = pr(MERGED_PR)?;
+    testing.assert_eq(actual: it.number, expected: 76)?;
+    testing.assert_eq(actual: it.state, expected: 'closed')?;
+    testing.assert_eq(actual: it.body, expected: Option.Some('Re-lands the content of #74.'))?;
+    testing.assert_eq(actual: it.head.ref, expected: 'apigen_separate_tool')?;
+    testing.assert_eq(actual: it.base.label, expected: 'thera-lang:main')?;
+    return testing.assert_eq(actual: it.labels.len(), expected: 2);
+}
+
+/// A nested `$ref` decodes into a nested struct, keyword-escaped field and all.
+@test
+fn a_nested_user_decodes() -> Result<Void, Error> {
+    let it = pr(MERGED_PR)?;
+    let author = testing.assert_ok(it.user.ok_or(error('expected a user')))?;
+    testing.assert_eq(actual: author.login, expected: 'devoncarew')?;
+    testing.assert_eq(actual: author.type_, expected: 'User')?;
+    return testing.assert_eq(actual: author.site_admin, expected: false);
+}
+
+/// `format: date-time` becomes a `time.DateTime`, not a string — so it can be compared
+/// and re-emitted, which is the whole reason to model the format at all.
+@test
+fn a_date_time_field_becomes_a_datetime() -> Result<Void, Error> {
+    let it = pr(MERGED_PR)?;
+    testing.assert_eq(actual: it.created_at.format_rfc3339(), expected: '2026-08-05T18:35:02Z')?;
+    return testing.assert_eq(
+        actual: it.updated_at.unix_seconds() > it.created_at.unix_seconds(),
+        expected: true,
+    );
+}
+
+/// `merged_at` is the field that distinguishes merged from merely closed, which is why
+/// it earns a method.
+@test
+fn a_merged_pull_request_says_so() -> Result<Void, Error> {
+    testing.assert_eq(actual: pr(MERGED_PR)?.is_merged(), expected: true)?;
+    return testing.assert_eq(actual: pr(OPEN_PR)?.is_merged(), expected: false);
+}
+
+// --- the three flavours of absence ---
+
+/// Required-and-nullable (`body`), a nullable `$ref` (`user`), a nullable date-time
+/// (`merged_at`), and a key that simply is not there (`draft`). One `Option` each, and
+/// four different reasons.
+@test
+fn every_kind_of_absence_decodes_to_none() -> Result<Void, Error> {
+    let it = pr(OPEN_PR)?;
+    testing.assert_eq(actual: it.body, expected: Option.None)?;
+    testing.assert_eq(actual: it.user.is_none(), expected: true)?;
+    testing.assert_eq(actual: it.merged_at.is_none(), expected: true)?;
+    testing.assert_eq(actual: it.closed_at.is_none(), expected: true)?;
+    testing.assert_eq(actual: it.merge_commit_sha, expected: Option.None)?;
+    return testing.assert_eq(actual: it.draft, expected: Option.None);
+}
+
+/// The `draft` a document does supply still arrives — `None` means "not stated", which
+/// is exactly the distinction `Option<Bool>` is preserving.
+@test
+fn a_present_draft_flag_decodes() -> Result<Void, Error> {
+    return testing.assert_eq(actual: pr(MERGED_PR)?.draft, expected: Option.Some(false));
+}
+
+/// A `null` inside an array element, which is a different code path from a `null` field
+/// on the root object.
+@test
+fn a_null_label_description_decodes_to_none() -> Result<Void, Error> {
+    let labels = pr(MERGED_PR)?.labels;
+    testing.assert_eq(
+        actual: labels[0].description,
+        expected: Option.Some('Improvements to the docs'),
+    )?;
+    return testing.assert_eq(actual: labels[1].description, expected: Option.None);
+}
+
+// --- the untagged union ---
+
+/// Both branches of `issue.labels`' untagged `oneOf`, in one array, dispatched on the
+/// JSON kind the description never declared.
+@test
+fn an_untagged_label_union_decodes_both_branches() -> Result<Void, Error> {
+    let labels = issue(ISSUE)?.labels;
+    testing.assert_eq(actual: labels.len(), expected: 2)?;
+    testing.assert_eq(
+        actual: match labels[0] {
+            Name(_) => 'name',
+            Full(_) => 'full',
+        },
+        expected: 'name',
+    )?;
+    testing.assert_eq(
+        actual: match labels[1] {
+            Name(_) => 'name',
+            Full(_) => 'full',
+        },
+        expected: 'full',
+    )?;
+    // And the accessor that makes the union tolerable at a call site.
+    testing.assert_eq(actual: labels[0].name(), expected: 'enhancement')?;
+    return testing.assert_eq(actual: labels[1].name(), expected: 'stdlib');
+}
+
+/// A branch the union does not have. Unlike an unknown *tag* (which
+/// `pkgs/anthropic`'s `ContentBlock.Unknown` deliberately tolerates), an unknown
+/// *kind* here is a malformed document rather than a new API feature — the union is
+/// closed by the spec, so there is nothing forward-compatible to preserve.
+@test
+fn a_label_of_the_wrong_kind_names_its_path() -> Result<Void, Error> {
+    let doc = json.parse('{"labels": [7]}').unwrap_or(json.null());
+    let message = failure(each(json.cursor(doc).field('labels'), issue_label_from_json))?;
+    return testing.assert_eq(
+        actual: message,
+        expected: 'expected a label name or object at $.labels[0], got number',
+    );
+}
+
+// --- issues that are not issues ---
+
+@test
+fn an_issue_is_not_a_pull_request() -> Result<Void, Error> {
+    return testing.assert_eq(actual: issue(ISSUE)?.is_pull_request, expected: false);
+}
+
+/// The presence test that a spec-faithful generator cannot know to write.
+@test
+fn an_issue_carrying_a_pull_request_key_is_one() -> Result<Void, Error> {
+    return testing.assert_eq(actual: issue(ISSUE_THAT_IS_A_PR)?.is_pull_request, expected: true);
+}
+
+// --- failures name the field ---
+
+/// The reason `date_time_at` goes through `Cursor.unexpected` rather than returning a
+/// plain `Error`: a malformed timestamp says *which* timestamp.
+@test
+fn a_malformed_date_time_names_its_path() -> Result<Void, Error> {
+    let broken = '{"number": 1, "title": "t", "state": "open", "body": null, ' +
+        '"user": null, "head": {"label": "a", "ref": "b", "sha": "c"}, ' +
+        '"base": {"label": "a", "ref": "b", "sha": "c"}, "labels": [], ' +
+        '"created_at": "last Tuesday", "updated_at": "2026-08-06T02:00:00Z", ' +
+        '"closed_at": null, "merged_at": null, "merge_commit_sha": null, ' +
+        '"html_url": "https://example.com"}';
+    return testing.assert_eq(
+        actual: failure(decode_pr(broken))?,
+        expected: 'expected an RFC 3339 date-time at $.created_at, got string',
+    );
+}
+
+/// A missing required field, through two levels of nesting.
+@test
+fn a_missing_nested_field_names_its_path() -> Result<Void, Error> {
+    let broken = '{"number": 1, "title": "t", "state": "open", "body": null, ' +
+        '"user": null, "head": {"label": "a", "sha": "c"}, ' +
+        '"base": {"label": "a", "ref": "b", "sha": "c"}, "labels": [], ' +
+        '"created_at": "2026-08-06T02:00:00Z", "updated_at": "2026-08-06T02:00:00Z", ' +
+        '"closed_at": null, "merged_at": null, "merge_commit_sha": null, ' +
+        '"html_url": "https://example.com"}';
+    return testing.assert_eq(
+        actual: failure(decode_pr(broken))?,
+        expected: 'missing required field $.head.ref',
+    );
+}
+
+/// `optional` distinguishes "absent or null" from "present and the wrong shape" — a
+/// nullable field is not a licence to accept anything.
+@test
+fn a_nullable_field_that_is_not_null_still_has_to_fit() -> Result<Void, Error> {
+    let doc = json.parse('{"user": "devoncarew"}').unwrap_or(json.null());
+    let message = failure(optional(json.cursor(doc).field('user'), user_from_json))?;
+    return testing.assert_eq(actual: message, expected: 'expected an object at $.user, got string');
+}

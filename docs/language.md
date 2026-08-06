@@ -1716,6 +1716,26 @@ println('${c.value}');   // 2
 A type may have any number of `impl` blocks — one for inherent methods and one
 per interface implemented.
 
+**`name()` on an enum.** Every enum value has a built-in `name()` returning its
+variant's name as written — `Color.Red.name()` is `'Red'`. It is the one method
+that exists without being declared, so it is also the one that can collide with
+a declared one: **an `impl` method named `name` wins**, and the built-in is only
+reached when the enum declares none. An explicit declaration beating an implicit
+built-in is the only order that cannot silently change what a program means.
+
+```thera
+enum Color { Red, Green, Blue }
+Color.Red.name();            // 'Red' — the built-in
+
+enum Label { Name(String), Id(Int) }
+impl Label {
+    fn name(self) -> String {           // shadows the built-in
+        return match self { Name(n) => n, Id(i) => i.display() };
+    }
+}
+Label.Name('bug').name();    // 'bug', not 'Name'
+```
+
 ### Static methods
 
 Functions in an `impl` block that take no `self` parameter are static methods,

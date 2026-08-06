@@ -16,8 +16,10 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
   `check`/`emit`/`run`/`test`/`fmt`/`lsp` CLI. It self-hosts.
 - `pkgs/` — also where **non-`std` libraries** are authored, since Thera has no
   package manager yet and "where does a third-party package live" is still open
-  (`docs/scale.md` item 4 owns it). `pkgs/anthropic/` is the first; a `pkgs/*`
-  library may find another home later.
+  (`docs/scale.md` item 4 owns it). `pkgs/anthropic/` and `pkgs/github/` are the
+  first two — both hand-written API clients, written as specimens for
+  `docs/api-access.md`'s generator; a `pkgs/*` library may find another home
+  later.
 - `sdk/std/` — Thera standard library sources (`.thera`, with `native fn`
   decls). Each library lives in its own named subdir
   (`sdk/std/path/path.thera`), with Thera tests beside it as

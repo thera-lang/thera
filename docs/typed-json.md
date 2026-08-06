@@ -256,6 +256,25 @@ The line counts are the least of it. Three things changed in kind:
   the list loop, two lines and now building no paths — so **no `try_map` is
   proposed**.
 
+**A second client then named two additions and re-refused the third.**
+`pkgs/github` ([api-access.md](api-access.md) Arc 2) wrote decoders for GitHub's
+`pull-request-simple` and `issue`, and needed the same two local helpers
+`pkgs/anthropic` had wanted:
+
+- **`Cursor.each(decode)`** — an array field costs
+  `let xs = []; for e in at.list()? { xs.push(decode(e)?) }` every time, and
+  there is one array field per list-shaped response in the whole of GitHub.
+- **`Cursor.opt_with(decode)`** — a nullable `$ref` is the single most common
+  shape in a real description (3.0 spells it with a duplicate schema, so it is
+  everywhere), and reading one is three lines of `match`.
+
+Two occurrences in two clients is the bar for moving a shape into the library,
+so both are proposed. **`try_map` is refused a second time**, and on firmer
+ground than before: `format: date-time` is a genuinely fallible conversion, so
+the case did _not_ dissolve this time — but the nested `match` lands once per
+_format_, in a helper, not once per field. GitHub's 12,200 `format` occurrences
+reduce to a handful of functions like `date_time_at`.
+
 Two findings are deliberately left standing rather than fixed. Finding 3's
 absent-versus-null conflation is _resolved_ for required fields and _exposed_
 for optional ones: `opt_*` still reads both as `None`, because that is what
