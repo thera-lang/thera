@@ -45,10 +45,6 @@ this is"; read top-down for progressive detail.
   flight — getting structs into and out of JSON well enough to write an API
   client, with a hand-decoded Anthropic Messages response as the forcing
   function.
-- [toml.md](toml.md) — **`std.toml`**: the design for a TOML 1.0.0 core library
-  — the value model, the `std.json`-mirrored reading surface, the
-  conformance-suite plan — driven by api-access.md's generator manifest and
-  scale.md's package manifest.
 - [scale.md](scale.md) — **Thera at scale**: the plan for keeping large
   codebases workable for agents — the four scaling failure modes (reading
   radius, discoverability, feedback latency, trustworthy prose), and the work

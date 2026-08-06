@@ -844,17 +844,26 @@ JSON without manual wrapping. See § Sequencing #1.
 **YAML/CSV are ecosystem** — this is where an agent looks first and finds the
 pointer. (TOML graduated to core — see § `std.toml`.)
 
-### `std.toml` — TOML 1.0.0 config _(in progress, pure Thera — see docs/toml.md)_
+### `std.toml` — TOML 1.0.0 config _(implemented, pure Thera; parse + typed reading)_
 
-The durable hand-edited config format — the API-generator manifest and the
-future package manifest are its driving use cases (docs/toml.md has the full
-design and staging). The structural `Toml` enum mirrors `Json`'s shape with two
-format-forced differences: **no null variant** (TOML has none; absence is the
-only optionality, so every lenient read is an `Option`) and a `Datetime` variant
-carrying the kind plus validated source text. Because TOML is a config format,
-the lenient surface is path-shaped rather than chain-shaped: `get` takes a
-**dotted path** — the format's own spelling — and typed `get_*` helpers compose
-it with one `as_*`:
+The durable hand-edited config format — the API-generator manifest
+([api-access.md](api-access.md) § The manifest) and the future package manifest
+(scale.md item 4) are its driving use cases, and are why it was promoted from
+ecosystem to core (see _What is intentionally not in core_ below). The
+structural `Toml` enum mirrors `Json`'s shape with two format-forced
+differences: **no null variant** (TOML has none; absence is the only
+optionality, so every lenient read is an `Option`, and `Cursor`'s `opt_*` mean
+exactly "key absent") and a **`Datetime`** variant carrying the kind
+(offset/local date-time, local date, local time) plus the validated, normalized
+source text — no new date types invented; `to_datetime()` bridges the offset
+kind to `time.DateTime` via RFC 3339, and the local kinds refuse rather than
+guess an instant.
+
+Both of `std.json`'s reading styles, mirrored name-for-name so an agent learns
+one idiom — with the lenient one **path-shaped rather than chain-shaped**,
+because a config consumer reads one value at a dotted path (and with no null
+there is no sentinel to chain through): `get` takes the whole path in the
+format's own spelling, and typed `get_*` helpers compose it with one `as_*`:
 
 ```
 pub fn parse(_ text: String) -> Result<Toml, TomlError>;  // root is always a Table
@@ -866,17 +875,44 @@ impl Toml {
     pub fn get_bool/get_int/get_double/get_string/get_array/get_table(self, _ path: String) -> Option<…>;
     pub fn kind(self) -> String;                          // 'integer', 'table', … for messages
 }
+
+pub fn cursor(_ value: Toml) -> Cursor;                   // the strict reader
+
+impl Cursor {
+    pub fn field(self, _ key: String) -> Cursor;          // navigating never fails …
+    pub fn index(self, _ i: Int) -> Cursor;
+    pub fn string/int/double/bool/datetime/table/list/raw(self) -> Result<…, DecodeError>;
+    pub fn opt_string/opt_int/opt_double/opt_bool/opt_datetime/opt_table/opt_list(self) -> Result<Option<…>, DecodeError>;
+    pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError>;
+}
 ```
 
-Status: stages 1–3 landed — the complete TOML 1.0.0 grammar: scalars (all string
-forms, all integer bases, floats, the four date-time kinds), arrays, inline
+`Cursor` is `json.Cursor`'s mirror for the manifest reader, where a typo'd key
+must fail with the path that names it — **rendered in TOML's own dotted
+spelling** (`expected a string at generate.operations[2], got integer`), because
+that error points at a line the user wrote in TOML syntax. `DecodeError` keeps
+json's `Missing`/`Shape` split. Mirrored rather than shared deliberately: a
+generic cursor over a common value interface is real design machinery bought to
+deduplicate ~150 finished lines; two small copies with identical names is the
+better trade unless a third format reader appears. Errors from `parse` itself
+are `TomlError.Syntax` with line/column — one variant for lexical and
+document-rule errors alike, the message naming the violated rule.
+
+The grammar is complete TOML 1.0.0: all four string forms, all integer bases
+(textual i64 range checks), floats with `inf`/`nan`, the four date-time kinds
+(every component range-checked, day against month and leap year), arrays, inline
 tables, dotted keys, and `[table]`/`[[array-of-tables]]` headers with TOML's
 definition rules (a table is defined once; dotted keys extend only their own
-block's tables; inline tables and static arrays are closed). Conformance is
-pinned by the official `toml-test` suite, vendored in `third_party/toml-test/` —
-all 679 TOML 1.0.0 cases pass via `conformance_test.thera`. The strict `Cursor`
-(stage 4) and `stringify` (stage 5) follow. Parse-only by design until a tool
-needs to write a manifest.
+block's tables; inline tables and static arrays are closed). **Conformance is
+measured, not claimed**: the official `toml-test` suite (v2.2.0), vendored in
+`third_party/toml-test/`, passes all 679 TOML 1.0.0 cases via
+`conformance_test.thera`.
+
+**Parse-only by design.** Both driving use cases are hand-written files read by
+tools. `stringify` plus the `json`-style constructors are deferred until a tool
+first writes a manifest; comment-preserving editing (a `toml_edit`-style
+lossless document model) is out of scope and would be its own library. TOML 1.1,
+if it ever ships, is adopted deliberately — the target is pinned 1.0.0.
 
 ### `std.encoding` — base64 / hex / url _(implemented, pure Thera)_
 
