@@ -111,6 +111,71 @@ pub struct Response {
     let body: Bytes;
 }
 
+/// Header names whose values are credentials. `Debug` prints these redacted.
+///
+/// A denylist is not a security boundary and is not pretending to be one — a custom
+/// header carrying a token still leaks. It is a floor: these five are where credentials
+/// actually live, they are named by RFC 9110 (§11.6.2, §11.6.3) and RFC 6265 or are the
+/// de-facto API-key spelling, and a caller who invents their own header knows they did.
+pub let SENSITIVE_HEADERS: List<String> = [
+    'authorization',
+    'proxy-authorization',
+    'cookie',
+    'set-cookie',
+    'x-api-key',
+];
+
+/// `headers` with every credential value replaced by `<redacted>`.
+///
+/// Exposed because a caller that logs its own headers wants the same treatment, and
+/// because the alternative to a shared helper is each one writing a different denylist.
+pub fn redact_headers(_ headers: Map<String, String>) -> Map<String, String> {
+    let safe: Map<String, String> = [:];
+    for name in headers.keys() {
+        safe[name] = if str_list_has(SENSITIVE_HEADERS, name.to_lowercase()) {
+            '<redacted>'
+        } else {
+            headers[name]
+        };
+    }
+    return safe;
+}
+
+fn str_list_has(_ names: List<String>, _ name: String) -> Bool {
+    for n in names {
+        if n == name {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// `Debug` for a request, with credential headers redacted.
+///
+/// The structural derive printed `authorization` in full, so `'${req}'` — the shortest
+/// thing anyone writes while debugging a client — put a live credential in a log, and a
+/// failing `assert_eq` on a request did the same in CI output. Every client that sends a
+/// credential builds one of these, so this is the one place that fixes it for all of
+/// them.
+///
+/// **Only `Debug` changes.** `Eq` stays structural, so redaction never affects
+/// comparison — two requests differing solely in their token are still unequal, and a
+/// test that checks a header's real value still can.
+impl Debug for Request {
+    pub fn debug(self) -> String {
+        return 'Request { method: \'${self.method}\', url: \'${self.url}\', '
+            + 'headers: ${redact_headers(self.headers)}, body: ${self.body} }';
+    }
+}
+
+/// `Debug` for a response — `set-cookie` is a credential in the other direction.
+impl Debug for Response {
+    pub fn debug(self) -> String {
+        return 'Response { status: ${self.status}, '
+            + 'headers: ${redact_headers(self.headers)}, body: ${self.body} }';
+    }
+}
+
 impl Response {
     /// Whether the status is 2xx.
     pub fn is_ok(self) -> Bool {

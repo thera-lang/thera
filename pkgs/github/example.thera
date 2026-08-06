@@ -1,0 +1,144 @@
+//! An example program: list a repository's open pull requests.
+//!
+//! ```
+//! bin/thera.sh run pkgs/github/example.thera                 # thera-lang/thera
+//! bin/thera.sh run pkgs/github/example.thera rust-lang/rust  # any public repo
+//! ```
+//!
+//! **It talks to real GitHub**, which is the point — the library's 48 tests all run
+//! against a loopback fake, and a fake agrees with whatever misreading it was written
+//! from. This is the program that finds out whether the types match what the server
+//! actually sends. (The same check runs as a gated test: see
+//! `THERA_NET_TESTS` in [live_test.thera](live_test.thera).)
+//!
+//! No credential needed — GitHub serves public reads unauthenticated at 60 requests an
+//! hour. `GITHUB_TOKEN` or `GH_TOKEN`, if either is set, raises that to 5000.
+//!
+//! **Why it lives here.** Thera has no package format yet
+//! ([scale.md](../../docs/scale.md) item 4), so `pkgs/github/` is one flat library and
+//! this sits beside the code it demonstrates. Once packages are a real thing, the
+//! natural layout is a `lib/` (or `src/`) for the library and `example/` for this — at
+//! which point it imports `'../github'` instead of `'github'` and nothing else changes.
+
+import std.env;
+
+import 'github';
+
+/// The default target: this repository, so the program does something useful with no
+/// arguments at all.
+const DEFAULT_REPO: String = 'thera-lang/thera';
+
+/// How many to ask for. Small on purpose — a page boundary is more interesting to
+/// demonstrate than a long list is to read.
+const PER_PAGE: Int = 5;
+
+fn main() -> Result<Void, Error> {
+    let target = env.args().get(0).unwrap_or(DEFAULT_REPO);
+    let parts = target.split('/');
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        eprintln('usage: example.thera [owner/repo]   (got: \'${target}\')');
+        env.exit(2);
+        return Result.Ok(void);
+    }
+
+    // `from_env` is not fallible: an absent token is an unauthenticated client, not an
+    // error, because GitHub will still serve the read.
+    let gh = github.from_env();
+    println('${target} — open pull requests');
+    println('');
+
+    return match show_open_pulls(gh, owner: parts[0], repo: parts[1]) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => {
+            report(e);
+            env.exit(1);
+            Result.Ok(void)
+        },
+    };
+}
+
+/// The whole of the API usage: one call, then read the page.
+fn show_open_pulls(
+    _ gh: github.Client,
+    owner: String,
+    repo: String,
+) -> Result<Void, github.GitHubError> {
+    let page = gh.pulls().list(owner: owner, repo: repo, state: 'open', per_page: PER_PAGE)?;
+
+    if page.items.is_empty() {
+        println('  (none open)');
+        return Result.Ok(void);
+    }
+    for pr in page.items {
+        println(describe(pr));
+    }
+
+    // The server says whether there is more; the client does not compute it. Following
+    // the chain is `page.all()`, bounded by default — see `Page.all`.
+    if page.has_next() {
+        println('');
+        println('  … more pages available (page.all() would follow them)');
+    }
+    return Result.Ok(void);
+}
+
+/// One pull request as two lines.
+///
+/// Every `Option` here is a real one, and each is absent for a different reason — which
+/// is the part of the shape worth looking at. `user` is a deleted account, `body` is a
+/// description nobody wrote, and `draft` is a field GitHub always sends but does not
+/// promise to.
+fn describe(_ pr: github.PullRequest) -> String {
+    let author = pr.user.map((u) => u.login).unwrap_or('(deleted account)');
+    let draft = if pr.draft.unwrap_or(false) { ' [draft]' } else { '' };
+    let head = '  #${pr.number}${draft} ${pr.title}';
+    let detail = '      ${author} · opened ${pr.created_at.format_rfc3339()}'
+        + ' · ${pr.head.ref} → ${pr.base.ref}';
+    return head + '\n' + detail + labels_of(pr);
+}
+
+fn labels_of(_ pr: github.PullRequest) -> String {
+    if pr.labels.is_empty() {
+        return '';
+    }
+    let names: List<String> = [];
+    for label in pr.labels {
+        names.push(label.name);
+    }
+    return '\n      labels: ' + names.join(', ');
+}
+
+/// Why the error type has one variant per *kind* of failure rather than per status: each
+/// arm knows what to tell the user to do, and a status code alone does not.
+fn report(_ e: github.GitHubError) -> Void {
+    match e {
+        // The exchange never happened, so re-sending it is not a duplicate.
+        Transport(cause) => {
+            eprintln('network error: ${cause.message()}');
+            eprintln('the request never reached GitHub, so retrying is safe');
+        },
+        // The one refusal that is not about the request.
+        RateLimited(limit) => {
+            eprintln('rate limited: ${limit.message}');
+            match limit.retry_after {
+                Some(secs) => eprintln('wait ${secs}s and try again'),
+                None => eprintln('set GITHUB_TOKEN to raise the limit from 60/hour to 5000'),
+            }
+        },
+        // Refused on the merits. The status is inside, for the caller that wants it.
+        Status(refusal) => {
+            eprintln('GitHub refused the request: ${refusal.describe()}');
+            if refusal.status == 404 {
+                eprintln('no such repository, or it is private and the token cannot see it');
+            }
+            if let Some(url) = refusal.documentation_url {
+                eprintln('see ${url}');
+            }
+        },
+        // Our bug, or a contract change. The message names the JSON path.
+        Body(detail) => {
+            eprintln('could not read GitHub\'s answer: ${detail}');
+            eprintln('the request succeeded, so this is a bug in pkgs/github');
+        },
+    }
+}

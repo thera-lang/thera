@@ -1039,7 +1039,24 @@ impl Response {
 }
 pub enum HttpError { Connect(String), Timeout, Status(Int), Body(String),
                      Protocol(String) }   // implements Error
+
+// Credentials must not reach a log. `Request`/`Response` therefore override the
+// structural `Debug` derive, which printed `authorization` in full — so `'${req}'`
+// put a live token in a log, and a failing `assert_eq` did the same in CI output.
+// Display-only: `Eq` stays structural, so redaction never changes comparison.
+pub let SENSITIVE_HEADERS: List<String>;   // authorization, proxy-authorization,
+                                           // cookie, set-cookie, x-api-key
+pub fn redact_headers(_ headers: Map<String, String>) -> Map<String, String>;
 ```
+
+**On redaction.** It is a floor, not a security boundary: a custom header
+carrying a token still leaks, and the denylist is public precisely so a caller
+logging its own headers can reuse it rather than inventing a different list. The
+general answer — a `Secret` type whose `Debug`/`Display` are redacted and whose
+value needs an explicit `.expose()` — is still open; see
+[api-access.md](api-access.md) item 6. What is closed is that the _wire types_
+every client builds no longer leak by default, which is where the hazard
+actually lived.
 
 Notes: TLS is provided by a runtime native (not reimplemented in Thera).
 Streaming bodies use `std.io.Reader`, as sketched — a `Stream`'s body is one, so

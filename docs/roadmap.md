@@ -1033,6 +1033,27 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Credential redaction, and a live smoke that checks the contract** (2026-08).
+  The first client to hold a real secret found the leak api-access.md item 6 had
+  predicted: `'${client}'` printed the bearer token in full, and so did
+  `'${request}'`, because `Debug` derives structurally and is the total fallback
+  every unprepared print goes through. `github.Client` and `std.http`'s
+  `Request`/`Response` now override it, with `http.SENSITIVE_HEADERS` and
+  `http.redact_headers` public so a caller logging its own headers reuses the
+  list. Display-only — `Eq` stays structural, so redaction cannot change a
+  comparison. The general answer (a `Secret` type with an explicit `.expose()`)
+  is still open.
+  - **And a third test layer.** The hermetic suite runs against a loopback fake,
+    which agrees with whatever misreading it was written from — so it cannot
+    check whether the types match what the server really sends, which for types
+    derived from a description known to be wrong is the question that matters.
+    Four `THERA_NET_TESTS`-gated live tests (structure only, never content, no
+    credential) validated GitHub's whole response shape, following the precedent
+    `std.net` and `std.http` set for their own live TLS smokes.
+  - `pkgs/github/example.thera` is the runnable demonstration — a real call
+    against a public repository — and the first data point for what a package
+    layout needs beyond its library ([scale.md](scale.md) item 4, open question
+    f).
 - **`pkgs/github` — the call surface, settled by a complete small client**
   (2026-08). Three operations out of GitHub's 1220 (list PRs, create PR, create
   issue), written to answer the questions [api-access.md](api-access.md) Arc 2 §

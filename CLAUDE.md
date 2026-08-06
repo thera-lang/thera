@@ -19,7 +19,9 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
   (`docs/scale.md` item 4 owns it). `pkgs/anthropic/` and `pkgs/github/` are the
   first two — both hand-written API clients, written as specimens for
   `docs/api-access.md`'s generator; a `pkgs/*` library may find another home
-  later.
+  later. `pkgs/github/` also carries `example.thera` (a runnable demo) and
+  `live_test.thera` (network tests, off unless `THERA_NET_TESTS` is set) — an
+  interim layout until packages have a real format.
 - `sdk/std/` — Thera standard library sources (`.thera`, with `native fn`
   decls). Each library lives in its own named subdir
   (`sdk/std/path/path.thera`), with Thera tests beside it as
