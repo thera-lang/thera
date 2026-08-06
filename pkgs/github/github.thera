@@ -23,3 +23,4 @@
 
 pub import 'errors'; // GitHubError, ApiError, FieldError, RateLimit
 pub import 'client'; // Client, from_env, decoded, the API constants
+pub import 'types'; // PullRequest, Issue, User, Label, IssueLabel, Ref + their decoders
