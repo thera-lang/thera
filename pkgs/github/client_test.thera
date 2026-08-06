@@ -323,6 +323,44 @@ fn a_refused_connection_is_a_transport_error() -> Result<Void, Error> {
 
 // --- construction ---
 
+/// A `Client` holds a live credential, and `'${gh}'` is the shortest thing anyone writes
+/// while debugging. The structural `Debug` derive printed the token in full; this asserts
+/// it no longer can, and that "am I authenticated?" is still answerable.
+@test
+fn debug_redacts_the_token() -> Result<Void, Error> {
+    let shown = Client.new(token: Option.Some('ghp_supersecret')).debug();
+    testing.assert(!shown.contains('ghp_supersecret'), message: 'the token leaked: ' + shown)?;
+    testing.assert(shown.contains('Some(<redacted>)'), message: 'expected a redaction: ' + shown)?;
+    // Presence still shows, and an anonymous client is distinguishable from a redacted one.
+    return testing.assert(
+        Client.new().debug().contains('token: None'),
+        message: 'expected an anonymous client to say so',
+    );
+}
+
+/// Holds what a log would have shown for the request the server received.
+struct DebugLog {
+    let mut text: String;
+}
+
+/// The credential does not leak through the request that carries it either — the header
+/// is redacted by `std.http`'s own `Debug`, which is where every client benefits. Asserted
+/// on the request the *server* saw, so it is the real outbound one.
+@test
+fn a_sent_requests_authorization_header_is_not_printable() -> Result<Void, Error> {
+    let log = DebugLog { text: '' };
+    let client = serving((req) => {
+        log.text = req.debug();
+        return Result.Ok(server.text(200, 'ok'));
+    })?;
+    let _ = client.request('GET', client.url('/user'));
+    testing.assert(log.text.contains('authorization'), message: 'the header was never sent')?;
+    return testing.assert(
+        !log.text.contains('ghp_secret'),
+        message: 'the token leaked through the request: ' + log.text,
+    );
+}
+
 /// `from_env` prefers `GITHUB_TOKEN`, falls back to the `gh` CLI's `GH_TOKEN`, and
 /// treats neither being set as an unauthenticated client rather than an error.
 @test

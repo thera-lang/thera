@@ -244,7 +244,16 @@ per-generated-API config file (spec URL, hash pin, selected operations, auth
 technique, per-call overrides), which would sit in the same directory as this
 one with a different lifecycle. Two files rather than one, since dependencies
 change when you add a dependency and that one changes when an upstream spec
-moves; both are TOML.
+moves; both are TOML. (f) **a package needs somewhere to put things that are not
+the library** — `pkgs/github/example.thera` is a runnable program sitting inside
+the library it demonstrates, which works (a sibling can import its own barrel)
+but conflates two roles: the library's importable surface and a program that
+consumes it. The layout most package formats converge on is `lib/` (or `src/`)
+beside `example/`, `test/`, `bin/` — each a directory library, so the barrel
+rule already gives them separate surfaces, and `example/` would import
+`'../github'` exactly as `std.http.server` imports `'../common'` today. Worth
+settling _with_ (b), since "is a package a directory-library or a grouping of
+them?" and "where does an example live?" are the same question asked twice.
 
 **Status:** open, deferred behind 1–3.
 

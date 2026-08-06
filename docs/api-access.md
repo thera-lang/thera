@@ -276,12 +276,36 @@ must never reach a log or an error message. **Today.** `std.env` exists with the
 ambient-capability model ([stdlib.md](stdlib.md)), which is the right shape: an
 ambient free function plus an opt-in capability interface for tests.
 **Direction.** Mostly convention rather than machinery: a client reads its key
-from a named env var by default and accepts an override. The one piece of real
-design is **redaction** — a credential-carrying value should not be printable
-via `Debug`, and today nothing prevents that. Bearer/API-key is the whole slate
-for now; OAuth device flow and AWS SigV4 are deliberately out of scope (see §
-Choosing targets — they are a ranking criterion, not a v1 feature). **Status.**
-Open, small.
+from a named env var by default and accepts an override — `github.from_env()`
+reads `GITHUB_TOKEN` then `GH_TOKEN`, and an absent token is an unauthenticated
+client rather than an error, because the server will still serve a public read.
+Bearer/API-key is the whole slate for now; OAuth device flow and AWS SigV4 are
+deliberately out of scope (see § Choosing targets — they are a ranking
+criterion, not a v1 feature).
+
+**Redaction — the leaks are closed, the general answer is not.** This was the
+item's one piece of real design, and writing a client that holds a credential
+made it concrete: `'${client}'` printed the bearer token in full, and so did
+`'${request}'`, because `Debug` derives structurally and is the total fallback
+every unprepared print goes through. Both are fixed — `github.Client` and
+`std.http`'s `Request`/`Response` override `Debug`, with `SENSITIVE_HEADERS` and
+`redact_headers` public so a caller logging its own headers reuses the list
+instead of inventing one. Redaction is **display-only**: `Eq` stays structural,
+so it cannot silently change a comparison.
+
+Two things that fix does _not_ do, and they are the remaining work:
+
+- **A denylist is a floor, not a boundary.** A credential in a header nobody
+  listed still prints. The general answer is a **`Secret` type** — `Debug` and
+  `Display` both redacted, the value reachable only through an explicit
+  `.expose()`, so leaking becomes something you have to write on purpose. That
+  makes the guarantee structural instead of per-type, and it is what the next
+  client holding a credential should be built on rather than another
+  hand-written `impl Debug`.
+- **Nothing stops a caller printing the token they already hold.** No type can.
+
+**Status.** Open, smaller: the concrete leaks are closed and tested; `Secret` is
+the design left.
 
 ### 7. Multipart and binary bodies
 
@@ -303,9 +327,28 @@ stage 5 rather than inventing a parallel mechanism: spin a local TLS server,
 point the client's `base_url` at it, assert on the exchange. Recorded-fixture
 replay is the cheaper complement for response-decoding tests (a captured
 response body plus its decode is a pure function — no server needed). Both are
-worth having; the decode tests are far more numerous. **Status.** Open;
-**synergy worth noting** — stage 5 was already planned for TLS and now pays for
-two things.
+worth having; the decode tests are far more numerous.
+
+**In practice, and one gap the plan missed.** `pkgs/github` does exactly the
+above — a loopback server, `base_url` pointed at it, 50 tests over a real socket
+— and there is no TLS in the loop at all, because a plaintext server is enough
+to test a client's own behavior and `serve_tls` is deferred. But a fake server
+**agrees with whatever misreading it was written from**, so a hermetic suite
+cannot answer the one question a client most needs answered: do the types match
+what the server actually sends? Ours were derived from a description already
+known to be wrong in places, so this is not hypothetical.
+
+So the story is three layers, not two: fixtures for decode, a loopback server
+for behavior, and a **small gated live smoke for the contract** — structure
+only, never content, off unless `THERA_NET_TESTS` is set, following the
+precedent `std.net` and `std.http` already set for their own live TLS smokes.
+Four tests were enough to validate GitHub's whole response shape, and they need
+no credential because public reads are unauthenticated. Every generated client
+should get the same three layers, with the third one generated too.
+
+**Status.** Answered in practice; the remaining gap is that a generated client's
+live smoke needs a repository (or equivalent stable fixture) chosen per API,
+which is manifest territory.
 
 ## Arc 2 — hand-written clients, as a forcing function
 

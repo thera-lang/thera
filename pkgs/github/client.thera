@@ -43,9 +43,35 @@ pub const USER_AGENT: String = 'thera-github/0.1';
 pub struct Client {
     /// The API root, with no trailing slash (`https://api.github.com`).
     let base_url: String;
-    /// The bearer token, or `None` for unauthenticated access.
+    /// The bearer token, or `None` for unauthenticated access. **Never printed** —
+    /// see the `Debug` impl below.
     let token: Option<String>;
     let user_agent: String;
+}
+
+/// A redacting `Debug`, overriding the structural derive.
+///
+/// The derive printed the bearer token in full, so `'${client}'` — the shortest thing
+/// anyone writes while debugging — put a live credential in a log. That is exactly the
+/// hazard [api-access.md](../../docs/api-access.md) item 6 names, and a client is the
+/// first value in the tree to hold a real secret.
+///
+/// Overriding `Debug` specifically is what closes the path rather than narrowing it:
+/// `${}` renders via `Display` if a type has one and `Debug` otherwise, and `Debug` is
+/// total, so it is the fallback every unprepared print goes through. With this in place
+/// there is no way to render a `Client` that does not come here.
+///
+/// **Presence survives, the value does not.** "Am I authenticated?" is the question
+/// worth answering while debugging, and answering it leaks nothing.
+impl Debug for Client {
+    pub fn debug(self) -> String {
+        let credential = match self.token {
+            Some(_) => 'Some(<redacted>)',
+            None => 'None',
+        };
+        return 'Client { base_url: \'${self.base_url}\', token: ${credential}, '
+            + 'user_agent: \'${self.user_agent}\' }';
+    }
 }
 
 impl Client {

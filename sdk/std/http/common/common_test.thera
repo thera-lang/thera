@@ -88,6 +88,98 @@ fn reads_two_pipelined_requests_from_one_buffer() -> Result<Void, Error> {
     return testing.assert(w.read_request()?.is_none(), message: 'expected EOF after two');
 }
 
+// --- redaction ---
+
+/// A credential must not reach a log, and `'${req}'` is the shortest path to one. The
+/// structural `Debug` derive printed `authorization` in full; this is the assertion that
+/// it no longer can.
+@test
+fn debug_redacts_a_credential_header() -> Result<Void, Error> {
+    let req = Request {
+        method: 'GET',
+        url: '/user',
+        headers: ['authorization': 'Bearer ghp_secret', 'accept': 'application/json'],
+        body: Bytes.empty(),
+    };
+    let shown = req.debug();
+    testing.assert(!shown.contains('ghp_secret'), message: 'the token leaked: ' + shown)?;
+    testing.assert(shown.contains('<redacted>'), message: 'expected a redaction: ' + shown)?;
+    // Everything else still prints, or the redaction has made debugging worse.
+    testing.assert(shown.contains('application/json'), message: 'lost a safe header')?;
+    return testing.assert(shown.contains('/user'), message: 'lost the url');
+}
+
+/// The header name is matched case-insensitively, because a caller-built request has not
+/// been through the client's normalization yet.
+@test
+fn debug_redaction_ignores_header_case() -> Result<Void, Error> {
+    let req = Request {
+        method: 'GET',
+        url: '/user',
+        headers: ['Authorization': 'Bearer ghp_secret'],
+        body: Bytes.empty(),
+    };
+    return testing.assert(
+        !req.debug().contains('ghp_secret'),
+        message: 'the token leaked: ' + req.debug(),
+    );
+}
+
+/// `set-cookie` is a credential in the other direction.
+@test
+fn debug_redacts_a_response_cookie() -> Result<Void, Error> {
+    let resp = Response {
+        status: 200,
+        headers: ['set-cookie': 'session=abc123', 'content-type': 'text/plain'],
+        body: Bytes.empty(),
+    };
+    let shown = resp.debug();
+    testing.assert(!shown.contains('abc123'), message: 'the cookie leaked: ' + shown)?;
+    return testing.assert(shown.contains('text/plain'), message: 'lost a safe header');
+}
+
+/// **Redaction is display-only.** `Eq` stays structural, so two requests differing only
+/// in their credential are still unequal — a redaction that changed comparison would
+/// silently break every test that checks a header's real value.
+@test
+fn redaction_does_not_affect_equality() -> Result<Void, Error> {
+    let one = Request {
+        method: 'GET',
+        url: '/user',
+        headers: ['authorization': 'Bearer one'],
+        body: Bytes.empty(),
+    };
+    let two = Request {
+        method: 'GET',
+        url: '/user',
+        headers: ['authorization': 'Bearer two'],
+        body: Bytes.empty(),
+    };
+    testing.assert_ne(actual: one, unexpected: two)?;
+    // And the value itself is still readable — this redacts printing, not storage.
+    return testing.assert_eq(
+        actual: header(one.headers, 'authorization'),
+        expected: Option.Some('Bearer one'),
+    );
+}
+
+/// The helper on its own, since a caller logging its own headers wants the same list.
+@test
+fn redact_headers_replaces_only_the_sensitive_ones() -> Result<Void, Error> {
+    let safe = redact_headers([
+        'authorization': 'Bearer x',
+        'proxy-authorization': 'Basic y',
+        'cookie': 'a=1',
+        'x-api-key': 'sk-z',
+        'user-agent': 'thera-http/0.1',
+    ]);
+    testing.assert_eq(actual: safe['authorization'], expected: '<redacted>')?;
+    testing.assert_eq(actual: safe['proxy-authorization'], expected: '<redacted>')?;
+    testing.assert_eq(actual: safe['cookie'], expected: '<redacted>')?;
+    testing.assert_eq(actual: safe['x-api-key'], expected: '<redacted>')?;
+    return testing.assert_eq(actual: safe['user-agent'], expected: 'thera-http/0.1');
+}
+
 // --- responses ---
 
 @test

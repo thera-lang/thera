@@ -1,0 +1,145 @@
+// Live smoke tests — **off unless `THERA_NET_TESTS` is set.**
+//
+// Everything else in this package runs against a loopback fake, which is the right
+// default: hermetic, fast, no third party, no credential. But a fake agrees with whatever
+// misreading it was written from, and these types were derived from GitHub's OpenAPI
+// description — a document already known to be wrong in places (`draft` is absent from
+// `required` though GitHub always sends it). So the one thing the hermetic suite
+// structurally cannot check is the thing that matters most: **do the types match what the
+// server actually sends?**
+//
+// That is all these tests do. They assert structure, never content — a PR number, a
+// title, or a count would be asserting on someone else's repository and would break for
+// reasons that are not our bug. The gate follows the precedent in
+// `sdk/std/net/net_test.thera` and `sdk/std/http/client_test.thera` (docs/http-tls.md §
+// Testing): the network and a third party's server are exactly the properties the rest of
+// the suite avoids.
+//
+// Run them with:
+//
+//     THERA_NET_TESTS=1 bin/thera.sh test pkgs/github
+//
+// No credential required — GitHub serves public reads unauthenticated.
+
+import std.env;
+import std.testing;
+
+import 'client' as _;
+import 'issues' as _;
+// `client.pulls()` is an `impl Client` block in `pulls.thera`.
+import 'pulls' as _;
+
+/// A busy, long-lived public repository: enough open pull requests to fill a page and
+/// force a `Link` header, and not going anywhere.
+const LIVE_REPO_OWNER: String = 'rust-lang';
+const LIVE_REPO_NAME: String = 'rust';
+
+/// Whether the live suite is enabled.
+fn enabled() -> Bool {
+    return env.get('THERA_NET_TESTS').is_some();
+}
+
+/// An unauthenticated client against the real API. Deliberately not `from_env`: a
+/// developer's `GITHUB_TOKEN` would change which rate limit applies and make the run
+/// depend on their shell.
+fn live() -> Client {
+    return Client.new();
+}
+
+/// The whole contract in one call: real TLS, real JSON, and every field the types claim
+/// GitHub sends. A decode failure here is the news — it means the description and reality
+/// disagree, and the message names the field.
+@test
+fn a_live_list_decodes_into_the_types() -> Result<Void, Error> {
+    if !enabled() {
+        return Result.Ok(void);
+    }
+    let page = testing.assert_ok(live().pulls().list(
+        owner: LIVE_REPO_OWNER,
+        repo: LIVE_REPO_NAME,
+        state: 'open',
+        per_page: 5,
+    ))?;
+    testing.assert(!page.items.is_empty(), message: 'expected at least one open PR')?;
+
+    // Structure, not content: each item has the fields the type requires, and the ones
+    // that are `Option` are readable either way.
+    for pr in page.items {
+        testing.assert(pr.number > 0, message: 'a PR number should be positive')?;
+        testing.assert(!pr.title.is_empty(), message: 'a PR should have a title')?;
+        testing.assert(!pr.head.ref.is_empty(), message: 'a PR should have a head ref')?;
+        testing.assert(!pr.base.ref.is_empty(), message: 'a PR should have a base ref')?;
+        testing.assert(pr.created_at.unix_seconds() > 0, message: 'created_at should parse')?;
+        // Open, so not merged — the one content assertion, and it follows from `state`.
+        testing.assert(!pr.is_merged(), message: 'an open PR is not merged')?;
+    }
+    return Result.Ok(void);
+}
+
+/// Pagination against the real `Link` header. A page of 5 out of hundreds must offer a
+/// next page, and following it must land somewhere else — which is the assertion that
+/// catches a client that re-requests page 1 forever.
+@test
+fn a_live_next_page_is_a_different_page() -> Result<Void, Error> {
+    if !enabled() {
+        return Result.Ok(void);
+    }
+    let first = testing.assert_ok(live().pulls().list(
+        owner: LIVE_REPO_OWNER,
+        repo: LIVE_REPO_NAME,
+        state: 'open',
+        per_page: 5,
+    ))?;
+    testing.assert(first.has_next(), message: 'a 5-item page of many should have a next')?;
+
+    let following = testing.assert_ok(first.next())?;
+    let second = testing.assert_ok(following.ok_or(error('expected a second page')))?;
+    testing.assert(!second.items.is_empty(), message: 'the second page should have items')?;
+    return testing.assert_ne(actual: second.items[0].number, unexpected: first.items[0].number);
+}
+
+/// The refusal path, live: a repository that does not exist is a `Status` carrying
+/// GitHub's own 404 body — not a transport failure, and not a decode failure.
+@test
+fn a_live_404_is_a_status_error() -> Result<Void, Error> {
+    if !enabled() {
+        return Result.Ok(void);
+    }
+    let outcome = live().pulls().list(owner: 'thera-lang', repo: 'no-such-repository-xyzzy');
+    let kind = match outcome {
+        Ok(_) => '(the repository existed)',
+        Err(e) => match e {
+            Status(refusal) => 'status ${refusal.status}',
+            _ => 'wrong variant: ' + e.message(),
+        },
+    };
+    return testing.assert_eq(actual: kind, expected: 'status 404');
+}
+
+/// A write, refused for the right reason. Creating an issue on a repository we cannot
+/// write to must come back as a refusal with GitHub's explanation — the live counterpart
+/// of the hermetic 422/403 tests, and the only way to know the request encoding is
+/// acceptable to the real server at all.
+///
+/// Unauthenticated, so GitHub answers 401; with a token that lacks access it would be 403
+/// or 404. Any of the three proves the same thing, so the assertion is the *variant*.
+@test
+fn a_live_write_without_a_credential_is_refused() -> Result<Void, Error> {
+    if !enabled() {
+        return Result.Ok(void);
+    }
+    let outcome = live().issues().create(
+        owner: LIVE_REPO_OWNER,
+        repo: LIVE_REPO_NAME,
+        title: 'this issue is never created',
+    );
+    let kind = match outcome {
+        Ok(_) => '(the issue was created!)',
+        Err(e) => match e {
+            Status(_) => 'status',
+            RateLimited(_) => 'status', // also a legitimate refusal of an anonymous write
+            _ => 'wrong variant: ' + e.message(),
+        },
+    };
+    return testing.assert_eq(actual: kind, expected: 'status');
+}
