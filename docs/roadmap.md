@@ -1033,6 +1033,38 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **`pkgs/github` — the call surface, settled by a complete small client**
+  (2026-08). Three operations out of GitHub's 1220 (list PRs, create PR, create
+  issue), written to answer the questions [api-access.md](api-access.md) Arc 2 §
+  When the shape is ready to evaluate lists before a generator emits 1220 of
+  them. Six of the seven checklist rows are now decided: a `Client` value with
+  an overridable `base_url` (which is what makes an end-to-end test possible at
+  all, since `std.http` has no server-side TLS); an error enum with one variant
+  per _kind_ of failure rather than per status; a total error decoder, because a
+  strict one trades the server's explanation for a complaint about it;
+  `client.pulls().list(…)` over a flat surface, on the completion-list argument;
+  and a `Page<T>` that carries its own decoder so `page.next()` needs no
+  arguments, with `all()` bounded by default. 48 tests, every request over a
+  real socket to a loopback fake GitHub.
+  - **Written against the real description, which changed the answer four
+    times.** OpenAPI 3.0 cannot express a nullable `$ref`, so GitHub ships a
+    duplicate `nullable-simple-user` and a required field is still `Option`;
+    untagged `oneOf` decodes by dispatching on `Json.kind()` — the discriminator
+    the spec failed to declare — which closes the last alarming row of the
+    schema-to-type table; request-side and response-side unions are different
+    problems, because you control what you send; and `pulls/list` and
+    `pulls/create` return _different_ schemas. Four more manifest-only facts
+    joined Anthropic's three, which is what settles that the pattern was not
+    vendor-specific.
+  - **Two front-end bugs, both check-clean-and-wrong.** A declared enum `name()`
+    lost to the built-in tag reader (two of three resolution sites had the
+    precedence backwards; the builtin is now documented in
+    [language.md](language.md) § Inherent methods and pinned by
+    `iface-enum-name`), and `unused-import` fired on an import whose file adds
+    methods to a foreign type — a false positive on a load-bearing import, with
+    `--fatal-warnings` gating the corpus and no correct fix available. Keeping
+    that seam working matters: it is how a generator adds a resource by writing
+    one new file and editing none.
 - **`std.toml` — a durable config format, conformance-pinned** (2026-08). A
   complete TOML 1.0.0 reader in core, pure Thera, driven by the two manifests
   that needed it (api-access.md's generator manifest, scale.md item 4's package

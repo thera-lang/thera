@@ -497,6 +497,16 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
   not recognized there (`f<(Int) -> Int>(…)` stays a comparison parse —
   admitting `(` would swallow parenthesized comparisons); annotated positions
   (`let`, params) handle them fine.
+- **Function types do not nest.** The `type` production above has no
+  parenthesized form, so `(String) -> ((Int) -> Int)` is a parse error; without
+  the parentheses the annotation is accepted but the nested result does not
+  reach an inner lambda's inference; and `f(x)(y)` — immediately calling a
+  returned function — is an unsupported call target. Returning a function does
+  work when the annotation is unambiguous and the value is bound before it is
+  called (`let g = adder(3); g(4)`). So a higher-order _factory_ parameter
+  cannot be written today; the workaround is to pass state in a struct. Met
+  while writing `pkgs/github`'s test harness (see [api-access.md](api-access.md)
+  Arc 2 § What it cost the language).
 - The `<` disambiguation: a type-shaped `<…>` followed by `(` or `.` commits to
   type arguments (so a comparison chain `a < b > c` parses as comparisons —
   ill-typed, but syntactically comparisons). The residual `a < b > (c)`
