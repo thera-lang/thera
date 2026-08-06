@@ -21,6 +21,6 @@ third_party/toml-test/update.sh v<X.Y.Z>
 
 re-fetches that upstream release and replaces `tests/` with its 1.0.0 subset.
 Then update the version line above, re-run the suite
-(`bin/thera.sh test sdk/std/toml/conformance_test.thera`), and commit the
-result as one reviewed change — the snapshot's whole point is that an
-upstream change is a visible event, not a silent drift.
+(`bin/thera.sh test sdk/std/toml/conformance_test.thera`), and commit the result
+as one reviewed change — the snapshot's whole point is that an upstream change
+is a visible event, not a silent drift.
