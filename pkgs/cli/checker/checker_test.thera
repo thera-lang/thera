@@ -1642,6 +1642,80 @@ fn test_as_underscore_used_import_is_clean() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+/// An import whose file declares an `impl` block for a *foreign* type is not judgeable by
+/// name references, so the rule abstains.
+///
+/// The regression: `client.pulls()` resolves through an `impl Client` block living in
+/// `pulls.thera`, whose only export is `Pulls`. A caller names neither `pulls` nor
+/// `Pulls`, so the scan called the import unused — and removing it made the call
+/// unresolvable. A false positive on a load-bearing import, which the rule's contract
+/// says cannot happen.
+@test
+fn test_import_that_extends_a_foreign_type_is_not_reported() -> Result<Void, Error> {
+    // The three-file shape this comes from: `owner` declares the type, `helper` extends
+    // it, and the caller imports both but names only the type.
+    let owner = testkit.parse_at('pub struct Client { let v: Int; }', 'lib/owner.thera');
+    let helper = testkit.parse_at(
+        'import \'owner\' as _;\n'
+        + 'pub struct Helper { let n: Int; }\n'
+        + 'impl Client { fn extra(self) -> Int { return self.v; } }',
+        'lib/helper.thera',
+    );
+    let primary = testkit.parse_at(
+        'import \'owner\' as _;\n'
+        + 'import \'helper\' as _;\n'
+        + 'fn f(_ c: Client) -> Int { return c.extra(); }',
+        'lib/main.thera',
+    );
+    let owner_surface = surface_of('Client', 'lib/owner.thera');
+    let result = check(
+        primary,
+        [owner, helper],
+        [
+            'lib/main.thera': [
+                'owner': owner_surface,
+                'helper': surface_of('Helper', 'lib/helper.thera'),
+            ],
+            'lib/helper.thera': ['owner': owner_surface],
+        ],
+        [
+            'lib/main.thera': ['Client': 'lib/owner.thera'],
+            'lib/helper.thera': ['Client': 'lib/owner.thera'],
+        ],
+    );
+    return testing.assert_eq(actual: warning_messages(result.errors), expected: []);
+}
+
+/// The abstention is narrow: an import that only exports names, with no foreign `impl`,
+/// is still reported when none of those names is referenced.
+@test
+fn test_import_with_only_names_is_still_reported() -> Result<Void, Error> {
+    let primary = testkit.parse_at(
+        'import \'helper\' as _;\nfn f() -> Int { return 1; }',
+        'lib/main.thera',
+    );
+    let helper = testkit.parse_at('pub struct Helper { let n: Int; }', 'lib/helper.thera');
+    let result = check(
+        primary,
+        [helper],
+        ['lib/main.thera': ['helper': surface_of('Helper', 'lib/helper.thera')]],
+        [:],
+    );
+    return testing.assert_eq(
+        actual: warning_messages(result.errors),
+        expected: ['unused import: nothing from `helper` is referenced'],
+    );
+}
+
+/// A one-name import surface attributed to `file` — the loader-side data the `as _`
+/// attribution reads, with `origin` populated (unlike `helper_surface`, which predates
+/// the foreign-`impl` rule needing it).
+fn surface_of(_ name: String, _ file: String) -> LibraryNamespace {
+    let names: Set<String> = Set.new();
+    names.add(name);
+    return LibraryNamespace { names: names, collisions: Set.new(), origin: [name: file] };
+}
+
 // ---- warnings: unreachable-code + unreachable-arm ----
 
 @test

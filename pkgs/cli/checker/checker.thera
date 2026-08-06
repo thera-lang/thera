@@ -147,8 +147,11 @@ fn line_ignores(_ line: String, _ rule: String) -> Bool {
 // of a candidate name — a qualified `fs.read_text(…)`, a bare `Thing`
 // annotation, even a same-named local that shadows it — counts as a use, so
 // the rule can under-report but never false-positive. Exempt: `pub import`
-// (a re-export is itself the use) and — in a `<base>_test.thera` file — the
-// `<base>` import, whose full surface the test runner exposes bare.
+// (a re-export is itself the use), an import whose file adds methods to a
+// type it does not declare (see `extends_a_foreign_type` — a name scan
+// cannot see that use, so the rule abstains), and — in a
+// `<base>_test.thera` file — the `<base>` import, whose full surface the
+// test runner exposes bare.
 fn check_unused_imports(
     _ errors: List<diagnostic.Diagnostic>,
     _ program: Program,
@@ -212,11 +215,54 @@ fn check_unused_bare_import(
             return;
         }
     }
+    // A file with nothing public can still be worth importing (see below), and an
+    // empty surface leaves the scan nothing to go on, so stay silent rather than guess.
+    if surface.names.is_empty() {
+        return;
+    }
+    if extends_a_foreign_type(library, surface) {
+        return;
+    }
     errors.push(diagnostic.warning(
         'unused import: nothing from `${x.path}` is referenced',
         x.span,
         'unused-import',
     ));
+}
+
+// Whether the imported file declares an `impl` block for a type it does not itself
+// declare — in which case this rule abstains.
+//
+// An `impl` block may target a foreign type: `impl Client` inside a `pulls.thera` whose
+// only export is `Pulls`. That is how a library adds methods to a type without the
+// declaring file importing back, and it is the seam a code generator wants — one new file
+// per resource, no edit to any existing one. But nothing on such an import's *name*
+// surface gets referenced by a caller writing `client.pulls()`, and dropping the import
+// makes that call unresolvable, so the name scan fires on a load-bearing import.
+//
+// Usage cannot be the test, because the identifier walk deliberately does not collect
+// selector names (`x.foo` contributes `x`, not `foo`) — and making it collect them would
+// have any `.path` field access silence an unused `import std.path`. So the test is
+// structural: a file that extends a foreign type is not judgeable by names, and abstaining
+// keeps the rule on the under-report side of its contract. Attribution uses what the
+// elements already record — each method's declaring file, each type's owner file.
+fn extends_a_foreign_type(_ library: LibraryElement, _ surface: LibraryNamespace) -> Bool {
+    let files: Set<String> = Set.new();
+    for name in surface.origin.keys() {
+        files.add(surface.origin[name]);
+    }
+    if files.is_empty() {
+        return false;
+    }
+    for type_name in library.type_defs.keys() {
+        let type_def = library.type_defs[type_name];
+        for method in type_def.methods {
+            if files.has(method.file) && method.file != type_def.owner_file {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 // `<base>` for a `<base>_test.thera` file path, else None (the loader's
