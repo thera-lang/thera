@@ -157,150 +157,25 @@ streaming partial workspace-diagnostic results
 
 ### Developer tooling
 
-- **Verify the code snippets in docs.** Nothing checks that a fenced `thera`
-  block in `docs/*.md` or a `///`/`//!` doc comment compiles, and they rot
-  silently — which is the worst way for them to fail, because a snippet's whole
-  audience is someone (or something) learning the language from it. An LLM
-  reading a doc that teaches syntax the compiler rejects is precisely the
-  failure this language exists to avoid.
+The lint/fix machinery landed end to end (`thera lint` reports convertible
+sites per rule, `lint --fix` applies the rewrites, the LSP offers the same
+sites as `refactor.rewrite` code actions — see _Changelog_). **The ecosystem
+policy stands:** each future idiom adds a structured lint site + a fix edit and
+rides that pipeline — invest in located diagnostics with mechanical fixes
+rather than hand-editing files; migration of existing code is opportunistic
+until then, and the standing guard is the lint. The agent-facing idioms primer
+exists and ships with the SDK ([sdk/doc/idioms.md](../sdk/doc/idioms.md)).
 
-  Not hypothetical: the `std.net`/`std.http` arc (2026-07) shipped a module
-  header using `loop { … }`, which is not Thera (there is `while`/`for` and no
-  `loop`), and `docs/stdlib.md` plus a `server.thera` example both showed
-  `serve(addr, handler)` with a named function — the form that motivated the
-  first-class-functions fix, and that did not compile when it was written. Both
-  were caught by hand, which is exactly the thing that doesn't scale.
+The open items have moved to the tracker:
 
-  **Design settled (2026-07) — see [scale.md](scale.md) § item 6** for the full
-  treatment. The shape: three example tiers by size (fenced one-liners in doc
-  comments; `@example` fns in `foo_test.thera`, pulled into doc sites by
-  explicit `/// @file#fragment` references; whole programs in `examples/`);
-  **the fence tag is the contract** — `thera`-tagged blocks are verified
-  (attributes `sketch`/`no_run` for exceptions), untagged blocks are ignored,
-  which the existing corpus already conforms to (language.md's blocks all
-  tagged, stdlib.md's sketches all untagged); **compile-check is the universal
-  bar**, running is opt-in by shape (a `// => value` oracle or `// error:`
-  expectations — the `tests/lang` harness has the machinery). Implementation
-  phased: extraction + compile-check first (catches the rot class above),
-  `@example`/references with the doc generator, oracles and the `// =>`
-  migration sweep after.
-
-- **Reflowing doc comments — the prose half of the formatter.** `thera fmt`
-  normalizes code layout but never touches comment text, so `///` prose is
-  hand-wrapped and drifts. A follow-on to the canonical-formatter arc (see
-  _Reflowing formatter_): rewrap `///` / `//!` runs to the same margin the code
-  uses.
-
-  **It needs its own guard, and the existing one does not cover it.** The
-  formatter's safety check is token equality, and **comments are not in the
-  token stream** — the lexer records them on a side channel
-  ([lexer.thera](../pkgs/cli/lexer/lexer.thera)), so `same_tokens` says nothing
-  about them. That is benign today (no pass touches comment text) but it means
-  reflowing prose would be unguarded. The invariant to add is **normalized prose
-  equality**: strip the `///` prefixes and collapse whitespace on both sides,
-  and require the text to match. Note this also means doc-comment reflow was
-  never blocked by the whitespace-only contract — the two are independent.
-
-  **What must not be rewrapped**, and the reason this is a real pass rather than
-  a word-wrap loop:
-  - **Fenced code blocks.** A ` ```thera ` block is source, not prose. This
-    interlocks with _Verify the code snippets in docs_ below, which wants those
-    same fences extracted and compiled — both features need one fence-detector,
-    so build it once.
-  - **Lists, tables, and indented examples**, where the line structure is the
-    content.
-  - **Ordinary `//` comments — scope call.** Doc comments have a defined shape;
-    plain comments are often deliberately laid out (aligned trailing notes, the
-    ASCII diagrams in module headers). Leaning toward `///` / `//!` only, with
-    plain comments left alone.
-
-  Sequencing: after the formatter arc settles, and after (or with) the
-  fence-detector from the doctest item. Not urgent — measured over the corpus,
-  comment prose already sits at ≤84 chars in 99.3% of lines, so this buys
-  consistency rather than relief.
-
-- **Doc-comment tooling — machinery pending.** The conventions
-  ([language.md](language.md#documentation)), the `sdk/std/` migration to
-  `///`/`//!`, and the lexer's comment side-channel are done (see _Changelog_) —
-  but every downstream consumer remains **pending** (the side channel is
-  collected, then dropped: each `parse_tokens` call site passes only
-  `lex.tokens`). The remaining tooling: (1) **attach docs to AST nodes** — a
-  pass re-associating each `///`/`//!` comment to the decl it precedes by span,
-  threaded onto the AST (or a side table) — the one piece the side channel
-  directly unblocks; (2) **LSP hover** surfaces the item/file doc (today
-  `hover.thera` shows the signature only); (3) a **doc generator** extracts a
-  package's `pub` surface + barrel `//!` into an index for agent navigation (no
-  `doc` subcommand yet); (4) **reference resolution + lint** — resolve
-  `[Symbol]` references (link them in hover/doc-gen, flag ones that no longer
-  resolve), plus a lint for `pub` symbols whose doc only restates the signature,
-  and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
-  `examples/`, deliberately deferred — the public API surface was the priority.)
-
-- **Tools — refactorings (suggestion diagnostics + code actions).** The
-  machinery landed end to end (see _Changelog_): `thera lint` reports
-  convertible sites per rule, `thera lint --fix` applies the rewrites (`if let`,
-  `?`, `unwrap_or`/`unwrap_or_else`, `map`, `let … else`) via AST-guided
-  source-slice reassembly, and the LSP code action offers the same sites as
-  `refactor.rewrite` actions. Each future idiom adds a structured `lint` site +
-  a `fix` edit and rides the same pipeline. Remaining:
-  - **`while i < xs.len()` → `for` / `enumerate` auto-rewriter.** The lint flags
-    the shape and the corpus was hand-migrated with `List.enumerate()` (47 of 65
-    sites; the remaining 18 genuinely don't fit — a non-zero start, a
-    stepped/conditional increment, a compound or sub-range bound, a plain count,
-    a `Bytes` receiver, or a list mutated mid-loop). Unlike the `match` rules
-    the rewriter needs a genuine loop-body rewrite — substitute `xs[i]` → the
-    binding and delete the pre-loop `let mut i = 0` + the `i = i + 1`, both
-    outside the loop span. Deferred with it: a `zip` adapter for the
-    parallel-two-list sub-case (needs the `Pair`/`Tuple` decision — see
-    _Stdlib_).
-  - **Calling-convention lint** (positional argument → labeled parameter) — the
-    next rule; needs resolution, not just AST shape. Pairs with the enforcement
-    sweep under _Language → Calling convention_.
-  - **Ecosystem payoff.** These aren't one-off cleanups: the same
-    shape-matching + located-suggestion + auto-fix machinery is what a Thera
-    `lint` / `thera fix` is built from, and what the LSP surfaces as code
-    actions. Investing here (diagnostics that flag non-idiomatic code, with a
-    mechanical fix) pays off for every future idiom, not just this batch — so
-    lean into it rather than hand-editing files. Migration of existing code is
-    **opportunistic until then** (touch a file, modernize it); the standing
-    guard is the lint.
-
-- **Idioms & best-practices guidance (agent-facing).** The language now has a
-  canonical form for each common shape (the _Choosing a form_ table in
-  [language.md](language.md), and the per-combinator "reach for it when…" docs),
-  but that is reference material. The open piece is **prescriptive guidance an
-  agent loads** — "write Thera this way": prefer `if let`/`let … else`/`?`/
-  combinators over `match`-as-guard, `for`/`enumerate` over `while i <`, the
-  doc-comment conventions, etc. Surfaced by the ergonomics sprint, which found
-  that a lot of **existing** code predates these features and doesn't use them —
-  so idiomatic Thera has to be written down somewhere consulted, not just
-  implied. **The content now exists: [idioms.md](../sdk/doc/idioms.md)** — a
-  self-contained agent-facing primer, seeded from the canonical-form-per-shape
-  table, the `match`-as-guard anti-pattern, and the errors agents actually made
-  on first contact (mined from real sessions: unqualified `Result.Ok`, guessed
-  stdlib methods, `Json` field access, missing `[:]`, …). It lives in `sdk/doc/`
-  and **ships with the built SDK** (`build/sdk/doc/`), so the guidance an agent
-  reads is version-locked to the toolchain it invokes — never a stale
-  project-local copy. Remaining is **distribution into user projects**, as two
-  commands:
-  - **A command that prints the primer** — so any agent harness can reach it
-    without knowing the install path. Naming is open: `thera doc idioms` (and a
-    natural future home for `thera doc std.fs`-style API lookups), vs. hanging
-    it off init/config. Leaning `thera doc`.
-  - **`thera init`** (with `thera create` delegating to it) — writes a thin,
-    stable **pointer stanza** into the project's `AGENTS.md`/`CLAUDE.md`
-    ("before writing Thera, read the output of `thera doc idioms`; run
-    `thera check` early and often"), never the content itself: a five-line
-    pointer can't rot, while a copied primer diverges from the SDK the project
-    actually builds with. Optional per-harness emitters (a Claude Code skill,
-    `.cursor/rules`, …) can layer on later; the harness-neutral pointer is the
-    base. The strongest channel remains the diagnostics themselves —
-    prescriptive errors teach at the moment of the mistake (see _Tools —
-    refactorings_).
-
-  Pairs with _Tools — refactorings_: the doc says what's idiomatic, the lint
-  enforces it mechanically. The **language changes** the session mining pointed
-  at are tracked separately in the _Idioms punchlist_ below.
+- verify the code snippets in docs — doctest extraction + compile-check,
+  design settled in [scale.md](scale.md) § item 6 ([#126](https://github.com/thera-lang/thera/issues/126))
+- reflowing doc comments — the prose half of the formatter ([#127](https://github.com/thera-lang/thera/issues/127))
+- the doc-comment tooling arc: attach docs to AST nodes, LSP hover, the doc
+  generator, `[Symbol]` resolution + lint ([#128](https://github.com/thera-lang/thera/issues/128))
+- the `while i < xs.len()` → `for`/`enumerate` auto-rewriter ([#129](https://github.com/thera-lang/thera/issues/129))
+- idioms distribution into user projects: the `thera doc` print command
+  ([#130](https://github.com/thera-lang/thera/issues/130)) and `thera init`'s pointer stanza ([#131](https://github.com/thera-lang/thera/issues/131))
 
 - **Width: keeping 100, and the reason is not that the data chose it.** The
   study ran — the corpus reformatted at 80 / 88 / 90 / 92 / 94 / 96 / 98 / 100 /
