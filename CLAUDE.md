@@ -30,6 +30,9 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
   `std.http` is `http/http.thera` (client + types) plus `http/server/`,
   `http/sse/`, and `http/common/` — the shared codec, which had to become a
   library of its own so the server could reach it.
+- `sdk/doc/` — docs that **ship with the built SDK** (copied to `build/sdk/doc/`
+  by `bin/build_sdk.sh`). `sdk/doc/idioms.md` is the how-to-write-Thera primer —
+  **read it before writing or reviewing Thera code.**
 - `bootstrap/frontend.thera-bc` — the checked-in self-hosting bootstrap (the
   front-end compiled to bytecode); compiles the next revision of the front-end
   so the build needs no external toolchain. See `bootstrap/README.md`.
@@ -53,6 +56,10 @@ Bytecode serializes to/from `.thera-bc` (constant pool; natives bound by name).
 `.thera` and emits `.thera-bc`, and `bin/build_sdk.sh` reproduces it
 byte-for-byte (fixpoint). The Dart toolchain that bootstrapped it has been
 retired.
+
+**When writing Thera code, follow [sdk/doc/idioms.md](sdk/doc/idioms.md)** — the
+agent-facing primer: the mistakes first-time writers make, the canonical form
+per shape, and a one-screen stdlib map.
 
 Notable front-end facts (easy to get wrong): `Result`/`Option` are ordinary
 `std.core` enums — construct them **qualified** (`Result.Ok(x)`, `Option.None`);

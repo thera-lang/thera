@@ -2212,6 +2212,8 @@ discovery) needs to know about the difference.
       ...                   ← char, encoding, env, fiber, hash, io, iter, json,
                               log, math, path, process, random, regex, sort,
                               term, time
+    doc/
+      idioms.md    ← the agent-facing write-Thera-this-way primer (ships in the SDK)
   examples/
   docs/
 ```
@@ -2240,6 +2242,7 @@ The `std/` directory moves to the top level — there is no `sdk/` wrapper:
   bin/
     thera           ← bare runtime + embedded front-end
   std/             ← stdlib source files (still needed at runtime)
+  doc/             ← SDK-shipped docs (idioms.md, the agent-facing primer)
   version          ← SDK version stamp (e.g. 0.1.0+<gitsha>)
 ```
 

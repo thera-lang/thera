@@ -7,6 +7,8 @@
 #     bin/thera                  ← the runtime (loads the front-end below)
 #     bin/inc/frontend.thera-bc  ← the compiled front-end, loaded at runtime
 #     std/                       ← stdlib sources (copied from sdk/std)
+#     doc/                       ← SDK-shipped docs (copied from sdk/doc):
+#                                  idioms.md, the write-Thera-this-way primer
 #     version                    ← <pkg-version>+<gitsha>, read back by --version
 #
 # Stages:
@@ -62,6 +64,7 @@ mkdir -p "$SDK/bin/inc"
 cp "$THERA_RT" "$SDK/bin/thera"
 cp "$FRONTEND_BC" "$SDK/bin/inc/frontend.thera-bc"
 cp -R "$ROOT/sdk/std" "$SDK/std"
+cp -R "$ROOT/sdk/doc" "$SDK/doc"
 # The build stamp lives here (not baked into the binary), so `--version` reports
 # the revision without the binary depending on the git SHA. Computed from git, so
 # it's independent of the (possibly cached) binary.

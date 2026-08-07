@@ -10,9 +10,10 @@ this is"; read top-down for progressive detail.
   (types, functions, control flow, tail expressions, error handling, interfaces,
   generics & assignability, visibility & libraries, name resolution & scoping),
   the standard `thera` tool, the SDK layout, and open design questions.
-- [idioms.md](idioms.md) — **how to write Thera**: the agent-facing primer — a
-  compact orientation, the rules first-time writers get wrong, the canonical
-  form for each common shape, and a one-screen stdlib map.
+- [idioms.md](../sdk/doc/idioms.md) — **how to write Thera**: the agent-facing
+  primer — a compact orientation, the rules first-time writers get wrong, the
+  canonical form for each common shape, and a one-screen stdlib map. Lives in
+  `sdk/doc/` (not here) because it ships with the built SDK.
 - [grammar.md](grammar.md) — the **EBNF grammar**: the keyword set, the
   operator/precedence table, every production, and a parser-completeness
   checklist of what's not yet in the syntax.

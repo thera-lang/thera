@@ -2,9 +2,10 @@
 
 **What this is:** the how-to-write-Thera primer for LLMs and coding agents —
 enough to write correct, idiomatic Thera cold, ordered by what first-time
-writers actually get wrong. The full reference is [language.md](language.md);
-the stdlib catalog is [stdlib.md](stdlib.md). When this doc and the checker
-disagree, believe the checker.
+writers actually get wrong. The full reference is
+[language.md](../../docs/language.md); the stdlib catalog is
+[stdlib.md](../../docs/stdlib.md) (both in the language repo). When this doc and
+the checker disagree, believe the checker.
 
 ## Orientation
 
@@ -78,8 +79,9 @@ Each of these is a real first-contact error, most-frequent first.
    `time.monotonic_ms()`). Conversions that do exist: `'${x}'` interpolation
    renders any value; `x.display()` / `x.debug()`; `s.to_int()` /
    `s.to_double()` (→ `Option`); `i.to_double()`. For anything else, read the
-   library source (`sdk/std/<lib>/<lib>.thera`) or [stdlib.md](stdlib.md) before
-   calling, and run `thera check` after a few edits, not after fifty.
+   library source (`std/<lib>/<lib>.thera` under the SDK root — `sdk/std/` in
+   the language repo) or [stdlib.md](../../docs/stdlib.md) before calling, and
+   run `thera check` after a few edits, not after fifty.
 
 4. **JSON values are not duck-typed.** `resp.field` on a `Json` value is the
    single most common check error (`field access on non-struct value`). Go
@@ -148,9 +150,9 @@ Each of these is a real first-contact error, most-frequent first.
     trap when mirroring JSON APIs whose payloads have a `type` field; name the
     field `kind` and map it explicitly at the decode boundary). User code may
     not declare types named `Result`, `Option`, `List`, `Error`, `Display`, …
-    (the reserved list is in [language.md](language.md) §Reserved type names).
-    And one name per scope: a second `let x` in the same block, or a top-level
-    `fn` shadowing a prelude name, is an error.
+    (the reserved list is in [language.md](../../docs/language.md) §Reserved
+    type names). And one name per scope: a second `let x` in the same block, or
+    a top-level `fn` shadowing a prelude name, is an error.
 
 14. **The unit type is `Void`, written `void`.** Function types spell it:
     `() -> Void`, `(Int) -> Void` — not `()` or `-> ()`. A function with nothing
