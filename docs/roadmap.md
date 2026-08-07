@@ -157,150 +157,30 @@ streaming partial workspace-diagnostic results
 
 ### Developer tooling
 
-- **Verify the code snippets in docs.** Nothing checks that a fenced `thera`
-  block in `docs/*.md` or a `///`/`//!` doc comment compiles, and they rot
-  silently — which is the worst way for them to fail, because a snippet's whole
-  audience is someone (or something) learning the language from it. An LLM
-  reading a doc that teaches syntax the compiler rejects is precisely the
-  failure this language exists to avoid.
+The lint/fix machinery landed end to end (`thera lint` reports convertible sites
+per rule, `lint --fix` applies the rewrites, the LSP offers the same sites as
+`refactor.rewrite` code actions — see _Changelog_). **The ecosystem policy
+stands:** each future idiom adds a structured lint site + a fix edit and rides
+that pipeline — invest in located diagnostics with mechanical fixes rather than
+hand-editing files; migration of existing code is opportunistic until then, and
+the standing guard is the lint. The agent-facing idioms primer exists and ships
+with the SDK ([sdk/doc/idioms.md](../sdk/doc/idioms.md)).
 
-  Not hypothetical: the `std.net`/`std.http` arc (2026-07) shipped a module
-  header using `loop { … }`, which is not Thera (there is `while`/`for` and no
-  `loop`), and `docs/stdlib.md` plus a `server.thera` example both showed
-  `serve(addr, handler)` with a named function — the form that motivated the
-  first-class-functions fix, and that did not compile when it was written. Both
-  were caught by hand, which is exactly the thing that doesn't scale.
+The open items have moved to the tracker:
 
-  **Design settled (2026-07) — see [scale.md](scale.md) § item 6** for the full
-  treatment. The shape: three example tiers by size (fenced one-liners in doc
-  comments; `@example` fns in `foo_test.thera`, pulled into doc sites by
-  explicit `/// @file#fragment` references; whole programs in `examples/`);
-  **the fence tag is the contract** — `thera`-tagged blocks are verified
-  (attributes `sketch`/`no_run` for exceptions), untagged blocks are ignored,
-  which the existing corpus already conforms to (language.md's blocks all
-  tagged, stdlib.md's sketches all untagged); **compile-check is the universal
-  bar**, running is opt-in by shape (a `// => value` oracle or `// error:`
-  expectations — the `tests/lang` harness has the machinery). Implementation
-  phased: extraction + compile-check first (catches the rot class above),
-  `@example`/references with the doc generator, oracles and the `// =>`
-  migration sweep after.
-
-- **Reflowing doc comments — the prose half of the formatter.** `thera fmt`
-  normalizes code layout but never touches comment text, so `///` prose is
-  hand-wrapped and drifts. A follow-on to the canonical-formatter arc (see
-  _Reflowing formatter_): rewrap `///` / `//!` runs to the same margin the code
-  uses.
-
-  **It needs its own guard, and the existing one does not cover it.** The
-  formatter's safety check is token equality, and **comments are not in the
-  token stream** — the lexer records them on a side channel
-  ([lexer.thera](../pkgs/cli/lexer/lexer.thera)), so `same_tokens` says nothing
-  about them. That is benign today (no pass touches comment text) but it means
-  reflowing prose would be unguarded. The invariant to add is **normalized prose
-  equality**: strip the `///` prefixes and collapse whitespace on both sides,
-  and require the text to match. Note this also means doc-comment reflow was
-  never blocked by the whitespace-only contract — the two are independent.
-
-  **What must not be rewrapped**, and the reason this is a real pass rather than
-  a word-wrap loop:
-  - **Fenced code blocks.** A ` ```thera ` block is source, not prose. This
-    interlocks with _Verify the code snippets in docs_ below, which wants those
-    same fences extracted and compiled — both features need one fence-detector,
-    so build it once.
-  - **Lists, tables, and indented examples**, where the line structure is the
-    content.
-  - **Ordinary `//` comments — scope call.** Doc comments have a defined shape;
-    plain comments are often deliberately laid out (aligned trailing notes, the
-    ASCII diagrams in module headers). Leaning toward `///` / `//!` only, with
-    plain comments left alone.
-
-  Sequencing: after the formatter arc settles, and after (or with) the
-  fence-detector from the doctest item. Not urgent — measured over the corpus,
-  comment prose already sits at ≤84 chars in 99.3% of lines, so this buys
-  consistency rather than relief.
-
-- **Doc-comment tooling — machinery pending.** The conventions
-  ([language.md](language.md#documentation)), the `sdk/std/` migration to
-  `///`/`//!`, and the lexer's comment side-channel are done (see _Changelog_) —
-  but every downstream consumer remains **pending** (the side channel is
-  collected, then dropped: each `parse_tokens` call site passes only
-  `lex.tokens`). The remaining tooling: (1) **attach docs to AST nodes** — a
-  pass re-associating each `///`/`//!` comment to the decl it precedes by span,
-  threaded onto the AST (or a side table) — the one piece the side channel
-  directly unblocks; (2) **LSP hover** surfaces the item/file doc (today
-  `hover.thera` shows the signature only); (3) a **doc generator** extracts a
-  package's `pub` surface + barrel `//!` into an index for agent navigation (no
-  `doc` subcommand yet); (4) **reference resolution + lint** — resolve
-  `[Symbol]` references (link them in hover/doc-gen, flag ones that no longer
-  resolve), plus a lint for `pub` symbols whose doc only restates the signature,
-  and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
-  `examples/`, deliberately deferred — the public API surface was the priority.)
-
-- **Tools — refactorings (suggestion diagnostics + code actions).** The
-  machinery landed end to end (see _Changelog_): `thera lint` reports
-  convertible sites per rule, `thera lint --fix` applies the rewrites (`if let`,
-  `?`, `unwrap_or`/`unwrap_or_else`, `map`, `let … else`) via AST-guided
-  source-slice reassembly, and the LSP code action offers the same sites as
-  `refactor.rewrite` actions. Each future idiom adds a structured `lint` site +
-  a `fix` edit and rides the same pipeline. Remaining:
-  - **`while i < xs.len()` → `for` / `enumerate` auto-rewriter.** The lint flags
-    the shape and the corpus was hand-migrated with `List.enumerate()` (47 of 65
-    sites; the remaining 18 genuinely don't fit — a non-zero start, a
-    stepped/conditional increment, a compound or sub-range bound, a plain count,
-    a `Bytes` receiver, or a list mutated mid-loop). Unlike the `match` rules
-    the rewriter needs a genuine loop-body rewrite — substitute `xs[i]` → the
-    binding and delete the pre-loop `let mut i = 0` + the `i = i + 1`, both
-    outside the loop span. Deferred with it: a `zip` adapter for the
-    parallel-two-list sub-case (needs the `Pair`/`Tuple` decision — see
-    _Stdlib_).
-  - **Calling-convention lint** (positional argument → labeled parameter) — the
-    next rule; needs resolution, not just AST shape. Pairs with the enforcement
-    sweep under _Language → Calling convention_.
-  - **Ecosystem payoff.** These aren't one-off cleanups: the same
-    shape-matching + located-suggestion + auto-fix machinery is what a Thera
-    `lint` / `thera fix` is built from, and what the LSP surfaces as code
-    actions. Investing here (diagnostics that flag non-idiomatic code, with a
-    mechanical fix) pays off for every future idiom, not just this batch — so
-    lean into it rather than hand-editing files. Migration of existing code is
-    **opportunistic until then** (touch a file, modernize it); the standing
-    guard is the lint.
-
-- **Idioms & best-practices guidance (agent-facing).** The language now has a
-  canonical form for each common shape (the _Choosing a form_ table in
-  [language.md](language.md), and the per-combinator "reach for it when…" docs),
-  but that is reference material. The open piece is **prescriptive guidance an
-  agent loads** — "write Thera this way": prefer `if let`/`let … else`/`?`/
-  combinators over `match`-as-guard, `for`/`enumerate` over `while i <`, the
-  doc-comment conventions, etc. Surfaced by the ergonomics sprint, which found
-  that a lot of **existing** code predates these features and doesn't use them —
-  so idiomatic Thera has to be written down somewhere consulted, not just
-  implied. **The content now exists: [idioms.md](../sdk/doc/idioms.md)** — a
-  self-contained agent-facing primer, seeded from the canonical-form-per-shape
-  table, the `match`-as-guard anti-pattern, and the errors agents actually made
-  on first contact (mined from real sessions: unqualified `Result.Ok`, guessed
-  stdlib methods, `Json` field access, missing `[:]`, …). It lives in `sdk/doc/`
-  and **ships with the built SDK** (`build/sdk/doc/`), so the guidance an agent
-  reads is version-locked to the toolchain it invokes — never a stale
-  project-local copy. Remaining is **distribution into user projects**, as two
-  commands:
-  - **A command that prints the primer** — so any agent harness can reach it
-    without knowing the install path. Naming is open: `thera doc idioms` (and a
-    natural future home for `thera doc std.fs`-style API lookups), vs. hanging
-    it off init/config. Leaning `thera doc`.
-  - **`thera init`** (with `thera create` delegating to it) — writes a thin,
-    stable **pointer stanza** into the project's `AGENTS.md`/`CLAUDE.md`
-    ("before writing Thera, read the output of `thera doc idioms`; run
-    `thera check` early and often"), never the content itself: a five-line
-    pointer can't rot, while a copied primer diverges from the SDK the project
-    actually builds with. Optional per-harness emitters (a Claude Code skill,
-    `.cursor/rules`, …) can layer on later; the harness-neutral pointer is the
-    base. The strongest channel remains the diagnostics themselves —
-    prescriptive errors teach at the moment of the mistake (see _Tools —
-    refactorings_).
-
-  Pairs with _Tools — refactorings_: the doc says what's idiomatic, the lint
-  enforces it mechanically. The **language changes** the session mining pointed
-  at are tracked separately in the _Idioms punchlist_ below.
+- verify the code snippets in docs — doctest extraction + compile-check, design
+  settled in [scale.md](scale.md) § item 6
+  ([#126](https://github.com/thera-lang/thera/issues/126))
+- reflowing doc comments — the prose half of the formatter
+  ([#127](https://github.com/thera-lang/thera/issues/127))
+- the doc-comment tooling arc: attach docs to AST nodes, LSP hover, the doc
+  generator, `[Symbol]` resolution + lint
+  ([#128](https://github.com/thera-lang/thera/issues/128))
+- the `while i < xs.len()` → `for`/`enumerate` auto-rewriter
+  ([#129](https://github.com/thera-lang/thera/issues/129))
+- idioms distribution into user projects: the `thera doc` print command
+  ([#130](https://github.com/thera-lang/thera/issues/130)) and `thera init`'s
+  pointer stanza ([#131](https://github.com/thera-lang/thera/issues/131))
 
 - **Width: keeping 100, and the reason is not that the data chose it.** The
   study ran — the corpus reformatted at 80 / 88 / 90 / 92 / 94 / 96 / 98 / 100 /
@@ -369,115 +249,24 @@ streaming partial workspace-diagnostic results
 
 ### Language
 
-- **Only an identifier or a field may be a call target.** `maker()(5)` and
-  `fns[0](10)` are rejected with `unsupported call target`
-  ([codegen.thera](../pkgs/cli/codegen/codegen.thera) → `call_expr`) — an
-  arbitrary expression in callee position doesn't compile, so a function value
-  has to be bound to a name before it can be called. Equally true of a lambda,
-  so it is not about function _references_; it surfaced next to them (2026-07)
-  because a reference makes function values easy to produce.
+Open language work has moved to the tracker:
 
-  This is the same spec/implementation shape the first-class-functions gap had:
-  [language.md](language.md) §Functions shows `adder(by: 2)` returning
-  `(Int) -> Int` as a headline, and the obvious next keystroke — calling it —
-  needs a bound name. Decide whether the spec means to allow an expression
-  callee (and if so, compile it: the callee is just another operand to evaluate
-  before `call.indirect`) or to require the binding, and say which. A
-  conformance test under `tests/lang/functions/` should pin whichever.
-
-- Instance level mutability would be easier for agents to reason about. We
-  should consider the impact, pros, and cons of switching from field level
-  mutability to instance level mutability.
-
-- **Calling convention — one canonical call form (tighten + enforce).** The
-  decided model (see [language.md](language.md) → Named parameters): the author
-  chooses each parameter's call form and the call site has exactly **one** —
-  **labeled by default**, **positional via `_`** (label forbidden). This
-  eliminates caller choice, so every call to a function reads the same (the
-  consistency the LLM-native goal wants), while the author still gets terse,
-  self-documenting call sites where each is warranted. The checker is currently
-  **permissive** (a labeled parameter also accepts a positional argument, and
-  labeled arguments may be reordered), so the model ships with an
-  enforcement-status caveat in the docs. Sequencing:
-  1. **Clarify the docs** — _done_ (language.md Named parameters + style rule).
-  2. **Fix existing code** — migrate call sites that pass a labeled parameter
-     positionally (or rely on reordering) to the canonical form, and add `_` to
-     the parameters that should be positional (the obvious "subject" args). This
-     is a corpus-wide sweep; it pairs with the _Tools — refactorings_ machinery
-     (a located diagnostic for "positional argument to a labeled parameter" is
-     the natural lint, with a mechanical fix).
-  3. **Enforce** — the checker requires a labeled parameter's label and forbids
-     a positional argument for it. Flip after the sweep so the corpus stays
-     green.
-  - **Open sub-decision:** whether to also require **source order** for labeled
-    arguments (forbid `f(b: 2, a: 1)`). The same one-form principle argues yes;
-    it's a separable call from the positional-vs-labeled tightening. Decide
-    during step 3.
-  - The style rule (`_` for the single obvious "subject" arg; labels for
-    booleans / multiple same-typed / non-obvious roles) belongs in the
-    agent-facing idioms guidance (see _Idioms & best-practices guidance_).
-  - **Longer-term — first-arg-positional default (investigate, not scheduled).**
-    If `_`-on-every-first-parameter proves a frequent irritant once the
-    convention tightens, reconsider making the **first ("subject") parameter
-    positional by default and the rest labeled**, with explicit overrides both
-    ways. It makes the common case need no marker, at the cost of
-    position-dependence and a two-way override (less "simple, one rule"). **Not
-    an immediate goal.** Measure first — count how often `_` would land on the
-    first parameter **under the tightened convention** (not today's permissive
-    usage); that frequency is the input to the flat-`_` vs first-arg-positional
-    call. (Keyword markers like `pos`/`positional` were considered and declined:
-    too verbose at this frequency, and `pos` collides with the ubiquitous `pos`
-    variable; `_` reads as "external label = none", consistent with the
-    `external internal` slot.)
-
-- **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
-  of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
-  done). This is also where the language's **implicit operator/literal
-  lowerings** would gain a Thera-level surface: `==`, `+`/interpolation,
-  `[]`/`[]=`, and the `[k: v]` map literal are emitted by codegen straight to
-  runtime natives (`eq`, `str_concat`, `stringify`,
-  `list_index`/`list_set`/`map_index`, `map_new`/`map_set`) with no named Thera
-  method behind them — the one category of addressable behaviour not represented
-  in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
-  what turns those into ordinary Thera methods; revisit the exact shape then
-  (the `[]` half is the _Index operator_ item).
-- **Primitive vtables — enabling work, deferred to the generics arc.** A
-  primitive reached through _virtual_ dispatch — `call.virtual` from a
-  bounded-generic context where the runtime value is an
-  `Int`/`Double`/`Bool`/`String` — has no vtable row; it resolves through a
-  **hardcoded fallback** in the interpreter (`virtual_fallback` in
-  `interp/mod.rs`: `display`/`debug`/`eq`/`compare`). The 2026-07 scoping pass
-  closed the user-reachable soundness gap at the checker (primitive bounds are
-  limited to the four interfaces the fallback can dispatch) and indexed the
-  dispatch table per receiver type — see _Changelog_. What remains is the
-  enabling work, deliberately deferred:
-  - **Letting user interfaces on primitives dispatch** (so the checker guard can
-    lift): reserve a dispatch-id range for the built-in value shapes (`Value`
-    variant → fixed id, partitioned alongside struct type-table indexes and
-    `ENUM_DISPATCH_BASE`), have `dispatch_type_id` return them, and teach
-    `build_dispatch` to resolve impl-on-native-type rows. Do this **with the
-    operators-as-interfaces / conditional-impl generics work** — it's the same
-    "dispatch a built-in interface on a concrete type" machinery, and `<T: Add>`
-    will force the same id scheme.
-  - **Perf constraint (measured context):** keep the fallback as the fast path
-    for the four built-in selectors — direct Rust with _no_ lookup at all, and
-    `eq` is the highest-volume operation in the interpreter profile — while a
-    vtable hit pays the lookup plus an interpreter frame. Vtable rows should add
-    dispatch for _user_ selectors; the built-in four stay hardcoded as an
-    optimization rather than a correctness crutch.
-  - **`virtual_fallback` never fully retires regardless:** its structural
-    `debug`/`eq` for impl-less structs/enums _is_ the auto-derive mechanism, and
-    the `display` → `debug` arm is what keeps rendering total.
-- **Index operator (`[]`) overloading.** `a[i]` / `a[i] = v` are hardcoded in
-  codegen to the built-in `List`/`Map` natives by static type; any other
-  receiver is a compile error (`pkgs/cli/codegen/codegen.thera`). Small–medium,
-  self-contained: desugar to a method call reusing static/`call.virtual`
-  dispatch (inference resolves `a[i]` from the receiver's index method;
-  codegen's two `throw` branches become method-call lowerings; List/Map keep
-  their native fast path). Design leaning: a single `Indexable<K, V>` interface
-  (one `get`- and one `set`-style method) rather than separate
-  `Index`/`IndexSet`. Also a prerequisite for a Thera `Map` (which additionally
-  needs map-literal lowering and a native↔Thera-map bridge).
+- expression call targets — decide whether `maker()(5)` / `fns[0](10)` compile
+  or the binding is required, then pin it with a conformance test
+  ([#132](https://github.com/thera-lang/thera/issues/132))
+- instance-level vs field-level mutability — consider the switch
+  ([#133](https://github.com/thera-lang/thera/issues/133))
+- calling convention — the lint → corpus sweep → enforce staging for the one
+  canonical call form, with the source-order sub-decision and the
+  first-arg-positional investigate record
+  ([#134](https://github.com/thera-lang/thera/issues/134))
+- generic operators (`<T: Add>`, operators-as-interfaces, and the Thera-level
+  surface for the implicit operator/literal lowerings)
+  ([#135](https://github.com/thera-lang/thera/issues/135)), with primitive
+  vtables as its deferred enabling work
+  ([#136](https://github.com/thera-lang/thera/issues/136))
+- index operator (`[]`) overloading via an `Indexable` interface
+  ([#137](https://github.com/thera-lang/thera/issues/137))
 
 ### Idioms punchlist
 
@@ -495,71 +284,28 @@ when prior-shaped code **almost works** (bare `Ok(x)` fails only at the
 constructor). Re-mine transcripts after each change lands; that is the
 measurement instrument for this list.
 
-**Strong candidates:**
+The items have moved to the tracker — strong candidates: contextual keywords in
+member positions ([#138](https://github.com/thera-lang/thera/issues/138)), bare
+variant construction under a known expected type
+([#139](https://github.com/thera-lang/thera/issues/139)), `let … else`
+completion ([#140](https://github.com/thera-lang/thera/issues/140)); worth
+investigating: implicit `T → Option<T>` promotion, held pending re-measurement
+([#141](https://github.com/thera-lang/thera/issues/141)), the
+first-arg-positional investigate record (folded into the calling-convention
+issue, [#134](https://github.com/thera-lang/thera/issues/134)); cross-cutting:
+the stdlib naming audit against LLM priors
+([#142](https://github.com/thera-lang/thera/issues/142)). The mining also said
+to raise the **typed-JSON / decoder-generation arc's** priority — the `Json`
+duck-typing error was the largest single class; that arc is owned by
+[api-access.md](api-access.md) and [typed-json.md](typed-json.md).
 
-- **Keywords as member names (contextual `type`).** `type` cannot be a field,
-  parameter, label, or member name — yet every real JSON API has `type` fields
-  (most Anthropic content blocks, GitHub payloads), so mirroring an API forces
-  rename-and-map at every decode boundary, and the
-  [api-access.md](api-access.md) generator will hit it constantly. Field/label/
-  member positions are grammatically unambiguous, so making keywords contextual
-  there (the TypeScript move) costs nothing in local reasoning. Do this before
-  the OpenAPI generator, not after.
-- **Bare variant construction where the expected type is known.** The most
-  frequent first-contact error is `Ok(x)` / `Some(v)` for `Result.Ok(x)` /
-  `Option.Some(v)` — and it is a recurring tax (every function's exit paths,
-  forever), against an enormous Rust prior. The asymmetry is the tell: patterns
-  are bare _because the scrutinee's type is known_, and bidirectional inference
-  already flows expected types into expressions — so allow bare `Variant(args)`
-  exactly where an expected enum type pins it (`return Ok(x)`, an argument, an
-  annotated binding), keeping the qualified form as the general case. The
-  reserved-names rule means `Ok`/`Some`/`None`/`Err` can never mean anything
-  else, so "one name, one meaning" survives. A smaller extension on the same
-  principle, to evaluate with it: accept `[]` as the empty map where the
-  expected type is a `Map` (today it infers `List<?>` and mismatches).
-- **`let … else` completion.** The v1 limits — the `else` must end in a
-  _literal_ `return`/`throw` (divergence through nested branches isn't
-  recognized), and the pattern binds at most one variable — are checker
-  maturity, not design; the Rust prior (any diverging block, multiple bindings)
-  is also the correct semantics. Finish it.
-
-**Worth investigating (not yet decided):**
-
-- **Implicit `T → Option<T>` promotion** at assignability boundaries. Would kill
-  a real mined error class (`expected Option<Double>, found Double`), and
-  Swift's precedent says it's an ergonomic win — but it would be Thera's first
-  implicit conversion, and bare-variant construction doesn't absorb it (agents
-  write `f(x)`, not `f(Some(x))`). Hold the line for now: make the diagnostic
-  prescriptive ("wrap it: `Option.Some(x)`"), re-measure after the strong
-  candidates land.
-- **First-arg-positional default** — already an investigate item under _Calling
-  convention_; the mining adds moderate supporting evidence (label friction is a
-  per-call-site recurring tax). Today's permissive checker understates the
-  friction tightening will cause, so re-run the transcript mining after
-  one-canonical-call-form lands and let that decide.
-- **Typed JSON priority.** The single biggest mined error class (23×
-  `field access on non-struct value`) is agents reaching for TS/Python
-  duck-typing on `Json`. The accessor chain is the workaround; the fix is making
-  the typed path cheap enough that agents reach for it first — derived decoders
-  / the generator (see [api-access.md](api-access.md),
-  [typed-json.md](typed-json.md)). The data says raise that arc's priority.
-
-**Cross-cutting:**
-
-- **Stdlib naming audit against LLM priors.** Agents guess `n.to_string()`,
-  `s.parse<Int>()` — where a Thera name fights an overwhelming cross-language
-  prior _without a compensating principle_, take the prior. The flagship case:
-  `display()` vs `to_string()` — Thera's own named-for-its-result convention
-  (`to_list`, `to_int`, `to_double`) argues for `to_string`, which is also the
-  name agents guess.
-- **Diagnostics as the primary channel — policy.** The transcripts show agents
-  fix nearly every idioms-list error on the first diagnostic, so every
-  prescriptive message pays out at the exact moment of the mistake,
-  version-locked, in every harness. Standing policy: when a first-contact error
-  class shows up in mining, the first response is a did-you-mean /
-  here-is-the-fix diagnostic
-  ([#85](https://github.com/thera-lang/thera/issues/85)); a language change
-  needs the recurring-tax bar above.
+**Diagnostics-first policy (standing):** the transcripts show agents fix nearly
+every idioms-list error on the first diagnostic, so every prescriptive message
+pays out at the exact moment of the mistake, version-locked, in every harness.
+When a first-contact error class shows up in mining, the first response is a
+did-you-mean / here-is-the-fix diagnostic
+([#85](https://github.com/thera-lang/thera/issues/85)); a language change needs
+the recurring-tax bar above.
 
 ### Language spec punchlist
 
@@ -2429,5 +2175,6 @@ conformance specs. Newest first.
   machine-readable output (above)._
 - **Runtime tiers 0–baseline.** Tree-walker POC + bytecode IR; Tier-0 bytecode
   interpreter + precise non-moving mark-sweep GC (see Runtime staging 1–2). Plus
-  the interpreter perf wins (unified value stack, `ListLen` opcode) noted under
-  _Interpreter performance_.
+  the interpreter perf wins (unified value stack, `ListLen` opcode); the
+  remaining structural perf work is
+  [#95](https://github.com/thera-lang/thera/issues/95).

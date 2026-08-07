@@ -46,7 +46,8 @@ into the toolchain column, where it is free and permanent. A large Thera
 codebase stays workable to the degree its conventions have made that trip; the
 ones that haven't are exactly the ones agents will violate, one
 plausible-looking PR at a time. (The `=> void` sweep and the `lint --fix` idiom
-rules are this loop already running — see the roadmap's _Tools — refactorings_.)
+rules are this loop already running — see the roadmap's _Developer tooling_
+lint/fix policy.)
 
 ## What already exists
 
@@ -67,8 +68,8 @@ strict formatter (one shape per construct); the _Choosing a form_ canonical
 idiom table.
 
 Aimed at **sweeps**: the landed `thera lint` / `lint --fix` / LSP code-action
-machinery (roadmap _Tools — refactorings_), which is the seed every enforcement
-item below builds on.
+machinery (see the roadmap's _Developer tooling_ section), which is the seed
+every enforcement item below builds on.
 
 Already tracked in the roadmap and part of this story: **verify doc snippets**
 (doctests), the **doc generator / doc-comment tooling**, the **idioms rules
@@ -301,10 +302,11 @@ function, so the core is built **once** (doc extraction + index formatting, in
 **Discovery** is a prompting-surface problem with an existing reliable channel:
 a best-practice line in each project's CLAUDE.md ("before reading a library's
 source, run `thera doc <lib>`"), and/or the agent rules-file / skill from the
-roadmap's _Idioms & best-practices guidance_ item — "navigate Thera this way"
-lives beside "write Thera this way". Escape valve if that proves insufficient:
-commit only the tiny, slow-changing root map, whose own header teaches the tool
-— but wait for evidence before paying even that.
+`thera init` pointer stanza
+([#131](https://github.com/thera-lang/thera/issues/131)) — "navigate Thera this
+way" lives beside "write Thera this way" (sdk/doc/idioms.md). Escape valve if
+that proves insufficient: commit only the tiny, slow-changing root map, whose
+own header teaches the tool — but wait for evidence before paying even that.
 
 **Status:** transport settled; open — the index format itself, and
 implementation sequencing (needs doc-comment tooling item 1, attach docs to AST,
@@ -402,8 +404,8 @@ lint get teeth?), not the mechanism.
 
 ### 8. Mechanical refactors as CLI operations
 
-_Attacks: sweeps. **Builds on:** the landed `lint --fix` machinery (roadmap
-*Tools — refactorings*)._
+_Attacks: sweeps. **Builds on:** the landed `lint --fix` machinery (see the
+roadmap's *Developer tooling* section)._
 
 **Problem.** The existing machinery rewrites _shapes in place_ (`if let`, `?`,
 combinators). Migrations also need the cross-file operations: **rename**
