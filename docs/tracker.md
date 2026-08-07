@@ -27,22 +27,22 @@ true. Keep the vocabulary exactly this — a label that isn't queried is noise.
 
 ### Area (blue) — where the work lives
 
-| Label           | Covers                                                          |
-| --------------- | --------------------------------------------------------------- |
-| `area-runtime`  | the Rust runtime — interpreter, GC, fibers, natives, bytecode   |
-| `area-frontend` | `pkgs/cli` — lexer→codegen, checker, diagnostics, fmt, lint     |
-| `area-lsp`      | the language server                                             |
-| `area-lang`     | language design & spec — language.md and companions             |
-| `area-stdlib`   | `sdk/std` libraries                                             |
-| `area-tooling`  | CLI UX, `thera doc`/`init`, `bin/` scripts                      |
-| `area-pkgs`     | `pkgs/*` clients and the API-client generator                   |
-| `area-docs`     | design docs and SDK-shipped docs                                |
-| `area-infra`    | CI, bootstrap, release engineering                              |
+| Label           | Covers                                                        |
+| --------------- | ------------------------------------------------------------- |
+| `area-runtime`  | the Rust runtime — interpreter, GC, fibers, natives, bytecode |
+| `area-frontend` | `pkgs/cli` — lexer→codegen, checker, diagnostics, fmt, lint   |
+| `area-lsp`      | the language server                                           |
+| `area-lang`     | language design & spec — language.md and companions           |
+| `area-stdlib`   | `sdk/std` libraries                                           |
+| `area-tooling`  | CLI UX, `thera doc`/`init`, `bin/` scripts                    |
+| `area-pkgs`     | `pkgs/*` clients and the API-client generator                 |
+| `area-docs`     | design docs and SDK-shipped docs                              |
+| `area-infra`    | CI, bootstrap, release engineering                            |
 
 `area-lang` vs. `area-frontend`: a **design call** (syntax, semantics, a
 spec-level decision) is `area-lang`; **implementing** it in the compiler is
-`area-frontend`. An issue that is both starts as `area-lang` with
-`needs-design` and flips when the design settles.
+`area-frontend`. An issue that is both starts as `area-lang` with `needs-design`
+and flips when the design settles.
 
 ### Type (green) — what kind of work
 
@@ -57,11 +57,11 @@ spec-level decision) is `area-lang`; **implementing** it in the compiler is
 
 ### Priority (warm colors)
 
-| Label | Meaning                        |
-| ----- | ------------------------------ |
-| `P1`  | current arc — do next          |
+| Label | Meaning                         |
+| ----- | ------------------------------- |
+| `P1`  | current arc — do next           |
 | `P2`  | agreed worth doing, unscheduled |
-| `P3`  | someday / speculative          |
+| `P3`  | someday / speculative           |
 
 No P0: at this repo's size, drop-everything items just get done.
 
