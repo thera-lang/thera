@@ -594,7 +594,8 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
     refactorings_).
 
   Pairs with _Tools — refactorings_: the doc says what's idiomatic, the lint
-  enforces it mechanically.
+  enforces it mechanically. The **language changes** the session mining pointed
+  at are tracked separately in the _Idioms punchlist_ below.
 
 - **Width: keeping 100, and the reason is not that the data chose it.** The
   study ran — the corpus reformatted at 80 / 88 / 90 / 92 / 94 / 96 / 98 / 100 /
@@ -772,6 +773,87 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   (one `get`- and one `set`-style method) rather than separate
   `Index`/`IndexSet`. Also a prerequisite for a Thera `Map` (which additionally
   needs map-literal lowering and a native↔Thera-map bridge).
+
+### Idioms punchlist
+
+Language changes pointed at by the idioms work: writing
+[sdk/doc/idioms.md](../sdk/doc/idioms.md) meant mining recent agent-session
+transcripts (2026-08, ~240 diagnostics) for what first-time writers actually get
+wrong, and some of those errors implicate the language rather than the doc. The
+**razor** for deciding which: does the rule impose a **recurring per-line tax**
+(ceremony that stays expensive after the agent has learned it) or a **one-time
+surprise** (learned in one check-cycle, cheap forever)? Change the language for
+the former; teach the latter via the primer and diagnostics. Corollary from the
+same data: breaking an LLM prior is fine when the break is **unmissable** (no
+`async` produced zero errors — there is nothing to almost-get-right), and costly
+when prior-shaped code **almost works** (bare `Ok(x)` fails only at the
+constructor). Re-mine transcripts after each change lands; that is the
+measurement instrument for this list.
+
+**Strong candidates:**
+
+- **Keywords as member names (contextual `type`).** `type` cannot be a field,
+  parameter, label, or member name — yet every real JSON API has `type` fields
+  (most Anthropic content blocks, GitHub payloads), so mirroring an API forces
+  rename-and-map at every decode boundary, and the
+  [api-access.md](api-access.md) generator will hit it constantly. Field/label/
+  member positions are grammatically unambiguous, so making keywords contextual
+  there (the TypeScript move) costs nothing in local reasoning. Do this before
+  the OpenAPI generator, not after.
+- **Bare variant construction where the expected type is known.** The most
+  frequent first-contact error is `Ok(x)` / `Some(v)` for `Result.Ok(x)` /
+  `Option.Some(v)` — and it is a recurring tax (every function's exit paths,
+  forever), against an enormous Rust prior. The asymmetry is the tell: patterns
+  are bare _because the scrutinee's type is known_, and bidirectional inference
+  already flows expected types into expressions — so allow bare `Variant(args)`
+  exactly where an expected enum type pins it (`return Ok(x)`, an argument, an
+  annotated binding), keeping the qualified form as the general case. The
+  reserved-names rule means `Ok`/`Some`/`None`/`Err` can never mean anything
+  else, so "one name, one meaning" survives. A smaller extension on the same
+  principle, to evaluate with it: accept `[]` as the empty map where the
+  expected type is a `Map` (today it infers `List<?>` and mismatches).
+- **`let … else` completion.** The v1 limits — the `else` must end in a
+  _literal_ `return`/`throw` (divergence through nested branches isn't
+  recognized), and the pattern binds at most one variable — are checker
+  maturity, not design; the Rust prior (any diverging block, multiple bindings)
+  is also the correct semantics. Finish it.
+
+**Worth investigating (not yet decided):**
+
+- **Implicit `T → Option<T>` promotion** at assignability boundaries. Would kill
+  a real mined error class (`expected Option<Double>, found Double`), and
+  Swift's precedent says it's an ergonomic win — but it would be Thera's first
+  implicit conversion, and bare-variant construction doesn't absorb it (agents
+  write `f(x)`, not `f(Some(x))`). Hold the line for now: make the diagnostic
+  prescriptive ("wrap it: `Option.Some(x)`"), re-measure after the strong
+  candidates land.
+- **First-arg-positional default** — already an investigate item under _Calling
+  convention_; the mining adds moderate supporting evidence (label friction is a
+  per-call-site recurring tax). Today's permissive checker understates the
+  friction tightening will cause, so re-run the transcript mining after
+  one-canonical-call-form lands and let that decide.
+- **Typed JSON priority.** The single biggest mined error class (23×
+  `field access on non-struct value`) is agents reaching for TS/Python
+  duck-typing on `Json`. The accessor chain is the workaround; the fix is making
+  the typed path cheap enough that agents reach for it first — derived decoders
+  / the generator (see [api-access.md](api-access.md),
+  [typed-json.md](typed-json.md)). The data says raise that arc's priority.
+
+**Cross-cutting:**
+
+- **Stdlib naming audit against LLM priors.** Agents guess `n.to_string()`,
+  `s.parse<Int>()` — where a Thera name fights an overwhelming cross-language
+  prior _without a compensating principle_, take the prior. The flagship case:
+  `display()` vs `to_string()` — Thera's own named-for-its-result convention
+  (`to_list`, `to_int`, `to_double`) argues for `to_string`, which is also the
+  name agents guess.
+- **Diagnostics as the primary channel — policy.** The transcripts show agents
+  fix nearly every idioms-list error on the first diagnostic, so every
+  prescriptive message pays out at the exact moment of the mistake,
+  version-locked, in every harness. Standing policy: when a first-contact error
+  class shows up in mining, the first response is a did-you-mean /
+  here-is-the-fix diagnostic (see the _Diagnostics punchlist_'s did-you-mean
+  item); a language change needs the recurring-tax bar above.
 
 ### Language spec punchlist
 
