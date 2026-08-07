@@ -64,8 +64,7 @@ The open items have moved to the tracker: sorted/`Ord`-keyed `Set`/`Map`
 variants ([#89](https://github.com/thera-lang/thera/issues/89)) and the
 `zip`/`flat_map`/`chain` iterator adapters, gated on the `Pair`-vs-`Tuple`
 decision ([#90](https://github.com/thera-lang/thera/issues/90)). The `std.fiber`
-combinator layer is
-[#94](https://github.com/thera-lang/thera/issues/94).
+combinator layer is [#94](https://github.com/thera-lang/thera/issues/94).
 
 ### Runtime (Rust)
 
@@ -97,9 +96,9 @@ The open items have moved to the tracker:
 - native resource finalization via GC-owned `Obj::Foreign`
   ([#99](https://github.com/thera-lang/thera/issues/99))
 
-(Profiling the _runtime itself_ — the Rust interpreter/natives — is separate
-and already covered by `cargo` + samply/Instruments and the
-`[profile.profiling]` / `native-stats` setup.)
+(Profiling the _runtime itself_ — the Rust interpreter/natives — is separate and
+already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
+`native-stats` setup.)
 
 ### Compiler & front-end
 
@@ -866,57 +865,22 @@ deferred bare-`TypeParameter` narrowing.
 
 ### Networking punchlist
 
-The phase-4 poller's two known gaps — per-fd wakeup routing and `select`-based
-socket timeouts — are **done** (see _Changelog_). **TLS is done — all five
-stages of [http-tls.md](http-tls.md), so `std.http` speaks `https` and the TLS
-stack is tested end to end with no network.** See the Changelog entries for the
-arc; the design doc keeps the crate/provider reasoning, the park/retry mapping,
-and the two decisions it settled along the way (ALPN stays unoffered; the trust
-seam deliberately does not reach `std.http`).
+The arc is done: the phase-4 poller's gaps (per-fd wakeup routing,
+`select`-based socket timeouts), all five TLS stages of
+[http-tls.md](http-tls.md) (so `std.http` speaks `https`, chain- and
+host-verified, tested end to end with no network), streaming response bodies +
+`std.http.sse`, and a reachable `std.http.server` — see the Changelog entries
+for each arc; the design docs keep the reasoning and the decisions settled along
+the way (ALPN unoffered; the trust seam not reaching `std.http`).
 
-**Streaming is done too.** The codec streams, `std.http.sse` decodes a
-`text/event-stream` over any `io.Reader`, and `http.stream` / `http.with_stream`
-give the client an entry point that returns once the head is in — with `send`
-redefined as that plus a capped read plus the close, so the buffered and
-streaming paths cannot drift. See the Changelog entry for the arc, including the
-connection-ownership reasoning and the shape of the incrementality test.
-
-**So this punchlist is empty of both.** What `std.http` still lacks, deferred
-with reasons in [stdlib.md](stdlib.md): redirect following, connection pooling,
-streaming _request_ bodies, and a public server-TLS surface. None of them gates
-[api-access.md](api-access.md) — the next substrate item there is retry with
-backoff (its Arc 1 item 5), and the next arc is the hand-written Anthropic
-client. Three things that document takes from this one: the `https` branch was
-its hard prerequisite, the streaming stack is what makes a token stream possible
-at all, and the hermetic in-process TLS loop (TLS stage 5) doubles as the
-API-client test harness.
-
-Two notes carried over from the streaming design, because each says how much the
-remaining work actually is:
-
-- **Streaming a _request_ body is a surface decision, not new machinery.** A
-  server handler receiving a large upload has the client's problem in reverse,
-  and `framing_of` + `BodyReader` are already indifferent to which direction
-  they are reading. What's missing is a public entry point on the request side.
-  Nothing needs it yet.
-- **Connection reuse has its precondition already.** A fully-consumed body
-  leaves the connection at a clean message boundary, which is what keep-alive
-  requires, and `BodyReader.is_complete` is the bit that would gate it. Nothing
-  to do until pooling exists — the point is that the reader doesn't make it
-  impossible.
-
-**`import std.http.server` resolves now** — it didn't, and the fix reshaped
-`std.http`. See the Changelog entry; the short version is that the server and
-`sse` are separate _directories_ because from outside a directory library only
-the barrel is importable, and that forced the shared codec into
-`std.http.common` for the same reason. A sweep of `sdk/std` found no other
-unreachable surface.
-
-The larger arc all of this feeds is [api-access.md](api-access.md) — calling
-third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools. It plans the rest
-of the substrate (typed JSON, retry with backoff, auth and redaction), a
-hand-written Anthropic client as the forcing function, and an OpenAPI generator
-to scale past it.
+What `std.http` still lacks is deferred with reasons in [stdlib.md](stdlib.md):
+redirect following and a public server-TLS surface (file when someone cares),
+plus two items tracked as deferred issues because the streaming design left
+notes that size the work — connection pooling / keep-alive
+([#102](https://github.com/thera-lang/thera/issues/102)) and streaming request
+bodies ([#103](https://github.com/thera-lang/thera/issues/103)). None of them
+gates [api-access.md](api-access.md), the larger arc all of this feeds — calling
+third-party HTTP APIs (GenAI, MCP, GitHub) from Thera tools.
 
 ### Scheduler punchlist
 
@@ -924,57 +888,17 @@ Findings from a 2026-07 design review of fiber waiting/waking (the park
 taxonomy, the readiness poller, `select`). The review's verdict was that the
 design is sound — the two `Multi`-park invariants (idempotent waking,
 sweep-on-schedule) are enforced at single choke points and mutation-tested — so
-these are the gaps _around_ it, not problems _in_ it. None is a correctness bug;
-all three grow teeth with a long-running server, which is where the networking
-arc is headed.
+the findings are gaps _around_ it, not problems _in_ it; none is a correctness
+bug, and all grow teeth with a long-running server.
 
-1. **Selects with no `Progress` source still join the coarse `blocked` list.** A
-   `Multi` park adds the fiber to `blocked` unconditionally, so a
-   `select([sock, fiber.after(d)])` — socket + timer, no channel or join
-   anywhere in it — is woken by _every_ channel send/receive/close and fiber
-   completion in the program, re-probes all its sources, and re-parks. That is
-   the per-fd-routing problem (see _Changelog_) reappearing one layer up: N
-   connections each select-waiting with a timeout do O(N) spurious re-probes per
-   channel operation. Cheap targeted fix when a profile asks: the Thera-side
-   `select` already knows whether any source returned `SelectSource.Progress`,
-   so `_select_park` can take that as a flag and skip `blocked` when none did.
-   The full fix is per-resource waiter lists for channels and joins (already
-   promised in `Scheduler::complete`'s doc), which would retire `wake_all`'s
-   thundering herd entirely.
-
-2. **Select deadlines mix the wall clock with the monotonic clock.**
-   `fiber.after` captures `time.now_millis()` (wall) and `Timer.is_ready`
-   re-checks against it, but the scheduler's timers are `Instant`s (monotonic),
-   so `select_park` converts wall→monotonic on every park — while `time.sleep`
-   is `Instant` end-to-end. A wall-clock step forward fires select deadlines
-   early; a step backward extends them (the probe loop re-parks with a
-   recomputed remainder — it converges, no hang, but an NTP step is added to the
-   wait). `with_timeout` semantics want monotonic throughout. The wrinkle:
-   `SelectSource.Deadline` needs an _absolute_ time that stays fixed across
-   re-parks, so the fix is a runtime-provided monotonic clock (millis since
-   program start, say) for `Timer` to capture instead of the epoch — a new
-   native and a `std.time` surface decision, hence parked here.
-
-3. **The scheduler never reclaims fibers or channels.** `fibers` is deliberately
-   never compacted (stable ids), every `Done` fiber's result stays GC-rooted
-   forever (`gather_scheduler_roots`), and `channels` only grows. Invisible in
-   every current program, but the server pattern — one long run of
-   `while true { accept; spawn(handle) }` — leaks a fiber slot plus its rooted
-   result per connection served. Needs a design decision, not a patch, because
-   join-ability is what blocks reclamation: a `Done` fiber can't be freed while
-   a `join` might still come. Candidate shapes: make `join` one-shot and reclaim
-   on it, plus a story for never-joined fire-and-forget fibers (drop the result
-   on completion when no join can observe it, or an explicit detached spawn);
-   refcounting `Fiber<T>` handles has been avoided so far. Channels want the
-   same eventually (`close` could free the slot once drained). **This is the
-   biggest of the three** — it gates calling the `std.http` server
-   production-shaped.
-
-Also noted by the review, one comment's worth of insurance: nothing enforces
-that an `IoFinish` closure captures no `Value` (they aren't GC roots; all ~25
-current `park_syscall` call sites capture only owned Rust data, and the
-`build: FnOnce(T) -> Value` shape encourages that). Worth a sentence on the
-`IoFinish` type when next touched.
+The three findings have moved to the tracker: per-resource waiter lists, which
+also covers the Progress-free-select re-probe herd and the `IoFinish` comment
+insurance ([#91](https://github.com/thera-lang/thera/issues/91)); the
+wall-vs-monotonic select-deadline clock
+([#100](https://github.com/thera-lang/thera/issues/100)); and scheduler
+reclamation of `Done` fibers and closed channels — the biggest, the one that
+gates calling the `std.http` server production-shaped
+([#101](https://github.com/thera-lang/thera/issues/101)).
 
 ## Runtime staging (longer view)
 
