@@ -589,8 +589,8 @@ fn double(_ x: Int) -> Int {
 }
 
 fn fetch_user(id: Int) -> Result<User, Error> {
-    let resp = http.get('/users/${id}')?;   // may park the fiber
-    return json.decode<User>(resp.body);
+    let resp = http.get('https://example.com/users/${id}')?;   // may park the fiber
+    return user_from_json(resp.body);       // a hand-written decoder over std.json
 }
 
 fn main() -> Result<Int, Error> {
@@ -639,7 +639,7 @@ for their own enums.
 ```thera
 fn read_port(args: Args) -> Result<Int, Error> {
     let s = args.positional(0).ok_or(error('usage: serve <port>'))?;
-    return s.parse<Int>();
+    return s.to_int().ok_or(error('port must be a number: ${s}'));
 }
 ```
 
@@ -677,8 +677,8 @@ with `.ok_or(<error>)?`, or drop an error to an absence with `.ok()?`:
 
 ```thera
 fn load(args: Args) -> Result<Int, Error> {
-    // args.first() is an Option; name the error, then propagate it
-    let raw = args.first().ok_or(error('missing argument'))?;
+    // args.positional(0) is an Option; name the error, then propagate it
+    let raw = args.positional(0).ok_or(error('missing argument'))?;
     return raw.to_int().ok_or(error('not a number'));
 }
 ```
@@ -708,7 +708,7 @@ stack unwinding; control simply returns to the caller with an `Err` value.
 
 ```thera
 fn parse_port(s: String) -> Result<Int, Error> {
-    let n = s.parse<Int>()?;
+    let n = s.to_int().ok_or(error('not a number: ${s}'))?;
     if n < 1 || n > 65535 {
         throw error('port out of range: ${n}');
     }
@@ -1686,7 +1686,7 @@ particular impl's fields. The body is checked like any other function body
 
 The standard `Iterator<T>` uses this: its only required method is `next`, and
 the adapters (`map`/`filter`/`take`/`enumerate`) and consumers
-(`collect`/`count`) are all default methods — so every iterator is fluent
+(`to_list`/`count`) are all default methods — so every iterator is fluent
 without each implementer re-spelling them. See [stdlib.md](stdlib.md).
 
 ### Inherent methods
