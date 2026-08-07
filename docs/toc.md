@@ -36,6 +36,9 @@ this is"; read top-down for progressive detail.
   suppression contract).
 - [roadmap.md](roadmap.md) — current **status**, the bootstrap arcs, deferred
   work, and remaining front-end work.
+- [tracker.md](tracker.md) — **issue-tracker conventions**: what belongs in the
+  tracker vs. the roadmap, and the label vocabulary (`area-*`, `type-*`,
+  `P1`–`P3`, state).
 - [http-tls.md](http-tls.md) — **TLS for `std.http`**: the plan to add `https`
   to the client — the `rustls` crate choice, the native ABI, how a TLS session
   rides the socket park/retry model, the `TlsStream` surface, and a hermetic

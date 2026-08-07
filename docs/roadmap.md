@@ -852,8 +852,9 @@ measurement instrument for this list.
   prescriptive message pays out at the exact moment of the mistake,
   version-locked, in every harness. Standing policy: when a first-contact error
   class shows up in mining, the first response is a did-you-mean /
-  here-is-the-fix diagnostic (see the _Diagnostics punchlist_'s did-you-mean
-  item); a language change needs the recurring-tax bar above.
+  here-is-the-fix diagnostic
+  ([#85](https://github.com/thera-lang/thera/issues/85)); a language change
+  needs the recurring-tax bar above.
 
 ### Language spec punchlist
 
@@ -976,24 +977,17 @@ The still-open tail of the 2026-07 diagnostics review; everything else landed �
 see the Changelog's **Diagnostics review** entry for the arc summary. The
 warning machinery is live: add rules one at a time, corpus-sweeping each.
 
-- **Effect-free expression statements** (`1 + 2;`) — the last warning candidate
-  from the original review.
-- **Referencing a `_`-prefixed local** — the marker declares the binding
-  intentionally unused (language.md §Variables), so a reference contradicts it;
-  a future warning candidate (the fix is renaming the binding).
-- **Did-you-mean suggestions** on `undefined name` / `no method` — cheap (edit
-  distance over the known-name set), modest-but-real LLM value.
-- **Same-name type-identity mismatches should name the owners.** A mismatch
-  between two same-named types from different libraries prints
-  `expected Thing, found Thing` — useless to an agent. When the two display
-  names are equal, the message should qualify each side with its owning
-  library/file. (The unknown-namespace-in-annotation half of this entry is fixed
-  — see the Changelog — which removes the most common way to hit it; genuinely
-  distinct same-named types can still collide.)
-- **A semantic to decide:** qualified access through an `as _` import works
-  today (the loader binds the derived namespace for unqualified imports too —
-  `import std.path as _;` + `path.join(…)` compiles, and `unused-import` counts
-  it as a use); either bless that in the spec or reject it.
+The open items have **moved to the issue tracker** (labeled per
+[tracker.md](tracker.md); this section was the migration pilot): the effect-free
+expression-statement warning
+([#83](https://github.com/thera-lang/thera/issues/83)), the
+referencing-a-`_`-prefixed-local warning
+([#84](https://github.com/thera-lang/thera/issues/84)), did-you-mean suggestions
+([#85](https://github.com/thera-lang/thera/issues/85)), owner-qualified
+same-name type mismatches
+([#86](https://github.com/thera-lang/thera/issues/86)), and the `as _`
+qualified-access semantic to decide
+([#87](https://github.com/thera-lang/thera/issues/87)).
 
 Already tracked elsewhere, not repeated here: imported-body check scope, cascade
 suppression, calling-convention enforcement, native-arg trap wording, and the
