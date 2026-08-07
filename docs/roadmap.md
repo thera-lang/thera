@@ -244,115 +244,21 @@ The open items have moved to the tracker:
 
 ### Language
 
-- **Only an identifier or a field may be a call target.** `maker()(5)` and
-  `fns[0](10)` are rejected with `unsupported call target`
-  ([codegen.thera](../pkgs/cli/codegen/codegen.thera) → `call_expr`) — an
-  arbitrary expression in callee position doesn't compile, so a function value
-  has to be bound to a name before it can be called. Equally true of a lambda,
-  so it is not about function _references_; it surfaced next to them (2026-07)
-  because a reference makes function values easy to produce.
+Open language work has moved to the tracker:
 
-  This is the same spec/implementation shape the first-class-functions gap had:
-  [language.md](language.md) §Functions shows `adder(by: 2)` returning
-  `(Int) -> Int` as a headline, and the obvious next keystroke — calling it —
-  needs a bound name. Decide whether the spec means to allow an expression
-  callee (and if so, compile it: the callee is just another operand to evaluate
-  before `call.indirect`) or to require the binding, and say which. A
-  conformance test under `tests/lang/functions/` should pin whichever.
-
-- Instance level mutability would be easier for agents to reason about. We
-  should consider the impact, pros, and cons of switching from field level
-  mutability to instance level mutability.
-
-- **Calling convention — one canonical call form (tighten + enforce).** The
-  decided model (see [language.md](language.md) → Named parameters): the author
-  chooses each parameter's call form and the call site has exactly **one** —
-  **labeled by default**, **positional via `_`** (label forbidden). This
-  eliminates caller choice, so every call to a function reads the same (the
-  consistency the LLM-native goal wants), while the author still gets terse,
-  self-documenting call sites where each is warranted. The checker is currently
-  **permissive** (a labeled parameter also accepts a positional argument, and
-  labeled arguments may be reordered), so the model ships with an
-  enforcement-status caveat in the docs. Sequencing:
-  1. **Clarify the docs** — _done_ (language.md Named parameters + style rule).
-  2. **Fix existing code** — migrate call sites that pass a labeled parameter
-     positionally (or rely on reordering) to the canonical form, and add `_` to
-     the parameters that should be positional (the obvious "subject" args). This
-     is a corpus-wide sweep; it pairs with the _Tools — refactorings_ machinery
-     (a located diagnostic for "positional argument to a labeled parameter" is
-     the natural lint, with a mechanical fix).
-  3. **Enforce** — the checker requires a labeled parameter's label and forbids
-     a positional argument for it. Flip after the sweep so the corpus stays
-     green.
-  - **Open sub-decision:** whether to also require **source order** for labeled
-    arguments (forbid `f(b: 2, a: 1)`). The same one-form principle argues yes;
-    it's a separable call from the positional-vs-labeled tightening. Decide
-    during step 3.
-  - The style rule (`_` for the single obvious "subject" arg; labels for
-    booleans / multiple same-typed / non-obvious roles) belongs in the
-    agent-facing idioms guidance (see _Idioms & best-practices guidance_).
-  - **Longer-term — first-arg-positional default (investigate, not scheduled).**
-    If `_`-on-every-first-parameter proves a frequent irritant once the
-    convention tightens, reconsider making the **first ("subject") parameter
-    positional by default and the rest labeled**, with explicit overrides both
-    ways. It makes the common case need no marker, at the cost of
-    position-dependence and a two-way override (less "simple, one rule"). **Not
-    an immediate goal.** Measure first — count how often `_` would land on the
-    first parameter **under the tightened convention** (not today's permissive
-    usage); that frequency is the input to the flat-`_` vs first-arg-positional
-    call. (Keyword markers like `pos`/`positional` were considered and declined:
-    too verbose at this frequency, and `pos` collides with the ubiquitous `pos`
-    variable; `_` reads as "external label = none", consistent with the
-    `external internal` slot.)
-
-- **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
-  of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
-  done). This is also where the language's **implicit operator/literal
-  lowerings** would gain a Thera-level surface: `==`, `+`/interpolation,
-  `[]`/`[]=`, and the `[k: v]` map literal are emitted by codegen straight to
-  runtime natives (`eq`, `str_concat`, `stringify`,
-  `list_index`/`list_set`/`map_index`, `map_new`/`map_set`) with no named Thera
-  method behind them — the one category of addressable behaviour not represented
-  in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
-  what turns those into ordinary Thera methods; revisit the exact shape then
-  (the `[]` half is the _Index operator_ item).
-- **Primitive vtables — enabling work, deferred to the generics arc.** A
-  primitive reached through _virtual_ dispatch — `call.virtual` from a
-  bounded-generic context where the runtime value is an
-  `Int`/`Double`/`Bool`/`String` — has no vtable row; it resolves through a
-  **hardcoded fallback** in the interpreter (`virtual_fallback` in
-  `interp/mod.rs`: `display`/`debug`/`eq`/`compare`). The 2026-07 scoping pass
-  closed the user-reachable soundness gap at the checker (primitive bounds are
-  limited to the four interfaces the fallback can dispatch) and indexed the
-  dispatch table per receiver type — see _Changelog_. What remains is the
-  enabling work, deliberately deferred:
-  - **Letting user interfaces on primitives dispatch** (so the checker guard can
-    lift): reserve a dispatch-id range for the built-in value shapes (`Value`
-    variant → fixed id, partitioned alongside struct type-table indexes and
-    `ENUM_DISPATCH_BASE`), have `dispatch_type_id` return them, and teach
-    `build_dispatch` to resolve impl-on-native-type rows. Do this **with the
-    operators-as-interfaces / conditional-impl generics work** — it's the same
-    "dispatch a built-in interface on a concrete type" machinery, and `<T: Add>`
-    will force the same id scheme.
-  - **Perf constraint (measured context):** keep the fallback as the fast path
-    for the four built-in selectors — direct Rust with _no_ lookup at all, and
-    `eq` is the highest-volume operation in the interpreter profile — while a
-    vtable hit pays the lookup plus an interpreter frame. Vtable rows should add
-    dispatch for _user_ selectors; the built-in four stay hardcoded as an
-    optimization rather than a correctness crutch.
-  - **`virtual_fallback` never fully retires regardless:** its structural
-    `debug`/`eq` for impl-less structs/enums _is_ the auto-derive mechanism, and
-    the `display` → `debug` arm is what keeps rendering total.
-- **Index operator (`[]`) overloading.** `a[i]` / `a[i] = v` are hardcoded in
-  codegen to the built-in `List`/`Map` natives by static type; any other
-  receiver is a compile error (`pkgs/cli/codegen/codegen.thera`). Small–medium,
-  self-contained: desugar to a method call reusing static/`call.virtual`
-  dispatch (inference resolves `a[i]` from the receiver's index method;
-  codegen's two `throw` branches become method-call lowerings; List/Map keep
-  their native fast path). Design leaning: a single `Indexable<K, V>` interface
-  (one `get`- and one `set`-style method) rather than separate
-  `Index`/`IndexSet`. Also a prerequisite for a Thera `Map` (which additionally
-  needs map-literal lowering and a native↔Thera-map bridge).
+- expression call targets — decide whether `maker()(5)` / `fns[0](10)` compile
+  or the binding is required, then pin it with a conformance test
+  ([#132](https://github.com/thera-lang/thera/issues/132))
+- instance-level vs field-level mutability — consider the switch
+  ([#133](https://github.com/thera-lang/thera/issues/133))
+- calling convention — the lint → corpus sweep → enforce staging for the one
+  canonical call form, with the source-order sub-decision and the
+  first-arg-positional investigate record ([#134](https://github.com/thera-lang/thera/issues/134))
+- generic operators (`<T: Add>`, operators-as-interfaces, and the Thera-level
+  surface for the implicit operator/literal lowerings) ([#135](https://github.com/thera-lang/thera/issues/135)), with
+  primitive vtables as its deferred enabling work ([#136](https://github.com/thera-lang/thera/issues/136))
+- index operator (`[]`) overloading via an `Indexable` interface
+  ([#137](https://github.com/thera-lang/thera/issues/137))
 
 ### Idioms punchlist
 
