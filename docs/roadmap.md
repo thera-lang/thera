@@ -57,24 +57,15 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
 
 ### Stdlib
 
-- **Stdlib breadth — remaining.** Of the "batteries included" goal, what's left:
-  sorted/`Ord`-keyed `Set`/`Map` variants. **TLS for `std.http` has landed** —
-  the client speaks `https`, chain- and host-verified; see _Networking
-  punchlist_ for the one remaining stage, the hermetic test loop. Everything
-  else in the staples arc — the collection/string/bytes staples,
-  `std.encoding`/`std.hash`/`std.regex`/`std.log`/`std.term`/`std.http` (over
-  the provisional `std.net`), and the lazy iteration arc (`Iterator<T>` +
-  adapters, `io.lines`/`BufReader`, `fs.walk`, streaming `File`s,
-  `List.enumerate()`) — has landed; see _Changelog_.
-  - **`zip` iterator adapter** (and `flat_map`/`chain`, the other wrapped
-    adapters the `enumerate` parser extension opened). `zip(a, b)` pairs two
-    iterators; the **design dependency** is what it yields — Thera has no tuple,
-    so it needs a blessed `Pair<A, B>` (the way `enumerate` yields `Indexed<T>`)
-    or settling the deferred `Tuple` open question (see
-    [language.md](language.md) → Types → Open questions). Motivated by the
-    `while i < xs.len()` parallel-index loops the ergonomics review found — e.g.
-    `signatures_match`'s `i_params[i]` vs `o_params[i]`. Deferred with that
-    migration (no consumer until then); decide `Pair` vs `Tuple` first.
+The staples arc has landed — the collection/string/bytes staples,
+`std.encoding`/`std.hash`/`std.regex`/`std.log`/`std.term`/`std.http` with TLS
+(over the provisional `std.net`), and the lazy iteration arc — see _Changelog_.
+The open items have moved to the tracker: sorted/`Ord`-keyed `Set`/`Map`
+variants ([#89](https://github.com/thera-lang/thera/issues/89)) and the
+`zip`/`flat_map`/`chain` iterator adapters, gated on the `Pair`-vs-`Tuple`
+decision ([#90](https://github.com/thera-lang/thera/issues/90)). The `std.fiber`
+combinator layer is
+[#94](https://github.com/thera-lang/thera/issues/94).
 
 ### Runtime (Rust)
 
