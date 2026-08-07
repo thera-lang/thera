@@ -69,157 +69,37 @@ combinator layer is
 
 ### Runtime (Rust)
 
-- **Fibers — remaining refinements.** Phases 0–4 are done (scheduler-drivable
-  `run_loop`; `spawn`/`join`/`yield` with GC roots across every fiber; buffered
-  `Channel<T>`; park on real I/O via timers + the worker pool; the readiness
-  poller — see _Changelog_). Design in [architecture.md](architecture.md)
-  §Concurrency. Remaining: per-channel waiter lists (retire `wake_all`'s
-  thundering herd — see _Scheduler punchlist_), true 0-capacity rendezvous
-  channels, and exit semantics for surviving spawned fibers.
+Fibers phases 0–4 are done (scheduler-drivable `run_loop`; `spawn`/`join`/
+`yield` with GC roots across every fiber; buffered `Channel<T>`; park on real
+I/O via timers + the worker pool; the readiness poller; `select` — see
+_Changelog_; design in [architecture.md](architecture.md) §Concurrency). The
+interpreter was profiled 2026-06 and the easy wins are in (the unified value
+stack, the `ListLen` opcode); the findings — the cost is the heap-access path
+and allocation, not dispatch — are preserved in the issues below. The in-VM
+profiler v1 (`THERA_PROFILE=1`) is done.
 
-- **Fiber synchronization primitives — the combinator layer.** The _core_ async
-  values already exist: `Fiber<T>` + `join` **is** a Future (uncolored; and
-  `join` is idempotent/multicast — `sched_result` reads `Done(v)` by `&self`, so
-  any fiber can await the same result repeatedly, giving a broadcast/shared
-  future for free), and `channel<T>(1)` is a Completer. What's thin is the
-  second-order layer built on them:
-  - **Cancellation token** — a reusable `cancel()` / `is_cancelled()` /
-    selectable `done` (the LSP hand-rolled a generation counter for exactly
-    this). The poll form works today; `select` has landed (see _Changelog_), so
-    the wait-or-cancel form is now buildable. The honest limit stands: a fiber
-    can't be killed, so cancellation is cooperative — `with_timeout` bounds the
-    wait, not the work.
-  - **Structured concurrency** — `join_all`, and a scope that joins-or-cancels
-    its children when the parent returns so a worker can't leak (the LSP `serve`
-    drain does this by hand); ties to "exit semantics for surviving spawned
-    fibers".
-  - **Bounded concurrency** — a semaphore /
-    `parallel_map(items, concurrency, f)`, buildable on a token channel today.
-  - _No `Mutex`/lock is warranted:_ cooperative single-threading makes
-    shared-state mutation between yield points race-free; a lock only matters to
-    hold a section _across_ a yield, which is a one-token semaphore.
+The open items have moved to the tracker:
 
-- **Interpreter performance — profiled (2026-06); the easy wins are in.**
-  Probes: the front-end **self-compile** (`thera emit pkgs/cli/main.thera`) ≈
-  11.6 s release, and **mandelbrot** ≈ 0.81 s (a call-free arithmetic/loop
-  guard). Measured with the built-in `native-stats` feature (per-native call
-  counts) + macOS `sample` (time). Findings:
-  - **The cost is the heap-access path, not dispatch.** `HEAP.with` (a
-    thread-local `RefCell`) is ~62 % of `run_loop` inclusive / ~15 % pure
-    self-time, and allocation (`Vec::from_iter` + `memmove`, ~27 %: per-object
-    field-`Vec` construction, string/list building) is the other big chunk.
-    Native _dispatch_ is cheap — the volume leaders (`eq` 9.2 M, `list_len` 8.4
-    M calls) cost mostly the `HEAP.with` round-trip _around_ the call, not the
-    call itself.
-  - **Map/Set is not a self-compile hotspot** (≈0 time samples; `Set` isn't used
-    hot). Hashed Map/Set (below) is a **scaling-robustness** item for large
-    _user_ programs, not a front-end speedup — re-scoped from "perf" to
-    "scaling".
-  - **Done:** the **unified value stack** (one `Vec` per fiber, args passed in
-    place — ~8.6 %, the real win, and the JIT shares that stack); the
-    **`ListLen` opcode** (lowers `list.len()` out of `call.native` —
-    time-neutral, but shrinks bytecode and is JIT-aligned like
-    `ListGet`/`ListSet`).
-  - **Measured and declined:** converting the heap `RefCell`→`UnsafeCell` bought
-    only ~1 % (the borrow flag isn't the cost; the thread-local TLV lookup +
-    allocation are) and would trade the runtime's loud-panic safety net for
-    silent UB if a future `with_*_mut` closure read another heap object. Not
-    worth it standalone.
-  - **What's left is structural:** cut per-object allocation (an arena / inline
-    small-field object representation) and the thread-local heap-access path.
-    The latter is best done in the **JIT era** (a raw heap base pointer shared
-    by interpreted and compiled frames, no `thread_local`, no per-access
-    indirection) — where it is load-bearing and rides along with the
-    untagged-value move. See the Cranelift bullet below.
-- **Read accessors that clone whole heap objects** are a recurring hot spot
-  (fixed for `list.len`/indexing, GC marking, map reads; `list.len()` is now the
-  `ListLen` opcode entirely). Prefer the borrowing accessor; clone only when a
-  closure re-enters the heap to allocate/compare.
-- **Native resource finalization — GC-owned `Obj::Foreign` (Drop on sweep).**
-  Native-backed resources currently live in a process-global registry keyed by
-  an `Int` handle the Thera wrapper holds (`std.regex` compiled patterns;
-  `std.process` children; `std.fs` open `File`s). The registry is never pruned,
-  so a `Regex` that becomes unreachable **leaks** its compiled engine — benign
-  for the compile-a-handful-at-startup norm, but unbounded for dynamic
-  compilation (e.g. a server compiling user-supplied patterns in a loop).
-  `std.fs.File` already follows the guidance below (explicit `close()` frees its
-  fd; an unclosed file leaks until exit) — the GC-drop **backstop** is the part
-  still missing. The fix is **not** Thera-level finalizers (resurrection /
-  ordering / latency footguns) **nor** a finalizer-closure registry, but letting
-  a Thera object _own_ the Rust resource: add an `Obj::Foreign` variant that
-  holds the resource, and the existing sweep's `*slot = None` drops it —
-  **Rust's `Drop` glue is the finalizer**, run exactly when the object is
-  collected, with no Thera code and no resurrection. `std.regex` stops using the
-  registry/handle: the compiled engine lives in the `Foreign` object the `Regex`
-  value points at, and frees when unreachable.
-  - **Perf:** per-object free cost is **unchanged** — drop dispatch is static
-    per `Obj` variant (no "has a finalizer?" branch); only `Foreign` objects run
-    a non-trivial destructor, and they're rare. Allocation is one slab slot like
-    any object plus one `Rc` for the resource, only at `compile`. A compiled
-    regex holds no Thera `Value`s, so it's also a GC leaf (`for_each_child`
-    yields nothing).
-  - **The one invariant:** the sweep drops objects **while holding the `HEAP`
-    `RefCell` borrow**, so a `Foreign` `Drop` must not re-enter the Thera heap
-    (no allocating, no touching `Value`s). True for regex / files / sockets
-    (they release memory or OS handles, not Thera objects) — document it on the
-    variant.
-  - **Impl:** add `Obj::Foreign`; arms in `for_each_child` (none) /
-    `heap_bytes`; the `derive(Clone, PartialEq)` won't cover `dyn Any`, so a
-    small newtype with manual `Clone` (`Rc` bump) + `PartialEq` (`Rc::ptr_eq` —
-    identity). The `str_byte_slice` primitive and the Thera `std.regex` layer
-    are untouched.
-  - **Scope it to _pure_ resources.** Collect-on-unreachable is right for a
-    regex (no external effect). It is **wrong** for `std.process` — a spawned
-    child must not be reaped/killed because a GC pass noticed its handle went
-    out of scope; explicit `wait`/`kill` stays. Files/sockets want an explicit
-    `close()` with GC-drop only as a backstop (non-deterministic close timing
-    risks fd exhaustion). So introduce `Obj::Foreign` as general infrastructure
-    but apply it only where collection-on-unreachable is the intended semantics
-    — `std.regex` being the clean first case. Not urgent (the leak is benign for
-    typical apps); the payoff is the dynamic-compile case.
-- **Cranelift JIT tier** (+ the untagged value representation and
-  `f64`/large-int constant-pool entries it forces) — performance/compaction, not
-  correctness-blocking. See runtime staging below and
-  [architecture.md](architecture.md). This is also where the **heap-access
-  rework** belongs (the interpreter profiling above pointed at `HEAP.with` as
-  the dominant cost): the JIT needs a JIT-callable heap-access path anyway — a
-  raw heap base pointer rather than a thread-local `RefCell`, with the borrow
-  discipline enforced by construction — so the non-moving slab grows that path
-  _for_ the JIT, and the interpreter inherits it. A standalone interpreter-only
-  version was measured (~1 %) and declined as not worth the unsafety; here it is
-  load-bearing. Strategic note from that review: a first JIT can keep the
-  **tagged** 16-byte `Value` (Cranelift handles it as an aggregate; precise GC
-  stays trivial because the tag survives) and defer the untagged + stackmap work
-  to a second pass — decoupling "JIT works" from "JIT is fast", which de-risks
-  bring-up.
-- **Profiling Thera code — planned, staged.** OS-level samplers (`perf`,
-  Instruments, samply) are nearly blind to an interpreter: every Thera function
-  is the same `run_loop` native frame, and the Thera call stack lives in the
-  VM's `Vec<Frame>`. So the runtime grows its own profiler — as CPython
-  (cProfile/py-spy), Ruby (stackprof/rbspy), and Lua do. The primary audience is
-  **coding agents**, which shifts the design toward _deterministic,
-  function-level, flat text_ over flame-graph SVGs and line-level precision.
-  1. **In-VM profiler — done (v1)** (see _Changelog_). `THERA_PROFILE=1`
-     (`src/profile.rs`): per Thera function, exact call counts, self + inclusive
-     time via deterministic instruction-budget sampling, and allocation
-     attribution — a flat table on stderr, byte-identical across runs (what an
-     agent's before/after needs). Profiles both a user program and the
-     front-end's own compilation. A `thera run --profile` flag is thin sugar to
-     add later; line/allocation call-site precision is #2 below.
-  2. **Line attribution — enhancement.** A bytecode→source-line table in
-     `.thera-bc` (debug info) so a sample/counter resolves to a Thera line.
-     Demoted from a v1 prerequisite once we accepted function-level is enough
-     for _algorithmic_ issues. The same debug info gives traps a source location
-     and backs the test-failure / stack-trace needs.
-  3. **OS-profiler integration — JIT tier.** Once Cranelift lands, JITed Thera
-     functions are real native frames; emit `perf`'s `/tmp/perf-<pid>.map` or
-     `jitdump` (the V8/JVM/.NET trick) so `perf`/samply/Instruments resolve
-     them. The deep-dive view; #1 stays the portable always-on view. #1 and #3
-     are complementary, not a choice.
+- fiber refinements: per-resource waiter lists
+  ([#91](https://github.com/thera-lang/thera/issues/91)), zero-capacity
+  rendezvous channels ([#92](https://github.com/thera-lang/thera/issues/92)),
+  exit semantics for surviving spawned fibers
+  ([#93](https://github.com/thera-lang/thera/issues/93))
+- the `std.fiber` combinator layer — cancellation, structured concurrency,
+  bounded concurrency ([#94](https://github.com/thera-lang/thera/issues/94))
+- interpreter perf, structural: per-object allocation
+  ([#95](https://github.com/thera-lang/thera/issues/95))
+- the Cranelift JIT tier, with the untagged-value and heap-access rework
+  ([#96](https://github.com/thera-lang/thera/issues/96))
+- profiler stages 2 and 3: line-attribution debug info
+  ([#97](https://github.com/thera-lang/thera/issues/97)) and perf-map/jitdump
+  for JITed frames ([#98](https://github.com/thera-lang/thera/issues/98))
+- native resource finalization via GC-owned `Obj::Foreign`
+  ([#99](https://github.com/thera-lang/thera/issues/99))
 
-  (Profiling the _runtime itself_ — the Rust interpreter/natives — is separate
-  and already covered by `cargo` + samply/Instruments and the
-  `[profile.profiling]` / `native-stats` setup.)
+(Profiling the _runtime itself_ — the Rust interpreter/natives — is separate
+and already covered by `cargo` + samply/Instruments and the
+`[profile.profiling]` / `native-stats` setup.)
 
 ### Compiler & front-end
 
