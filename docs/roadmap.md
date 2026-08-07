@@ -102,223 +102,58 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
 
 ### Compiler & front-end
 
-- **Faithful syntax nodes for `if let` / `let … else` / `else if`.** The parser
-  **desugars** all three into a `MatchExpr` (`parse_if_let` / `parse_let_else`),
-  leaving `MatchOrigin` and `Block.synthetic` behind as provenance so consumers
-  can reverse it. Every syntax-facing tool then pays that tax independently:
-  [lint.thera](../pkgs/cli/lint/lint.thera) already reverses it by `origin`, a
-  `fmt` that rendered from the AST would rewrite **677 corpus `if let` sites**
-  (plus 86 `let … else`, 124 `else if`) into `match` blocks, and the LSP
-  renderers still queued — `implementation`, call hierarchy, inlay hints,
-  `willRenameFiles` — all want the form the user wrote. Diagnostics inherit the
-  same problem: a type error inside an `if let` is reported against a `match`
-  that isn't in the source.
+The big arcs here have landed — qualified-only + `pub` visibility enforcement,
+the owner-correct `TypeId` resolution arc, parser recovery (Stages 0–3 + 2b),
+instruction-level codegen tests for the trickier lowerings, and the codegen
+audit's match-compilation / closure-walker extraction seams — see _Changelog_.
+The hermetic checker/resolver test harness stays the default by design (speed,
+isolation, bootstrapping safety).
 
-  **This decision was already made once, for the smaller case.** `Stmt.Assign`
-  keeps `x += y` faithfully rather than desugaring to `x = x + y`, because doing
-  so "aliased the target node into the value (PA5: one node in two positions
-  breaks span-keyed consumers, and the `+=` shape was unrecoverable for
-  fmt/lint)" — see [ast.thera](../pkgs/cli/ast/ast.thera). The same reasoning
-  applies here; only the node count is bigger.
+The open items have moved to the tracker:
 
-  **Shape — mirror `assign_value`, don't add a lowering pass.** A lowering pass
-  would create a second tree and a span-sync problem between the faithful tree
-  the LSP queries and the lowered tree the checker walks. The established idiom
-  is better: keep the written shape in the AST and expose a free function that
-  builds the desugared form **on demand**, transient, "never in the AST that
-  walks see" (`assign_value`, consumed at exactly four sites — checker,
-  inference ×2, codegen). So: add `Expr.IfLet` and `Stmt.LetElse`, move the
-  desugaring out of the parser into `if_let_to_match` / `let_else_to_match`
-  beside `assign_value`, and let each semantic consumer opt in with one
-  delegating arm. Retires `MatchOrigin` entirely — a real `match` becomes the
-  only thing that produces `Expr.Match`.
-
-  **Stage it; the three cases are not equal cost.** `if let` and `let … else`
-  are **additive** — new variants, every existing consumer keeps compiling until
-  it opts in. `else if` is **invasive**: it is currently a `synthetic` `Block`
-  wrapping an `If`, so making it faithful changes `IfExpr.else_block`'s type and
-  touches every `IfExpr`/`IfStmt` consumer — and it is the easiest of the three
-  to detect as-is. Do the additive pair first; `else if` last, or not at all.
-
-  Blast radius for the pair: nine files carry `Expr` matches (`ast`, `describe`,
-  `checker`, `codegen`, `inference`, `fix`, `lint`, `lsp/resolve`, `parser`), 14
-  non-test `Match` consumer sites, 4 parser construction sites. **Not a
-  prerequisite for the reflowing formatter** — that deliberately uses a token
-  backbone and consults the AST only for group intervals, so it is unaffected
-  either way. Cost to watch: the transient node is rebuilt per visit and an
-  if-let→match is heavier than `assign_value`'s single `Binary`; measure against
-  the self-compile if the profile moves.
-
-- **Prelude-linked test harnesses.** The checker/resolver unit harnesses
-  (`errors_of`, `typed_ctx`, …) build a _hermetic_ element model — no imports,
-  empty surfaces — resolving built-ins against the `<builtin>` floor
-  (`builtin_type_defs`) rather than real `std.core`. So a test can't reference
-  core _methods_ or enum bodies: a closure whose parameter type comes from a
-  stdlib generic (`List.fold`) resolves its lambda param to `Unknown`, and a
-  test touching `Result`/`Option`/`List` methods must avoid them. The hermetic
-  mode is worth keeping as the default — speed, isolation, and bootstrapping
-  safety (the front-end's own unit suite shouldn't require a loadable SDK to
-  diagnose a broken one). **Health items landed** (see _Changelog_): a shared
-  `testkit` (parse/parse_at) retired the duplicated per-file harness helpers; a
-  `floor_test` drift guard links real `std.core` once and asserts the floor's
-  arities match core's; and the floor's contract is documented on
-  `builtin_type_defs`. **Remaining — deferred until needed:** the floor's
-  method/enum-body gap forces only ~2 minor test workarounds today and leaves no
-  coverage hole (core-method behavior is exercised by `tests/lang/`, the
-  `sdk/std` suites, and examples). So rather than a proactive sweep, add a
-  linked-real-`std.core` harness the first time a specific checker/inference
-  test genuinely needs core-method/enum-body resolution — the machinery is ~15
-  lines (see `floor_test.thera`), and the fully-hermetic mode stays the default.
-
-- **Resolution — smaller open items.** (Qualified-only + `pub` visibility
-  enforcement, the `FileScope` refactor, and owner-correct value _and type_
-  resolution — the `TypeId` arc — are all done; see _Changelog_.) Remaining:
-  `impl` coherence / orphan rules, selective import (`show`/`hide`), and a
-  "module"→"library" terminology sweep.
-
-- **Whole-closure diagnostics — remaining tail.** (Per-file origin + surfacing
-  imported-file parse errors are done — see _Changelog_.) Two pieces remain:
-  - **Cascade suppression / cause-naming.** When an import fails to parse, its
-    dependent symbols may not recover (`greet`'s decl is dropped), so the
-    importer still shows a secondary `` `greet` is not a public member `` after
-    the root cause. The resolver should distinguish "undefined" from
-    "unavailable because its source file errored" and either suppress the
-    cascade or name the cause
-    (`helper.greet is unavailable: helper.thera failed to parse`). Parser
-    recovery (signature-past-body — landed; see _Changelog_) already means fewer
-    decls drop in the first place.
-  - **Check-path closure scope.** `check app.thera` body-checks only the primary
-    program, so an error _inside_ an imported body isn't reported by a
-    single-file check (directory/project checking covers it, checking each
-    file). Defensible as request-scoping, but the eventual target is
-    closure-wide computation with request-scoped display. Format target stands:
-    `path:line:col: severity: message`, grouped by file, deterministically
-    ordered, exit non-zero iff a displayed diagnostic is an error; a
-    machine-readable JSON mode can follow.
-
-- **`native type` / `native fn` follow-ups.** (The bodyless `native type` decls
-  for the built-ins are done — see _Changelog_.) Open: whether to _gate_
-  `native fn`/`native type` to SDK paths (ties to the `@extern` name-check
-  item), and the checker leniency that lets a bare field access on an opaque
-  value slip to codegen (the existing `type-field-nonstruct` residual).
-- **Generics — residual follow-ons.** (Static-method type args, struct/enum
-  bound enforcement, and the inference-classification cleanup are done — see
-  _Changelog_.) Remaining: enum construction with an _inferred_ (un-annotated)
-  argument isn't bound-checked yet (annotated enum use is); a bound isn't
-  **propagated** onto an enclosing function's own type parameter
-  (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
-  `expected_arg_types` still handles only the namespace callee head inline.
-  (Generics are **invariant by design** — no variance work planned.)
-- **Let a user scope shadow a prelude _value_ name.** Today
-  `check_shadowed_surface` flags any top-level decl whose name is in the file's
-  bare surface (prelude + `as _` imports), so a `pub fn error` collides with the
-  prelude `error()` constructor — which is why `std.log` can't expose an ambient
-  `error` free function to match `info`/`warn`/`debug`. Relax it for prelude
-  _value_ names (free functions / consts): allow the local definition and let
-  same-file-first resolution make it win in-file (qualified access — `log.error`
-  — already reaches the intended one), so shadowing is permitted though not
-  recommended. Keep reserved core **type** names (`is_reserved_type_name`)
-  interdicted — a shadowed type name genuinely breaks codegen (the original
-  rationale) — and keep flagging `as _`-imported collisions. Unblocks the
-  `std.log` ambient `error` TODO.
-- **`@extern` name check.** Native names are written once as `@extern('…')` on
-  the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
-  bound by name at load. Add a test asserting every `@extern` name the front-end
-  can emit is accepted by the runtime, and split the runtime table into
-  per-module files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
-- **codegen unit-test coverage — `module_scope` internals.** Instruction-level
-  tests now cover the trickier lowerings (see _Changelog_); direct coverage of
-  `module_scope` internals (name mangling, same-file-first resolution edge
-  cases, dispatch-table building) still leans on the implicit end-to-end suites
-  (fixpoint + examples), where a regression surfaces as a break, not a located
-  unit failure.
-- **Owner-qualified `FuncDef` names (audit CG-D4) — needs a portable file-key
-  scheme.** Two libraries' `Point.area` emit identical `FuncDef` names (stack-
-  trace / `--entry` ambiguity). _On hold:_ `FuncDef.name` is the only
-  compile-time string emitted into `.thera-bc`, and `owner` is an absolute
-  canonical path — embedding it would leak home-dir paths and break the
-  reproducible `bootstrap/frontend.thera-bc`. Prerequisite: normalize file keys
-  to a portable scheme (`sdk:`/`file:`/`pkg:` + relative). Not a miscompile
-  (calls resolve by owner-correct index) — observability; revisit on a forcing
-  function (real stack traces).
-- **Residual owner-blind keying (audit tail).** Two narrow cases stay
-  name-keyed, deferred: interface _name_ collisions across libraries, and the
-  `native` instance/static method tables (natives only come from SDK core). Plus
-  a CH12 residual — an out-of-order labeled/positional argument mix maps by
-  index in the checker but in sequence in codegen; fold into a single
-  arg-resolution cleanup.
-- **Codegen extraction seams (audit CG-R tail).** `codegen.thera` is large; the
-  match-compilation and shared closure/free-variable walker seams landed. Still
-  to extract: the module-global init subsystem, the infer-oracle / operator
-  tables, and the `emit_virtual_call` / `emit_ordered_args` argument-loop dedup.
+- faithful `if let` / `let … else` syntax nodes, retiring `MatchOrigin`
+  ([#105](https://github.com/thera-lang/thera/issues/105))
+- resolution follow-ups: `impl` coherence / orphan rules
+  ([#107](https://github.com/thera-lang/thera/issues/107)), selective import
+  `show`/`hide` ([#108](https://github.com/thera-lang/thera/issues/108)), the
+  "module"→"library" terminology sweep
+  ([#109](https://github.com/thera-lang/thera/issues/109)), prelude value-name
+  shadowing — the `std.log` `error` unblock
+  ([#114](https://github.com/thera-lang/thera/issues/114))
+- whole-closure diagnostics: cascade suppression / cause-naming
+  ([#110](https://github.com/thera-lang/thera/issues/110)), check-path closure
+  scope ([#111](https://github.com/thera-lang/thera/issues/111))
+- native-decl follow-ups
+  ([#112](https://github.com/thera-lang/thera/issues/112)) and the `@extern`
+  name-check test ([#115](https://github.com/thera-lang/thera/issues/115))
+- generics residual follow-ons
+  ([#113](https://github.com/thera-lang/thera/issues/113))
+- codegen: `module_scope` unit coverage
+  ([#116](https://github.com/thera-lang/thera/issues/116)), owner-qualified
+  `FuncDef` names ([#117](https://github.com/thera-lang/thera/issues/117)), the
+  owner-blind keying tail + CH12 arg-resolution cleanup
+  ([#118](https://github.com/thera-lang/thera/issues/118)), remaining extraction
+  seams ([#119](https://github.com/thera-lang/thera/issues/119))
+- the linked-real-`std.core` harness, deferred until a test needs it
+  ([#106](https://github.com/thera-lang/thera/issues/106))
 
 ### LSP
 
-- **Query layer + incremental engine — landed; Phase-3 follow-ups remain.** The
-  analysis session (one engine shared by `thera check` + LSP), owner-correct
-  value+type resolution, the resolved-library cache with dependency-graph
-  invalidation, `type_at` (inference-at-offset), and semantic references/rename
-  all shipped (see _Changelog_). The remaining follow-ups, all deferred:
-  - **Workspace diagnostics — streaming partial results (for consideration).**
-    Backgrounding on a fiber, per-file `resultId` caching (a re-pull re-emits
-    only _changed_ files), and a surface-gated refresh nudge (only a
-    public-surface edit, not a body edit, triggers a workspace re-pull) all
-    landed (see _Changelog_). One optional refinement remains: stream partial
-    results via a `partialResultToken` (`$/progress`) as each batch finishes,
-    instead of one report at the end, so a huge first scan appears
-    progressively. Lower priority — backgrounding already won the
-    perceived-performance battle (requests no longer block behind the full
-    workspace analysis); this only smooths the _initial_ scan's fill-in, so it's
-    worth doing only if that first pass feels slow in practice.
-  - **Reconcile `files.watcherExclude` with `thera.exclude`.** The on-disk scan
-    is now cached and invalidated by `didChangeWatchedFiles` (see _Changelog_),
-    so the watcher is the sole source of truth for on-disk state. VS Code's
-    watcher honors the user's `files.watcherExclude`, which the server never
-    sees: a directory excluded there reports no events, so a `.thera` file under
-    it is scanned once and then frozen at that content for the session — no
-    diagnostic ever updates for it. Nothing warns; it just goes quiet. Options:
-    read `files.watcherExclude` via `workspace/configuration` and either fold it
-    into the scan's prune set (don't analyze what we can't be told about —
-    consistent, and the file simply drops out) or report the overlap as a
-    diagnostic. The same question in reverse says `thera.exclude`'s `<base>/**`
-    prunes could seed the watcher registration, so we don't ask to be told about
-    subtrees we never scan. Low priority: the default `files.watcherExclude`
-    covers `node_modules` and `.git/objects`, neither of which holds Thera
-    sources.
-  - **Further renderers — agent-facing first.** Thin query-layer renderers.
-    (**Completion and signature help landed** — see _Changelog_.) Prioritized by
-    what an LLM/coding-agent client can't already get from the source text plus
-    the landed surfaces (hover / definition / references):
-    - **`textDocument/implementation` + type hierarchy**
-      (`typeHierarchy/supertypes`/`subtypes`). The biggest gap given the
-      language design: interfaces are checked contracts with dynamic dispatch,
-      so "what types implement `Display`?" / "what does this interface-typed
-      value dispatch to?" is a semantic question grep answers badly (impl
-      methods, structural `eq`/`debug` derives, primitive fallbacks). An agent
-      editing an interface needs exactly this for the blast radius.
-    - **Call hierarchy** (`callHierarchy/incomingCalls`/`outgoingCalls`).
-      References approximates incoming calls but includes non-call mentions and
-      gives nothing for outgoing; a resolver-backed answer also sees through
-      method dispatch.
-    - **Inlay hints** (`textDocument/inlayHint`). The one display renderer that
-      _is_ agent-useful: one request over a range returns the inferred type of
-      every `let` binding and parameter names at call sites — batch `type_at`,
-      so an agent annotates a whole function's inference in one round trip
-      rather than N hovers.
-    - **`workspace/willRenameFiles`** → a workspace edit fixing `import`s, so an
-      agent's file rename/move is atomic instead of rename-then-forget.
-    - **Semantic tokens — editor polish, not agent-facing.** Packed per-token
-      classifications exist so an editor can color beyond a TextMate grammar; an
-      LLM infers all of it from the text and agent harnesses don't request them.
-      Worth doing for human VS Code highlighting quality, ranked below
-      everything above. (Same bucket: document highlight, folding/selection
-      ranges, code lens, linked editing — interaction affordances with no
-      information an agent can't get from hover/references.)
+The query layer + incremental engine landed in full: one analysis session shared
+by `thera check` and the LSP, owner-correct value+type resolution, the
+resolved-library cache with dependency-graph invalidation, `type_at`, semantic
+references/rename, backgrounded workspace diagnostics with `resultId` caching,
+completion, and signature help — see _Changelog_. (When touching the parser,
+keep in mind the precedence-table refactor preserved the `panicking`/recovery
+structure.)
 
-  (The parser-recovery arc — Stages 0–3, Stage 2b, completion, and signature
-  help — has landed in full; see _Changelog_. When touching the parser, keep in
-  mind the precedence-table refactor preserved the `panicking`/recovery
-  structure.)
+The remaining follow-ups have moved to the tracker: the agent-facing renderer
+queue — implementation/type hierarchy, call hierarchy, inlay hints,
+`willRenameFiles` ([#122](https://github.com/thera-lang/thera/issues/122));
+streaming partial workspace-diagnostic results
+([#120](https://github.com/thera-lang/thera/issues/120)); and the
+`files.watcherExclude` reconciliation
+([#121](https://github.com/thera-lang/thera/issues/121)).
 
 ### Developer tooling
 
@@ -745,74 +580,21 @@ the doc sweep, the eager-`List` + `List.iter()` bridge decision,
 
 Findings from the 2026-07 type-system review (a design-completeness pass over
 the implemented system; every hole it found was verified empirically — each
-checked clean but went wrong at runtime). Most are now closed (see _Changelog_);
-what remains below is deferred with findings, or an open design call. The review
-also settled the "formal treatment?" question: no lambda-calculus formalization
-— the system is simple enough to specify in prose, and `Unknown`'s deliberate
-leniency makes the classical soundness theorem false by construction; the spec
-(language.md §Generics / §Assignability) plus the `tests/lang/` conformance
-suite are the vehicle.
+checked clean but went wrong at runtime). Most are closed (see _Changelog_ —
+variance, `Never` + tail `throw`, the four type-checker holes, and qualified
+generic bounds/supers). The review also settled the "formal treatment?"
+question: no lambda-calculus formalization — the system is simple enough to
+specify in prose, and `Unknown`'s deliberate leniency makes the classical
+soundness theorem false by construction; the spec (language.md §Generics /
+§Assignability) plus the `tests/lang/` conformance suite are the vehicle.
 
-**Open — targeted checker fixes.** The three local, low-risk fixes from this set
-are landed (see _Changelog_ → _Type-checker holes closed_); the one below is the
-outlier — the spike showed it is _not_ local, so it is deferred with its
-findings recorded.
+The two open findings have moved to the tracker: `TypeParameter` → concrete
+assignability, deferred with its spike findings
+([#123](https://github.com/thera-lang/thera/issues/123)), and the honest
+native-argument trap wording
+([#124](https://github.com/thera-lang/thera/issues/124)).
 
-- **`TypeParameter` → concrete assignability** — _deferred; spiked 2026-07._
-  `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call: a
-  `T`-typed value flows into a concrete-typed position. The leniency is only
-  needed concrete-→-`T` (instantiation, validated at call sites); a bare `T`
-  source against a concrete target should be an error.
-
-  **Spike (naive narrowing = remove the source-side `TypeParameter → true` in
-  `is_assignable`): not viable.** Over the whole corpus it produced 13 new
-  errors — **1 genuine hole** (the planted `fault-type-mismatch` test) and **12
-  false positives** in legitimate code, in three patterns:
-  - **A. Bounded `T` → its bound** (5) — `sorted<T: Ord>` passing a `T` where
-    `Ord` is expected. `T: Ord` _is_ an `Ord`, but `is_assignable` has no bounds
-    context.
-  - **B. Type param under function contravariance** (7) —
-    `xs.fold(0, (acc,x) => …)`: the lambda `(Int,T)->Int` vs `fold<A>`'s
-    `(A,T)->A`. Param contravariance flips the _target_ param `A` into _source_
-    position in the recursive call.
-  - **C. Unbound inference param in generic args** (1) —
-    `some.and_then((_n) => Option.None)` bound to `Option<Int>` → `Option<U>` vs
-    `Option<Int>`; `U` should unify to `Int` but `None` pins nothing.
-
-  **Why it can't live in `is_assignable`:** source-side `TypeParameter` leniency
-  is load-bearing _inside the recursion_ — B and C arise only deep in it
-  (function contravariance, generic-arg pairing), not from "using a `T` value as
-  concrete." The real hole is a value whose type is _exactly_ `TypeParameter(T)`
-  in a value-flow position (return / assign / arg) at the **top level**.
-
-  **Recommended approach when revisited:** a dedicated check at the value-flow
-  sites (`check_return`, `expect_type` for let/assign/args), **not** in
-  `is_assignable`, that fires only when the source type is a _bare_
-  `TypeParameter` (excludes B/C — their sources are `(…)->…` and `Option<U>`,
-  never bare) and is **bounds-aware** — a `T: Ord` source satisfies `Ord` and
-  its supers (excludes A). Bounds live in the checker's `type_param_bounds` (the
-  table the unbounded-`T` method fix reads), which is why the check must be at
-  the site, not in `is_assignable`. Residual false-positive risk: ~zero.
-
-  **Why deferred:** the corpus has **zero** real instances of the hole (only the
-  planted test), it can't cause memory unsafety (it traps cleanly with the
-  honest `runtime type error: expected Int, found String` message — see the
-  _Honest tag-mismatch traps_ changelog), and the fix needs bounds threaded to
-  the value-flow checks — a materially larger, lower-payoff change than the
-  other three targeted fixes (all landed). Revisit if a forcing case appears.
-
-**Open — design decisions:**
-
-- **Honest wording for native-argument type mismatches.** _(Runtime, follow-up
-  to the tag-mismatch trap split — see \_Changelog_.)\_ The interpreter's own
-  tag-checked pops now raise `Trap::TypeError` ("runtime type error: expected
-  Int, found String"), but the native arg-checks (`str_contents`,
-  `as_int`/`as_double`, `with_bytes`) still raise `Trap::Bug` ("internal
-  error"). Converting them is blocked only on unthreading their `who` context
-  param from ~100 call sites — do that, then route them through `TypeError` too
-  (module-free type names, since natives have no `Module` handle).
-
-**Deferred type-shape items:**
+**Deferred type-shape decision records** (documentation, not work items):
 
 - **A first-class `Range` type** (deferred — no forcing function). The internal
   range cleanup landed (see _Changelog_); making `Range` a _nameable value type_
@@ -823,23 +605,10 @@ findings recorded.
 - **Type aliases** — **deferred indefinitely, by design.** An alias is a
   _transparent_ name (`type Fallible = Result<Void, Error>`), which adds exactly
   the indirection Thera's local-reasoning thesis is built to avoid: an LLM
-  seeing `Fallible` must resolve it elsewhere. The verbosity win (the top
-  candidate, `Result<Void, Error>`, is frequent but not _complex_) doesn't
+  seeing `Fallible` must resolve it elsewhere. The verbosity win doesn't
   outweigh giving a reader more work; genuinely meaningful nested types are
   better served by a nominal `struct`. Recorded as a language non-goal in
   [language.md](language.md). Would need a very compelling use case to reopen.
-
-**Qualified generic bounds and supers — done** (2026-08, found wiring TLS into
-`std.http`): `fn f<S: io.Reader>(…)` and `interface A: ns.B` now parse and
-resolve through the namespace like every other interface position — see
-_Changelog_. The follow-up is done too: the http client's duplicated read/write
-paths are now one `fn exchange<S: io.Reader + io.Writer + io.Closer>`, which
-also let `send` shrink to a scheme branch over two connect calls. (Since renamed
-to `open` and given a `Stream` to return — see the streaming Changelog entry.)
-
-The review's holes are all closed or deferred-with-findings above; the landed
-fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
-`throw`, and the four type-checker holes).
 
 ### Diagnostics punchlist
 
