@@ -157,25 +157,30 @@ streaming partial workspace-diagnostic results
 
 ### Developer tooling
 
-The lint/fix machinery landed end to end (`thera lint` reports convertible
-sites per rule, `lint --fix` applies the rewrites, the LSP offers the same
-sites as `refactor.rewrite` code actions — see _Changelog_). **The ecosystem
-policy stands:** each future idiom adds a structured lint site + a fix edit and
-rides that pipeline — invest in located diagnostics with mechanical fixes
-rather than hand-editing files; migration of existing code is opportunistic
-until then, and the standing guard is the lint. The agent-facing idioms primer
-exists and ships with the SDK ([sdk/doc/idioms.md](../sdk/doc/idioms.md)).
+The lint/fix machinery landed end to end (`thera lint` reports convertible sites
+per rule, `lint --fix` applies the rewrites, the LSP offers the same sites as
+`refactor.rewrite` code actions — see _Changelog_). **The ecosystem policy
+stands:** each future idiom adds a structured lint site + a fix edit and rides
+that pipeline — invest in located diagnostics with mechanical fixes rather than
+hand-editing files; migration of existing code is opportunistic until then, and
+the standing guard is the lint. The agent-facing idioms primer exists and ships
+with the SDK ([sdk/doc/idioms.md](../sdk/doc/idioms.md)).
 
 The open items have moved to the tracker:
 
-- verify the code snippets in docs — doctest extraction + compile-check,
-  design settled in [scale.md](scale.md) § item 6 ([#126](https://github.com/thera-lang/thera/issues/126))
-- reflowing doc comments — the prose half of the formatter ([#127](https://github.com/thera-lang/thera/issues/127))
+- verify the code snippets in docs — doctest extraction + compile-check, design
+  settled in [scale.md](scale.md) § item 6
+  ([#126](https://github.com/thera-lang/thera/issues/126))
+- reflowing doc comments — the prose half of the formatter
+  ([#127](https://github.com/thera-lang/thera/issues/127))
 - the doc-comment tooling arc: attach docs to AST nodes, LSP hover, the doc
-  generator, `[Symbol]` resolution + lint ([#128](https://github.com/thera-lang/thera/issues/128))
-- the `while i < xs.len()` → `for`/`enumerate` auto-rewriter ([#129](https://github.com/thera-lang/thera/issues/129))
+  generator, `[Symbol]` resolution + lint
+  ([#128](https://github.com/thera-lang/thera/issues/128))
+- the `while i < xs.len()` → `for`/`enumerate` auto-rewriter
+  ([#129](https://github.com/thera-lang/thera/issues/129))
 - idioms distribution into user projects: the `thera doc` print command
-  ([#130](https://github.com/thera-lang/thera/issues/130)) and `thera init`'s pointer stanza ([#131](https://github.com/thera-lang/thera/issues/131))
+  ([#130](https://github.com/thera-lang/thera/issues/130)) and `thera init`'s
+  pointer stanza ([#131](https://github.com/thera-lang/thera/issues/131))
 
 - **Width: keeping 100, and the reason is not that the data chose it.** The
   study ran — the corpus reformatted at 80 / 88 / 90 / 92 / 94 / 96 / 98 / 100 /
@@ -253,10 +258,13 @@ Open language work has moved to the tracker:
   ([#133](https://github.com/thera-lang/thera/issues/133))
 - calling convention — the lint → corpus sweep → enforce staging for the one
   canonical call form, with the source-order sub-decision and the
-  first-arg-positional investigate record ([#134](https://github.com/thera-lang/thera/issues/134))
+  first-arg-positional investigate record
+  ([#134](https://github.com/thera-lang/thera/issues/134))
 - generic operators (`<T: Add>`, operators-as-interfaces, and the Thera-level
-  surface for the implicit operator/literal lowerings) ([#135](https://github.com/thera-lang/thera/issues/135)), with
-  primitive vtables as its deferred enabling work ([#136](https://github.com/thera-lang/thera/issues/136))
+  surface for the implicit operator/literal lowerings)
+  ([#135](https://github.com/thera-lang/thera/issues/135)), with primitive
+  vtables as its deferred enabling work
+  ([#136](https://github.com/thera-lang/thera/issues/136))
 - index operator (`[]`) overloading via an `Indexable` interface
   ([#137](https://github.com/thera-lang/thera/issues/137))
 
@@ -276,71 +284,28 @@ when prior-shaped code **almost works** (bare `Ok(x)` fails only at the
 constructor). Re-mine transcripts after each change lands; that is the
 measurement instrument for this list.
 
-**Strong candidates:**
+The items have moved to the tracker — strong candidates: contextual keywords in
+member positions ([#138](https://github.com/thera-lang/thera/issues/138)), bare
+variant construction under a known expected type
+([#139](https://github.com/thera-lang/thera/issues/139)), `let … else`
+completion ([#140](https://github.com/thera-lang/thera/issues/140)); worth
+investigating: implicit `T → Option<T>` promotion, held pending re-measurement
+([#141](https://github.com/thera-lang/thera/issues/141)), the
+first-arg-positional investigate record (folded into the calling-convention
+issue, [#134](https://github.com/thera-lang/thera/issues/134)); cross-cutting:
+the stdlib naming audit against LLM priors
+([#142](https://github.com/thera-lang/thera/issues/142)). The mining also said
+to raise the **typed-JSON / decoder-generation arc's** priority — the `Json`
+duck-typing error was the largest single class; that arc is owned by
+[api-access.md](api-access.md) and [typed-json.md](typed-json.md).
 
-- **Keywords as member names (contextual `type`).** `type` cannot be a field,
-  parameter, label, or member name — yet every real JSON API has `type` fields
-  (most Anthropic content blocks, GitHub payloads), so mirroring an API forces
-  rename-and-map at every decode boundary, and the
-  [api-access.md](api-access.md) generator will hit it constantly. Field/label/
-  member positions are grammatically unambiguous, so making keywords contextual
-  there (the TypeScript move) costs nothing in local reasoning. Do this before
-  the OpenAPI generator, not after.
-- **Bare variant construction where the expected type is known.** The most
-  frequent first-contact error is `Ok(x)` / `Some(v)` for `Result.Ok(x)` /
-  `Option.Some(v)` — and it is a recurring tax (every function's exit paths,
-  forever), against an enormous Rust prior. The asymmetry is the tell: patterns
-  are bare _because the scrutinee's type is known_, and bidirectional inference
-  already flows expected types into expressions — so allow bare `Variant(args)`
-  exactly where an expected enum type pins it (`return Ok(x)`, an argument, an
-  annotated binding), keeping the qualified form as the general case. The
-  reserved-names rule means `Ok`/`Some`/`None`/`Err` can never mean anything
-  else, so "one name, one meaning" survives. A smaller extension on the same
-  principle, to evaluate with it: accept `[]` as the empty map where the
-  expected type is a `Map` (today it infers `List<?>` and mismatches).
-- **`let … else` completion.** The v1 limits — the `else` must end in a
-  _literal_ `return`/`throw` (divergence through nested branches isn't
-  recognized), and the pattern binds at most one variable — are checker
-  maturity, not design; the Rust prior (any diverging block, multiple bindings)
-  is also the correct semantics. Finish it.
-
-**Worth investigating (not yet decided):**
-
-- **Implicit `T → Option<T>` promotion** at assignability boundaries. Would kill
-  a real mined error class (`expected Option<Double>, found Double`), and
-  Swift's precedent says it's an ergonomic win — but it would be Thera's first
-  implicit conversion, and bare-variant construction doesn't absorb it (agents
-  write `f(x)`, not `f(Some(x))`). Hold the line for now: make the diagnostic
-  prescriptive ("wrap it: `Option.Some(x)`"), re-measure after the strong
-  candidates land.
-- **First-arg-positional default** — already an investigate item under _Calling
-  convention_; the mining adds moderate supporting evidence (label friction is a
-  per-call-site recurring tax). Today's permissive checker understates the
-  friction tightening will cause, so re-run the transcript mining after
-  one-canonical-call-form lands and let that decide.
-- **Typed JSON priority.** The single biggest mined error class (23×
-  `field access on non-struct value`) is agents reaching for TS/Python
-  duck-typing on `Json`. The accessor chain is the workaround; the fix is making
-  the typed path cheap enough that agents reach for it first — derived decoders
-  / the generator (see [api-access.md](api-access.md),
-  [typed-json.md](typed-json.md)). The data says raise that arc's priority.
-
-**Cross-cutting:**
-
-- **Stdlib naming audit against LLM priors.** Agents guess `n.to_string()`,
-  `s.parse<Int>()` — where a Thera name fights an overwhelming cross-language
-  prior _without a compensating principle_, take the prior. The flagship case:
-  `display()` vs `to_string()` — Thera's own named-for-its-result convention
-  (`to_list`, `to_int`, `to_double`) argues for `to_string`, which is also the
-  name agents guess.
-- **Diagnostics as the primary channel — policy.** The transcripts show agents
-  fix nearly every idioms-list error on the first diagnostic, so every
-  prescriptive message pays out at the exact moment of the mistake,
-  version-locked, in every harness. Standing policy: when a first-contact error
-  class shows up in mining, the first response is a did-you-mean /
-  here-is-the-fix diagnostic
-  ([#85](https://github.com/thera-lang/thera/issues/85)); a language change
-  needs the recurring-tax bar above.
+**Diagnostics-first policy (standing):** the transcripts show agents fix nearly
+every idioms-list error on the first diagnostic, so every prescriptive message
+pays out at the exact moment of the mistake, version-locked, in every harness.
+When a first-contact error class shows up in mining, the first response is a
+did-you-mean / here-is-the-fix diagnostic
+([#85](https://github.com/thera-lang/thera/issues/85)); a language change needs
+the recurring-tax bar above.
 
 ### Language spec punchlist
 
