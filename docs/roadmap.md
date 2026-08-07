@@ -113,26 +113,34 @@ The open items have moved to the tracker:
 
 - faithful `if let` / `let … else` syntax nodes, retiring `MatchOrigin`
   ([#105](https://github.com/thera-lang/thera/issues/105))
-- resolution follow-ups: `impl` coherence / orphan rules ([#107](https://github.com/thera-lang/thera/issues/107)),
-  selective import `show`/`hide` ([#108](https://github.com/thera-lang/thera/issues/108)), the "module"→"library"
-  terminology sweep ([#109](https://github.com/thera-lang/thera/issues/109)), prelude value-name shadowing — the
-  `std.log` `error` unblock ([#114](https://github.com/thera-lang/thera/issues/114))
+- resolution follow-ups: `impl` coherence / orphan rules
+  ([#107](https://github.com/thera-lang/thera/issues/107)), selective import
+  `show`/`hide` ([#108](https://github.com/thera-lang/thera/issues/108)), the
+  "module"→"library" terminology sweep
+  ([#109](https://github.com/thera-lang/thera/issues/109)), prelude value-name
+  shadowing — the `std.log` `error` unblock
+  ([#114](https://github.com/thera-lang/thera/issues/114))
 - whole-closure diagnostics: cascade suppression / cause-naming
-  ([#110](https://github.com/thera-lang/thera/issues/110)), check-path closure scope ([#111](https://github.com/thera-lang/thera/issues/111))
-- native-decl follow-ups ([#112](https://github.com/thera-lang/thera/issues/112)) and the `@extern` name-check test
-  ([#115](https://github.com/thera-lang/thera/issues/115))
-- generics residual follow-ons ([#113](https://github.com/thera-lang/thera/issues/113))
-- codegen: `module_scope` unit coverage ([#116](https://github.com/thera-lang/thera/issues/116)), owner-qualified
-  `FuncDef` names ([#117](https://github.com/thera-lang/thera/issues/117)), the owner-blind keying tail + CH12
-  arg-resolution cleanup ([#118](https://github.com/thera-lang/thera/issues/118)), remaining extraction seams
-  ([#119](https://github.com/thera-lang/thera/issues/119))
+  ([#110](https://github.com/thera-lang/thera/issues/110)), check-path closure
+  scope ([#111](https://github.com/thera-lang/thera/issues/111))
+- native-decl follow-ups
+  ([#112](https://github.com/thera-lang/thera/issues/112)) and the `@extern`
+  name-check test ([#115](https://github.com/thera-lang/thera/issues/115))
+- generics residual follow-ons
+  ([#113](https://github.com/thera-lang/thera/issues/113))
+- codegen: `module_scope` unit coverage
+  ([#116](https://github.com/thera-lang/thera/issues/116)), owner-qualified
+  `FuncDef` names ([#117](https://github.com/thera-lang/thera/issues/117)), the
+  owner-blind keying tail + CH12 arg-resolution cleanup
+  ([#118](https://github.com/thera-lang/thera/issues/118)), remaining extraction
+  seams ([#119](https://github.com/thera-lang/thera/issues/119))
 - the linked-real-`std.core` harness, deferred until a test needs it
   ([#106](https://github.com/thera-lang/thera/issues/106))
 
 ### LSP
 
-The query layer + incremental engine landed in full: one analysis session
-shared by `thera check` and the LSP, owner-correct value+type resolution, the
+The query layer + incremental engine landed in full: one analysis session shared
+by `thera check` and the LSP, owner-correct value+type resolution, the
 resolved-library cache with dependency-graph invalidation, `type_at`, semantic
 references/rename, backgrounded workspace diagnostics with `resultId` caching,
 completion, and signature help — see _Changelog_. (When touching the parser,
@@ -141,8 +149,10 @@ structure.)
 
 The remaining follow-ups have moved to the tracker: the agent-facing renderer
 queue — implementation/type hierarchy, call hierarchy, inlay hints,
-`willRenameFiles` ([#122](https://github.com/thera-lang/thera/issues/122)); streaming partial workspace-diagnostic
-results ([#120](https://github.com/thera-lang/thera/issues/120)); and the `files.watcherExclude` reconciliation
+`willRenameFiles` ([#122](https://github.com/thera-lang/thera/issues/122));
+streaming partial workspace-diagnostic results
+([#120](https://github.com/thera-lang/thera/issues/120)); and the
+`files.watcherExclude` reconciliation
 ([#121](https://github.com/thera-lang/thera/issues/121)).
 
 ### Developer tooling
@@ -570,74 +580,21 @@ the doc sweep, the eager-`List` + `List.iter()` bridge decision,
 
 Findings from the 2026-07 type-system review (a design-completeness pass over
 the implemented system; every hole it found was verified empirically — each
-checked clean but went wrong at runtime). Most are now closed (see _Changelog_);
-what remains below is deferred with findings, or an open design call. The review
-also settled the "formal treatment?" question: no lambda-calculus formalization
-— the system is simple enough to specify in prose, and `Unknown`'s deliberate
-leniency makes the classical soundness theorem false by construction; the spec
-(language.md §Generics / §Assignability) plus the `tests/lang/` conformance
-suite are the vehicle.
+checked clean but went wrong at runtime). Most are closed (see _Changelog_ —
+variance, `Never` + tail `throw`, the four type-checker holes, and qualified
+generic bounds/supers). The review also settled the "formal treatment?"
+question: no lambda-calculus formalization — the system is simple enough to
+specify in prose, and `Unknown`'s deliberate leniency makes the classical
+soundness theorem false by construction; the spec (language.md §Generics /
+§Assignability) plus the `tests/lang/` conformance suite are the vehicle.
 
-**Open — targeted checker fixes.** The three local, low-risk fixes from this set
-are landed (see _Changelog_ → _Type-checker holes closed_); the one below is the
-outlier — the spike showed it is _not_ local, so it is deferred with its
-findings recorded.
+The two open findings have moved to the tracker: `TypeParameter` → concrete
+assignability, deferred with its spike findings
+([#123](https://github.com/thera-lang/thera/issues/123)), and the honest
+native-argument trap wording
+([#124](https://github.com/thera-lang/thera/issues/124)).
 
-- **`TypeParameter` → concrete assignability** — _deferred; spiked 2026-07._
-  `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call: a
-  `T`-typed value flows into a concrete-typed position. The leniency is only
-  needed concrete-→-`T` (instantiation, validated at call sites); a bare `T`
-  source against a concrete target should be an error.
-
-  **Spike (naive narrowing = remove the source-side `TypeParameter → true` in
-  `is_assignable`): not viable.** Over the whole corpus it produced 13 new
-  errors — **1 genuine hole** (the planted `fault-type-mismatch` test) and **12
-  false positives** in legitimate code, in three patterns:
-  - **A. Bounded `T` → its bound** (5) — `sorted<T: Ord>` passing a `T` where
-    `Ord` is expected. `T: Ord` _is_ an `Ord`, but `is_assignable` has no bounds
-    context.
-  - **B. Type param under function contravariance** (7) —
-    `xs.fold(0, (acc,x) => …)`: the lambda `(Int,T)->Int` vs `fold<A>`'s
-    `(A,T)->A`. Param contravariance flips the _target_ param `A` into _source_
-    position in the recursive call.
-  - **C. Unbound inference param in generic args** (1) —
-    `some.and_then((_n) => Option.None)` bound to `Option<Int>` → `Option<U>` vs
-    `Option<Int>`; `U` should unify to `Int` but `None` pins nothing.
-
-  **Why it can't live in `is_assignable`:** source-side `TypeParameter` leniency
-  is load-bearing _inside the recursion_ — B and C arise only deep in it
-  (function contravariance, generic-arg pairing), not from "using a `T` value as
-  concrete." The real hole is a value whose type is _exactly_ `TypeParameter(T)`
-  in a value-flow position (return / assign / arg) at the **top level**.
-
-  **Recommended approach when revisited:** a dedicated check at the value-flow
-  sites (`check_return`, `expect_type` for let/assign/args), **not** in
-  `is_assignable`, that fires only when the source type is a _bare_
-  `TypeParameter` (excludes B/C — their sources are `(…)->…` and `Option<U>`,
-  never bare) and is **bounds-aware** — a `T: Ord` source satisfies `Ord` and
-  its supers (excludes A). Bounds live in the checker's `type_param_bounds` (the
-  table the unbounded-`T` method fix reads), which is why the check must be at
-  the site, not in `is_assignable`. Residual false-positive risk: ~zero.
-
-  **Why deferred:** the corpus has **zero** real instances of the hole (only the
-  planted test), it can't cause memory unsafety (it traps cleanly with the
-  honest `runtime type error: expected Int, found String` message — see the
-  _Honest tag-mismatch traps_ changelog), and the fix needs bounds threaded to
-  the value-flow checks — a materially larger, lower-payoff change than the
-  other three targeted fixes (all landed). Revisit if a forcing case appears.
-
-**Open — design decisions:**
-
-- **Honest wording for native-argument type mismatches.** _(Runtime, follow-up
-  to the tag-mismatch trap split — see \_Changelog_.)\_ The interpreter's own
-  tag-checked pops now raise `Trap::TypeError` ("runtime type error: expected
-  Int, found String"), but the native arg-checks (`str_contents`,
-  `as_int`/`as_double`, `with_bytes`) still raise `Trap::Bug` ("internal
-  error"). Converting them is blocked only on unthreading their `who` context
-  param from ~100 call sites — do that, then route them through `TypeError` too
-  (module-free type names, since natives have no `Module` handle).
-
-**Deferred type-shape items:**
+**Deferred type-shape decision records** (documentation, not work items):
 
 - **A first-class `Range` type** (deferred — no forcing function). The internal
   range cleanup landed (see _Changelog_); making `Range` a _nameable value type_
@@ -648,23 +605,10 @@ findings recorded.
 - **Type aliases** — **deferred indefinitely, by design.** An alias is a
   _transparent_ name (`type Fallible = Result<Void, Error>`), which adds exactly
   the indirection Thera's local-reasoning thesis is built to avoid: an LLM
-  seeing `Fallible` must resolve it elsewhere. The verbosity win (the top
-  candidate, `Result<Void, Error>`, is frequent but not _complex_) doesn't
+  seeing `Fallible` must resolve it elsewhere. The verbosity win doesn't
   outweigh giving a reader more work; genuinely meaningful nested types are
   better served by a nominal `struct`. Recorded as a language non-goal in
   [language.md](language.md). Would need a very compelling use case to reopen.
-
-**Qualified generic bounds and supers — done** (2026-08, found wiring TLS into
-`std.http`): `fn f<S: io.Reader>(…)` and `interface A: ns.B` now parse and
-resolve through the namespace like every other interface position — see
-_Changelog_. The follow-up is done too: the http client's duplicated read/write
-paths are now one `fn exchange<S: io.Reader + io.Writer + io.Closer>`, which
-also let `send` shrink to a scheme branch over two connect calls. (Since renamed
-to `open` and given a `Stream` to return — see the streaming Changelog entry.)
-
-The review's holes are all closed or deferred-with-findings above; the landed
-fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
-`throw`, and the four type-checker holes).
 
 ### Diagnostics punchlist
 
