@@ -2175,5 +2175,6 @@ conformance specs. Newest first.
   machine-readable output (above)._
 - **Runtime tiers 0–baseline.** Tree-walker POC + bytecode IR; Tier-0 bytecode
   interpreter + precise non-moving mark-sweep GC (see Runtime staging 1–2). Plus
-  the interpreter perf wins (unified value stack, `ListLen` opcode) noted under
-  _Interpreter performance_.
+  the interpreter perf wins (unified value stack, `ListLen` opcode); the
+  remaining structural perf work is
+  [#95](https://github.com/thera-lang/thera/issues/95).
