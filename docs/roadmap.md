@@ -569,15 +569,15 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   doc-comment conventions, etc. Surfaced by the ergonomics sprint, which found
   that a lot of **existing** code predates these features and doesn't use them —
   so idiomatic Thera has to be written down somewhere consulted, not just
-  implied. Open question is **where**: (a) a section in
-  [language.md](language.md), (b) a separate `docs/idioms.md` (best-practices
-  doc), or (c) a **skill / rules file** an agent auto-loads (the most actionable
-  for the LLM-native goal). Likely (c) backed by (b) — the rules file doubles as
-  the **primer that gets an LLM up to speed on writing Thera**, and is the
-  successor home for the (now-retired) ergonomics review's idiom guidance: the
-  canonical-form-per-shape table, the `match`-as-guard anti-pattern, and the
-  reach-for-it-when rationale behind each combinator. Pairs with _Tools —
-  refactorings_: the doc says what's idiomatic, the lint enforces it
+  implied. **The content now exists: [idioms.md](idioms.md)** — a self-contained
+  agent-facing primer (option (b) of the where-does-it-live question), seeded
+  from the canonical-form-per-shape table, the `match`-as-guard anti-pattern,
+  and the errors agents actually made on first contact (mined from real
+  sessions: unqualified `Result.Ok`, guessed stdlib methods, `Json` field
+  access, missing `[:]`, …). Still open is **(c) distribution** — a skill /
+  rules file an agent auto-loads (the most actionable for the LLM-native goal),
+  which would carry idioms.md's content rather than duplicate it. Pairs with
+  _Tools — refactorings_: the doc says what's idiomatic, the lint enforces it
   mechanically.
 
 - **Width: keeping 100, and the reason is not that the data chose it.** The
