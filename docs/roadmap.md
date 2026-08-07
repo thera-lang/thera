@@ -569,16 +569,32 @@ barrel-enforced boundaries, manifests, and the rest — is planned in
   doc-comment conventions, etc. Surfaced by the ergonomics sprint, which found
   that a lot of **existing** code predates these features and doesn't use them —
   so idiomatic Thera has to be written down somewhere consulted, not just
-  implied. **The content now exists: [idioms.md](idioms.md)** — a self-contained
-  agent-facing primer (option (b) of the where-does-it-live question), seeded
-  from the canonical-form-per-shape table, the `match`-as-guard anti-pattern,
-  and the errors agents actually made on first contact (mined from real
-  sessions: unqualified `Result.Ok`, guessed stdlib methods, `Json` field
-  access, missing `[:]`, …). Still open is **(c) distribution** — a skill /
-  rules file an agent auto-loads (the most actionable for the LLM-native goal),
-  which would carry idioms.md's content rather than duplicate it. Pairs with
-  _Tools — refactorings_: the doc says what's idiomatic, the lint enforces it
-  mechanically.
+  implied. **The content now exists: [idioms.md](../sdk/doc/idioms.md)** — a
+  self-contained agent-facing primer, seeded from the canonical-form-per-shape
+  table, the `match`-as-guard anti-pattern, and the errors agents actually made
+  on first contact (mined from real sessions: unqualified `Result.Ok`, guessed
+  stdlib methods, `Json` field access, missing `[:]`, …). It lives in `sdk/doc/`
+  and **ships with the built SDK** (`build/sdk/doc/`), so the guidance an agent
+  reads is version-locked to the toolchain it invokes — never a stale
+  project-local copy. Remaining is **distribution into user projects**, as two
+  commands:
+  - **A command that prints the primer** — so any agent harness can reach it
+    without knowing the install path. Naming is open: `thera doc idioms` (and a
+    natural future home for `thera doc std.fs`-style API lookups), vs. hanging
+    it off init/config. Leaning `thera doc`.
+  - **`thera init`** (with `thera create` delegating to it) — writes a thin,
+    stable **pointer stanza** into the project's `AGENTS.md`/`CLAUDE.md`
+    ("before writing Thera, read the output of `thera doc idioms`; run
+    `thera check` early and often"), never the content itself: a five-line
+    pointer can't rot, while a copied primer diverges from the SDK the project
+    actually builds with. Optional per-harness emitters (a Claude Code skill,
+    `.cursor/rules`, …) can layer on later; the harness-neutral pointer is the
+    base. The strongest channel remains the diagnostics themselves —
+    prescriptive errors teach at the moment of the mistake (see _Tools —
+    refactorings_).
+
+  Pairs with _Tools — refactorings_: the doc says what's idiomatic, the lint
+  enforces it mechanically.
 
 - **Width: keeping 100, and the reason is not that the data chose it.** The
   study ran — the corpus reformatted at 80 / 88 / 90 / 92 / 94 / 96 / 98 / 100 /
