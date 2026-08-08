@@ -1,9 +1,10 @@
 //! spec: type-struct-keyword
 //! mode: check
 
-// Structs use the `struct` keyword; the old `type Name = { … }` form is removed
-// (it now points at the new syntax rather than parsing as a struct).
-type Point = {   // expect error: struct definitions use
+// Structs use the `struct` keyword; the old `type Name = { … }` form does not
+// parse (`type` is an ordinary identifier, and no declaration starts with one —
+// the targeted migration hint was retired once no code used the form).
+type Point = {   // expect error: expected a declaration
     x: Int,
     y: Int,
 }
