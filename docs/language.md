@@ -1128,8 +1128,8 @@ Use `as` to give the import an explicit prefix. This is useful when the default
 segment is ambiguous, conflicts with a local name, or you want a shorter alias:
 
 ```thera
-import std.testing as testing;
 import std.fs as fs;
+import std.testing as testing;
 
 testing.assert_eq(actual: result, expected: 5)?;
 ```
