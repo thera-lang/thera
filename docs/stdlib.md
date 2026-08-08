@@ -658,7 +658,7 @@ cryptographically secure.
 ### `std.sort` — sorting & extrema over `Ord` _(implemented, pure Thera)_
 
 Purpose: order a `List<T>` and pick extrema, generic over the `Ord` interface
-(`Ord`/`Ordering` live in the prelude). Pure Thera over `List.sort` and
+(`Ord`/`Ordering` live in the prelude). Pure Thera over `List.sorted_by` and
 `Ord.compare`.
 
 ```
@@ -668,8 +668,8 @@ pub fn min<T: Ord>(_ xs: List<T>) -> Option<T>;         // None if empty
 pub fn max<T: Ord>(_ xs: List<T>) -> Option<T>;
 ```
 
-These are the `Ord`-driven counterparts to `List.sort(less)` (which takes an
-explicit comparator); they work for any element type with an `impl Ord` (the
+These are the `Ord`-driven counterparts to `List.sorted_by(less)` (which takes
+an explicit comparator); they work for any element type with an `impl Ord` (the
 primitives included). Living in their own module keeps the common names
 `sorted`/`min`/`max` qualified rather than in the prelude.
 

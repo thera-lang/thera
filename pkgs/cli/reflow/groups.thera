@@ -33,7 +33,7 @@ pub fn fit_brace_offsets(_ p: Program, _ tokens: List<Token>) -> List<Int> {
             out.push(off);
         }
     }
-    return out.sort((a, b) => a < b);
+    return out.sorted_by((a, b) => a < b);
 }
 
 // The offset of the first `{` inside `span` — a struct literal's span starts at

@@ -130,25 +130,59 @@ fn test_contains_index_of() -> Result<Void, Error> {
 }
 
 @test
-fn test_reverse() -> Result<Void, Error> {
-    testing.assert_eq(actual: [1, 2, 3].reverse(), expected: [3, 2, 1])?;
+fn test_reverse_in_place() -> Result<Void, Error> {
+    let xs = [1, 2, 3];
+    xs.reverse();
+    testing.assert_eq(actual: xs, expected: [3, 2, 1])?;
     let empty: List<Int> = [];
-    testing.assert_eq(actual: empty.reverse(), expected: empty)?;
-    testing.assert_eq(actual: [7].reverse(), expected: [7])?;
+    empty.reverse();
+    testing.assert_eq(actual: empty, expected: [])?;
+    let one = [7];
+    one.reverse();
+    testing.assert_eq(actual: one, expected: [7])?;
     return Result.Ok(void);
 }
 
 @test
-fn test_sort() -> Result<Void, Error> {
-    testing.assert_eq(actual: [3, 1, 2].sort((a, b) => a < b), expected: [1, 2, 3])?;
-    testing.assert_eq(actual: [3, 1, 2].sort((a, b) => b < a), expected: [3, 2, 1])?;
+fn test_reversed_returns_new() -> Result<Void, Error> {
+    let xs = [1, 2, 3];
+    testing.assert_eq(actual: xs.reversed(), expected: [3, 2, 1])?;
+    // The receiver is unchanged.
+    testing.assert_eq(actual: xs, expected: [1, 2, 3])?;
     let empty: List<Int> = [];
-    testing.assert_eq(actual: empty.sort((a, b) => a < b), expected: empty)?;
-    testing.assert_eq(actual: [5, 4, 3, 2, 1].sort((a, b) => a < b), expected: [1, 2, 3, 4, 5])?;
+    testing.assert_eq(actual: empty.reversed(), expected: empty)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_sort_in_place() -> Result<Void, Error> {
+    let xs = [3, 1, 2];
+    xs.sort((a, b) => a < b);
+    testing.assert_eq(actual: xs, expected: [1, 2, 3])?;
+    xs.sort((a, b) => b < a);
+    testing.assert_eq(actual: xs, expected: [3, 2, 1])?;
+    let empty: List<Int> = [];
+    empty.sort((a, b) => a < b);
+    testing.assert_eq(actual: empty, expected: [])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_sorted_by_returns_new() -> Result<Void, Error> {
+    let xs = [3, 1, 2];
+    testing.assert_eq(actual: xs.sorted_by((a, b) => a < b), expected: [1, 2, 3])?;
+    // The receiver is unchanged.
+    testing.assert_eq(actual: xs, expected: [3, 1, 2])?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: empty.sorted_by((a, b) => a < b), expected: empty)?;
+    testing.assert_eq(
+        actual: [5, 4, 3, 2, 1].sorted_by((a, b) => a < b),
+        expected: [1, 2, 3, 4, 5],
+    )?;
     // Stable: equal keys (by first tuple element) keep input order.
     let pairs = [[2, 1], [1, 1], [2, 2], [1, 2]];
     testing.assert_eq(
-        actual: pairs.sort((a, b) => a[0] < b[0]),
+        actual: pairs.sorted_by((a, b) => a[0] < b[0]),
         expected: [[1, 1], [1, 2], [2, 1], [2, 2]],
     )?;
     return Result.Ok(void);

@@ -920,6 +920,16 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **`List.sort`/`reverse` mutate in place; `sorted_by`/`reversed` return new**
+  (2026-08, issue #142's open D-item). The old `sort` returned a new list under
+  a name every major language reserves for in-place mutation — so the
+  prior-shaped `xs.sort(cmp);` statement compiled and silently did nothing. Now
+  the bare verb mutates (returning `Void`, like `push`) and the participle
+  returns new (the Swift `sort`/`sorted` pair; `sorted_by` over `to_sorted`
+  because the `-ed` family dominates training corpora — Python/Swift/Kotlin —
+  while JS's `toSorted` is a 2023 addition). Rule recorded in language.md,
+  Collections.
+
 - **Naming audit A2/A3: `Set.contains`, `char.to_lowercase`/`to_uppercase`**
   (2026-08, issue #142). `Set.has` fought both the cross-language membership
   prior (Rust/Java/Kotlin/Swift all say `contains`; JS `Set.has` is the lone

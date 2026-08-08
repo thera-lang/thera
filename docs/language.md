@@ -1047,6 +1047,14 @@ Naming rule: **element membership is `contains`** (`List.contains`,
 `Set.contains`); **key presence is `has`** (`Map.has`). The two questions are
 spelled consistently across the collections, each by its own name.
 
+A second rule marks mutation: the **bare verb mutates in place**
+(`xs.sort(less)`, `xs.reverse()` — like `push`/`pop`, returning `Void`), and the
+**participle returns a new list** (`xs.sorted_by(less)`, `xs.reversed()`;
+`std.sort.sorted` is the `Ord`-driven form). Matching the cross-language prior
+for each spelling — `sort` is in-place everywhere, returns-new is everywhere
+marked (`sorted`, `toSorted`) — means a discarded `xs.sort(…);` does exactly
+what it says instead of silently doing nothing.
+
 ### Indexing vs. `get`
 
 Indexing with `[]` asserts the element is present. `list[i]` and `map[key]`

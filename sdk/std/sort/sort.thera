@@ -4,7 +4,7 @@
 //! Usage:     sort.sorted([3, 1, 2])   // [1, 2, 3]
 //!            sort.min(scores)          // Option<T>
 //!
-//! These are the `Ord`-driven counterparts to `List.sort(less)` (which takes an
+//! These are the `Ord`-driven counterparts to `List.sorted_by(less)` (which takes an
 //! explicit comparator): they work for any element type that implements `Ord`
 //! (the primitives, and any user type with an `impl Ord`). Implemented in Thera
 //! over `List.sort` and `Ord.compare` — they live in their own module (not the
@@ -18,12 +18,12 @@
 /// sort.sorted(['b', 'a', 'c'])  // ['a', 'b', 'c']
 /// ```
 pub fn sorted<T: Ord>(_ xs: List<T>) -> List<T> {
-    return xs.sort((a, b) => a.compare(b).is_lt());
+    return xs.sorted_by((a, b) => a.compare(b).is_lt());
 }
 
 /// A new list in descending order (the reverse of `sorted`).
 pub fn sorted_desc<T: Ord>(_ xs: List<T>) -> List<T> {
-    return xs.sort((a, b) => a.compare(b).is_gt());
+    return xs.sorted_by((a, b) => a.compare(b).is_gt());
 }
 
 /// The smallest element, or None if `xs` is empty. Ties go to the earlier

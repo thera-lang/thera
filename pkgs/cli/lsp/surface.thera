@@ -24,7 +24,7 @@ struct BodyRange {
 // body region replaced by a fixed placeholder. `source` must be the exact text
 // `program` was parsed from, so the span offsets line up.
 pub fn surface_signature(_ program: Program, _ source: String) -> String {
-    let ranges = body_ranges(program).sort((a, b) => a.start < b.start);
+    let ranges = body_ranges(program).sorted_by((a, b) => a.start < b.start);
     let mut sig = '';
     let mut pos = 0;
     for r in ranges {

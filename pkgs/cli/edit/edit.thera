@@ -45,7 +45,7 @@ pub fn apply_edits(_ source: String, _ edits: List<TextEdit>) -> String {
     if edits.len() == 0 {
         return source;
     }
-    let ordered = edits.sort((a, b) => a.start < b.start);
+    let ordered = edits.sorted_by((a, b) => a.start < b.start);
     let chars = source.chars();
     let n = chars.len();
     let out: List<Int> = [];

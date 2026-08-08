@@ -135,7 +135,7 @@ impl String {
     /// 'abc'.reverse()   // 'cba'
     /// ```
     pub fn reverse(self) -> String {
-        return String.from_chars(self.chars().reverse());
+        return String.from_chars(self.chars().reversed());
     }
 
     /// The code-point index of the first occurrence of `needle`, or None if it

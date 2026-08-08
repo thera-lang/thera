@@ -306,7 +306,7 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
 // has no space between them — and the result must be `,\n`, not one or the other.
 fn sorted_unique(_ xs: List<BreakEdit>) -> List<BreakEdit> {
     let out: List<BreakEdit> = [];
-    for x in xs.sort((a, b) => a.offset < b.offset) {
+    for x in xs.sorted_by((a, b) => a.offset < b.offset) {
         if out.len() > 0 && out[out.len() - 1].offset == x.offset {
             let merged = merge_text(out[out.len() - 1].text, x.text);
             out[out.len() - 1] = BreakEdit { offset: x.offset, text: merged };
