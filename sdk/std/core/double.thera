@@ -63,6 +63,12 @@ impl Display for Double {
     pub native fn to_string(self) -> String
 }
 
+/// A Double's `Debug` form is its `Display` form.
+impl Debug for Double {
+    @extern('double_to_string')
+    pub native fn debug(self) -> String
+}
+
 /// Double has a total order (the generic/virtual path uses the runtime's total
 /// comparison, so `NaN` sorts consistently rather than trapping).
 impl Ord for Double {

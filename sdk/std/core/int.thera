@@ -58,6 +58,12 @@ impl Display for Int {
     pub native fn to_string(self) -> String
 }
 
+/// An Int's `Debug` form is its decimal `Display` form.
+impl Debug for Int {
+    @extern('int_to_string')
+    pub native fn debug(self) -> String
+}
+
 /// Int has a natural total order. The explicit `impl Ord` is the conformance
 /// behind `std.sort` and any `<T: Ord>` use; the generic/virtual path resolves to
 /// the runtime's built-in comparison.

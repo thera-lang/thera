@@ -124,3 +124,11 @@ impl Display for Option<T> {
         };
     }
 }
+
+/// The developer form of a option is its display form — one body serves both
+/// (`Debug` is what nested rendering and a direct `.debug()` call reach).
+impl Debug for Option<T> {
+    fn debug(self) -> String {
+        return self.to_string();
+    }
+}

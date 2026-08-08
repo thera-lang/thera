@@ -318,6 +318,13 @@ impl Display for String {
     pub native fn to_string(self) -> String
 }
 
+/// A String's `Debug` form is quoted, with the structural renderer's escaping
+/// (`'it\'s'`) — unlike `Display`, which is the text itself.
+impl Debug for String {
+    @extern('string_debug')
+    pub native fn debug(self) -> String
+}
+
 /// String is ordered lexicographically by Unicode scalar / UTF-8 byte order (a
 /// native, like its other methods; the generic/virtual path uses the same
 /// comparison via the runtime fallback).

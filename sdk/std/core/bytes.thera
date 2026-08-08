@@ -51,6 +51,13 @@ impl Bytes {
     pub native fn from_list(_ values: List<Int>) -> Result<Bytes, Error>
 }
 
+/// A Bytes value's `Debug` form: `Bytes[hh hh …]` (space-joined hex), matching
+/// the structural renderer.
+impl Debug for Bytes {
+    @extern('bytes_debug')
+    pub native fn debug(self) -> String
+}
+
 /// The built-in growable byte accumulator — an opaque, runtime-represented value
 /// that `finish()`es into a `Bytes`.
 pub native type BytesBuilder

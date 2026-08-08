@@ -15,6 +15,12 @@ impl Display for Bool {
     pub native fn to_string(self) -> String
 }
 
+/// A Bool's `Debug` form is its `Display` form.
+impl Debug for Bool {
+    @extern('bool_to_string')
+    pub native fn debug(self) -> String
+}
+
 /// Bool is ordered `false < true` (so a sort groups the falses first).
 impl Ord for Bool {
     fn compare(self, _ other: Bool) -> Ordering {

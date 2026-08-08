@@ -2035,16 +2035,23 @@ impl<'a> Vm<'a> {
                 Obj::BytesBuilder(b) => format!("BytesBuilder[{}]", hex_join(&b)),
                 Obj::List(items) => format!("[{}]", self.debug_list(module, &items)?),
                 Obj::Map(m) => {
+                    // The map-literal form (`['k': v]`, `[:]` when empty),
+                    // matching std.core's `Display`/`Debug` impls — nested and
+                    // direct renderings must agree.
                     let entries = m.entries();
-                    let mut parts = Vec::with_capacity(entries.len());
-                    for (k, val) in entries {
-                        parts.push(format!(
-                            "{}: {}",
-                            self.debug_value(module, k)?,
-                            self.debug_value(module, val)?
-                        ));
+                    if entries.is_empty() {
+                        "[:]".to_string()
+                    } else {
+                        let mut parts = Vec::with_capacity(entries.len());
+                        for (k, val) in entries {
+                            parts.push(format!(
+                                "{}: {}",
+                                self.debug_value(module, k)?,
+                                self.debug_value(module, val)?
+                            ));
+                        }
+                        format!("[{}]", parts.join(", "))
                     }
-                    format!("{{{}}}", parts.join(", "))
                 }
                 Obj::Struct { ty, fields } => {
                     let def = module.types.get(ty as usize);
@@ -2163,7 +2170,7 @@ fn pop_two_double(stack: &mut Vec<Value>, module: &Module) -> Result<(f64, f64),
 /// would not survive being pasted back into source re-escaped. Uses the
 /// language's own escape set, so the result is a valid Thera string literal.
 /// Control characters with no named escape go to `\u{...}`.
-fn quote_str(s: &str) -> String {
+pub(crate) fn quote_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('\'');
     let mut it = s.chars().peekable();
@@ -2193,7 +2200,7 @@ fn quote_str(s: &str) -> String {
 
 /// Space-separated two-digit hex of `bytes` — the debug rendering of a byte
 /// buffer (`Bytes`/`BytesBuilder`).
-fn hex_join(bytes: &[u8]) -> String {
+pub(crate) fn hex_join(bytes: &[u8]) -> String {
     bytes
         .iter()
         .map(|b| format!("{b:02x}"))
