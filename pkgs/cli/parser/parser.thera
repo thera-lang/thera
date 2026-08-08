@@ -228,6 +228,29 @@ impl Parser {
         return self.synthetic_token(kind);
     }
 
+    fn check_member_name(self) -> Bool {
+        return self.check(TokenKind.Identifier) || is_keyword(self.current().kind);
+    }
+
+    // Consume a member name: an identifier or — member positions are
+    // grammatically closed, so nothing else can appear there — any keyword used
+    // as an ordinary name (`x.self`, `let in: String;`, `f(match: v)`; see
+    // docs/language.md §Keywords as member names). Recovers exactly like
+    // `expect(TokenKind.Identifier, …)`.
+    fn expect_member_name(self, _ description: String) -> Token {
+        if self.check_member_name() {
+            return self.advance();
+        }
+        let t = self.current();
+        let found = if t.span.text() == '' {
+            'eof'
+        } else {
+            '"${t.span.text()}"'
+        };
+        self.record_error('expected ${description}, found ${found}', t.span);
+        return self.synthetic_token(TokenKind.Identifier);
+    }
+
     // A zero-width token of `kind` standing in for an expected-but-missing
     // token, anchored at the *hole* — just past the previous token, where the
     // missing token would be typed. Anchoring at the next token instead would
@@ -767,7 +790,11 @@ impl Parser {
 
     fn parse_param(self) -> Param {
         let start = self.current();
-        if self.check(TokenKind.KwSelf) {
+        // `self` is the receiver only when bare; followed by an identifier or
+        // `:` it is a parameter label/name like any other keyword
+        // (`fn url(self href: String)`).
+        if self.check(TokenKind.KwSelf) && self.peek_tok(1).kind != TokenKind.Identifier
+            && self.peek_tok(1).kind != TokenKind.Colon {
             let self_tok = self.advance();
             return Param {
                 span: self_tok.span,
@@ -784,6 +811,8 @@ impl Parser {
         //   _ name        → suppressed label
         //   name          → label == name
         //   label name    → distinct external label and internal name
+        // The *label* may be a keyword (member positions are closed); the
+        // internal name must be an identifier — it is read bare in the body.
         let mut label = Option.None;
         let mut name = '';
         let mut name_span = self.current().span;
@@ -793,13 +822,22 @@ impl Parser {
             let name_tok = self.expect(TokenKind.Identifier, 'parameter name');
             name = name_tok.lexeme();
             name_span = name_tok.span;
-        } else if self.check(TokenKind.Identifier) {
+        } else if self.check_member_name() {
             let first = self.advance();
             if self.check(TokenKind.Identifier) {
                 label = Option.Some(first.lexeme());
                 let name_tok = self.advance();
                 name = name_tok.lexeme();
                 name_span = name_tok.span;
+            } else if is_keyword(first.kind) {
+                // `fn f(match: Int)` — the label may be `match`, but the
+                // internal name may not; prescribe the two-name form.
+                self.fail_at(
+                    'a keyword parameter label needs a distinct internal name: '
+                        + '`${first.lexeme()} name: T`',
+                    first.span,
+                );
+                return self.err_param();
             } else {
                 label = Option.Some(first.lexeme());
                 name = first.lexeme();
@@ -890,8 +928,16 @@ impl Parser {
                 self.fail('a struct field must be declared with `let` (e.g. `let x: T;`)');
                 return fields;
             }
-            let is_mut = self.match_kind(TokenKind.KwMut);   // `let mut field: T;`
-            let fname_tok = self.expect(TokenKind.Identifier, 'field name');
+            // `mut` is the mutability modifier (`let mut field: T;`) unless it
+            // is itself the field name — `let mut: T;`, where the `:` follows.
+            let is_mut = if self.check(TokenKind.KwMut)
+                && self.peek_tok(1).kind != TokenKind.Colon {
+                self.advance(); // mut
+                true
+            } else {
+                false
+            };
+            let fname_tok = self.expect_member_name('field name');
             self.expect(TokenKind.Colon, ':');
             let ftype = self.parse_type_ref();
             fields.push(FieldDef {
@@ -2103,8 +2149,18 @@ impl Parser {
         let mut going = true;
         while going && !self.panicking {
             if self.check(TokenKind.Dot) {
-                self.advance();
-                let field = self.expect(TokenKind.Identifier, 'field or method name');
+                let dot = self.advance();
+                // A keyword is a member name only on the dot's own line: a
+                // dangling mid-edit `x.` must not swallow the next line's
+                // statement keyword (`return`, `let`, …) — the recovery hole
+                // is what completion anchors on. Real keyword members
+                // (`p.in`, `builder\n    .match(…)`) sit with their dot.
+                let field = if is_keyword(self.current().kind)
+                    && self.current().span.line != dot.span.line {
+                    self.expect(TokenKind.Identifier, 'field or method name')
+                } else {
+                    self.expect_member_name('field or method name')
+                };
                 expr = Expr.Field(
                     expr_span(expr).cover(field.span),
                     expr,
@@ -2138,10 +2194,7 @@ impl Parser {
                     // The `<...>` binds the receiver type's parameters; the method
                     // name (and any method-own `<...>`) follow.
                     self.advance(); // .
-                    let method = self.expect(
-                        TokenKind.Identifier,
-                        'method name after `Type<...>.`',
-                    );
+                    let method = self.expect_member_name('method name after `Type<...>.`');
                     let callee = Expr.Field(
                         expr_span(expr).cover(method.span),
                         expr,
@@ -2198,7 +2251,10 @@ impl Parser {
             }
             let mut label = Option.None;
             let mut label_span: Option<SourceSpan> = Option.None;
-            if self.check(TokenKind.Identifier) && self.next_tok().kind == TokenKind.Colon {
+            // A label is a member name followed by `:` — keywords included; no
+            // expression's first two tokens are `keyword ':'`, so the lookahead
+            // stays unambiguous.
+            if self.check_member_name() && self.next_tok().kind == TokenKind.Colon {
                 let label_tok = self.advance();
                 label = Option.Some(label_tok.lexeme());
                 label_span = Option.Some(label_tok.span);
@@ -2537,7 +2593,7 @@ impl Parser {
         let fields: List<FieldInit> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
-            let fname_tok = self.expect(TokenKind.Identifier, 'field name');
+            let fname_tok = self.expect_member_name('field name');
             self.expect(TokenKind.Colon, ':');
             let fval = self.parse_expr();
             fields.push(FieldInit {

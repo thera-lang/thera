@@ -131,6 +131,42 @@ pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
     };
 }
 
+// Whether `kind` is a reserved keyword. Member positions (field names, field
+// access after `.`, call-site and parameter labels) accept these as ordinary
+// names — the parser's `expect_member_name` — since no other production can
+// appear there.
+pub fn is_keyword(_ kind: TokenKind) -> Bool {
+    return match kind {
+        KwAs => true,
+        KwBreak => true,
+        KwConst => true,
+        KwContinue => true,
+        KwElse => true,
+        KwEnum => true,
+        KwFalse => true,
+        KwFn => true,
+        KwFor => true,
+        KwIf => true,
+        KwImpl => true,
+        KwImport => true,
+        KwIn => true,
+        KwInterface => true,
+        KwLet => true,
+        KwMatch => true,
+        KwMut => true,
+        KwNative => true,
+        KwPub => true,
+        KwReturn => true,
+        KwSelf => true,
+        KwStruct => true,
+        KwThrow => true,
+        KwTrue => true,
+        KwVoid => true,
+        KwWhile => true,
+        _ => false,
+    };
+}
+
 // A lexical token: its kind, its source span, and (for string literals and
 // identifiers) its content. Other kinds carry no value — use `lexeme`/`span`.
 pub struct Token {
