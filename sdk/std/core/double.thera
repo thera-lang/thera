@@ -60,7 +60,7 @@ impl Double {
 /// conformance behind what interpolation / `println` produce for a Double.
 impl Display for Double {
     @extern('double_to_string')
-    pub native fn display(self) -> String
+    pub native fn to_string(self) -> String
 }
 
 /// Double has a total order (the generic/virtual path uses the runtime's total

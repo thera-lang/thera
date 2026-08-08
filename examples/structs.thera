@@ -24,7 +24,7 @@ impl Point {
 // With `Display` implemented, `${point}` in an interpolation renders a Point
 // through this method (see sdk/std/core/interfaces.thera).
 impl Display for Point {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return '(${self.x}, ${self.y})';
     }
 }
@@ -48,7 +48,7 @@ impl Rect {
 // Rect's own Display delegates to Point's — `${self.top_left}` and
 // `${self.bottom_right()}` each render through the impl above.
 impl Display for Rect {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return 'Rect[${self.top_left} .. ${self.bottom_right()}]';
     }
 }

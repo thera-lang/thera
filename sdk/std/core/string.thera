@@ -315,7 +315,7 @@ fn digit_value_for(_ cp: Int) -> Int {
 /// (interpolation elides the call, since a `String` is already a `String`).
 impl Display for String {
     @extern('str_identity')
-    pub native fn display(self) -> String
+    pub native fn to_string(self) -> String
 }
 
 /// String is ordered lexicographically by Unicode scalar / UTF-8 byte order (a

@@ -7,14 +7,14 @@ struct Point {
 }
 
 impl Display for Point {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return '(${self.x}, ${self.y})';
     }
 }
 
 // An interface-typed parameter dispatches dynamically.
 fn show(_ d: Display) -> String {
-    return d.display();
+    return d.to_string();
 }
 
 fn main() -> Int {

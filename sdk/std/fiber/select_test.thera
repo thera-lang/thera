@@ -75,7 +75,7 @@ fn select_wakes_on_a_deadline() -> Result<Void, Error> {
     let waited = time.now_millis() - started;
     return testing.assert(
         waited >= 25,
-        message: 'should have waited for the deadline, waited ' + waited.display(),
+        message: 'should have waited for the deadline, waited ' + waited.to_string(),
     );
 }
 
@@ -205,7 +205,7 @@ fn a_losing_source_does_not_disturb_a_later_park() -> Result<Void, Error> {
     let slept = time.now_millis() - started;
     return testing.assert(
         slept >= 70,
-        message: 'a stale deadline cut the sleep short: ' + slept.display(),
+        message: 'a stale deadline cut the sleep short: ' + slept.to_string(),
     );
 }
 

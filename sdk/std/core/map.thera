@@ -82,7 +82,7 @@ impl Map<K, V> {
 impl Display for Map<K, V> {
     /// `[k: v, ...]` — keys and values rendered via `Debug`, in insertion order.
     /// (Empty map: `[:]`.)
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         if self.is_empty() { return '[:]'; }
 
         let mut s = '[';

@@ -3409,7 +3409,7 @@ fn satisfies_bound(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
             // Those four core interfaces are the *whole* dispatchable set: a
             // primitive is an unboxed value with no vtable row, so a bounded
             // call resolves only through the runtime's built-in fallback
-            // selectors (display/debug/eq/compare). Any other interface —
+            // selectors (to_string/debug/eq/compare). Any other interface —
             // even one with a declared `impl X for Int` — would type-check
             // its bound and then trap at the `call.virtual`, so it is
             // rejected here until primitive vtables land (roadmap: Primitive

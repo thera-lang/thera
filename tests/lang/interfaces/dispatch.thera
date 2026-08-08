@@ -6,7 +6,7 @@ struct Dog {
 }
 
 impl Display for Dog {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return 'dog:${self.name}';
     }
 }
@@ -16,17 +16,17 @@ struct Cat {
 }
 
 impl Display for Cat {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return 'cat:${self.name}';
     }
 }
 
-// A `List<Display>` holds different concrete types; each `display()` call
+// A `List<Display>` holds different concrete types; each `to_string()` call
 // dispatches dynamically on the value's runtime type.
 fn main() -> Int {
     let pets: List<Display> = [Dog { name: 'rex' }, Cat { name: 'mo' }];
     for p in pets {
-        println(p.display());
+        println(p.to_string());
     }
     // expect: dog:rex
     // expect: cat:mo

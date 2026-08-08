@@ -1183,7 +1183,7 @@ fn test_qualified_super_interface_cross_library() -> Result<Void, Error> {
 
 @test
 fn test_universal_method_on_type_param_is_clean() -> Result<Void, Error> {
-    // `display`/`debug` are universal — callable on any parameter, bounded or
+    // `to_string`/`debug` are universal — callable on any parameter, bounded or
     // not (total rendering resolves impl-or-fallback at runtime).
     testing.assert_eq(
         actual: errors_of('fn f<T>(_ x: T) -> String { return x.debug(); }').len(),
@@ -1191,7 +1191,7 @@ fn test_universal_method_on_type_param_is_clean() -> Result<Void, Error> {
     )?;
     testing.assert_eq(
         actual: errors_of('interface W { fn wt(self) -> Int; }\n'
-            + 'fn f<T: W>(_ x: T) -> String { return x.display(); }').len(),
+            + 'fn f<T: W>(_ x: T) -> String { return x.to_string(); }').len(),
         expected: 0,
     )?;
     return Result.Ok(void);

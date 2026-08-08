@@ -147,7 +147,7 @@ impl Error for GitHubError {
 }
 
 impl Display for GitHubError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }

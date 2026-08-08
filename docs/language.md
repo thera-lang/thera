@@ -1773,7 +1773,7 @@ Color.Red.name();            // 'Red' — the built-in
 enum Label { Name(String), Id(Int) }
 impl Label {
     fn name(self) -> String {           // shadows the built-in
-        return match self { Name(n) => n, Id(i) => i.display() };
+        return match self { Name(n) => n, Id(i) => i.to_string() };
     }
 }
 Label.Name('bug').name();    // 'bug', not 'Name'
@@ -1824,7 +1824,7 @@ struct Point {
 
 // explicit Display for a user-facing format
 impl Display for Point {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return '(${self.x}, ${self.y})';
     }
 }
@@ -1862,9 +1862,9 @@ This reads "an `Error` is a `Display` and a `Debug` that additionally has
 `message()`." `impl Error for FsError` is valid only when `FsError` also
 satisfies `Display` and `Debug` (via their own impls — `Debug` for free from the
 structural derive). A value typed as the `Error` _interface_ then also exposes
-the super-interfaces' methods (`e.display()`, `'${e}'`) and is assignable where
-a `Display`/`Debug` (or a `T: Debug` bound) is expected. There are no inherited
-method _bodies_ — only the obligation and the widened method set.
+the super-interfaces' methods (`e.to_string()`, `'${e}'`) and is assignable
+where a `Display`/`Debug` (or a `T: Debug` bound) is expected. There are no
+inherited method _bodies_ — only the obligation and the widened method set.
 
 ### Dispatch
 
@@ -1917,7 +1917,7 @@ annotation, an explicit type argument):
 ```thera
 fn show_all<T: Display>(_ xs: List<T>) -> Void {
     for x in xs {
-        print(x.display());
+        print(x.to_string());
     }
 }
 ```
@@ -1938,7 +1938,7 @@ Inside the generic body, a **bounded** parameter exposes exactly its bounds'
 methods, dispatched dynamically (see [Dispatch](#dispatch)); calling a method no
 bound declares is an error. An **unbounded** `T` is opaque: a value of it can be
 stored, passed, returned, compared where the context allows — and rendered,
-since `display()`/`debug()` are total (every value renders via its impl or the
+since `to_string()`/`debug()` are total (every value renders via its impl or the
 derived fallback). One phase wrinkle: a method call on an unbounded `T` is today
 rejected at emit time rather than by `thera check` (tracked in roadmap.md).
 

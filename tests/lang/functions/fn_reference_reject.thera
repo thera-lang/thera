@@ -22,11 +22,11 @@ fn apply(_ f: (Int) -> Int, _ n: Int) -> Int {
 
 fn main() -> Void {
     // Wrong parameter type.
-    println(apply(takes_string, 21).display()); // expect error: expected (Int) -> Int, found (String) -> Int
+    println(apply(takes_string, 21).to_string()); // expect error: expected (Int) -> Int, found (String) -> Int
 
     // Wrong arity.
-    println(apply(takes_two, 21).display()); // expect error: expected (Int) -> Int, found (Int, Int) -> Int
+    println(apply(takes_two, 21).to_string()); // expect error: expected (Int) -> Int, found (Int, Int) -> Int
 
     // A name that is nothing at all still reports as undefined.
-    println(apply(no_such_function, 1).display()); // expect error: undefined name: no_such_function
+    println(apply(no_such_function, 1).to_string()); // expect error: undefined name: no_such_function
 }

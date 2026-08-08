@@ -18,7 +18,7 @@ pub struct SourceLoc {
 }
 
 impl Display for SourceLoc {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return '${self.file}:${self.line}:${self.column}';
     }
 }

@@ -117,7 +117,7 @@ impl Weighted for Task {
 }
 
 impl Display for Task {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return '${self.title} (weight ${self.weight()})';
     }
 }

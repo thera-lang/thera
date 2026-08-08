@@ -220,7 +220,7 @@ pub fn decoded<T>(
 /// let url = client.url('/repos/${owner}/${repo}/pulls', query: params([
 ///     'state': Option.Some(state),
 ///     'head': head,
-///     'per_page': Option.Some(per_page.display()),
+///     'per_page': Option.Some(per_page.to_string()),
 /// ]));
 /// ```
 pub fn params(_ values: Map<String, Option<String>>) -> Map<String, String> {

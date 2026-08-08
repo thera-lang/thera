@@ -6,7 +6,7 @@
 // was validated.
 
 impl Display for Ghost {   // expect error: unknown type: Ghost
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return 'boo';
     }
 }

@@ -50,7 +50,7 @@ impl Error for ProcessError {
 }
 
 impl Display for ProcessError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }

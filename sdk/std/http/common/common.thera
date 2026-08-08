@@ -75,7 +75,7 @@ impl Error for HttpError {
         return match self {
             Connect(m) => m,
             Timeout => 'the request timed out',
-            Status(code) => 'unexpected status ' + code.display(),
+            Status(code) => 'unexpected status ' + code.to_string(),
             Body(m) => m,
             Tls(m) => m,
             Protocol(m) => m,
@@ -84,7 +84,7 @@ impl Error for HttpError {
 }
 
 impl Display for HttpError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }
@@ -317,7 +317,7 @@ pub fn write_request(to dst: io.Writer, _ req: Request) -> Result<Void, Error> {
 /// Serialize `resp` to `dst` as an HTTP/1.1 response.
 pub fn write_response(to dst: io.Writer, _ resp: Response) -> Result<Void, Error> {
     let head = BytesBuilder.new();
-    head.write_str('HTTP/1.1 ' + resp.status.display() + ' ' + reason_phrase(resp.status) + CRLF);
+    head.write_str('HTTP/1.1 ' + resp.status.to_string() + ' ' + reason_phrase(resp.status) + CRLF);
     write_headers(head, resp.headers, resp.body.len());
     return finish_message(to: dst, head, resp.body);
 }
@@ -340,7 +340,7 @@ fn write_headers(_ head: BytesBuilder, _ headers: Map<String, String>, _ body_le
             }
         }
     }
-    head.write_str('content-length: ' + body_len.display() + CRLF);
+    head.write_str('content-length: ' + body_len.to_string() + CRLF);
     head.write_str(CRLF);
 }
 
@@ -835,13 +835,13 @@ impl ResponseStream {
 
 fn truncated<T>(_ left: Int, _ what: String) -> Result<T, HttpError> {
     return Result.Err(HttpError.Body(
-        'stream ended with ' + left.display() + ' bytes of ' + what + ' left',
+        'stream ended with ' + left.to_string() + ' bytes of ' + what + ' left',
     ));
 }
 
 fn too_large<T>() -> Result<T, HttpError> {
     return Result.Err(HttpError.Body(
-        'body exceeds the ' + MAX_BODY_BYTES.display() + '-byte limit',
+        'body exceeds the ' + MAX_BODY_BYTES.to_string() + '-byte limit',
     ));
 }
 

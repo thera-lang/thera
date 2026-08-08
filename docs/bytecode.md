@@ -387,7 +387,7 @@ positional. A `Void` return pushes nothing.
 > ids are namespaced with a high bit (`ENUM_DISPATCH_BASE`) since the two spaces
 > overlap numerically. A **miss** (no row, or a receiver with no dispatch id —
 > primitives, strings, collections) falls back to the built-in interfaces'
-> structural forms: native `display` (primitives/String), the recursive
+> structural forms: native `to_string` (primitives/String), the recursive
 > structural `debug` (the `Debug` auto-derive), and structural `eq`. See
 > docs/language.md ("Dynamic dispatch — the arc, staged").
 

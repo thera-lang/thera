@@ -311,7 +311,7 @@ fn streaming_a_response_leaves_the_body_on_the_wire() -> Result<Void, Error> {
     testing.assert_eq(s.status, 200)?;
     testing.assert(
         src.pos < raw.len(),
-        message: 'the head is parsed but the source is drained: ' + src.pos.display(),
+        message: 'the head is parsed but the source is drained: ' + src.pos.to_string(),
     )?;
     testing.assert(!s.body.is_complete(), message: 'the body has not been read')?;
     testing.assert_eq(io.read_all(s.body)?.len(), 64)?;

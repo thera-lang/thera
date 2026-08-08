@@ -132,7 +132,7 @@ finding interesting.
   constructors and `==` need no explicit heap parameter; access is
   closure-scoped and comparisons/recursion **clone the object out** first (cheap
   with `Copy` handles) to avoid re-entering the heap while it is borrowed. The
-  one re-entrant path — the structural `debug`/`display` fallback, which calls
+  one re-entrant path — the structural `debug`/`to_string` fallback, which calls
   back into the interpreter while its values sit in Rust locals — pauses
   collection for its duration (atomic w.r.t. the GC, like a native). Validated
   by `bench/gc_stress.thera`: ~16 MB of churn that leaked to ~500 MB under the
