@@ -239,11 +239,12 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Entry point & misc
 
-| ID               | Spec (language.md)       | Pins                                              | Status |
-| ---------------- | ------------------------ | ------------------------------------------------- | ------ |
-| `entry-main`     | Entry point              | `main` signatures; `Int` return is the exit code  | ✓      |
-| `entry-main-err` | Entry point              | an `Err` result exits non-zero, message to stderr | ✓      |
-| `decorators`     | Decorators / annotations | `@name(args)` parse & attach (e.g. `@test`)       | ✓      |
+| ID                 | Spec (language.md)       | Pins                                                                                                                                    | Status |
+| ------------------ | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `entry-main`       | Entry point              | `main` signatures; `Int` return is the exit code                                                                                        | ✓      |
+| `entry-main-err`   | Entry point              | an `Err` result exits non-zero, message to stderr                                                                                       | ✓      |
+| `decorators`       | Decorators / annotations | `@name(args)` parse & attach (e.g. `@test`)                                                                                             | ✓      |
+| `diag-guess-hints` | Diagnostics              | a known guessed-wrong name (`time.monotonic_ms`, `Option.unwrap`, …) gets a corrective hint appended to the unknown-member/method error | ✓      |
 
 ## Findings
 

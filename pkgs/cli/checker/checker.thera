@@ -17,6 +17,7 @@ import '../source' as _; // SourceSpan
 import '../element' as _;
 import '../element';
 import '../diagnostic'; // Diagnostic — the uniform phase error
+import 'hints'; // corrective hints for guessed-wrong names
 
 pub struct CheckResult {
     let errors: List<diagnostic.Diagnostic>;
@@ -2209,11 +2210,14 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                                 ),
                                 // Resolves, but nothing to arg-check.
                                 Lenient => void,
-                                Missing => add_error(
-                                    errors,
-                                    'no method "${field}" on ${type_to_string(recv_type)}',
-                                    fid.span,
-                                ),
+                                Missing => {
+                                    let rendered = type_to_string(recv_type);
+                                    let msg = match hints.method_hint(rendered, field) {
+                                        Some(h) => 'no method "${field}" on ${rendered}; ${h}',
+                                        None => 'no method "${field}" on ${rendered}',
+                                    };
+                                    add_error(errors, msg, fid.span);
+                                },
                             };
                         },
                     }
@@ -4040,7 +4044,11 @@ fn check_member_visible(
 ) -> Void {
     if let Some(surface) = file_scope(library, current_file).namespace_surface(ns) {
         if !namespace_exposes(surface, member) {
-            add_error(errors, '`${member}` is not a public member of `${ns}`', span);
+            let msg = match hints.namespace_hint(ns, member) {
+                Some(h) => '`${member}` is not a public member of `${ns}`; ${h}',
+                None => '`${member}` is not a public member of `${ns}`',
+            };
+            add_error(errors, msg, span);
         }
     }
 }

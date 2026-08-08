@@ -920,6 +920,17 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Corrective hints for guessed-wrong names** (2026-08, the curated half of
+  did-you-mean #85; resolves #142's B4). A small evidence-seeded table
+  (`pkgs/cli/checker/hints.thera`) maps names agents guess by cross-language
+  prior onto the Thera form answering the same need — `time.monotonic_ms` →
+  `monotonic()`+`elapsed().as_millis()`, `Option.unwrap` → `unwrap_or`/
+  `ok_or(…)?`, `Map.contains_key` → `has`, `List.reduce` → `fold`, ~20 entries —
+  appended to the unknown-method / not-a-public-member diagnostics.
+  Diagnostics-first in action: B4's verdict was that the typed monotonic surface
+  is right and only the entry point needed teaching. An anti-rot test exercises
+  every suggested form; #85 keeps the edit-distance long tail.
+
 - **`List.sort`/`reverse` mutate in place; `sorted_by`/`reversed` return new**
   (2026-08, issue #142's open D-item). The old `sort` returned a new list under
   a name every major language reserves for in-place mutation — so the
