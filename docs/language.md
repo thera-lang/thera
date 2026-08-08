@@ -518,7 +518,11 @@ args.flag('--verbose', default: false);
 ```
 
 Here `default` is the label at the call site; `value` is the name used inside
-the function body (avoiding a clash with a potential `default` keyword).
+the function body (avoiding a clash with a potential `default` keyword). An
+actual keyword works as a label too — `fn find(in loc: String)`, called
+`find(in: 'path')` — but then the two-name form is required, since the internal
+name must be an identifier (see
+[Keywords as member names](#keywords-as-member-names)).
 
 > **Enforcement status.** The single-call-form model above is the design intent;
 > the checker is currently **more permissive** than it. Today a labeled
@@ -1350,6 +1354,45 @@ types **by identity, never by name**, so utility types that merely live in
 `std.core` (`BytesBuilder`, `Args`, `Indexed`, …) are ordinary names a user
 library may redeclare. Value names (`fn`/`const`) are not reserved — casing
 conventions keep them unambiguous.
+
+### Keywords as member names
+
+Real-world data has fields named `type`, `in`, `enum`, `self` — every JSON API
+does — so keywords are not reserved where the grammar cannot confuse them with
+anything else.
+
+**`type` is not a keyword at all.** It is contextual: an ordinary identifier
+usable as a field, parameter, label, or local (`let type = block.type;`); only
+the `native type` declaration form gives it meaning.
+
+**Every other keyword is a valid _member name_.** Member positions are
+grammatically closed — only a name can appear there — so keywords are accepted
+in: struct field declarations, struct-literal fields, field/method access after
+`.`, call-site argument labels, and parameter labels:
+
+```thera
+struct Param {
+    let in: String;         // OpenAPI: "in": "query"
+    let enum: List<String>;
+}
+
+fn find(in loc: String) -> Option<Param> { ... }
+
+let p = Param { in: 'query', enum: [] };
+println(p.in);
+find(in: 'path');
+```
+
+**Binding names still require identifiers.** A `let`, a lambda parameter, or a
+parameter's _internal_ name is read bare in the body, where a keyword cannot
+appear — so `fn f(match: Int)` is an error; write the two-name form
+`fn f(match m: Int)` (label `match` at the call site, `m` in the body). Two
+edges resolve by one-token lookahead: in a field declaration `mut` is the
+modifier unless followed by `:` (`let mut: Bool;` is a field named `mut`), and
+in a parameter list `self` is the receiver only when bare
+(`fn f(self href: String)` declares a parameter labeled `self`). Declaration
+names (functions, types, variants) are not member positions and stay
+identifier-only.
 
 ### Resolution order
 

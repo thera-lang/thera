@@ -30,6 +30,8 @@ EBNF, W3C-style:
 | `IDENT`  | a token class (see [Lexical](#lexical-grammar)) |
 
 `lowercase` names are nonterminals; `UPPERCASE` names are token classes.
+(`MEMBER` — an identifier or any keyword, accepted in member positions — is
+defined under [Keywords](#keywords).)
 
 ## Lexical grammar
 
@@ -50,16 +52,42 @@ conventions. `//` is an ordinary comment and is never extracted.
 
 ### Keywords
 
-All reserved; none may be used as identifiers:
+Reserved — none may be used as a _binding_ name (a `let`, a parameter's internal
+name, a lambda parameter) or a declaration name:
 
 ```
 as  break  const  continue  else  enum  false  fn  for  if  impl  import  in
-interface  let  match  mut  native  pub  return  self  struct  throw  true  type
+interface  let  match  mut  native  pub  return  self  struct  throw  true
 void  while
 ```
 
 (`true`, `false`, `void`, `self` are keywords that appear in expression
 position. `as` is used only in `import … as …`, not as a cast operator.)
+
+**`type` is contextual, not reserved.** It lexes as an ordinary identifier and
+may name anything — a field, a parameter, a local. Its only keyword-like role is
+the `nativeTypeDecl` form (`native type`), recognized by lexeme.
+
+**Keywords as member names.** Member positions are grammatically closed —
+nothing but a name can appear there — so every keyword above is accepted as an
+ordinary name in the positions the `MEMBER` class marks below: struct field
+declarations (`let in: String;`), struct-literal fields, field/method access
+after `.`, call-site argument labels, and parameter labels
+(`fn f(in loc: String)`):
+
+```
+MEMBER = IDENT | KEYWORD
+```
+
+Three disambiguations keep this local: in a field declaration `mut` is the
+modifier unless the next token is `:` (`let mut: Bool;` declares a field named
+`mut`); in a parameter list `self` is the receiver only when bare (followed by
+`,` or `)`); and after a postfix `.` a keyword is a member name only on the
+dot's own line, so a dangling mid-edit `x.` does not swallow the next line's
+statement keyword (identifiers are unrestricted). A parameter's _internal_ name
+must still be an identifier — it is read bare in the body, where a keyword
+cannot appear; the parser prescribes the `label name` form
+(`fn f(match m: Int)`).
 
 ### Identifiers
 
@@ -182,14 +210,17 @@ typeParam   = IDENT ( ':' IDENT ('+' IDENT)* )?        // bounds: T: Eq + Debug
 paramList   = param (',' param)*
 param       = 'self'
             | '_' IDENT (':' type)? ('=' expr)?         // suppressed label
-            | IDENT IDENT? (':' type)? ('=' expr)?      // [label] name, default
-            // `label name` gives a distinct external label; a single IDENT
-            // means label == name.
+            | MEMBER IDENT (':' type)? ('=' expr)?      // label + name, default
+            | IDENT (':' type)? ('=' expr)?             // name (label == name)
+            // `label name` gives a distinct external label — the label may be
+            // a keyword (MEMBER); the internal name may not. A bare `self` is
+            // the receiver; `self` followed by an identifier is a label.
 
 structDecl  = 'struct' IDENT typeParams? '{' field* '}'
-field       = 'let' 'mut'? IDENT ':' type ';'
+field       = 'let' 'mut'? MEMBER ':' type ';'
               // Each field is a `let`-declaration terminated by `;` — `mut` opts
-              // into reassignment. The `let`/`;` form reads as a declaration and
+              // into reassignment (`mut` is the modifier unless followed by `:`,
+              // which makes it the field's name). The `let`/`;` form reads as a declaration and
               // distinguishes a struct *declaration* from a struct *instantiation*
               // (the two bodies are otherwise identical). Both are required.
               // A nominal record: `struct Point { let x: Int; let y: Int; }`.
@@ -353,16 +384,16 @@ mul        = unary      ( ( '*' | '/' | '%' ) unary )*
 unary      = ( '!' | '-' | '~' ) unary                   // prefix, right-assoc
            | postfix
 postfix    = primary postfixOp*
-postfixOp  = '.' IDENT                                    // field or method name
+postfixOp  = '.' MEMBER                                   // field or method name
            | typeArgs? '(' callArgs? ')'                  // call (optionally generic)
-           | typeArgs '.' IDENT typeArgs? '(' callArgs? ')'
+           | typeArgs '.' MEMBER typeArgs? '(' callArgs? ')'
                 // receiver type args on a static call — `Set<String>.new(…)`:
                 // the first `<…>` binds the receiver type's parameters; the
                 // method may carry its own `<…>`
            | '[' expr ']'                                 // index
            | '?'                                          // error propagation
 callArgs   = callArg (',' callArg)*
-callArg    = ( IDENT ':' )? expr                          // optional argument label
+callArg    = ( MEMBER ':' )? expr                         // optional argument label
 ```
 
 ```
@@ -392,7 +423,7 @@ mapEntry  = expr ':' expr
             // everywhere an expression is (including as a bare match-arm
             // body). (Maps briefly used braces — `{'a': 1}` — a form removed
             // by the map-literal migration; see below.)
-structBody= '{' ( field (',' field)* )? '}'        field = IDENT ':' expr
+structBody= '{' ( field (',' field)* )? '}'        field = MEMBER ':' expr
 
 matchExpr = 'match' exprNB '{' arm* '}'
 arm       = pattern '=>' ( exprBlock ','? | expr ',' )
