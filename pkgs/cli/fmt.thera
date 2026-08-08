@@ -539,7 +539,12 @@ fn no_space_after(_ a: Token, _ a_prefix_unary: Bool, _ delims: parser.GenericDe
 // separator/terminator (`,` `;` `:`), a `.`/`..`, a postfix `?`, a generic angle
 // bracket, or a `(`/`[` that opens a call/index (prev token ends a value —
 // which a keyword member name, `x.match(y)`, also does).
-fn no_space_before(_ a: Token, _ b: Token, _ a_member_kw: Bool, _ delims: parser.GenericDelims) -> Bool {
+fn no_space_before(
+    _ a: Token,
+    _ b: Token,
+    _ a_member_kw: Bool,
+    _ delims: parser.GenericDelims,
+) -> Bool {
     return match b.kind {
         RParen => true,
         RBracket => true,

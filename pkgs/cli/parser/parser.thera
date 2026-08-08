@@ -834,7 +834,7 @@ impl Parser {
                 // internal name may not; prescribe the two-name form.
                 self.fail_at(
                     'a keyword parameter label needs a distinct internal name: '
-                        + '`${first.lexeme()} name: T`',
+                    + '`${first.lexeme()} name: T`',
                     first.span,
                 );
                 return self.err_param();
