@@ -90,7 +90,7 @@ fn resolve_named_in(
     if nt.name == 'Self' {
         return self_type.unwrap_or(Type.Unknown);
     }
-    if type_params.has(nt.name) {
+    if type_params.contains(nt.name) {
         return Type.TypeParameter(nt.name);
     }
     if !scope.library.type_defs.has(nt.name) {
@@ -282,7 +282,7 @@ impl FileScope {
             return true;
         }
         if let Some(_) = primitive_type(name) { return true; }
-        if type_params.has(name) {
+        if type_params.contains(name) {
             return true;
         }
         if !self.library.type_defs.has(name) {

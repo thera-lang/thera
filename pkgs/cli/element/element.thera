@@ -199,7 +199,7 @@ pub fn is_default_method(_ e: TypeDefElement, _ name: String) -> Bool {
 
 // Whether field `name` on `e` is declared `mut` (so it may be reassigned).
 pub fn field_is_mut(_ e: TypeDefElement, _ name: String) -> Bool {
-    return e.mut_fields.has(name);
+    return e.mut_fields.contains(name);
 }
 
 // --- queries over an element ---
@@ -256,7 +256,7 @@ pub struct LibraryNamespace {
 }
 
 pub fn namespace_exposes(_ ns: LibraryNamespace, _ name: String) -> Bool {
-    return ns.names.has(name);
+    return ns.names.contains(name);
 }
 
 // The resolved element model for a program plus its imports.
@@ -315,7 +315,7 @@ pub fn bare_surface_has(_ lib: LibraryElement, _ file: Option<String>, _ name: S
 // own library's declaration).
 pub fn file_owns(_ lib: LibraryElement, _ file: Option<String>, _ name: String) -> Bool {
     return match lib.file_owned.get(file_key(file)) {
-        Some(s) => s.has(name),
+        Some(s) => s.contains(name),
         None => false,
     };
 }

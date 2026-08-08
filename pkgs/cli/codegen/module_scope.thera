@@ -688,7 +688,7 @@ impl ModuleScope {
                 while qi < queue.len() {
                     let s = queue[qi];
                     qi = qi + 1;
-                    if !seen.has(s) {
+                    if !seen.contains(s) {
                         seen.add(s);
                         if let Some(super_methods) = self.interface_methods.get(s) {
                             for sm in super_methods.to_list() {
@@ -732,7 +732,7 @@ impl ModuleScope {
             while qi < queue.len() {
                 let iface = queue[qi];
                 qi = qi + 1;
-                if !seen.has(iface) {
+                if !seen.contains(iface) {
                     seen.add(iface);
                     if let Some(supers) = self.interface_supers.get(iface) {
                         for s in supers { queue.push(s); }

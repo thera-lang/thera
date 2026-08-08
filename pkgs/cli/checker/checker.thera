@@ -75,7 +75,7 @@ pub fn check_files(
     // — behavior-identical to the full build by the resolver's contract.
     let library = prebuilt.unwrap_or_else(() =>
         element.build_library(program, imports, file_namespaces, file_bare_surface));
-    if !skip.has(file_key(program.file_path)) {
+    if !skip.contains(file_key(program.file_path)) {
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, library);
         check_shadowed_surface(errors, program, library);
@@ -83,7 +83,7 @@ pub fn check_files(
         check_program(errors, program, library, program.file_path, records);
     }
     for ip in imports {
-        if !skip.has(file_key(ip.file_path)) {
+        if !skip.contains(file_key(ip.file_path)) {
             // Same-file duplicates only (`collides` is same-file-only post-T4,
             // so an empty imports list loses nothing and skips a closure rescan).
             check_duplicates(errors, ip, []);
@@ -180,7 +180,7 @@ fn check_unused_imports(
         }
         if x.unqualified {
             check_unused_bare_import(errors, x, ns, used, library, program.file_path);
-        } else if !used.has(ns) {
+        } else if !used.contains(ns) {
             errors.push(diagnostic.warning(
                 'unused import: `${x.path}` is never referenced',
                 x.span,
@@ -206,12 +206,12 @@ fn check_unused_bare_import(
     _ library: LibraryElement,
     _ file: Option<String>,
 ) -> Void {
-    if used.has(ns) {
+    if used.contains(ns) {
         return;
     }
     let Some(surface) = namespaces_in(library, file).get(ns) else { return; };
     for n in surface.names.to_list() {
-        if used.has(n) {
+        if used.contains(n) {
             return;
         }
     }
@@ -257,7 +257,7 @@ fn extends_a_foreign_type(_ library: LibraryElement, _ surface: LibraryNamespace
     for type_name in library.type_defs.keys() {
         let type_def = library.type_defs[type_name];
         for method in type_def.methods {
-            if files.has(method.file) && method.file != type_def.owner_file {
+            if files.contains(method.file) && method.file != type_def.owner_file {
                 return true;
             }
         }
@@ -949,7 +949,7 @@ fn check_unique(
     let seen: Set<String> = Set.new();
     for p in names.enumerate() {
         // An empty name is a parse-recovery placeholder — never a collision.
-        if p.value != '' && seen.has(p.value) {
+        if p.value != '' && seen.contains(p.value) {
             add_error(errors, 'duplicate ${what} `${p.value}`', spans[p.index]);
         }
         seen.add(p.value);
@@ -967,10 +967,10 @@ fn check_param_uniqueness(_ errors: List<diagnostic.Diagnostic>, _ params: List<
         if p.name == '' {
             continue; // parse-recovery param
         }
-        if names.has(p.name) {
+        if names.contains(p.name) {
             add_error(errors, 'duplicate parameter `${p.name}`', p.name_span);
         } else if let Some(l) = p.label {
-            if labels.has(l) {
+            if labels.contains(l) {
                 add_error(errors, 'duplicate parameter label `${l}`', p.name_span);
             }
         }
@@ -1529,7 +1529,7 @@ fn check_conformance(
             // it — though an `impl` may still override it (checked below).
             for im in iface_def.methods {
                 if str_list_has(iface_def.own_methods, im.name) {
-                    if !provided.has(im.name) {
+                    if !provided.contains(im.name) {
                         // A defaulted method is optional: the interface body
                         // supplies it. Otherwise the impl must provide it.
                         if !is_default_method(iface_def, im.name) {
@@ -1724,7 +1724,7 @@ fn check_block(_ cc: CheckCtx, _ block: Block, tail_expected: Option<Type> = Opt
     for s in block.stmts {
         if let Let(x) = s {
             if x.name != '_' {
-                if declared.has(x.name) {
+                if declared.contains(x.name) {
                     add_error(
                         errors,
                         '`${x.name}` is already bound in this block; rename it (an inner block may shadow)',
@@ -1781,7 +1781,7 @@ fn check_unused_variables(_ errors: List<diagnostic.Diagnostic>, _ block: Block)
     for k in 0..n {
         let s = block.stmts[n - 1 - k];
         if let Let(x) = s {
-            if !x.name.starts_with('_') && !used.has(x.name) {
+            if !x.name.starts_with('_') && !used.contains(x.name) {
                 errors.push(diagnostic.warning(
                     'unused variable: `${x.name}` is never referenced',
                     x.name_span,
@@ -2411,7 +2411,7 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                     // diagnostic, not (only) a codegen failure, so the
                     // analyzer/LSP sees it too. Same message as codegen's.
                     for fname in element.fields.keys() {
-                        if !given.has(fname) {
+                        if !given.contains(fname) {
                             add_error(
                                 errors,
                                 'missing field `${fname}` in ${x.type_name} literal',
@@ -2822,7 +2822,7 @@ fn validate_pattern(
             }
         },
         Ident(span, name) => {
-            if bound.has(name) {
+            if bound.contains(name) {
                 add_error(errors, 'duplicate binding `${name}` in pattern', span);
             }
             bound.add(name);
@@ -2881,7 +2881,7 @@ fn check_exhaustive(
         }
     }
     if variants.len() > 0 {
-        let missing = variants.filter((v) => !covered.has(v));
+        let missing = variants.filter((v) => !covered.contains(v));
         if missing.len() > 0 {
             add_error(
                 errors,
@@ -2954,7 +2954,7 @@ fn check_unreachable_arms(
             Ident(_, name) => {
                 if variants.contains(name) {
                     // A bare variant name covers that variant (and nothing else).
-                    if reason.is_none() && covered.has(name) {
+                    if reason.is_none() && covered.contains(name) {
                         reason = Option.Some('variant `${name}` is already matched above');
                     }
                     covered.add(name);
@@ -2963,7 +2963,7 @@ fn check_unreachable_arms(
                 }
             },
             Constructor(_, name, args) => {
-                if reason.is_none() && covered.has(name) {
+                if reason.is_none() && covered.contains(name) {
                     reason = Option.Some('variant `${name}` is already matched above');
                 }
                 if args.filter((a) => pattern_is_irrefutable(a)).len() == args.len() {
@@ -2972,17 +2972,17 @@ fn check_unreachable_arms(
             },
             Literal(_, lit) => {
                 if let Some(key) = literal_key(lit) {
-                    if reason.is_none() && literals.has(key) {
+                    if reason.is_none() && literals.contains(key) {
                         reason = Option.Some('this literal is already matched above');
                     }
                     literals.add(key);
                 }
             },
         }
-        if is_bool && literals.has('b:true') && literals.has('b:false') {
+        if is_bool && literals.contains('b:true') && literals.contains('b:false') {
             caught_all = true;
         }
-        if variants.len() > 0 && variants.filter((v) => !covered.has(v)).len() == 0 {
+        if variants.len() > 0 && variants.filter((v) => !covered.contains(v)).len() == 0 {
             caught_all = true;
         }
         if let Some(r) = reason {
@@ -3098,7 +3098,7 @@ fn check_call_args(
     }
     for arg in args {
         if let Some(l) = arg.label {
-            if !valid_labels.has(l) {
+            if !valid_labels.contains(l) {
                 add_error(errors, 'unknown argument label "${l}" for "${fn_el.name}"', arg.span);
                 return;
             };

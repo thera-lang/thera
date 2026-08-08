@@ -1043,6 +1043,10 @@ let first = nums[0];
 let len   = nums.len();
 ```
 
+Naming rule: **element membership is `contains`** (`List.contains`,
+`Set.contains`); **key presence is `has`** (`Map.has`). The two questions are
+spelled consistently across the collections, each by its own name.
+
 ### Indexing vs. `get`
 
 Indexing with `[]` asserts the element is present. `list[i]` and `map[key]`

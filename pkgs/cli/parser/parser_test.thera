@@ -73,8 +73,8 @@ fn test_generic_delims_type_annotation() -> Result<Void, Error> {
     // generic close (a `->` return type would shadow it under `find`).
     let src = 'struct S { let m: Map<String, Int>; }';
     let d = parse_src(src).generic_delims;
-    testing.assert(d.opens.has(offset_of(src, '<')), message: '`<` is a generic open')?;
-    testing.assert(d.closes.has(offset_of(src, '>')), message: '`>` is a generic close')?;
+    testing.assert(d.opens.contains(offset_of(src, '<')), message: '`<` is a generic open')?;
+    testing.assert(d.closes.contains(offset_of(src, '>')), message: '`>` is a generic close')?;
     testing.assert_eq(actual: d.opens.len(), expected: 1)?;
     testing.assert_eq(actual: d.closes.len(), expected: 1)?;
     return Result.Ok(void);
@@ -86,7 +86,7 @@ fn test_generic_delims_ignores_comparison() -> Result<Void, Error> {
     let src = 'fn f(_ a: Int, _ b: Int) -> Bool { return a < b; }';
     let d = parse_src(src).generic_delims;
     testing.assert(
-        !d.opens.has(offset_of(src, '<')),
+        !d.opens.contains(offset_of(src, '<')),
         message: 'comparison `<` is not a generic open',
     )?;
     testing.assert_eq(actual: d.opens.len(), expected: 0)?;
@@ -109,7 +109,7 @@ fn test_generic_delims_type_params_and_generic_call() -> Result<Void, Error> {
     // Type parameters (`<T>`) and a generic static call (`Set<String>.new()`).
     let params = parse_src('fn f<T>(_ x: T) -> T { return x; }').generic_delims;
     testing.assert(
-        params.opens.has(offset_of('fn f<T>(_ x: T) -> T { return x; }', '<')),
+        params.opens.contains(offset_of('fn f<T>(_ x: T) -> T { return x; }', '<')),
         message: 'type-param `<` recorded',
     )?;
     testing.assert_eq(actual: params.opens.len(), expected: 1)?;
@@ -121,7 +121,7 @@ fn test_generic_delims_type_params_and_generic_call() -> Result<Void, Error> {
     testing.assert_eq(actual: call.opens.len(), expected: 1)?;
     testing.assert_eq(actual: call.closes.len(), expected: 1)?;
     testing.assert(
-        call.opens.has(offset_of(src, 'Set<') + 3),
+        call.opens.contains(offset_of(src, 'Set<') + 3),
         message: 'generic-call `<` recorded',
     )?;
     return Result.Ok(void);

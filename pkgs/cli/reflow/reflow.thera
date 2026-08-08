@@ -248,7 +248,7 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
     let starts = line_start_offsets(chars);
     let out: List<BreakEdit> = [];
     for line in over_width_lines(source, width) {
-        if fixed.has(line) {
+        if fixed.contains(line) {
             continue;
         }
         let from = line_start_at(starts, line);
@@ -341,9 +341,9 @@ fn bracket_pairs(_ tokens: List<Token>, _ delims: parser.GenericDelims) -> List<
     let mut prev_kind = TokenKind.Eof; // the kind before the current token
     let mut angle = 0; // nesting depth inside generic `<…>`
     for t in tokens {
-        if delims.opens.has(t.span.offset) {
+        if delims.opens.contains(t.span.offset) {
             angle = angle + 1;
-        } else if delims.closes.has(t.span.offset) {
+        } else if delims.closes.contains(t.span.offset) {
             angle = angle - 1;
         }
         if is_opener(t.kind) {

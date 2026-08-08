@@ -829,7 +829,7 @@ fn hex_value(_ c: Int) -> Int {
     if char.is_digit(c) {
         return c - char.DIGIT_0;
     }
-    let lower = char.to_lower(c);
+    let lower = char.to_lowercase(c);
     if lower >= 97 && lower <= 102 {
         return lower - 97 + 10; // a..f
     }

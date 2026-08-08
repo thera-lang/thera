@@ -1399,7 +1399,7 @@ pub const SPACE: Int;  pub const LF: Int;  pub const DIGIT_0: Int;  // … the A
 pub fn is_digit(_ cp: Int) -> Bool;       // + is_hex_digit/is_alpha/is_alphanumeric
 pub fn is_whitespace(_ cp: Int) -> Bool;  // + is_upper/is_lower
 pub fn digit_value(_ cp: Int) -> Option<Int>;
-pub fn to_lower(_ cp: Int) -> Int;        // + to_upper; non-letters pass through
+pub fn to_lowercase(_ cp: Int) -> Int;    // + to_uppercase; non-letters pass through
 ```
 
 Notes: ASCII only (U+0000..U+007F). Full Unicode classification and locale-aware

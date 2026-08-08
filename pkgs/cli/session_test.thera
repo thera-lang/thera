@@ -448,13 +448,13 @@ fn test_body_edit_keeps_dependents_checked() -> Result<Void, Error> {
     testing.assert_eq(actual: sess.check(a_src, a_path).len(), expected: 0)?;
     let b_key = loader.canonical_path('${dir}/b.thera');
     let c_key = loader.canonical_path('${dir}/c.thera');
-    testing.assert(sess.checked.has(c_key), message: 'c checked clean before the edit')?;
+    testing.assert(sess.checked.contains(c_key), message: 'c checked clean before the edit')?;
 
     // Body-only: same signature, new body and comment.
     sess.set_overlay('${dir}/b.thera', '// a comment\npub fn helper() -> Int { return 2 + 3; }\n');
-    testing.assert(!sess.checked.has(b_key), message: 'the edited file re-checks')?;
+    testing.assert(!sess.checked.contains(b_key), message: 'the edited file re-checks')?;
     testing.assert(
-        sess.checked.has(c_key),
+        sess.checked.contains(c_key),
         message: 'the importer c stays checked (surface unchanged)',
     )?;
     testing.assert_eq(actual: sess.check(a_src, a_path).len(), expected: 0)?;
@@ -495,7 +495,7 @@ fn test_surface_edit_evicts_dependents() -> Result<Void, Error> {
         '${dir}/b.thera',
         'pub fn helper() -> Int { return 1; }\npub fn extra() -> Int { return 2; }\n',
     );
-    testing.assert(!sess.checked.has(c_key), message: 'a pub addition evicts the cone')?;
+    testing.assert(!sess.checked.contains(c_key), message: 'a pub addition evicts the cone')?;
 
     cleanup(dir);
     return Result.Ok(void);
@@ -515,14 +515,14 @@ fn test_body_edit_still_rechecks_whitebox_sibling() -> Result<Void, Error> {
     let t_src = fs.read_text(t_path)?;
     testing.assert_eq(actual: sess.check(t_src, t_path).len(), expected: 0)?;
     let t_key = loader.canonical_path(t_path);
-    testing.assert(sess.checked.has(t_key), message: 'the test checked clean')?;
+    testing.assert(sess.checked.contains(t_key), message: 'the test checked clean')?;
 
     // Private signature change; public surface identical.
     sess.set_overlay(
         '${dir}/foo.thera',
         'pub fn ff() -> Int { return inner(\'x\'); }\nfn inner(_ s: String) -> Int { return s.len(); }\n',
     );
-    testing.assert(!sess.checked.has(t_key), message: 'the white-box sibling re-checks')?;
+    testing.assert(!sess.checked.contains(t_key), message: 'the white-box sibling re-checks')?;
     let diags = sess.check(t_src, t_path);
     let mut t_flagged = false;
     for d in diags {

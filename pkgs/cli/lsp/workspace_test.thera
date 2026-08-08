@@ -46,9 +46,9 @@ fn test_thera_files_walks_and_prunes() -> Result<Void, Error> {
     testing.assert_eq(actual: files.len(), expected: 2)?;
     let found: Set<String> = Set.new();
     for f in files { found.add(f); }
-    testing.assert(found.has(path.join(root, 'a.thera')), message: 'top-level source')?;
+    testing.assert(found.contains(path.join(root, 'a.thera')), message: 'top-level source')?;
     testing.assert(
-        found.has(path.join(path.join(root, 'sub'), 'b.thera')),
+        found.contains(path.join(path.join(root, 'sub'), 'b.thera')),
         message: 'nested source',
     )?;
 

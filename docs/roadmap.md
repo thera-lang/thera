@@ -920,6 +920,14 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Naming audit A2/A3: `Set.contains`, `char.to_lowercase`/`to_uppercase`**
+  (2026-08, issue #142). `Set.has` fought both the cross-language membership
+  prior (Rust/Java/Kotlin/Swift all say `contains`; JS `Set.has` is the lone
+  holdout) and Thera's own `List.contains`; the mining caught agents guessing
+  `contains` on sets. The recorded rule (language.md, Collections): element
+  membership is `contains`, key presence (`Map.has`) is `has`. `std.char`'s case
+  functions align with `String.to_lowercase`/`to_uppercase`.
+
 - **`Display.display` renamed to `to_string`** (2026-08, the naming audit's
   flagship — issue #142). Agents guess `to_string` (Java/Kotlin/Dart `toString`,
   Rust's `ToString` blanket over `Display`), Thera's own named-for-its-result

@@ -57,11 +57,11 @@ fn test_is_whitespace() -> Result<Void, Error> {
 
 @test
 fn test_case_conversion() -> Result<Void, Error> {
-    testing.assert_eq(actual: to_lower(UPPER_A), expected: LOWER_A)?;
-    testing.assert_eq(actual: to_upper(LOWER_A), expected: UPPER_A)?;
+    testing.assert_eq(actual: to_lowercase(UPPER_A), expected: LOWER_A)?;
+    testing.assert_eq(actual: to_uppercase(LOWER_A), expected: UPPER_A)?;
     // Non-letters pass through unchanged.
-    testing.assert_eq(actual: to_lower(DIGIT_0), expected: DIGIT_0)?;
-    testing.assert_eq(actual: to_upper(SPACE), expected: SPACE)?;
+    testing.assert_eq(actual: to_lowercase(DIGIT_0), expected: DIGIT_0)?;
+    testing.assert_eq(actual: to_uppercase(SPACE), expected: SPACE)?;
     return Result.Ok(void);
 }
 

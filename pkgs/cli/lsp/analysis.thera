@@ -268,7 +268,7 @@ impl Analysis {
             affected.add(k);
         }
         for u in self.docs.keys() {
-            if affected.has(loader.canonical_path(paths.uri_to_path(u))) {
+            if affected.contains(loader.canonical_path(paths.uri_to_path(u))) {
                 self.dirty.add(u);
             }
         }
@@ -552,7 +552,7 @@ impl Analysis {
         let seen: Set<String> = Set.new();
         for p in workspace.thera_files(self.roots, prune: (d) => self.prunes_dir(d)) {
             let key = loader.canonical_path(p);
-            if !seen.has(key) {
+            if !seen.contains(key) {
                 seen.add(key);
                 if let Ok(text) = fs.read_text(p) {
                     out.push(ScanFile { uri: paths.path_to_uri(p), path: p, text: text });
@@ -603,7 +603,7 @@ impl Analysis {
         }
         let out: List<ScanFile> = [];
         for f in files {
-            if cone.has(loader.canonical_path(f.path)) {
+            if cone.contains(loader.canonical_path(f.path)) {
                 out.push(f);
             }
         }
@@ -845,7 +845,7 @@ impl Analysis {
         // its squiggles client-side forever. An empty `full` with no resultId: the
         // items clear, and the client stops echoing an id for the uri.
         for uri in prev_ids.keys() {
-            if !emitted_uris.has(uri) {
+            if !emitted_uris.contains(uri) {
                 items.push(retraction_item(uri));
             }
         }

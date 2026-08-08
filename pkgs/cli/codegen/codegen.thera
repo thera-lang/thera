@@ -669,7 +669,7 @@ impl FnCompiler {
         match self.slots.get(name) {
             Some(slot) => {
                 self.emit(Instr.Load(slot));
-                if self.boxed_locals.has(name) {
+                if self.boxed_locals.contains(name) {
                     self.emit(Instr.FieldGet(0));
                 }
             },
@@ -719,7 +719,7 @@ impl FnCompiler {
     // same-named consts referencing each other aren't a false cycle.
     fn emit_const(self, _ owner: String, _ name: String, _ span: SourceSpan) -> Void {
         let key = type_key(owner, name);
-        if self.consts_in_progress.has(key) {
+        if self.consts_in_progress.contains(key) {
             self.error('cyclic constant: ${name}', span);
             return;
         }
@@ -791,7 +791,7 @@ impl FnCompiler {
                         self.type_scope,
                         self.ctx,
                     ));
-                    if self.boxed_locals.has(x.name) {
+                    if self.boxed_locals.contains(x.name) {
                         self.emit(Instr.StructNew(self.scope.cell_type_index()));
                     }
                     let slot = self.declare_local(x.name);
@@ -879,7 +879,7 @@ impl FnCompiler {
             Ident(_, name) => {
                 match self.slots.get(name) {
                     Some(slot) => {
-                        if self.boxed_locals.has(name) {
+                        if self.boxed_locals.contains(name) {
                             // Write into the cell, not the slot.
                             self.emit(Instr.Load(slot));
                             self.expr(value);
@@ -989,7 +989,7 @@ impl FnCompiler {
                     return true;
                 }
                 return match self.scope.interface_impls.get(id) {
-                    Some(info) => info.interfaces.has(self.core_iface_key('Iterator')),
+                    Some(info) => info.interfaces.contains(self.core_iface_key('Iterator')),
                     None => false,
                 };
             },
@@ -1270,7 +1270,7 @@ impl FnCompiler {
         }
         let boxed_captures: Set<String> = Set.new();
         for name in captures {
-            if self.boxed_locals.has(name) {
+            if self.boxed_locals.contains(name) {
                 boxed_captures.add(name);
             }
         }
@@ -2247,7 +2247,7 @@ impl FnCompiler {
                     let mut found = false;
                     for i in ifaces {
                         if let Some(s) = self.scope.interface_methods.get(i) {
-                            if s.has(field) {
+                            if s.contains(field) {
                                 found = true;
                                 if let Some(m) = self.scope.interface_method_sigs.get(i) {
                                     sig = m.get(field);
@@ -2494,7 +2494,7 @@ impl FnCompiler {
     ) -> Option<Int> {
         if let Some(t) = ty {
             let implements = match self.scope.interface_impls.get(t) {
-                Some(info) => info.interfaces.has(iface),
+                Some(info) => info.interfaces.contains(iface),
                 None => false,
             };
             if implements {
@@ -2541,7 +2541,7 @@ impl FnCompiler {
         if let Some(ifaces) = self.dispatch_interfaces(t) {
             for i in ifaces {
                 if let Some(s) = self.scope.interface_methods.get(i) {
-                    if s.has(method) {
+                    if s.contains(method) {
                         return true;
                     }
                 }
@@ -2629,7 +2629,7 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
     while count < keys.len() {
         let mut best: Option<Int> = Option.None;
         for k in keys {
-            if !used.has(k) {
+            if !used.contains(k) {
                 match best {
                     None => { best = Option.Some(k); },
                     Some(b) => {
@@ -2919,7 +2919,7 @@ struct FreeVars {
 
 impl TreeVisitor for FreeVars {
     fn free_ref(self, _ name: String) -> Void {
-        if !self.seen.has(name) {
+        if !self.seen.contains(name) {
             self.seen.add(name);
             self.free.push(name);
         }
@@ -2967,7 +2967,7 @@ fn walk_block(_ b: Block, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
 
 fn walk_expr(_ e: Expr, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
     match e {
-        Ident(_, name) => { if !bound.has(name) { v.free_ref(name); } },
+        Ident(_, name) => { if !bound.contains(name) { v.free_ref(name); } },
         Int(_, _) => void,
         Float(_, _) => void,
         Bool(_, _) => void,
@@ -3194,7 +3194,7 @@ fn boxed_mut_locals(_ body: Block) -> Set<String> {
         }
     }
     for name in scan.muts.to_list() {
-        if captured.has(name) {
+        if captured.contains(name) {
             result.add(name);
         }
     }
