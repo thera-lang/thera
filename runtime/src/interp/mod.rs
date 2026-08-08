@@ -1972,24 +1972,7 @@ impl<'a> Vm<'a> {
             // primitive/`String` renders via the built-in `display_string`;
             // everything else falls back to the auto-derived `Debug` (which never
             // traps), so `${x}` / `println(x)` work for any value.
-            //
-            // `display` is the selector's legacy name, answered so bytecode
-            // emitted before the `Display.to_string` rename — chiefly the pinned
-            // bootstrap snapshot — keeps running; drop it when the snapshot no
-            // longer carries it.
-            "to_string" | "display" => {
-                // Legacy-selector bridge: pre-rename bytecode dispatches
-                // rendering as `display`, while a module compiled after the
-                // rename registers its `Display` impls under `to_string` — the
-                // mix the bootstrap ratchet produces when the pinned snapshot
-                // compiles current sources. Cross-resolve so those impls still
-                // win over the built-in fallback.
-                if selector == "display"
-                    && let Some(ty) = dispatch_type_id(recv)
-                    && let Some(func) = module.dispatch_target(ty, "to_string")
-                {
-                    return self.call(module, func as usize, vec![*recv]);
-                }
+            "to_string" => {
                 if natives::has_builtin_display(recv) {
                     Ok(Value::new_str(natives::display_string(recv)?))
                 } else {
@@ -3824,62 +3807,6 @@ mod tests {
         // Primitives carry built-in Display: no impl row, rendered natively.
         let m = dispatch_module();
         assert_eq!(super::run(&m, 2, &[Value::Int(5)]), Ok(Value::new_str("5")));
-    }
-
-    #[test]
-    fn call_virtual_legacy_display_selector_still_falls_back() {
-        // Bytecode emitted before the `Display.to_string` rename — chiefly the
-        // pinned bootstrap snapshot — dispatches total rendering as `display`;
-        // the fallback answers the legacy selector until the snapshot no longer
-        // carries it.
-        let describe = Function::new(
-            "describe",
-            1,
-            1,
-            vec![
-                Instr::Load(0),
-                Instr::CallVirtual {
-                    selector: "display".into(),
-                    argc: 1,
-                },
-                Instr::Return,
-            ],
-        );
-        let m = Module::new(vec![describe]);
-        assert_eq!(super::run(&m, 0, &[Value::Int(5)]), Ok(Value::new_str("5")));
-    }
-
-    #[test]
-    fn legacy_display_selector_resolves_a_to_string_impl_row() {
-        // The ratchet mix: pre-rename bytecode dispatches `display`, but the
-        // module (compiled after the rename) registers its Display impl as
-        // `to_string`. The fallback cross-resolves to the impl instead of
-        // falling back to the structural Debug rendering.
-        use crate::module::DispatchEntry;
-        let impl_to_string = Function::new(
-            "Dog.to_string",
-            1,
-            1,
-            vec![Instr::ConstStr("woof".into()), Instr::Return],
-        );
-        let describe = Function::new(
-            "describe",
-            1,
-            1,
-            vec![
-                Instr::Load(0),
-                Instr::CallVirtual {
-                    selector: "display".into(),
-                    argc: 1,
-                },
-                Instr::Return,
-            ],
-        );
-        let mut m =
-            Module::with_types(vec![impl_to_string, describe], vec![TypeDef::new("Dog", 0)]);
-        m.set_dispatch(vec![DispatchEntry::new(0, "to_string", 0)]);
-        let dog = Value::new_struct(0, vec![]);
-        assert_eq!(super::run(&m, 1, &[dog]), Ok(Value::new_str("woof")));
     }
 
     #[test]
