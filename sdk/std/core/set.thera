@@ -64,10 +64,10 @@ impl Set<T> {
     }
 }
 
-impl Display for Set<T> {
+impl Debug for Set<T> {
     /// `(a, b, c)` — elements rendered via `Debug`, in insertion order. (Empty
     /// set: `()`.)
-    fn to_string(self) -> String {
+    fn debug(self) -> String {
         let mut s = '(';
         let mut first = true;
         for item in self.to_list() {
@@ -81,10 +81,11 @@ impl Display for Set<T> {
     }
 }
 
-/// The developer form of a set is its display form — one body serves both
-/// (`Debug` is what nested rendering and a direct `.debug()` call reach).
-impl Debug for Set<T> {
-    fn debug(self) -> String {
-        return self.to_string();
+/// A set's display form *is* its developer form — the structural `Debug`
+/// rendering is canonical (there is no prettier user-facing shape; the
+/// Python `str`-delegates-to-`repr` convention for containers).
+impl Display for Set<T> {
+    fn to_string(self) -> String {
+        return self.debug();
     }
 }

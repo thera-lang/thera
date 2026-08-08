@@ -1824,9 +1824,11 @@ Primitive types (`Int`, `Double`, `Bool`, `String`) implement both, and the
 built-in collections and wrappers (`List`, `Map`, `Set`, `Bytes`, `Option`,
 `Result`, `Ordering`) carry **declared `Debug` impls** in `std.core` — so
 `.debug()` is an ordinary callable method on any of them, not only a rendering
-fallback (for the containers, the developer form is the display form; for
-`String` they differ — `Debug` is quoted). Structs get a default `Debug`
-implementation; `Display` must be implemented explicitly.
+fallback. For the containers the structural `Debug` body is canonical and
+`Display` delegates to it (the Python `str`-delegates-to-`repr` convention —
+there is no prettier user-facing shape); for `String` the two genuinely differ
+(`Debug` is quoted). Structs get a default `Debug` implementation; `Display`
+must be implemented explicitly.
 
 ```thera
 // auto-derived Debug for a struct prints its fields by name:
