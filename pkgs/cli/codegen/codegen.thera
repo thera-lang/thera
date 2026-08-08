@@ -259,6 +259,14 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                         scope.add_native_static_method(x.type_name, method);
                     } else if method.is_native {
                         scope.add_native_instance_method(x.type_name, method);
+                        // A native `to_string` *inside an `impl Display`* is the
+                        // type's rendering conformance (`Display` is a reserved
+                        // type name, so the bare check is exact); `emit_display`
+                        // resolves through this, never the bare-name table.
+                        if method.name == 'to_string'
+                            && x.interface_name == Option.Some('Display') {
+                            scope.add_native_display_symbol(x.type_name, method);
+                        }
                     } else {
                         if let Some(_) = method.body {
                             scope.add_method(
@@ -1765,7 +1773,7 @@ impl FnCompiler {
 
     // Evaluate `value` and leave its `String` rendering on the stack: a value
     // already typed `String` needs no conversion; otherwise it is rendered through
-    // its `Display.display` method. The shared lowering behind both interpolation
+    // its `Display.to_string` method. The shared lowering behind both interpolation
     // and `println`/`print`/`eprintln`/`eprint`.
     fn emit_as_string(self, _ value: Expr, _ span: SourceSpan) -> Void {
         let t = infer_expr(value, self.type_scope, self.ctx, Option.None);
@@ -1775,35 +1783,51 @@ impl FnCompiler {
         }
     }
 
-    // Render the value on top of the stack to a `String` via its `Display.display`
-    // method, resolved like any method call: a native instance method (the
-    // primitives' `display` → their per-type native, e.g. `int_to_string`), a
-    // virtual dispatch (an interface-typed or bounded-generic value), or a concrete
-    // impl method. Errors when the type has no `Display`.
+    // Render the value on top of the stack to a `String` via its `Display.to_string`
+    // method: the type's native Display conformance (the primitives'
+    // `impl Display` natives, e.g. `int_to_string` — resolved via
+    // `native_display_symbols`, *not* the bare-name instance table, so an
+    // inherent native named `to_string` outside a Display impl, like
+    // `Bytes.to_string() -> Result<…>`, is never mistaken for rendering), a
+    // virtual dispatch (an interface-typed or bounded-generic value), or a
+    // concrete impl method.
     fn emit_display(self, _ t: Type, _ span: SourceSpan) -> Void {
-        if let Some(symbol) = self.native_instance_method_symbol(name_of_type(t), 'display') {
+        if let Some(symbol) = self.native_display_symbol(name_of_type(t)) {
             self.emit(Instr.CallNative(symbol, 1));
             return;
 
         }
-        if self.dispatches_via(t, 'display') {
-            self.emit(Instr.CallVirtual('display', 1));
+        if self.dispatches_via(t, 'to_string') {
+            self.emit(Instr.CallVirtual('to_string', 1));
             return;
         }
-        match self.interface_method(type_id_of_type(t), self.core_iface_key('Display'), 'display') {
-            Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
+        match self.interface_method(
+            type_id_of_type(t),
+            self.core_iface_key('Display'),
+            'to_string',
+        ) {
+            Some(to_string_idx) => { self.emit(Instr.Call(to_string_idx, 1)); },
             None => {
-                // Total rendering: no static `Display` impl, so dispatch `display`
+                // Total rendering: no static `Display` impl, so dispatch `to_string`
                 // virtually. The runtime renders via the type's `Display` if it has
                 // one, else its auto-derived `Debug` (Debug-fallback) — so this works
                 // for any value, including an unbounded type parameter.
-                self.emit(Instr.CallVirtual('display', 1));
+                self.emit(Instr.CallVirtual('to_string', 1));
             },
         }
     }
 
+    // The runtime native symbol behind `ty_name`'s native `impl Display`
+    // conformance, if it has one; None otherwise.
+    fn native_display_symbol(self, _ ty_name: Option<String>) -> Option<String> {
+        if let Some(t) = ty_name {
+            return self.scope.native_display_symbols.get(t);
+        }
+        return Option.None;
+    }
+
     // The runtime native symbol backing `ty_name`'s native instance `method`, if it
-    // has one (e.g. the primitives' `display` → `int_to_string`); None otherwise.
+    // has one; None otherwise.
     fn native_instance_method_symbol(
         self,
         _ ty_name: Option<String>,
@@ -2205,17 +2229,17 @@ impl FnCompiler {
     // generic parameter bound by an interface. The concrete type isn't known
     // here, so dispatch on the runtime type id. False (→ a "no method" error)
     // when the selector isn't declared by any candidate interface — except the
-    // universal `display`/`debug` selectors, which dispatch on any receiver
+    // universal `to_string`/`debug` selectors, which dispatch on any receiver
     // (total rendering: the runtime resolves the value's impl or its auto-derived
     // fallback).
     fn emit_virtual_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         // A non-universal selector must be declared by a candidate interface;
         // the declaring interface's signature governs the call (its parameter
         // defaults fill omitted arguments, as at every statically resolved
-        // site). `display`/`debug` are universal (and nullary): they dispatch
+        // site). `to_string`/`debug` are universal (and nullary): they dispatch
         // on any receiver with no signature to consult.
         let mut sig: Option<IfaceMethodSig> = Option.None;
-        if field != 'display' && field != 'debug' {
+        if field != 'to_string' && field != 'debug' {
             match self.dispatch_interfaces(
                 infer_expr(obj, self.type_scope, self.ctx, Option.None)
             ) {

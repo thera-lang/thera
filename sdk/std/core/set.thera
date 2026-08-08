@@ -66,7 +66,7 @@ impl Set<T> {
 impl Display for Set<T> {
     /// `(a, b, c)` — elements rendered via `Debug`, in insertion order. (Empty
     /// set: `()`.)
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         let mut s = '(';
         let mut first = true;
         for item in self.to_list() {

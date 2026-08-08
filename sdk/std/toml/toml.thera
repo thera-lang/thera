@@ -112,7 +112,7 @@ impl Error for TomlError {
 }
 
 impl Display for TomlError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }
@@ -270,7 +270,7 @@ impl Error for DecodeError {
 }
 
 impl Display for DecodeError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }

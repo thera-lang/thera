@@ -67,8 +67,8 @@ impl Pulls {
             'base': base,
             'sort': Option.Some(sort),
             'direction': direction,
-            'per_page': Option.Some(per_page.display()),
-            'page': Option.Some(page.display()),
+            'per_page': Option.Some(per_page.to_string()),
+            'page': Option.Some(page.to_string()),
         ]));
         let resp = self.client.request('GET', url)?;
         return page_of(self.client, resp, pull_request_from_json);

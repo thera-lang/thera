@@ -4,7 +4,7 @@
 // A type parameter has exactly its bounds' methods. A method named by none of
 // them — including an unbounded `T`, which has none — is a definitive miss, so
 // `check` rejects it (previously this passed `check` and only codegen rejected
-// it, `no method "…" on T`). The universal `display`/`debug` selectors are the
+// it, `no method "…" on T`). The universal `to_string`/`debug` selectors are the
 // exception: they render any value, so they stay callable on any parameter.
 
 interface Weighted {

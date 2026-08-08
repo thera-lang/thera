@@ -41,7 +41,7 @@ fn main() -> Result<Int, Error> {
     print(hello.text()?);
 
     let usage = http.get(base + '/')?;
-    println('empty path -> ' + usage.status.display());
+    println('empty path -> ' + usage.status.to_string());
 
     return Result.Ok(0);
 }

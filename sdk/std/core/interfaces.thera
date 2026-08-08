@@ -13,7 +13,7 @@ pub interface Eq {
 /// (so `${x}` works for any value). Implement `Display` to override the default
 /// `Debug` rendering with a prettier, user-facing form.
 pub interface Display {
-    fn display(self) -> String;
+    fn to_string(self) -> String;
 }
 
 /// Developer-facing string representation. Used by assertion failure

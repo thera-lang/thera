@@ -79,7 +79,7 @@ impl Error for IoError {
 }
 
 impl Display for IoError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }

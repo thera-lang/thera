@@ -55,7 +55,7 @@ impl Int {
 /// conformance behind what interpolation / `println` produce for an Int.
 impl Display for Int {
     @extern('int_to_string')
-    pub native fn display(self) -> String
+    pub native fn to_string(self) -> String
 }
 
 /// Int has a natural total order. The explicit `impl Ord` is the conformance

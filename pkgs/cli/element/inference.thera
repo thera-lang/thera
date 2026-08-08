@@ -1109,13 +1109,13 @@ pub fn infer_callee_kind(
     // A function-valued field invoked like a method.
     if let Function(_, _) = field_type(recv_type, field, ctx) { return CalleeKind.FieldCall; }
 
-    // Total rendering: `display` and `debug` are universal — every value renders
+    // Total rendering: `to_string` and `debug` are universal — every value renders
     // via its own impl or the runtime's auto-derived fallback. So when nothing
     // above resolved the call statically (an unbounded type parameter, a type
     // parameter scoped to an `impl` block, or a concrete type with no explicit
     // impl), dispatch it virtually and let the runtime resolve impl-or-fallback,
     // rather than treating it as unresolvable.
-    if field == 'display' || field == 'debug' {
+    if field == 'to_string' || field == 'debug' {
         return CalleeKind.Virtual;
     }
 
@@ -1803,10 +1803,10 @@ pub fn lookup_method(
             // (dynamic dispatch). This mirrors codegen's `emit_virtual_call`, so
             // `check` and `emit` agree on what resolves.
             if let TypeParameter(tpname) = recv {
-                // `display`/`debug` are universal — total rendering resolves any
+                // `to_string`/`debug` are universal — total rendering resolves any
                 // value to its impl or the runtime's auto-derived fallback — so
                 // they are callable on any parameter, bounded or not.
-                if field == 'display' || field == 'debug' {
+                if field == 'to_string' || field == 'debug' {
                     return MethodLookup.Lenient;
                 }
                 if let Some(bounds) = ctx.type_param_bounds.get(tpname) {

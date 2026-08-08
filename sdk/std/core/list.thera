@@ -258,7 +258,7 @@ impl Display for List<T> {
     /// `[a, b, c]` — each element rendered via `Debug`, so nested strings are
     /// quoted (`["a", "b"]`), matching mainstream collection printing. (Empty
     /// list: `[]`.)
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         let mut s = '[';
         let mut first = true;
         for item in self {

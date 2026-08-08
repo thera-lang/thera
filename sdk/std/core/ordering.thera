@@ -49,7 +49,7 @@ impl Ordering {
 }
 
 impl Display for Ordering {
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return match self {
             Less => 'Less',
             Equal => 'Equal',

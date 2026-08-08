@@ -49,7 +49,7 @@ impl Error for ErrorMessage {
 /// Renders as its text under interpolation / `println`. Because `Error` extends
 /// `Display`, an `Error`-typed value interpolates directly too (`'${e}'`).
 impl Display for ErrorMessage {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.text;
     }
 }

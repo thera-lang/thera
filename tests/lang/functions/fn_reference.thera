@@ -21,7 +21,7 @@ fn double(_ n: Int) -> Int {
 }
 
 fn stringify_it(_ n: Int) -> String {
-    return 'n=' + n.display();
+    return 'n=' + n.to_string();
 }
 
 fn apply(_ f: (Int) -> Int, _ n: Int) -> Int {
@@ -35,23 +35,23 @@ fn pick() -> (Int) -> String {
 
 fn main() -> Void {
     // Passed as an argument.
-    println(apply(double, 21).display()); // expect: 42
+    println(apply(double, 21).to_string()); // expect: 42
 
     // Bound to a local, then called through it.
     let f = double;
-    println(f(5).display()); // expect: 10
+    println(f(5).to_string()); // expect: 10
 
     // Returned from a function, then called.
     let chosen = pick();
     println(chosen(7)); // expect: n=7
 
     // Interchangeable with the equivalent lambda.
-    println(apply((n) => double(n), 4).display()); // expect: 8
+    println(apply((n) => double(n), 4).to_string()); // expect: 8
 
     // A reference and a lambda coexist in one list of function values.
     let fns = [double, (n: Int) => n + 1];
     let first = fns[0];
     let second = fns[1];
-    println(first(10).display()); // expect: 20
-    println(second(10).display()); // expect: 11
+    println(first(10).to_string()); // expect: 20
+    println(second(10).to_string()); // expect: 11
 }

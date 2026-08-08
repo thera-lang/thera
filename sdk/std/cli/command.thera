@@ -157,7 +157,7 @@ impl Error for CliError {
 
 /// A concrete `CliError` renders as its message under interpolation / println.
 impl Display for CliError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }

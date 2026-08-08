@@ -52,7 +52,7 @@ impl Error for RegexError {
 }
 
 impl Display for RegexError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }

@@ -142,13 +142,15 @@ fn serves_many_connections_concurrently() -> Result<Void, Error> {
         let conn = net.connect_addr(addr)?;
         io.write_all(
             to: conn,
-            ('GET /n' + i.display() + ' HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n').bytes(),
+            (
+                'GET /n' + i.to_string() + ' HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'
+            ).bytes(),
         )?;
         pending.push(conn);
     }
     for p in pending.enumerate() {
         let resp = common.Wire.new(p.value).read_response()?;
-        testing.assert_eq(resp.body.to_string()?, 'hello /n' + p.index.display())?;
+        testing.assert_eq(resp.body.to_string()?, 'hello /n' + p.index.to_string())?;
         p.value.close()?;
     }
     return Result.Ok(void);

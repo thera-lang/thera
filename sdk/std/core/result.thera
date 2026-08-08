@@ -128,7 +128,7 @@ impl Result<T, E> {
 
 impl Display for Result<T, E> {
     /// `Ok(x)` / `Err(e)` — the contained value rendered via `Debug`.
-    fn display(self) -> String {
+    fn to_string(self) -> String {
         return match self {
             Ok(v) => 'Ok(${v.debug()})',
             Err(e) => 'Err(${e.debug()})',

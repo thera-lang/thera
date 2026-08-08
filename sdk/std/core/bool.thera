@@ -12,7 +12,7 @@ pub native type Bool
 /// conformance behind what interpolation / `println` produce for a Bool.
 impl Display for Bool {
     @extern('bool_to_string')
-    pub native fn display(self) -> String
+    pub native fn to_string(self) -> String
 }
 
 /// Bool is ordered `false < true` (so a sort groups the falses first).

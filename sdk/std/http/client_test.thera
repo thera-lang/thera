@@ -557,7 +557,7 @@ fn write_two_events(_ listener: net.TcpListener, _ go: fiber.Channel<Bool>) -> R
     let head = 'HTTP/1.1 200 OK\r\n'
         + 'content-type: text/event-stream\r\n'
         + 'content-length: '
-        + (first.byte_len() + second.byte_len()).display()
+        + (first.byte_len() + second.byte_len()).to_string()
         + '\r\n\r\n';
     io.write_all(to: conn, (head + first).bytes())?;
     let signalled = fiber.select([go, fiber.after(time.Duration.seconds(2))]) == 0;
@@ -578,12 +578,12 @@ fn many_requests_run_concurrently() -> Result<Void, Error> {
     let base = serving(echo)?;
     let mut calls = [];
     for i in 0..10 {
-        let path = '/n' + i.display();
+        let path = '/n' + i.to_string();
         calls.push(fiber.spawn(() => http.get(base + path)));
     }
     for p in calls.enumerate() {
         let resp = p.value.join()?;
-        testing.assert_eq(field(resp, 'url')?, '/n' + p.index.display())?;
+        testing.assert_eq(field(resp, 'url')?, '/n' + p.index.to_string())?;
     }
     return Result.Ok(void);
 }

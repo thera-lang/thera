@@ -52,7 +52,7 @@ impl SourceSpan {
 }
 
 impl Display for SourceSpan {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return '${self.line}:${self.column}';
     }
 }

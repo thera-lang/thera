@@ -50,7 +50,7 @@ impl Error for FsError {
 }
 
 impl Display for FsError {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return self.message();
     }
 }

@@ -91,12 +91,12 @@ fn many_concurrent_connections() -> Result<Void, Error> {
     let mut clients = [];
     for i in 0..count {
         let c = net.connect_addr(addr)?;
-        io.write_all(to: c, ('hello ' + i.display()).bytes())?;
+        io.write_all(to: c, ('hello ' + i.to_string()).bytes())?;
         clients.push(c);
     }
     for p in clients.enumerate() {
         let reply = p.value.read(max: 64)?;
-        testing.assert_eq(reply.to_string()?, 'hello ' + p.index.display())?;
+        testing.assert_eq(reply.to_string()?, 'hello ' + p.index.to_string())?;
         p.value.close()?;
     }
 

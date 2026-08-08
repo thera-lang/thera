@@ -22,7 +22,7 @@ impl Point {
 }
 
 impl Display for Point {
-    pub fn display(self) -> String {
+    pub fn to_string(self) -> String {
         return 'a:${self.x},${self.y}';
     }
 }

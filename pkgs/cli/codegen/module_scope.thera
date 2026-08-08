@@ -162,6 +162,12 @@ pub struct ModuleScope {
     let native_fns: Map<String, Map<String, String>>;
     let native_static_methods: Map<String, Map<String, String>>;
     let native_instance_methods: Map<String, Map<String, String>>;
+    // The native symbol behind a type's `impl Display` `to_string`, when that
+    // impl's method is native (the primitives: `int_to_string`, …). Keyed by
+    // type name. `emit_display` consults *this*, not the bare-name instance
+    // table — an inherent native named `to_string` outside a Display impl
+    // (`Bytes.to_string() -> Result<…>`) is not a rendering conformance.
+    let native_display_symbols: Map<String, String>;
     let interface_impls: Map<TypeId, ImplInfo>; // type identity -> impls
     let interface_methods: Map<TypeId, Set<String>>;
     // Each interface's method signatures (params + declaring file), for filling
@@ -209,6 +215,7 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
         native_fns: [:],
         native_static_methods: [:],
         native_instance_methods: [:],
+        native_display_symbols: [:],
         interface_impls: [:],
         interface_methods: [:],
         interface_method_sigs: [:],
@@ -546,6 +553,10 @@ impl ModuleScope {
         if let Some(m) = self.native_instance_methods.get(type_name) {
             m[method.name] = extern_symbol(method);
         }
+    }
+
+    pub fn add_native_display_symbol(self, _ type_name: String, _ method: FnDecl) -> Void {
+        self.native_display_symbols[type_name] = extern_symbol(method);
     }
 
     pub fn add_interface_impl(self, _ owner: String, _ type_name: String, _ iface: TypeId) -> Void {
