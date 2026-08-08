@@ -63,7 +63,7 @@ fn walk_dir(
                 }
             },
             _ => {
-                if e.name.ends_with('.thera') && !seen.has(full) {
+                if e.name.ends_with('.thera') && !seen.contains(full) {
                     seen.add(full);
                     out.push(full);
                 }

@@ -32,8 +32,9 @@ impl Set<T> {
         self.items[value] = true;
     }
 
-    /// True if `value` is a member.
-    pub fn has(self, _ value: T) -> Bool {
+    /// True if `value` is a member. (Element membership is `contains`, matching
+    /// `List.contains`; *key* presence — `Map.has` — stays `has`.)
+    pub fn contains(self, _ value: T) -> Bool {
         return self.items.has(value);
     }
 

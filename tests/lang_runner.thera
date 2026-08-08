@@ -360,7 +360,7 @@ fn report_coverage(_ map_path: String, _ specs: List<String>) -> Bool {
     let mut covered = 0;
     let untested: List<String> = [];
     for id in registered_ids {
-        if tested.has(id) {
+        if tested.contains(id) {
             covered = covered + 1;
         } else {
             untested.push(id);
@@ -368,7 +368,7 @@ fn report_coverage(_ map_path: String, _ specs: List<String>) -> Bool {
     }
     let unregistered: List<String> = [];
     for id in tested.to_list() {
-        if !registered.has(id) {
+        if !registered.contains(id) {
             unregistered.push(id);
         }
     }
@@ -404,7 +404,7 @@ fn extract_registered_ids(_ source: String) -> List<String> {
                 let first = cells[1].trim();
                 if first.len() >= 2 && first.starts_with('`') && first.ends_with('`') {
                     let token = first.slice(1, first.len() - 1);
-                    if is_id_token(token) && !seen.has(token) {
+                    if is_id_token(token) && !seen.contains(token) {
                         seen.add(token);
                         ids.push(token);
                     }

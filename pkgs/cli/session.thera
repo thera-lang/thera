@@ -236,7 +236,7 @@ impl Session {
     fn evict_libraries_with(self, _ k: String) -> Void {
         let stale: List<String> = [];
         for sig in self.library_cache.keys() {
-            if self.library_cache[sig].members.has(k) {
+            if self.library_cache[sig].members.contains(k) {
                 stale.push(sig);
             }
         }
@@ -353,7 +353,7 @@ impl Session {
         while i < cone.len() {
             if let Some(importers) = importers_of.get(cone[i]) {
                 for f in importers {
-                    if !seen.has(f) {
+                    if !seen.contains(f) {
                         seen.add(f);
                         cone.push(f);
                     }
@@ -476,7 +476,7 @@ impl Session {
         // already reported this run — then the closure's check errors.
         let out: List<diagnostic.Diagnostic> = [];
         for d in loaded.diagnostics {
-            if !d.file.map((f) => self.checked.has(f)).unwrap_or(false) {
+            if !d.file.map((f) => self.checked.contains(f)).unwrap_or(false) {
                 out.push(d);
             }
         }
@@ -753,12 +753,12 @@ fn mark_checked_clean(
             None => { primary_dirty = true; },
         }
     }
-    if !primary_dirty && !error_files.has(primary_key) && !skip.has(primary_key) {
+    if !primary_dirty && !error_files.contains(primary_key) && !skip.contains(primary_key) {
         checked.add(primary_key);
     }
     for p in programs {
         if let Some(key) = p.file_path {
-            if !skip.has(key) && !error_files.has(key) {
+            if !skip.contains(key) && !error_files.contains(key) {
                 checked.add(key);
             }
         }

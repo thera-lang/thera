@@ -42,7 +42,7 @@ pub fn group_by_file(
             None => primary,
         };
         let key = '${owner}:${d.span.offset}:${d.span.length}:${d.message}';
-        if !seen.has(key) {
+        if !seen.contains(key) {
             seen.add(key);
             if !into.has(owner) {
                 into[owner] = [];

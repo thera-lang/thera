@@ -58,7 +58,7 @@ pub fn complete_at(
     let seen: Set<String> = Set.new();
     let out: List<CompletionItem> = [];
     for it in items {
-        if it.label != '' && !seen.has(it.label)
+        if it.label != '' && !seen.contains(it.label)
             && (cur.prefix == '' || it.label.starts_with(cur.prefix)) {
             seen.add(it.label);
             out.push(it);

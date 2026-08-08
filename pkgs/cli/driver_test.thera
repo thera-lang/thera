@@ -133,9 +133,9 @@ fn test_checked_set_records_only_clean_files() -> Result<Void, Error> {
     let checked: Set<String> = Set.new();
     let first = check_source_at(main_src, main_path, Option.None, checked: checked);
     testing.assert_eq(actual: first.len(), expected: 1)?;
-    testing.assert(checked.has(dir + '/clean.thera'), message: 'clean dep marked checked')?;
-    testing.assert(checked.has(main_path), message: 'clean primary marked checked')?;
-    testing.assert(!checked.has(dir + '/broken.thera'), message: 'broken dep never marked')?;
+    testing.assert(checked.contains(dir + '/clean.thera'), message: 'clean dep marked checked')?;
+    testing.assert(checked.contains(main_path), message: 'clean primary marked checked')?;
+    testing.assert(!checked.contains(dir + '/broken.thera'), message: 'broken dep never marked')?;
 
     // A second pass with the same set: the clean files (incl. the primary) are
     // skipped; the broken dep re-reports.

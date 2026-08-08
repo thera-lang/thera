@@ -13,6 +13,7 @@ the checker disagree, believe the checker.
 //! One-line file doc: what this file is.
 
 import std.fs;                            // used as `fs.…`
+
 import 'parser';                          // sibling file parser.thera, used as `parser.…`
 
 /// Item docs: one summary sentence first.

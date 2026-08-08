@@ -86,8 +86,8 @@ fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
     for l in locs {
         if let Some(u) = l.get('uri').as_string() { uris.add(u); }
     }
-    testing.assert(uris.has(a_uri), message: 'declaration in a.thera')?;
-    testing.assert(uris.has(b_uri), message: 'use in the closed b.thera')?;
+    testing.assert(uris.contains(a_uri), message: 'declaration in a.thera')?;
+    testing.assert(uris.contains(b_uri), message: 'use in the closed b.thera')?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
@@ -156,13 +156,13 @@ fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
         uris.add(loc.get('uri').as_string().unwrap_or(''));
     }
     testing.assert_eq(actual: refs.len(), expected: 2)?;
-    testing.assert(uris.has(a_uri), message: 'includes the declaration in a.thera')?;
+    testing.assert(uris.contains(a_uri), message: 'includes the declaration in a.thera')?;
     testing.assert(
-        uris.has(b_uri),
+        uris.contains(b_uri),
         message: 'includes the closed importer b.thera (cone is complete)',
     )?;
     testing.assert(
-        !uris.has(d_uri),
+        !uris.contains(d_uri),
         message: 'excludes d.thera (a same-named symbol outside the cone)',
     )?;
 

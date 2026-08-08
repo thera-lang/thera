@@ -356,7 +356,7 @@ fn do_check(
                 let diags = sess.check(source, file);
                 for d in diags {
                     let line = session.format_diagnostic(d, file);
-                    if !printed.has(line) {
+                    if !printed.contains(line) {
                         printed.add(line);
                         println(line);
                         if diagnostic.is_error(d) {

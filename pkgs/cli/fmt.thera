@@ -530,7 +530,7 @@ fn no_space_after(_ a: Token, _ a_prefix_unary: Bool, _ delims: parser.GenericDe
         DotDot => true,
         At => true,
         Hash => true,
-        Lt => delims.opens.has(a.span.offset), // generic open: `List<Int`
+        Lt => delims.opens.contains(a.span.offset), // generic open: `List<Int`
         _ => false,
     };
 }
@@ -554,8 +554,8 @@ fn no_space_before(
         Dot => true,
         DotDot => true,
         Question => true,
-        Lt => delims.opens.has(b.span.offset), // `List<`: tight to the type name
-        Gt => delims.closes.has(b.span.offset), // `Int>`: tight to the last arg
+        Lt => delims.opens.contains(b.span.offset), // `List<`: tight to the type name
+        Gt => delims.closes.contains(b.span.offset), // `Int>`: tight to the last arg
         LParen => is_value_ender(a, delims) || a_member_kw, // call `foo(` vs group `return (`
         LBracket => is_value_ender(a, delims) || a_member_kw, // index `xs[` vs literal `= [`
         _ => false,
@@ -584,7 +584,7 @@ fn is_value_ender(_ t: Token, _ delims: parser.GenericDelims) -> Bool {
         KwTrue => true,
         KwFalse => true,
         KwVoid => true,
-        Gt => delims.closes.has(t.span.offset),
+        Gt => delims.closes.contains(t.span.offset),
         _ => false,
     };
 }

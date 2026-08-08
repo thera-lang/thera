@@ -6,10 +6,10 @@ import std.testing;
 fn test_from_collapses_duplicates() -> Result<Void, Error> {
     let s = Set.from([1, 2, 2, 3, 3, 3]);
     testing.assert_eq(actual: s.len(), expected: 3)?;
-    testing.assert(s.has(1))?;
-    testing.assert(s.has(2))?;
-    testing.assert(s.has(3))?;
-    testing.assert(!s.has(9))?;
+    testing.assert(s.contains(1))?;
+    testing.assert(s.contains(2))?;
+    testing.assert(s.contains(3))?;
+    testing.assert(!s.contains(9))?;
     return Result.Ok(void);
 }
 
@@ -18,7 +18,7 @@ fn test_empty() -> Result<Void, Error> {
     let s: Set<Int> = Set.new();
     testing.assert(s.is_empty())?;
     testing.assert_eq(actual: s.len(), expected: 0)?;
-    testing.assert(!s.has(1))?;
+    testing.assert(!s.contains(1))?;
     return Result.Ok(void);
 }
 
@@ -29,7 +29,7 @@ fn test_add_is_idempotent() -> Result<Void, Error> {
     s.add(5);
     s.add(7);
     testing.assert_eq(actual: s.len(), expected: 2)?;
-    testing.assert(s.has(5))?;
+    testing.assert(s.contains(5))?;
     testing.assert(!s.is_empty())?;
     return Result.Ok(void);
 }
@@ -39,7 +39,7 @@ fn test_remove_reports_presence() -> Result<Void, Error> {
     let s = Set.from([1, 2, 3]);
     testing.assert(s.remove(2))?;       // was present
     testing.assert(!s.remove(2))?;      // already gone
-    testing.assert(!s.has(2))?;
+    testing.assert(!s.contains(2))?;
     testing.assert_eq(actual: s.len(), expected: 2)?;
     return Result.Ok(void);
 }
@@ -51,8 +51,8 @@ fn test_to_list_round_trips() -> Result<Void, Error> {
     testing.assert_eq(actual: list.len(), expected: 3)?;
     // Rebuilding from the listed elements gives the same membership.
     let again = Set.from(list);
-    testing.assert(again.has('a'))?;
-    testing.assert(again.has('c'))?;
+    testing.assert(again.contains('a'))?;
+    testing.assert(again.contains('c'))?;
     return Result.Ok(void);
 }
 
@@ -60,7 +60,7 @@ fn test_to_list_round_trips() -> Result<Void, Error> {
 fn test_works_with_strings() -> Result<Void, Error> {
     let seen = Set.from(['x', 'y', 'x']);
     testing.assert_eq(actual: seen.len(), expected: 2)?;
-    testing.assert(seen.has('y'))?;
+    testing.assert(seen.contains('y'))?;
     return Result.Ok(void);
 }
 
@@ -71,9 +71,9 @@ fn test_clear_empties_in_place() -> Result<Void, Error> {
     s.clear();
     testing.assert(s.is_empty())?;
     testing.assert_eq(actual: s.len(), expected: 0)?;
-    testing.assert(!s.has(1))?;
+    testing.assert(!s.contains(1))?;
     testing.assert(alias.is_empty(), message: 'clear is observed through an alias')?;
     s.add(8);                // still usable after clearing
-    testing.assert(s.has(8))?;
+    testing.assert(s.contains(8))?;
     return Result.Ok(void);
 }

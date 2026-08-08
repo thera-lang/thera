@@ -78,7 +78,7 @@ pub fn is_hex_digit(_ cp: Int) -> Bool {
     if is_digit(cp) {
         return true;
     }
-    let lower = to_lower(cp);
+    let lower = to_lowercase(cp);
     return lower >= LOWER_A && lower <= LOWER_A + 5; // a..f
 }
 
@@ -131,7 +131,7 @@ pub fn hex_digit_value(_ cp: Int) -> Option<Int> {
 
 /// Return the lowercase equivalent of an uppercase ASCII letter; other code
 /// points are returned unchanged.
-pub fn to_lower(_ cp: Int) -> Int {
+pub fn to_lowercase(_ cp: Int) -> Int {
     if is_upper(cp) {
         return cp + 32;
     }
@@ -140,7 +140,7 @@ pub fn to_lower(_ cp: Int) -> Int {
 
 /// Return the uppercase equivalent of a lowercase ASCII letter; other code
 /// points are returned unchanged.
-pub fn to_upper(_ cp: Int) -> Int {
+pub fn to_uppercase(_ cp: Int) -> Int {
     if is_lower(cp) {
         return cp - 32;
     }

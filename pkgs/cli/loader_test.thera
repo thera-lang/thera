@@ -29,11 +29,11 @@ fn test_public_surface_collects_only_pub_decls() -> Result<Void, Error> {
         + 'pub const C: Int = 1;\n'
         + 'const D: Int = 2;', 'lib.thera');
     let surface = public_surface_of(LibrarySource { program: prog, imports: [:] });
-    testing.assert(surface.names.has('a'), message: 'pub fn a is exposed')?;
-    testing.assert(!surface.names.has('b'), message: 'private fn b is hidden')?;
-    testing.assert(surface.names.has('T'), message: 'pub type T is exposed')?;
-    testing.assert(surface.names.has('C'), message: 'pub const C is exposed')?;
-    testing.assert(!surface.names.has('D'), message: 'private const D is hidden')?;
+    testing.assert(surface.names.contains('a'), message: 'pub fn a is exposed')?;
+    testing.assert(!surface.names.contains('b'), message: 'private fn b is hidden')?;
+    testing.assert(surface.names.contains('T'), message: 'pub type T is exposed')?;
+    testing.assert(surface.names.contains('C'), message: 'pub const C is exposed')?;
+    testing.assert(!surface.names.contains('D'), message: 'private const D is hidden')?;
     return Result.Ok(void);
 }
 
@@ -50,8 +50,8 @@ fn test_namespaces_for_binds_import_to_surface() -> Result<Void, Error> {
     main_src.imports['util'] = child;
     match namespaces_for(main_src).get('util') {
         Some(surface) => {
-            testing.assert(surface.names.has('helper'), message: 'util exposes helper')?;
-            testing.assert(!surface.names.has('secret'), message: 'util hides secret')?;
+            testing.assert(surface.names.contains('helper'), message: 'util exposes helper')?;
+            testing.assert(!surface.names.contains('secret'), message: 'util hides secret')?;
         },
         None => {
             testing.assert(false, message: 'expected a util namespace')?;
@@ -171,13 +171,13 @@ fn check_root_closure(_ loaded: LoadedImports) -> Result<Void, Error> {
         let ns = loaded.file_namespaces[key];
         if key.ends_with('/root.thera') {
             testing.assert(
-                ns.get('child').map((s) => s.names.has('pong')).unwrap_or(false),
+                ns.get('child').map((s) => s.names.contains('pong')).unwrap_or(false),
                 message: 'root sees child.pong',
             )?;
         } else {
             testing.assert(key.ends_with('/sub/child.thera'), message: 'unexpected key ${key}')?;
             testing.assert(
-                ns.get('root').map((s) => s.names.has('ping')).unwrap_or(false),
+                ns.get('root').map((s) => s.names.contains('ping')).unwrap_or(false),
                 message: 'child sees root.ping through the cycle',
             )?;
         }
@@ -423,8 +423,8 @@ fn test_pub_import_reexports_through_barrel() -> Result<Void, Error> {
     };
     barrel.imports['inner'] = inner;
     let surface = public_surface_of(barrel);
-    testing.assert(surface.names.has('own'), message: 'barrel exposes its own fn')?;
-    testing.assert(surface.names.has('deep'), message: 're-exports inner deep fn')?;
+    testing.assert(surface.names.contains('own'), message: 'barrel exposes its own fn')?;
+    testing.assert(surface.names.contains('deep'), message: 're-exports inner deep fn')?;
     return Result.Ok(void);
 }
 
@@ -457,8 +457,11 @@ fn test_pub_import_diamond_is_not_a_collision() -> Result<Void, Error> {
     barrel.imports['left'] = left;
     barrel.imports['right'] = right;
     let surface = public_surface_of(barrel);
-    testing.assert(surface.names.has('shared'), message: 'diamond name is exposed')?;
-    testing.assert(!surface.collisions.has('shared'), message: 'one declaring file: no collision')?;
+    testing.assert(surface.names.contains('shared'), message: 'diamond name is exposed')?;
+    testing.assert(
+        !surface.collisions.contains('shared'),
+        message: 'one declaring file: no collision',
+    )?;
     testing.assert_eq(actual: surface.origin.get('shared'), expected: Option.Some('deep.thera'))?;
     return Result.Ok(void);
 }

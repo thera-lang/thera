@@ -606,7 +606,7 @@ pub fn import_edges(
     for decl in program.decls {
         if let Import(x) = decl {
             if let Some(key) = probe.resolve(x.path, base) {
-                if !seen.has(key) {
+                if !seen.contains(key) {
                     seen.add(key);
                     edges.push(key);
                 }
@@ -626,7 +626,7 @@ fn import_edges_of(_ source: LibrarySource) -> List<String> {
         if let Import(x) = decl {
             if let Some(child) = source.imports.get(x.path) {
                 let key = element.file_key(child.program.file_path);
-                if !seen.has(key) {
+                if !seen.contains(key) {
                     seen.add(key);
                     edges.push(key);
                 }
@@ -865,13 +865,13 @@ fn collect_surface(
     _ visited: Set<String>,
 ) -> Void {
     let key = element.file_key(source.program.file_path);
-    if visited.has(key) {
+    if visited.contains(key) {
         return;
     }
     visited.add(key);
     for decl in source.program.decls {
         if let Some(name) = public_name(decl) {
-            if names.has(name) {
+            if names.contains(name) {
                 collisions.add(name);
             } else {
                 names.add(name);
@@ -978,7 +978,7 @@ fn push_edge(_ adj: Map<String, List<String>>, _ from: String, _ to: String) -> 
 
 // Record `u` once, preserving first-seen order (the deterministic DFS order).
 fn add_unit(_ u: String, _ units: List<String>, _ seen: Set<String>) -> Void {
-    if !seen.has(u) {
+    if !seen.contains(u) {
         seen.add(u);
         units.push(u);
     }
@@ -995,7 +995,7 @@ fn scc_ids(_ units: List<String>, _ adj: Map<String, List<String>>) -> Map<Strin
     let finished: List<String> = [];
     let visited: Set<String> = Set.new();
     for start in units {
-        if visited.has(start) {
+        if visited.contains(start) {
             continue;
         }
         visited.add(start);
@@ -1008,7 +1008,7 @@ fn scc_ids(_ units: List<String>, _ adj: Map<String, List<String>>) -> Map<Strin
             if i < succs.len() {
                 cursor[cursor.len() - 1] = i + 1;
                 let s = succs[i];
-                if !visited.has(s) {
+                if !visited.contains(s) {
                     visited.add(s);
                     nodes.push(s);
                     cursor.push(0);
@@ -1075,7 +1075,7 @@ fn cycle_path(
         let n = queue[qi];
         qi = qi + 1;
         for s in adj.get(n).unwrap_or([]) {
-            if comp.get(s).unwrap_or(-2) == cid && !seen.has(s) {
+            if comp.get(s).unwrap_or(-2) == cid && !seen.contains(s) {
                 seen.add(s);
                 parent[s] = n;
                 queue.push(s);
@@ -1133,7 +1133,7 @@ fn detect_import_cycles(
             add_unit(ut, units, seen_units);
             if uf != ut {
                 let ek = uf + '\n' + ut;
-                if !seen_edges.has(ek) {
+                if !seen_edges.contains(ek) {
                     seen_edges.add(ek);
                     push_edge(adj, uf, ut);
                 }
