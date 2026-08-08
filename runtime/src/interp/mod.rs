@@ -1968,11 +1968,16 @@ impl<'a> Vm<'a> {
         let recv = args.first().expect("call.virtual receiver present");
         match selector {
             // Total rendering (Display-preferred, Debug-fallback). A value reaches
-            // here only when its type has no `display` impl in the vtable: a
+            // here only when its type has no `to_string` impl in the vtable: a
             // primitive/`String` renders via the built-in `display_string`;
             // everything else falls back to the auto-derived `Debug` (which never
             // traps), so `${x}` / `println(x)` work for any value.
-            "display" => {
+            //
+            // `display` is the selector's legacy name, answered so bytecode
+            // emitted before the `Display.to_string` rename — chiefly the pinned
+            // bootstrap snapshot — keeps running; drop it when the snapshot no
+            // longer carries it.
+            "to_string" | "display" => {
                 if natives::has_builtin_display(recv) {
                     Ok(Value::new_str(natives::display_string(recv)?))
                 } else {
@@ -3739,24 +3744,24 @@ mod tests {
 
     // --- dynamic dispatch (call.virtual) ---
 
-    /// A module with two struct types, a `display` impl for each, and a
-    /// `describe(x)` that dispatches `x.display()` virtually.
+    /// A module with two struct types, a `to_string` impl for each, and a
+    /// `describe(x)` that dispatches `x.to_string()` virtually.
     fn dispatch_module() -> Module {
         use crate::module::DispatchEntry;
-        // Dog (ty 0) and Cat (ty 1); their displays return distinct strings.
-        let dog_display = Function::new(
-            "Dog.display",
+        // Dog (ty 0) and Cat (ty 1); their to_strings return distinct strings.
+        let dog_to_string = Function::new(
+            "Dog.to_string",
             1,
             1,
             vec![Instr::ConstStr("woof".into()), Instr::Return],
         );
-        let cat_display = Function::new(
-            "Cat.display",
+        let cat_to_string = Function::new(
+            "Cat.to_string",
             1,
             1,
             vec![Instr::ConstStr("meow".into()), Instr::Return],
         );
-        // describe(x) = x.display()   (the concrete type isn't known here)
+        // describe(x) = x.to_string()   (the concrete type isn't known here)
         let describe = Function::new(
             "describe",
             1,
@@ -3764,19 +3769,19 @@ mod tests {
             vec![
                 Instr::Load(0),
                 Instr::CallVirtual {
-                    selector: "display".into(),
+                    selector: "to_string".into(),
                     argc: 1,
                 },
                 Instr::Return,
             ],
         );
         let mut m = Module::with_types(
-            vec![dog_display, cat_display, describe],
+            vec![dog_to_string, cat_to_string, describe],
             vec![TypeDef::new("Dog", 0), TypeDef::new("Cat", 0)],
         );
         m.set_dispatch(vec![
-            DispatchEntry::new(0, "display", 0),
-            DispatchEntry::new(1, "display", 1),
+            DispatchEntry::new(0, "to_string", 0),
+            DispatchEntry::new(1, "to_string", 1),
         ]);
         m
     }
@@ -3792,40 +3797,29 @@ mod tests {
     }
 
     #[test]
-    fn call_virtual_display_without_an_impl_falls_back_to_debug() {
-        // Total rendering: a struct that reaches the display fallback without an
+    fn call_virtual_to_string_without_an_impl_falls_back_to_debug() {
+        // Total rendering: a struct that reaches the to_string fallback without an
         // impl row renders via its auto-derived `Debug` (Debug-fallback), not a
         // trap — so `${x}` works for any value.
         let mut m = dispatch_module();
-        m.set_dispatch(vec![]); // no display rows → fall back to structural Debug
+        m.set_dispatch(vec![]); // no to_string rows → fall back to structural Debug
         let dog = Value::new_struct(0, vec![]);
         assert_eq!(super::run(&m, 2, &[dog]), Ok(Value::new_str("Dog {}")));
     }
 
     #[test]
-    fn call_virtual_display_on_a_primitive_uses_the_builtin_fallback() {
+    fn call_virtual_to_string_on_a_primitive_uses_the_builtin_fallback() {
         // Primitives carry built-in Display: no impl row, rendered natively.
         let m = dispatch_module();
         assert_eq!(super::run(&m, 2, &[Value::Int(5)]), Ok(Value::new_str("5")));
     }
 
     #[test]
-    fn struct_and_enum_dispatch_ids_do_not_collide() {
-        // A struct with type-table index 0 and an enum with ty 0 (Result's
-        // reserved id) both impl 'display'; each receiver must reach its own.
-        use crate::module::{DispatchEntry, ENUM_DISPATCH_BASE};
-        let struct_display = Function::new(
-            "S.display",
-            1,
-            1,
-            vec![Instr::ConstStr("struct".into()), Instr::Return],
-        );
-        let enum_display = Function::new(
-            "E.display",
-            1,
-            1,
-            vec![Instr::ConstStr("enum".into()), Instr::Return],
-        );
+    fn call_virtual_legacy_display_selector_still_falls_back() {
+        // Bytecode emitted before the `Display.to_string` rename — chiefly the
+        // pinned bootstrap snapshot — dispatches total rendering as `display`;
+        // the fallback answers the legacy selector until the snapshot no longer
+        // carries it.
         let describe = Function::new(
             "describe",
             1,
@@ -3839,13 +3833,47 @@ mod tests {
                 Instr::Return,
             ],
         );
+        let m = Module::new(vec![describe]);
+        assert_eq!(super::run(&m, 0, &[Value::Int(5)]), Ok(Value::new_str("5")));
+    }
+
+    #[test]
+    fn struct_and_enum_dispatch_ids_do_not_collide() {
+        // A struct with type-table index 0 and an enum with ty 0 (Result's
+        // reserved id) both impl 'to_string'; each receiver must reach its own.
+        use crate::module::{DispatchEntry, ENUM_DISPATCH_BASE};
+        let struct_to_string = Function::new(
+            "S.to_string",
+            1,
+            1,
+            vec![Instr::ConstStr("struct".into()), Instr::Return],
+        );
+        let enum_to_string = Function::new(
+            "E.to_string",
+            1,
+            1,
+            vec![Instr::ConstStr("enum".into()), Instr::Return],
+        );
+        let describe = Function::new(
+            "describe",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::CallVirtual {
+                    selector: "to_string".into(),
+                    argc: 1,
+                },
+                Instr::Return,
+            ],
+        );
         let mut m = Module::with_types(
-            vec![struct_display, enum_display, describe],
+            vec![struct_to_string, enum_to_string, describe],
             vec![TypeDef::new("S", 0)],
         );
         m.set_dispatch(vec![
-            DispatchEntry::new(0, "display", 0),
-            DispatchEntry::new(ENUM_DISPATCH_BASE, "display", 1),
+            DispatchEntry::new(0, "to_string", 0),
+            DispatchEntry::new(ENUM_DISPATCH_BASE, "to_string", 1),
         ]);
         let s = Value::new_struct(0, vec![]);
         let e = Value::new_enum(0, 0, vec![]);
