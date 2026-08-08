@@ -164,7 +164,7 @@ impl Parser {
 
     // Whether the token `n` positions ahead is the contextual keyword `type` —
     // an ordinary identifier (`type` is not reserved) that only `native type`
-    // and the legacy-form error in `parse_decl` give meaning.
+    // gives meaning.
     fn peek_is_type_kw(self, _ n: Int) -> Bool {
         let t = self.peek_tok(n);
         return t.kind == TokenKind.Identifier && t.lexeme() == 'type';
@@ -550,18 +550,6 @@ impl Parser {
                 return self.err_decl();
             }
             return self.parse_struct_decl(is_pub, start);
-        }
-        if self.peek_is_type_kw(0) && self.peek_tok(1).kind == TokenKind.Identifier {
-            // The old struct form `type Name = { … }` is gone — structs are now
-            // `struct Name { … }`. (`native type` is handled above; a transparent
-            // `type X = Y` alias may take this branch later.) A bare identifier
-            // can't start a declaration, so the lookahead only sharpens the
-            // fallthrough error below.
-            self.fail('struct definitions use `struct Name { … }`, ' + 'not `type Name = { … }`');
-            // Recovery (`parse_decl_or_recover` → `sync_to_decl`) skips past this
-            // `type` — it is not a decl-sync point (see `starts_decl`), so
-            // there is no risk of re-entering this branch in a loop.
-            return self.err_decl();
         }
         if k == TokenKind.KwImpl {
             if decorators.len() != 0 {

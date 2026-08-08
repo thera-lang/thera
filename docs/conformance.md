@@ -82,7 +82,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-bytes`                  | Types → Bytes          | `Bytes` len / `to_string` / `from_list` / `empty`                                                                                             | ◐      |
 | `type-native`                 | Types → Built-ins      | `native type` decl: opaque, impl-extensible, no field layout                                                                                  | ✓      |
 | `type-struct`                 | Structs                | `struct` decl, struct literal, field access                                                                                                   | ✓      |
-| `type-struct-keyword`         | Structs                | the removed `type Name = { … }` form is a parse error                                                                                         | ✓      |
+| `type-struct-keyword`         | Structs                | the removed `type Name = { … }` form is a parse error (the generic expected-a-declaration one; the migration hint is retired)                 | ✓      |
 | `type-struct-field-let`       | Structs                | a struct field must be declared with `let` (`let x: T;`) — parse error otherwise                                                              | ✓      |
 | `type-struct-field-semicolon` | Structs                | struct fields are terminated with `;`, not separated by `,` — parse error otherwise                                                           | ✓      |
 | `type-struct-immut`           | Structs                | struct fields immutable by default (non-`mut` assign = error)                                                                                 | ✓      |
