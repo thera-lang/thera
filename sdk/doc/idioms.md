@@ -75,13 +75,13 @@ Each of these is a real first-contact error, most-frequent first.
    `Int` → `Double` coercion — call `.to_double()`.
 
 3. **Don't guess an API — look it up.** The biggest error source is calling
-   methods that don't exist (`n.to_string()`, `s.parse<Int>()`,
-   `time.monotonic_ms()`). Conversions that do exist: `'${x}'` interpolation
-   renders any value; `x.display()` / `x.debug()`; `s.to_int()` /
-   `s.to_double()` (→ `Option`); `i.to_double()`. For anything else, read the
-   library source (`std/<lib>/<lib>.thera` under the SDK root — `sdk/std/` in
-   the language repo) or [stdlib.md](../../docs/stdlib.md) before calling, and
-   run `thera check` after a few edits, not after fifty.
+   methods that don't exist (`s.parse<Int>()`, `time.monotonic_ms()`).
+   Conversions that do exist: `'${x}'` interpolation renders any value;
+   `x.to_string()` / `x.debug()`; `s.to_int()` / `s.to_double()` (→ `Option`);
+   `i.to_double()`. For anything else, read the library source
+   (`std/<lib>/<lib>.thera` under the SDK root — `sdk/std/` in the language
+   repo) or [stdlib.md](../../docs/stdlib.md) before calling, and run
+   `thera check` after a few edits, not after fifty.
 
 4. **JSON values are not duck-typed.** `resp.field` on a `Json` value is the
    single most common check error (`field access on non-struct value`). Go

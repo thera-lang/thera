@@ -611,7 +611,7 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
   bounded-generic context where the runtime value is an
   `Int`/`Double`/`Bool`/`String` — has no vtable row; it resolves through a
   **hardcoded fallback** in the interpreter (`virtual_fallback` in
-  `interp/mod.rs`: `display`/`debug`/`eq`/`compare`). The 2026-07 scoping pass
+  `interp/mod.rs`: `to_string`/`debug`/`eq`/`compare`). The 2026-07 scoping pass
   closed the user-reachable soundness gap at the checker (primitive bounds are
   limited to the four interfaces the fallback can dispatch) and indexed the
   dispatch table per receiver type — see _Changelog_. What remains is the
@@ -632,7 +632,7 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     optimization rather than a correctness crutch.
   - **`virtual_fallback` never fully retires regardless:** its structural
     `debug`/`eq` for impl-less structs/enums _is_ the auto-derive mechanism, and
-    the `display` → `debug` arm is what keeps rendering total.
+    the `to_string` → `debug` arm is what keeps rendering total.
 - **Index operator (`[]`) overloading.** `a[i]` / `a[i] = v` are hardcoded in
   codegen to the built-in `List`/`Map` natives by static type; any other
   receiver is a compile error (`pkgs/cli/codegen/codegen.thera`). Small–medium,
@@ -919,6 +919,21 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`Display.display` renamed to `to_string`** (2026-08, the naming audit's
+  flagship — issue #142). Agents guess `to_string` (Java/Kotlin/Dart `toString`,
+  Rust's `ToString` blanket over `Display`), Thera's own named-for-its-result
+  convention (`to_list`, `to_int`) argues the same way, and the transcript
+  mining had it as the most-guessed missing method. The interface keeps its
+  `Display` name — the bound is `<T: Display>`, the call is `x.to_string()`;
+  `debug()` is unchanged. Two mechanical wrinkles the rename surfaced: codegen's
+  interpolation fast path now resolves through the type's actual `impl Display`
+  (never the bare-name native table, which
+  `Bytes.to_string() -> Result<String, Error>` — a UTF-8 decode, not a rendering
+  conformance — would alias), and the runtime's fallback answers the legacy
+  `display` selector and cross-resolves it to `to_string` impl rows, so
+  pre-rename bytecode (the bootstrap ratchet's old-snapshot-compiles-new-sources
+  mix) keeps rendering correctly.
 
 - **Credential redaction, and a live smoke that checks the contract** (2026-08).
   The first client to hold a real secret found the leak api-access.md item 6 had
