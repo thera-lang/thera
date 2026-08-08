@@ -142,6 +142,17 @@ fn spaces_struct_literal_interior() -> Result<Void, Error> {
 }
 
 @test
+fn spaces_keyword_member_names() -> Result<Void, Error> {
+    // A keyword after `.` is a member name (the parser's `expect_member_name`):
+    // it ends a value, so a following `(`/`[` opens a call/index and a
+    // following `-` is binary.
+    return check(
+        'fn f() {\nlet a = x . match ( y ) ;\nlet b = p . in - 1 ;\nlet c = q . enum [ 0 ] ;\n}\n',
+        'fn f() {\n    let a = x.match(y);\n    let b = p.in - 1;\n    let c = q.enum[0];\n}\n',
+    );
+}
+
+@test
 fn keeps_shift_operators_tight() -> Result<Void, Error> {
     // `<<`/`>>`/`>>>` are adjacent-token shift operators the parser recognizes by
     // adjacency, and `>>` also closes nested generics — splitting either would

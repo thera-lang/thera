@@ -361,7 +361,8 @@ fn space_intra_line(_ source: String) -> String {
     }
     let delims = parsed.generic_delims;
     let toks = code_tokens(lex.tokens);
-    let prefix_unary = compute_prefix_unary(toks, delims);
+    let member_kw = compute_member_kw(toks);
+    let prefix_unary = compute_prefix_unary(toks, member_kw, delims);
 
     // The source as a code-point list, materialized once. Slicing the source per
     // token (`source.slice`) would rebuild this list on every call — O(source
@@ -381,7 +382,7 @@ fn space_intra_line(_ source: String) -> String {
         // `b_start == a_end` is an adjacent pair (empty gap) — still a candidate,
         // since a missing space may need inserting (`Point{` → `Point {`).
         if b_start >= a_end && gap_is_spacing(chars, a_end, b_start) {
-            let want_space = space_between(a, b, prefix_unary[i], delims) == 1;
+            let want_space = space_between(a, b, prefix_unary[i], member_kw[i], delims) == 1;
             // Whether the gap already is the wanted spacing: a single space when
             // one is wanted, an empty gap when none is. Anything else (a tab, a
             // run of spaces, or a missing space) needs an edit.
@@ -444,10 +445,28 @@ fn gap_is_spacing(_ chars: List<Int>, _ start: Int, _ end: Int) -> Bool {
     return true;
 }
 
+// For each token, whether it is a keyword used as a *member name* — a keyword
+// immediately after a `.` (`p.in`, `x.match(y)`; the parser's
+// `expect_member_name`). Such a token is an ordinary name: it ends a value, so
+// a following `(`/`[` opens a call/index and a following `-` is binary.
+fn compute_member_kw(_ toks: List<Token>) -> List<Bool> {
+    let out: List<Bool> = [];
+    let mut i = 0;
+    while i < toks.len() {
+        out.push(is_keyword(toks[i].kind) && i > 0 && toks[i - 1].kind == TokenKind.Dot);
+        i = i + 1;
+    }
+    return out;
+}
+
 // For each token, whether it is a prefix-unary operator. `!`/`~` always are;
 // `-` is unary iff the previous token doesn't end a value (so `-x`, `= -1`,
 // `[-1]`, `return -1` are unary, but `a - b`, `xs[i] - 1` are binary).
-fn compute_prefix_unary(_ toks: List<Token>, _ delims: parser.GenericDelims) -> List<Bool> {
+fn compute_prefix_unary(
+    _ toks: List<Token>,
+    _ member_kw: List<Bool>,
+    _ delims: parser.GenericDelims,
+) -> List<Bool> {
     let out: List<Bool> = [];
     let mut i = 0;
     while i < toks.len() {
@@ -455,7 +474,7 @@ fn compute_prefix_unary(_ toks: List<Token>, _ delims: parser.GenericDelims) -> 
         let is_pfx = if k == TokenKind.Bang || k == TokenKind.Tilde {
             true
         } else if k == TokenKind.Minus {
-            i == 0 || !is_value_ender(toks[i - 1], delims)
+            i == 0 || !(is_value_ender(toks[i - 1], delims) || member_kw[i - 1])
         } else {
             false
         };
@@ -473,6 +492,7 @@ fn space_between(
     _ a: Token,
     _ b: Token,
     _ a_prefix_unary: Bool,
+    _ a_member_kw: Bool,
     _ delims: parser.GenericDelims,
 ) -> Int {
     // An empty brace pair is tight (`{}`, `Foo {}`, `=> {}`) — a non-empty one
@@ -491,7 +511,7 @@ fn space_between(
     if no_space_after(a, a_prefix_unary, delims) {
         return 0;
     }
-    if no_space_before(a, b, delims) {
+    if no_space_before(a, b, a_member_kw, delims) {
         return 0;
     }
     return 1;
@@ -517,8 +537,9 @@ fn no_space_after(_ a: Token, _ a_prefix_unary: Bool, _ delims: parser.GenericDe
 
 // `b` binds tightly to the preceding token (no space before it): a closer, a
 // separator/terminator (`,` `;` `:`), a `.`/`..`, a postfix `?`, a generic angle
-// bracket, or a `(`/`[` that opens a call/index (prev token ends a value).
-fn no_space_before(_ a: Token, _ b: Token, _ delims: parser.GenericDelims) -> Bool {
+// bracket, or a `(`/`[` that opens a call/index (prev token ends a value —
+// which a keyword member name, `x.match(y)`, also does).
+fn no_space_before(_ a: Token, _ b: Token, _ a_member_kw: Bool, _ delims: parser.GenericDelims) -> Bool {
     return match b.kind {
         RParen => true,
         RBracket => true,
@@ -530,8 +551,8 @@ fn no_space_before(_ a: Token, _ b: Token, _ delims: parser.GenericDelims) -> Bo
         Question => true,
         Lt => delims.opens.has(b.span.offset), // `List<`: tight to the type name
         Gt => delims.closes.has(b.span.offset), // `Int>`: tight to the last arg
-        LParen => is_value_ender(a, delims), // call `foo(` vs group `return (`
-        LBracket => is_value_ender(a, delims), // index `xs[` vs literal `= [`
+        LParen => is_value_ender(a, delims) || a_member_kw, // call `foo(` vs group `return (`
+        LBracket => is_value_ender(a, delims) || a_member_kw, // index `xs[` vs literal `= [`
         _ => false,
     };
 }
