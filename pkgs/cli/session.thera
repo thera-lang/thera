@@ -274,7 +274,7 @@ impl Session {
                 return Option.None; // an import references the primary
             }
         }
-        let signature = keys.sort((a, b) => a.compare(b) == Ordering.Less).join('\n');
+        let signature = keys.sorted_by((a, b) => a.compare(b) == Ordering.Less).join('\n');
         let base = match self.library_cache.get(signature) {
             Some(c) => {
                 // Mark as most-recently-used: the map is insertion-ordered, so
@@ -858,7 +858,7 @@ fn surface_signature(_ p: Program) -> String {
     }
     // Sorted: declaration order is invisible to importers (names resolve by
     // name), so reordering decls is not a surface change.
-    return lines.sort((a, b) => a.compare(b) == Ordering.Less).join('\n');
+    return lines.sorted_by((a, b) => a.compare(b) == Ordering.Less).join('\n');
 }
 
 // A function's importer-visible signature. The param's *external* label, type,

@@ -242,7 +242,7 @@ pub fn fix_source(_ source: String, only: List<String> = []) -> String {
 fn non_overlapping(_ edits: List<edit.TextEdit>) -> List<edit.TextEdit> {
     let out: List<edit.TextEdit> = [];
     let mut last_end = -1;
-    for e in edits.sort((a, b) => a.start < b.start) {
+    for e in edits.sorted_by((a, b) => a.start < b.start) {
         if e.start >= last_end {
             out.push(e);
             last_end = e.end;

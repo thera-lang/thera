@@ -101,8 +101,23 @@ impl List<T> {
         return Option.None;
     }
 
-    /// A new list with the elements in reverse order.
-    pub fn reverse(self) -> List<T> {
+    /// Reverse the elements **in place** (like `push`/`pop`, a mutation of this
+    /// list; the returns-new form is [reversed]).
+    pub fn reverse(self) -> Void {
+        let mut i = 0;
+        let mut j = self.len() - 1;
+        while i < j {
+            let tmp = self[i];
+            self[i] = self[j];
+            self[j] = tmp;
+            i = i + 1;
+            j = j - 1;
+        }
+    }
+
+    /// A new list with the elements in reverse order (this list is unchanged;
+    /// the in-place form is [reverse]).
+    pub fn reversed(self) -> List<T> {
         let result = [];
         let mut i = self.len() - 1;
         while i >= 0 {
@@ -112,16 +127,33 @@ impl List<T> {
         return result;
     }
 
-    /// A new list with the elements ordered by `less` — `less(a, b)` is true when
-    /// `a` should come before `b`. The sort is **stable** (equal elements keep
-    /// their input order) and runs in O(n log n) via a bottom-up merge.
+    /// Sort the elements **in place** by `less` (like `push`/`pop`, a mutation
+    /// of this list; the returns-new form is [sorted_by]). `less(a, b)` is true
+    /// when `a` should come before `b`; stable, O(n log n).
     ///
     /// ```thera
     /// names.sort((a, b) => a < b);          // ascending
     /// nums.sort((a, b) => b < a);           // descending
     /// people.sort((a, b) => a.age < b.age); // by a field
     /// ```
-    pub fn sort(self, _ less: (T, T) -> Bool) -> List<T> {
+    pub fn sort(self, _ less: (T, T) -> Bool) -> Void {
+        let out = self.sorted_by(less);
+        let mut i = 0;
+        while i < out.len() {
+            self[i] = out[i];
+            i = i + 1;
+        }
+    }
+
+    /// A new list with the elements ordered by `less` — `less(a, b)` is true when
+    /// `a` should come before `b` (this list is unchanged; the in-place form is
+    /// [sort]). The sort is **stable** (equal elements keep their input order)
+    /// and runs in O(n log n) via a bottom-up merge.
+    ///
+    /// ```thera
+    /// let ordered = edits.sorted_by((a, b) => a.start < b.start);
+    /// ```
+    pub fn sorted_by(self, _ less: (T, T) -> Bool) -> List<T> {
         // Bottom-up merge sort over a working copy; `less` decides order and a
         // `!less(right, left)` tie-break (take the left first) keeps it stable.
         let mut src = [];
