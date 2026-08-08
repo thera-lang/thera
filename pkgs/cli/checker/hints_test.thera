@@ -1,0 +1,103 @@
+// Tests for the corrective-hint table (hints.thera): the lookups themselves,
+// and — per the module's curation rule — that every form a hint suggests
+// exists on the current surface, by exercising each one. A hint that names a
+// method this file can no longer call fails here before it misleads anyone.
+
+import std.math;
+import std.testing;
+import std.time;
+
+import 'hints';
+
+@test
+fn test_namespace_hints_hit_and_miss() -> Result<Void, Error> {
+    testing.assert(
+        hints.namespace_hint('time', 'monotonic_ms').is_some(),
+        message: 'monotonic_ms should have a hint',
+    )?;
+    testing.assert(
+        hints.namespace_hint('testing', 'assert_true').is_some(),
+        message: 'assert_true should have a hint',
+    )?;
+    testing.assert(
+        hints.namespace_hint('time', 'no_such_guess').is_none(),
+        message: 'unknown member: no hint',
+    )?;
+    testing.assert(
+        hints.namespace_hint('fs', 'monotonic_ms').is_none(),
+        message: 'wrong namespace: no hint',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_method_hints_strip_generic_args() -> Result<Void, Error> {
+    testing.assert(
+        hints.method_hint('Option<Int>', 'unwrap').is_some(),
+        message: 'Option.unwrap should have a hint',
+    )?;
+    testing.assert(
+        hints.method_hint('Map<String, Int>', 'contains_key').is_some(),
+        message: 'Map.contains_key should have a hint',
+    )?;
+    testing.assert(
+        hints.method_hint('String', 'parse').is_some(),
+        message: 'String.parse should have a hint',
+    )?;
+    testing.assert(
+        hints.method_hint('Option<Int>', 'no_such_guess').is_none(),
+        message: 'unknown method: no hint',
+    )?;
+    testing.assert(
+        hints.method_hint('MyType', 'unwrap').is_none(),
+        message: 'unknown receiver: no hint',
+    )?;
+    return Result.Ok(void);
+}
+
+// Every form the hints suggest, exercised for real — the anti-rot check.
+@test
+fn test_suggested_forms_exist() -> Result<Void, Error> {
+    // time.monotonic_ms → monotonic() + elapsed().as_millis()
+    let start = time.monotonic();
+    testing.assert(start.elapsed().as_millis() >= 0, message: 'elapsed millis')?;
+    // math.log → ln / log10
+    testing.assert(math.ln(1.0) == 0.0, message: 'ln')?;
+    testing.assert(math.log10(10.0) == 1.0, message: 'log10')?;
+    // String.parse → to_int / to_double; length → len; substring → slice;
+    // upper/lower → to_uppercase/to_lowercase
+    testing.assert_eq(actual: '12'.to_int(), expected: Option.Some(12))?;
+    testing.assert_eq(actual: '1.5'.to_double(), expected: Option.Some(1.5))?;
+    testing.assert_eq(actual: 'abc'.len(), expected: 3)?;
+    testing.assert_eq(actual: 'abc'.slice(0, 1), expected: 'a')?;
+    testing.assert_eq(actual: 'a'.to_uppercase(), expected: 'A')?;
+    testing.assert_eq(actual: 'A'.to_lowercase(), expected: 'a')?;
+    // Option/Result.unwrap → unwrap_or / ok_or / `?`
+    let o: Option<Int> = Option.Some(1);
+    testing.assert_eq(actual: o.unwrap_or(0), expected: 1)?;
+    let _ = o.ok_or(error('missing'))?;
+    let r: Result<Int, Error> = Result.Ok(2);
+    testing.assert_eq(actual: r.unwrap_or(0), expected: 2)?;
+    // List.reduce → fold; append → push; size/length → len;
+    // sort_by → sort / sorted_by
+    let xs = [3, 1, 2];
+    testing.assert_eq(actual: xs.fold(0, (acc, x) => acc + x), expected: 6)?;
+    xs.push(4);
+    testing.assert_eq(actual: xs.len(), expected: 4)?;
+    testing.assert_eq(actual: xs.sorted_by((a, b) => a < b), expected: [1, 2, 3, 4])?;
+    xs.sort((a, b) => a < b);
+    testing.assert_eq(actual: xs, expected: [1, 2, 3, 4])?;
+    // Map.contains_key → has; Set.insert → add
+    let m: Map<String, Int> = ['a': 1];
+    testing.assert(m.has('a'), message: 'Map.has')?;
+    let s: Set<Int> = Set.new();
+    s.add(1);
+    testing.assert(s.contains(1), message: 'Set.add + contains')?;
+    // Iterator.collect → to_list; has_next → next() Option
+    let it = [1, 2].iter();
+    testing.assert_eq(actual: it.next(), expected: Option.Some(1))?;
+    testing.assert_eq(actual: [5, 6].iter().to_list(), expected: [5, 6])?;
+    // testing.assert_true / expect_eq → assert / assert_eq are what this whole
+    // file runs on.
+    return Result.Ok(void);
+}

@@ -1,0 +1,18 @@
+//! spec: diag-guess-hints
+//! mode: check
+
+// A known guessed-wrong name (a cross-language prior that Thera spells
+// differently) gets a corrective hint appended to the diagnostic — teaching
+// the right form at the moment of the mistake. The curated table lives in
+// pkgs/cli/checker/hints.thera.
+import std.time;
+
+fn main() -> Int {
+    let start = time.monotonic_ms();   // expect error: the monotonic clock is typed
+    let o: Option<Int> = Option.Some(1);
+    let v = o.unwrap();                // expect error: there is no trapping unwrap
+    let m: Map<String, Int> = [:];
+    let k = m.contains_key('a');       // expect error: key presence is `has(key)`
+    println('${start} ${v} ${k}');
+    return 0;
+}

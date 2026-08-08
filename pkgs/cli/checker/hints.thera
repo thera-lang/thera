@@ -1,0 +1,81 @@
+//! Corrective hints for guessed-wrong names — the curated half of did-you-mean
+//! (the tracker's did-you-mean item covers the edit-distance long tail). Each
+//! entry maps a name agents guess by cross-language prior onto the Thera form
+//! that answers the same need; the checker appends the hint to its
+//! unknown-method / not-a-public-member diagnostic, teaching at the moment of
+//! the mistake (the roadmap's diagnostics-first policy).
+//!
+//! Curation rule: an entry earns its place with evidence (the idioms transcript
+//! mining, the stdlib naming audit's keep-with-rationale table) or an
+//! overwhelming prior, and its hint must name the *current* surface — a stale
+//! hint is worse than none, so `hints_test` compiles every suggested form.
+
+// The corrective hint for a missing `ns.member`, if `member` is a known guess
+// against that namespace. Keyed on the conventional (unaliased) import name;
+// an aliased import simply gets no hint.
+pub fn namespace_hint(_ ns: String, _ member: String) -> Option<String> {
+    return match '${ns}.${member}' {
+        'time.monotonic_ms' => Option.Some(
+            'the monotonic clock is typed — '
+            + '`let start = time.monotonic();` then `start.elapsed().as_millis()`'
+        ),
+        'time.monotonic_millis' => Option.Some(
+            'the monotonic clock is typed — '
+            + '`let start = time.monotonic();` then `start.elapsed().as_millis()`'
+        ),
+        'testing.assert_true' => Option.Some('use `testing.assert(cond, message: …)`'),
+        'testing.expect_eq' => Option.Some('use `testing.assert_eq(actual: …, expected: …)`'),
+        'math.log' => Option.Some('use `math.ln` (natural log) or `math.log10`'),
+        _ => Option.None,
+    };
+}
+
+// The corrective hint for a missing method, if `method` is a known guess
+// against the receiver's base type (`rendered` as `type_to_string` gives it,
+// e.g. `Option<Int>`; generic arguments are stripped here).
+pub fn method_hint(_ rendered: String, _ method: String) -> Option<String> {
+    let base = match rendered.find('<') {
+        Some(i) => rendered.slice(0, i),
+        None => rendered,
+    };
+    return match '${base}.${method}' {
+        'String.parse' => Option.Some('use `to_int()` / `to_double()` (each returns an Option)'),
+        'String.length' => Option.Some('use `len()`'),
+        'String.substring' => Option.Some('use `slice(start, end)` (code-point indices)'),
+        'String.upper' => Option.Some('use `to_uppercase()`'),
+        'String.lower' => Option.Some('use `to_lowercase()`'),
+        'Option.unwrap' => Option.Some(
+            'there is no trapping unwrap — use `unwrap_or(default)`, '
+            + '`ok_or(error(…))?`, or `match`'
+        ),
+        'Option.expect' => Option.Some(
+            'there is no trapping unwrap — use `unwrap_or(default)`, '
+            + '`ok_or(error(…))?`, or `match`'
+        ),
+        'Result.unwrap' => Option.Some(
+            'there is no trapping unwrap — use `?` to propagate, '
+            + '`unwrap_or(default)`, or `match`'
+        ),
+        'Result.expect' => Option.Some(
+            'there is no trapping unwrap — use `?` to propagate, '
+            + '`unwrap_or(default)`, or `match`'
+        ),
+        'List.reduce' => Option.Some('use `fold(initial, (acc, x) => …)`'),
+        'List.append' => Option.Some('use `push(value)`'),
+        'List.length' => Option.Some('use `len()`'),
+        'List.size' => Option.Some('use `len()`'),
+        'List.sort_by' => Option.Some(
+            'use `sort(less)` (in place) or `sorted_by(less)` (returns new)'
+        ),
+        'Map.contains_key' => Option.Some('key presence is `has(key)`'),
+        'Map.contains' => Option.Some('key presence is `has(key)`'),
+        'Map.size' => Option.Some('use `len()`'),
+        'Set.insert' => Option.Some('use `add(value)`'),
+        'Set.size' => Option.Some('use `len()`'),
+        'Iterator.collect' => Option.Some('use `to_list()`'),
+        'Iterator.has_next' => Option.Some(
+            'iterate with `for x in it`, or call `next()` (returns an Option)'
+        ),
+        _ => Option.None,
+    };
+}
