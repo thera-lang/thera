@@ -207,6 +207,8 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("double_to_string", native_double_to_string),
     ("bool_to_string", native_bool_to_string),
     ("str_identity", native_str_identity),
+    ("string_debug", native_string_debug),
+    ("bytes_debug", native_bytes_debug),
     ("test_capture_begin", native_test_capture_begin),
     ("test_capture_end", native_test_capture_end),
     ("fiber_spawn", native_fiber_spawn),
@@ -450,6 +452,20 @@ fn native_str_identity(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
     let v = expect_one(args, "str_identity")?;
     str_contents(v)?; // validate it is a string
     Ok(*v)
+}
+
+/// `string_debug(s)` — a `String`'s `Debug` form: quoted, with the same
+/// escaping the structural renderer uses (one source of truth: `quote_str`).
+fn native_string_debug(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "string_debug")?)?;
+    Ok(Value::new_str(super::quote_str(&s)))
+}
+
+/// `bytes_debug(b)` — a `Bytes` value's `Debug` form (`Bytes[hh hh …]`),
+/// matching the structural renderer (one source of truth: `hex_join`).
+fn native_bytes_debug(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let b = bytes_contents(expect_one(args, "bytes_debug")?, "bytes_debug")?;
+    Ok(Value::new_str(format!("Bytes[{}]", super::hex_join(&b))))
 }
 
 /// `str_concat(s0, s1, …)` — concatenate string arguments into one `String`.

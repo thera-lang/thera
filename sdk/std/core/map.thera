@@ -79,10 +79,10 @@ impl Map<K, V> {
     pub native fn values(self) -> List<V>
 }
 
-impl Display for Map<K, V> {
+impl Debug for Map<K, V> {
     /// `[k: v, ...]` — keys and values rendered via `Debug`, in insertion order.
     /// (Empty map: `[:]`.)
-    fn to_string(self) -> String {
+    fn debug(self) -> String {
         if self.is_empty() { return '[:]'; }
 
         let mut s = '[';
@@ -95,5 +95,14 @@ impl Display for Map<K, V> {
             first = false;
         }
         return s + ']';
+    }
+}
+
+/// A map's display form *is* its developer form — the structural `Debug`
+/// rendering is canonical (there is no prettier user-facing shape; the
+/// Python `str`-delegates-to-`repr` convention for containers).
+impl Display for Map<K, V> {
+    fn to_string(self) -> String {
+        return self.debug();
     }
 }

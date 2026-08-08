@@ -48,13 +48,22 @@ impl Ordering {
     }
 }
 
-impl Display for Ordering {
-    fn to_string(self) -> String {
+impl Debug for Ordering {
+    fn debug(self) -> String {
         return match self {
             Less => 'Less',
             Equal => 'Equal',
             Greater => 'Greater',
         };
+    }
+}
+
+/// An ordering's display form *is* its developer form — the structural `Debug`
+/// rendering is canonical (there is no prettier user-facing shape; the
+/// Python `str`-delegates-to-`repr` convention for containers).
+impl Display for Ordering {
+    fn to_string(self) -> String {
+        return self.debug();
     }
 }
 

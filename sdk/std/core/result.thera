@@ -126,12 +126,21 @@ impl Result<T, E> {
     }
 }
 
-impl Display for Result<T, E> {
+impl Debug for Result<T, E> {
     /// `Ok(x)` / `Err(e)` — the contained value rendered via `Debug`.
-    fn to_string(self) -> String {
+    fn debug(self) -> String {
         return match self {
             Ok(v) => 'Ok(${v.debug()})',
             Err(e) => 'Err(${e.debug()})',
         };
+    }
+}
+
+/// A result's display form *is* its developer form — the structural `Debug`
+/// rendering is canonical (there is no prettier user-facing shape; the
+/// Python `str`-delegates-to-`repr` convention for containers).
+impl Display for Result<T, E> {
+    fn to_string(self) -> String {
+        return self.debug();
     }
 }

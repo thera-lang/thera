@@ -1,0 +1,41 @@
+//! spec: iface-debug
+//! mode: run
+
+// `.debug()` is a real, declared method on the built-ins (std.core's
+// `impl Debug` conformances), not only a rendering fallback: callable on
+// primitives, String (quoted — where `Debug` and `Display` differ), Bytes,
+// and the collections/wrappers (whose developer form is their display form).
+// Nested rendering and the direct call agree, and a nested custom `impl
+// Debug` is honored (the redaction property).
+struct Token {
+    let secret: String;
+}
+
+impl Debug for Token {
+    fn debug(self) -> String {
+        return 'Token { <redacted> }';
+    }
+}
+
+fn main() -> Int {
+    println(5.debug());                            // expect: 5
+    println(1.5.debug());                          // expect: 1.5
+    println(true.debug());                         // expect: true
+    println('it\'s'.debug());                      // expect: 'it\'s'
+    println([1, 2].debug());                       // expect: [1, 2]
+    println(['a': 1].debug());                     // expect: ['a': 1]
+    println(Set.from([3, 4]).debug());             // expect: (3, 4)
+    println(Option.Some(7).debug());               // expect: Some(7)
+    let err: Result<Int, String> = Result.Err('boom');
+    println(err.debug());                          // expect: Err('boom')
+    // Direct call and interpolation agree on containers.
+    let m = ['k': [1, 2]];
+    println('${m.debug() == '${m}'}');             // expect: true
+    // A nested map reaches the runtime's structural renderer — same form.
+    println([['a': 1]].debug());                   // expect: [['a': 1]]
+    let empty: Map<String, Int> = [:];
+    println([empty].debug());                      // expect: [[:]]
+    // A nested element's explicit impl wins inside the structural rendering.
+    println([Token { secret: 'hunter2' }].debug()); // expect: [Token { <redacted> }]
+    return 0;
+}

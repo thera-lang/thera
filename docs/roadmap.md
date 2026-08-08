@@ -920,6 +920,29 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **`debug()` declared on the built-ins — and the auto-derive design decision**
+  (2026-08, #142's B1). `std.core` now carries `impl Debug` for the primitives,
+  `String` (quoted, via a new `string_debug` native sharing the structural
+  renderer's escaping), `Bytes`, and the collections/wrappers (whose structural
+  `Debug` body is canonical, with `Display` delegating to it — the Python
+  `str`-delegates-to-`repr` convention; primitives are the reverse, and `String`
+  keeps two genuine bodies), so `.debug()` is an ordinary method everywhere, and
+  the runtime's structural map rendering unified to the literal form
+  (`['k': v]`, `[:]`) so nested and direct renderings agree. **Decision
+  record:** the string of Eq/Debug completeness gaps did not indict
+  auto-derivation — totality (`${x}` never a compile error, `==` just works) is
+  load-bearing for agent ergonomics, and requiring explicit impls would be a
+  per-type tax that wouldn't even have prevented the credential-leak episode (a
+  hand-written derive prints the same fields). The real lesson: _implicit
+  semantics still need an explicit surface._ The gaps all lived on the seam
+  where derived behavior existed only as runtime-fallback special cases with no
+  declared conformance the checker could see. Repair pattern going forward:
+  derive the behavior, declare the conformance. The declared impls are
+  statically callable today; virtual dispatch on the native-typed ones (an
+  interface-typed `List`, `<T: Debug>` with a `List` binding) still reaches the
+  structural fallback — identical output; real vtable rows arrive with primitive
+  vtables (#136).
+
 - **Corrective hints for guessed-wrong names** (2026-08, the curated half of
   did-you-mean #85; resolves #142's B4). A small evidence-seeded table
   (`pkgs/cli/checker/hints.thera`) maps names agents guess by cross-language

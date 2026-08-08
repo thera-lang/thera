@@ -115,12 +115,21 @@ impl Option<T> {
     }
 }
 
-impl Display for Option<T> {
+impl Debug for Option<T> {
     /// `Some(x)` / `None` — the contained value rendered via `Debug`.
-    fn to_string(self) -> String {
+    fn debug(self) -> String {
         return match self {
             Some(v) => 'Some(${v.debug()})',
             None => 'None',
         };
+    }
+}
+
+/// An option's display form *is* its developer form — the structural `Debug`
+/// rendering is canonical (there is no prettier user-facing shape; the
+/// Python `str`-delegates-to-`repr` convention for containers).
+impl Display for Option<T> {
+    fn to_string(self) -> String {
+        return self.debug();
     }
 }
