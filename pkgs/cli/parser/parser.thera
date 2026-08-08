@@ -162,6 +162,14 @@ impl Parser {
         return self.tokens[self.tokens.len() - 1];
     }
 
+    // Whether the token `n` positions ahead is the contextual keyword `type` —
+    // an ordinary identifier (`type` is not reserved) that only `native type`
+    // and the legacy-form error in `parse_decl` give meaning.
+    fn peek_is_type_kw(self, _ n: Int) -> Bool {
+        let t = self.peek_tok(n);
+        return t.kind == TokenKind.Identifier && t.lexeme() == 'type';
+    }
+
     fn advance(self) -> Token {
         if self.panicking {
             return self.current(); // frozen during recovery: consume nothing
@@ -497,8 +505,10 @@ impl Parser {
             return self.parse_import(is_pub, start);
         }
         if k == TokenKind.KwNative {
-            // `native type` is a bodyless opaque type; `native fn` is everything else.
-            if self.peek_tok(1).kind == TokenKind.KwType {
+            // `native type` is a bodyless opaque type; `native fn` is everything
+            // else. `type` is a contextual keyword (an ordinary identifier),
+            // recognized here by lexeme.
+            if self.peek_is_type_kw(1) {
                 if decorators.len() != 0 {
                     self.fail('decorators are not allowed on type declarations');
                     return self.err_decl();
@@ -518,13 +528,15 @@ impl Parser {
             }
             return self.parse_struct_decl(is_pub, start);
         }
-        if k == TokenKind.KwType {
+        if self.peek_is_type_kw(0) && self.peek_tok(1).kind == TokenKind.Identifier {
             // The old struct form `type Name = { … }` is gone — structs are now
             // `struct Name { … }`. (`native type` is handled above; a transparent
-            // `type X = Y` alias may take this branch later.)
+            // `type X = Y` alias may take this branch later.) A bare identifier
+            // can't start a declaration, so the lookahead only sharpens the
+            // fallthrough error below.
             self.fail('struct definitions use `struct Name { … }`, ' + 'not `type Name = { … }`');
             // Recovery (`parse_decl_or_recover` → `sync_to_decl`) skips past this
-            // `type` — it is no longer a decl-sync point (see `starts_decl`), so
+            // `type` — it is not a decl-sync point (see `starts_decl`), so
             // there is no risk of re-entering this branch in a loop.
             return self.err_decl();
         }

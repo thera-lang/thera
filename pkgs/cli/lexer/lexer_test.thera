@@ -37,6 +37,9 @@ fn test_every_keyword_lexes_as_its_kind() -> Result<Void, Error> {
     testing.assert_eq(actual: kinds('break'), expected: [TokenKind.KwBreak, TokenKind.Eof])?;
     testing.assert_eq(actual: kinds('breaks'), expected: [TokenKind.Identifier, TokenKind.Eof])?;
     testing.assert_eq(actual: kinds('continue'), expected: [TokenKind.KwContinue, TokenKind.Eof])?;
+    // `type` is a *contextual* keyword — not reserved, lexes as an identifier
+    // (only `native type` gives it meaning, by lexeme, in the parser).
+    testing.assert_eq(actual: kinds('type'), expected: [TokenKind.Identifier, TokenKind.Eof])?;
     return Result.Ok(void);
 }
 
