@@ -855,3 +855,77 @@ fn test_else_if_wrapper_is_synthetic() -> Result<Void, Error> {
     }
     return Result.Err(error('expected an If stmt'));
 }
+
+// Keywords as member names (docs/language.md §Keywords as member names):
+// field declarations, struct-literal fields, field access, call-site labels,
+// and parameter labels accept any keyword; `type` is not reserved at all.
+@test
+fn test_keywords_as_member_names() -> Result<Void, Error> {
+    let r = parse_src('struct P { let in: String; let mut: Bool; let mut match: Int; }\n'
+        + 'fn f(in loc: String, if cond: Bool) -> Int {\n'
+        + '    let p = P { in: loc, mut: cond, match: 1 };\n'
+        + '    return p.match;\n'
+        + '}\n');
+    testing.assert(!r.has_errors(), message: 'keyword members should parse')?;
+    if let Type(td) = r.program.decls[0] {
+        testing.assert_eq(actual: td.fields.map((f) => f.name), expected: ['in', 'mut', 'match'])?;
+        testing.assert_eq(
+            actual: td.fields.map((f) => f.is_mut),
+            expected: [false, false, true],
+        )?;
+    }
+    if let Fn(fd) = r.program.decls[1] {
+        testing.assert_eq(actual: fd.params[0].label, expected: Option.Some('in'))?;
+        testing.assert_eq(actual: fd.params[0].name, expected: 'loc')?;
+    }
+    testing.assert_eq(actual: expr_str('f(in: x, if: true)'), expected: 'f(in: x, if: true)')?;
+    testing.assert_eq(actual: expr_str('p.self.in'), expected: 'p.self.in')?;
+    return Result.Ok(void);
+}
+
+// `self` stays the receiver when bare; followed by an identifier it is an
+// ordinary parameter label.
+@test
+fn test_self_label_vs_receiver() -> Result<Void, Error> {
+    let r = parse_src('impl P { fn near(self, self other: P) -> Bool { return true; } }');
+    testing.assert(!r.has_errors(), message: 'self label should parse')?;
+    if let Impl(im) = r.program.decls[0] {
+        let ps = im.methods[0].params;
+        testing.assert(ps[0].is_self, message: 'first param is the receiver')?;
+        testing.assert_eq(actual: ps[1].label, expected: Option.Some('self'))?;
+        testing.assert_eq(actual: ps[1].name, expected: 'other')?;
+    }
+    return Result.Ok(void);
+}
+
+// A keyword may label a parameter but not name it — the single-name form gets
+// the prescriptive two-name error.
+@test
+fn test_keyword_param_name_rejected() -> Result<Void, Error> {
+    let r = parse_src('fn f(match: Int) -> Int { return 1; }');
+    testing.assert(r.has_errors(), message: 'keyword param name should error')?;
+    testing.assert(
+        r.errors[0].message.contains('distinct internal name'),
+        message: 'prescriptive message, got: ${r.errors[0].message}',
+    )?;
+    return Result.Ok(void);
+}
+
+// A dangling `x.` must not swallow a statement keyword on the *next* line —
+// the mid-edit recovery hole completion anchors on (keyword members bind only
+// on the dot's own line).
+@test
+fn test_dangling_dot_keeps_next_line_keyword() -> Result<Void, Error> {
+    let r = parse_src('fn f(_ p: P) -> Int {\n    p.\n    return 0;\n}');
+    testing.assert(r.has_errors(), message: 'dangling dot should hole')?;
+    if let Fn(fd) = r.program.decls[0] {
+        if let Some(b) = fd.body {
+            let last = b.stmts[b.stmts.len() - 1];
+            if let Return(_s, _v) = last {
+                return Result.Ok(void);
+            }
+        }
+        return Result.Err(error('the return statement should survive'));
+    }
+    return Result.Err(error('expected a fn decl'));
+}

@@ -1,9 +1,6 @@
-// The token model — the Thera mirror of the Dart toolchain's token.dart:
-// the token kinds, the keyword table, and the Token itself. `SourceSpan` and
-// the comment side channel live in the source model (`../source`).
-//
-// Variants are listed in the same order as the Dart `TokenKind` enum so the two
-// stay easy to diff.
+// The token model: the token kinds, the keyword table, and the Token itself.
+// `SourceSpan` and the comment side channel live in the source model
+// (`../source`).
 
 import '../source' as _;
 
@@ -38,9 +35,11 @@ pub enum TokenKind {
     KwStruct,
     KwThrow,
     KwTrue,
-    KwType,
     KwVoid, // the unit value (the `Void` type's single value)
     KwWhile,
+    // Note: `type` is not reserved — it lexes as an ordinary identifier. Its
+    // only keyword-like role is the `native type` declaration form, which the
+    // parser recognizes by lexeme.
 
     // Identifiers (type names, Ok, Err, Some, None, user names, etc.)
     Identifier,
@@ -97,8 +96,9 @@ pub enum TokenKind {
     Eof,
 }
 
-// The reserved keyword for `text`, or None for an ordinary identifier. Mirrors
-// the Dart `_keywords` table (kept in the same order).
+// The reserved keyword for `text`, or None for an ordinary identifier.
+// (`type` is deliberately absent: it is a contextual keyword — an ordinary
+// identifier that the parser gives meaning only in `native type`.)
 pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
     return match text {
         'as' => Option.Some(TokenKind.KwAs),
@@ -125,10 +125,45 @@ pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
         'struct' => Option.Some(TokenKind.KwStruct),
         'throw' => Option.Some(TokenKind.KwThrow),
         'true' => Option.Some(TokenKind.KwTrue),
-        'type' => Option.Some(TokenKind.KwType),
         'void' => Option.Some(TokenKind.KwVoid),
         'while' => Option.Some(TokenKind.KwWhile),
         _ => Option.None,
+    };
+}
+
+// Whether `kind` is a reserved keyword. Member positions (field names, field
+// access after `.`, call-site and parameter labels) accept these as ordinary
+// names — the parser's `expect_member_name` — since no other production can
+// appear there.
+pub fn is_keyword(_ kind: TokenKind) -> Bool {
+    return match kind {
+        KwAs => true,
+        KwBreak => true,
+        KwConst => true,
+        KwContinue => true,
+        KwElse => true,
+        KwEnum => true,
+        KwFalse => true,
+        KwFn => true,
+        KwFor => true,
+        KwIf => true,
+        KwImpl => true,
+        KwImport => true,
+        KwIn => true,
+        KwInterface => true,
+        KwLet => true,
+        KwMatch => true,
+        KwMut => true,
+        KwNative => true,
+        KwPub => true,
+        KwReturn => true,
+        KwSelf => true,
+        KwStruct => true,
+        KwThrow => true,
+        KwTrue => true,
+        KwVoid => true,
+        KwWhile => true,
+        _ => false,
     };
 }
 

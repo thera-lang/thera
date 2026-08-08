@@ -145,14 +145,18 @@ Each of these is a real first-contact error, most-frequent first.
     last expression without `;` is the block's value — adding a `;` there
     changes the value to `Void`.
 
-13. **Keywords and reserved names are off-limits as identifiers.** `type` is a
-    keyword — it cannot be a field, parameter, or label name anywhere (a real
-    trap when mirroring JSON APIs whose payloads have a `type` field; name the
-    field `kind` and map it explicitly at the decode boundary). User code may
-    not declare types named `Result`, `Option`, `List`, `Error`, `Display`, …
-    (the reserved list is in [language.md](../../docs/language.md) §Reserved
-    type names). And one name per scope: a second `let x` in the same block, or
-    a top-level `fn` shadowing a prelude name, is an error.
+13. **Member names are free; binding names are not.** Mirroring a JSON API's
+    `type` field just works: `type` is not reserved (`let type: String;`,
+    `x.type`, `f(type: v)`, even `let type = …`), and _every_ keyword is valid
+    as a field, struct-literal field, `x.member` access, call-site label, or
+    parameter label (`let in: String;`, `f(match: v)`). What a keyword cannot be
+    is a _binding_ read bare in a body — so a parameter needs the two-name form
+    (`fn f(match m: Int)`, not `fn f(match: Int)`), and `let match = …` is an
+    error. Reserved names still exist at the type tier: user code may not
+    declare types named `Result`, `Option`, `List`, `Error`, `Display`, … (the
+    list is in [language.md](../../docs/language.md) §Reserved type names). And
+    one name per scope: a second `let x` in the same block, or a top-level `fn`
+    shadowing a prelude name, is an error.
 
 14. **The unit type is `Void`, written `void`.** Function types spell it:
     `() -> Void`, `(Int) -> Void` — not `()` or `-> ()`. A function with nothing

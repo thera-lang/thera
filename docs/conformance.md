@@ -26,18 +26,19 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Lexical & literals
 
-| ID                    | Spec (grammar.md)       | Pins                                                                                                                     | Status |
-| --------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------ |
-| `lex-comments`        | Comments & whitespace   | `//` line comments only; no block comments                                                                               | ✓      |
-| `lex-interp-errors`   | Strings / Interpolation | a syntax error inside `${...}` is a located parse error with a real file span (empty `${}` and trailing tokens included) | ✓      |
-| `parse-recovery-sync` | Parsing / Recovery      | error recovery resyncs at a top-level declaration boundary, brace-aware — no phantom declarations or cascades            | ✓      |
-| `lex-int`             | Literals                | decimal + `0x` hex; hex wraps into signed `Int`                                                                          | ✓      |
-| `lex-float`           | Literals                | digits both sides of `.`; no `1.` / `.5` / exponent                                                                      | ✓      |
-| `lex-string-escape`   | Literals                | the 11 escapes + `\xNN` + `\u{…}`; unknown escape = error                                                                | ✓      |
-| `lex-string-raw`      | Literals                | raw strings `r'…'` / `r"…"` — no escapes, no interpolation                                                               | ✓      |
-| `lex-string-block`    | Literals                | text blocks `'''…'''`: margin stripped, trailing whitespace dropped, escapes + interpolation live                        | ✓      |
-| `lex-string-interp`   | Literals                | `${expr}` interpolation                                                                                                  | ✓      |
-| `lex-bool-unit`       | Literals                | `true` / `false` / `void` keywords in expression position                                                                | ✓      |
+| ID                    | Spec (grammar.md)       | Pins                                                                                                                         | Status |
+| --------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `lex-comments`        | Comments & whitespace   | `//` line comments only; no block comments                                                                                   | ✓      |
+| `lex-interp-errors`   | Strings / Interpolation | a syntax error inside `${...}` is a located parse error with a real file span (empty `${}` and trailing tokens included)     | ✓      |
+| `parse-recovery-sync` | Parsing / Recovery      | error recovery resyncs at a top-level declaration boundary, brace-aware — no phantom declarations or cascades                | ✓      |
+| `lex-int`             | Literals                | decimal + `0x` hex; hex wraps into signed `Int`                                                                              | ✓      |
+| `lex-float`           | Literals                | digits both sides of `.`; no `1.` / `.5` / exponent                                                                          | ✓      |
+| `lex-string-escape`   | Literals                | the 11 escapes + `\xNN` + `\u{…}`; unknown escape = error                                                                    | ✓      |
+| `lex-string-raw`      | Literals                | raw strings `r'…'` / `r"…"` — no escapes, no interpolation                                                                   | ✓      |
+| `lex-string-block`    | Literals                | text blocks `'''…'''`: margin stripped, trailing whitespace dropped, escapes + interpolation live                            | ✓      |
+| `lex-string-interp`   | Literals                | `${expr}` interpolation                                                                                                      | ✓      |
+| `lex-bool-unit`       | Literals                | `true` / `false` / `void` keywords in expression position                                                                    | ✓      |
+| `lex-type-contextual` | Keywords                | `type` is contextual, not reserved: an ordinary identifier (field, param, label, local); only `native type` gives it meaning | ✓      |
 
 ## Expressions & operators
 
@@ -98,23 +99,24 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Variables & semantics
 
-| ID                            | Spec (language.md)   | Pins                                                                                                                              | Status |
-| ----------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `var-let-mut`                 | Variables            | immutable by default; `mut` allows reassign                                                                                       | ✓      |
-| `var-let-immutable`           | Variables            | reassigning a `let` (or a parameter) is an error                                                                                  | ✓      |
-| `var-assign-type`             | Variables            | an assignment's value must match the target's type (binding, element, field)                                                      | ✓      |
-| `var-expr-position-immutable` | Variables            | immutability enforced inside expression-position blocks/`if`s/match arms                                                          | ✓      |
-| `var-references`              | Variables            | heap values are shared references                                                                                                 | ✓      |
-| `var-wildcard-let`            | Variables            | `let _ = expr;` evaluates and discards: no binding, side effects run, annotation still checked                                    | ✓      |
-| `var-same-block-rebind`       | Variables            | a second `let x` in the same block is an error; shadowing is legal only from a nested scope                                       | ✓      |
-| `warn-unused-variable`        | Variables / Warnings | a `let` binding never referenced is a **warning** (statement `let`s only; `_`-prefixed names exempt; any later occurrence counts) | ✓      |
-| `var-block-scope`             | Variables            | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after                                       | ✓      |
-| `module-let-immutable`        | language.md          | no top-level `let mut`; module globals are immutable                                                                              | ✓      |
-| `module-let`                  | language.md          | top-level `let` computed once into a stored global slot                                                                           | ✓      |
-| `module-let-order`            | language.md          | initializers run in dependency order; a cycle is an error                                                                         | ◐      |
-| `module-let-cross-module`     | language.md          | imported globals initialize before an importer's that use them                                                                    | ✓      |
-| `const-manifest`              | language.md          | `const` must be compile-time evaluable; computed -> use `let`                                                                     | ✓      |
-| `const-inline-scope`          | language.md          | a const's inlined initializer evaluates in the const's own top-level scope, not the consumer's                                    | ✓      |
+| ID                            | Spec (language.md)       | Pins                                                                                                                                                                                             | Status |
+| ----------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| `var-let-mut`                 | Variables                | immutable by default; `mut` allows reassign                                                                                                                                                      | ✓      |
+| `var-let-immutable`           | Variables                | reassigning a `let` (or a parameter) is an error                                                                                                                                                 | ✓      |
+| `var-assign-type`             | Variables                | an assignment's value must match the target's type (binding, element, field)                                                                                                                     | ✓      |
+| `var-expr-position-immutable` | Variables                | immutability enforced inside expression-position blocks/`if`s/match arms                                                                                                                         | ✓      |
+| `var-references`              | Variables                | heap values are shared references                                                                                                                                                                | ✓      |
+| `var-wildcard-let`            | Variables                | `let _ = expr;` evaluates and discards: no binding, side effects run, annotation still checked                                                                                                   | ✓      |
+| `var-same-block-rebind`       | Variables                | a second `let x` in the same block is an error; shadowing is legal only from a nested scope                                                                                                      | ✓      |
+| `warn-unused-variable`        | Variables / Warnings     | a `let` binding never referenced is a **warning** (statement `let`s only; `_`-prefixed names exempt; any later occurrence counts)                                                                | ✓      |
+| `var-block-scope`             | Variables                | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after                                                                                                      | ✓      |
+| `module-let-immutable`        | language.md              | no top-level `let mut`; module globals are immutable                                                                                                                                             | ✓      |
+| `module-let`                  | language.md              | top-level `let` computed once into a stored global slot                                                                                                                                          | ✓      |
+| `module-let-order`            | language.md              | initializers run in dependency order; a cycle is an error                                                                                                                                        | ◐      |
+| `module-let-cross-module`     | language.md              | imported globals initialize before an importer's that use them                                                                                                                                   | ✓      |
+| `const-manifest`              | language.md              | `const` must be compile-time evaluable; computed -> use `let`                                                                                                                                    | ✓      |
+| `const-inline-scope`          | language.md              | a const's inlined initializer evaluates in the const's own top-level scope, not the consumer's                                                                                                   | ✓      |
+| `name-keyword-members`        | Keywords as member names | any keyword is a member name (field decl, struct-literal field, `.` access, call label, param label); binding names stay identifiers — a keyword param name gets the prescriptive two-name error | ✓      |
 
 ## Functions
 

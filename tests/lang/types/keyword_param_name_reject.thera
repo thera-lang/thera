@@ -1,0 +1,12 @@
+//! spec: name-keyword-members
+//! mode: check
+
+// A keyword may *label* a parameter but not name it — the internal name is
+// read bare in the body. The single-name form gets the prescriptive error.
+fn f(match: Int) -> Int {   // expect error: a keyword parameter label needs a distinct internal name
+    return 1;
+}
+
+fn main() -> Int {
+    return f(match: 2);
+}
