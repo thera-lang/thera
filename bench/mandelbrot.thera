@@ -1,6 +1,6 @@
-// Fixed-point Mandelbrot set generation benchmark.
-// Computes a 100x100 grid with max 100 iterations, repeated 50 times.
-// Exercises basic integer arithmetic, loops, and conditional branches.
+// Fixed-point Mandelbrot set generation benchmark. Computes a 100x100 grid with max
+// 100 iterations, repeated 50 times. Exercises basic integer arithmetic, loops, and
+// conditional branches.
 //
 // Rough baseline (2026-07, release interpreter): ~0.9s. Git history has the
 // per-revision timing log this comment used to carry.

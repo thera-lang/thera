@@ -9,9 +9,9 @@ import std.net;
 
 import 'common';
 
-/// The default `user-agent`, sent unless a caller sets their own. Servers do
-/// route on it (rate limits, compatibility shims), and an unidentified client is
-/// the kind of thing that gets blocked.
+/// The default `user-agent`, sent unless a caller sets their own. Servers do route
+/// on it (rate limits, compatibility shims), and an unidentified client is the kind
+/// of thing that gets blocked.
 pub const USER_AGENT: String = 'thera-http/0.1';
 
 // --- URLs ---
@@ -63,9 +63,9 @@ fn parse_url(_ url: String) -> Result<Url, common.HttpError> {
         target = '/'; // an empty path is `/` on the request line
     }
 
-    // `user:pass@host` — parsed off rather than silently sent. Credentials in a
-    // URL are deprecated (RFC 9110 §4.2.1) and passing them through as a host
-    // would produce a baffling DNS failure.
+    // `user:pass@host` — parsed off rather than silently sent. Credentials in a URL
+    // are deprecated (RFC 9110 §4.2.1) and passing them through as a host would
+    // produce a baffling DNS failure.
     if authority.contains('@') {
         return Result.Err(common.HttpError.Connect(
             'credentials in a URL are not supported; use an authorization header',
@@ -161,18 +161,18 @@ pub fn post(
 }
 
 /// Send `request`, whose `url` must be absolute (`http://host/path` or
-/// `https://host/path`). An `https` URL verifies the server's certificate chain
-/// and host name against the bundled roots; a certificate that doesn't check out
-/// is an `HttpError.Tls`, never a silent downgrade.
+/// `https://host/path`). An `https` URL verifies the server's certificate chain and
+/// host name against the bundled roots; a certificate that doesn't check out is an
+/// `HttpError.Tls`, never a silent downgrade.
 ///
 /// One connection per request, closed on the way out: no pooling, no keep-alive
 /// reuse, and **no redirect following** — a 3xx comes back as itself, for the
 /// caller to act on. A 4xx or 5xx is likewise a perfectly good `Response`, not an
 /// error; `HttpError` is for exchanges that did not happen.
 ///
-/// The body is read into memory, capped at `common.MAX_BODY_BYTES`. This is `stream`
-/// plus that read plus the close — so for a body that should not be held whole, use
-/// `stream` directly.
+/// The body is read into memory, capped at `common.MAX_BODY_BYTES`. This is
+/// `stream` plus that read plus the close — so for a body that should not be held
+/// whole, use `stream` directly.
 pub fn send(_ request: common.Request) -> Result<common.Response, common.HttpError> {
     let open = stream(request)?;
     // Written as one expression so there is a single `close` below, on every path,
@@ -191,11 +191,11 @@ pub fn send(_ request: common.Request) -> Result<common.Response, common.HttpErr
 
 // --- streaming ---
 
-/// A response whose connection is **still open**: the head has arrived, and the body
-/// is being read off the wire as it comes.
+/// A response whose connection is **still open**: the head has arrived, and the
+/// body is being read off the wire as it comes.
 ///
-/// The client's counterpart to `common.ResponseStream`, which is the codec's version
-/// of the same idea. The difference is the last field: this one **owns the
+/// The client's counterpart to `common.ResponseStream`, which is the codec's
+/// version of the same idea. The difference is the last field: this one **owns the
 /// connection**, and so has to be closed.
 pub struct Stream {
     let status: Int;
@@ -213,10 +213,10 @@ impl Stream {
     /// Close the connection — after reading the body, or early if you have stopped
     /// caring about the rest of it.
     ///
-    /// **Always call it.** Thera has no destructors, so nothing else will: a `Stream`
-    /// that goes out of scope unclosed is a leaked descriptor, and a retry loop that
-    /// leaks one per attempt runs the process out of them. `with_stream` is the
-    /// spelling that cannot forget.
+    /// **Always call it.** Thera has no destructors, so nothing else will: a
+    /// `Stream` that goes out of scope unclosed is a leaked descriptor, and a retry
+    /// loop that leaks one per attempt runs the process out of them. `with_stream`
+    /// is the spelling that cannot forget.
     ///
     /// Closing twice is an `Err`, not a crash — the runtime refuses a close on a
     /// connection it no longer has. So `let _ = s.close()` is the right spelling
@@ -255,8 +255,8 @@ pub fn stream(_ request: common.Request) -> Result<Stream, common.HttpError> {
 /// Stream `request`, hand the open `Stream` to `handler`, and **close it on the way
 /// out — every way out**, including an early `?` inside the callback.
 ///
-/// The leak-proof spelling, and the one to reach for unless the stream genuinely has
-/// to outlive the call:
+/// The leak-proof spelling, and the one to reach for unless the stream genuinely
+/// has to outlive the call:
 ///
 /// ```thera
 /// let count = http.with_stream(req, handle: (s) => {
@@ -276,8 +276,8 @@ pub fn with_stream<T>(
 }
 
 /// A failure to establish the connection, as an `HttpError`. Only the TLS cause
-/// survives as itself — it is the one that says "don't retry this" — and
-/// everything else is the `Connect` it already was.
+/// survives as itself — it is the one that says "don't retry this" — and everything
+/// else is the `Connect` it already was.
 fn connect_error(_ e: net.NetError) -> common.HttpError {
     return match e {
         Tls(m) => common.HttpError.Tls(m),
@@ -285,7 +285,8 @@ fn connect_error(_ e: net.NetError) -> common.HttpError {
     };
 }
 
-/// Write `request` on `conn` and read the head back, leaving the body on the common.
+/// Write `request` on `conn` and read the head back, leaving the body on the
+/// common.
 ///
 /// Generic over the stream rather than taking a `net.TcpStream`, which is what lets
 /// `https` and `http` share it — the codec's two halves are separately
@@ -337,8 +338,8 @@ fn outbound_headers(_ caller: Map<String, String>, _ url: Url) -> Map<String, St
     for key in caller.keys() {
         headers[key.to_lowercase()] = caller[key];
     }
-    // `host` is mandatory in HTTP/1.1 and comes from the URL — a caller who sets
-    // it means it (virtual hosts, testing through a proxy), so don't overwrite.
+    // `host` is mandatory in HTTP/1.1 and comes from the URL — a caller who sets it
+    // means it (virtual hosts, testing through a proxy), so don't overwrite.
     if !headers.has('host') {
         headers['host'] = url.authority;
     }

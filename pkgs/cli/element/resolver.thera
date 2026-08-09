@@ -33,9 +33,9 @@ import 'inference'; // pass 4: module-global type inference (no cycle — see sc
 //     floor-only entry). Testing against the floor therefore tests a real code
 //     path — the same one the CLI takes before the prelude loads.
 //
-// Because the floor and `sdk/std/core` are two hand-maintained descriptions of
-// the same types, they can drift. `element/floor_test.thera` is the guard: it
-// links the real prelude once and asserts each floor name's arity matches core's.
+// Because the floor and `sdk/std/core` are two hand-maintained descriptions of the
+// same types, they can drift. `element/floor_test.thera` is the guard: it links the
+// real prelude once and asserts each floor name's arity matches core's.
 pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     let m: Map<String, TypeDefElement> = [:];
     // Primitives — the attachment point for impl/static methods. They implement
@@ -58,10 +58,10 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     // Opaque built-ins; real declarations shadow these when linked in.
     m['Error'] = new_builtin(BUILTIN_OWNER, 'Error', []);
     m['Args'] = new_builtin(BUILTIN_OWNER, 'Args', []);
-    // The core-semantic interfaces, so hermetic contexts (no prelude) can
-    // resolve a `<T: Display>` bound / an `impl Eq for …` to a real identity —
-    // the anchor `builtin_displayable`'s conformance and `satisfies_bound`'s
-    // intrinsic arms compare against. std.core's declarations shadow these.
+    // The core-semantic interfaces, so hermetic contexts (no prelude) can resolve a
+    // `<T: Display>` bound / an `impl Eq for …` to a real identity — the anchor
+    // `builtin_displayable`'s conformance and `satisfies_bound`'s intrinsic arms
+    // compare against. std.core's declarations shadow these.
     m['Display'] = new_interface(BUILTIN_OWNER, 'Display', []);
     m['Eq'] = new_interface(BUILTIN_OWNER, 'Eq', []);
     m['Debug'] = new_interface(BUILTIN_OWNER, 'Debug', []);
@@ -72,14 +72,14 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
 // Type names the language itself speaks — in signatures (`Void`), sugar
 // (`Result`/`Option`/`?`, `#loc`/`SourceLoc`), literals (`List`/`Map`/`Set`/
 // `String`/`Int`/`Bool`/`Double`), protocols (`Iterator`, `Ordering`,
-// `Eq`/`Ord`/`Display`/`Debug` — `==`, sorting, `${}` rendering, the
-// structural derives — and `error(...)`/`Error`), or the runtime's value model
-// (`Bytes`). Reserved (language.md "Reserved type names"): the checker rejects
-// a user declaration (type or type parameter), and pass 1 below pins the flat
-// registry entry to its first (core) registration so even an unchecked program
-// (an LSP buffer mid-edit) can't clobber core identity. Deliberately *not* the
-// whole core surface: utility types that merely live in core (`BytesBuilder`,
-// `Args`, `Indexed`, …) are ordinary owner-resolved names a user may redeclare.
+// `Eq`/`Ord`/`Display`/`Debug` — `==`, sorting, `${}` rendering, the structural
+// derives — and `error(...)`/`Error`), or the runtime's value model (`Bytes`).
+// Reserved (language.md "Reserved type names"): the checker rejects a user
+// declaration (type or type parameter), and pass 1 below pins the flat registry
+// entry to its first (core) registration so even an unchecked program (an LSP
+// buffer mid-edit) can't clobber core identity. Deliberately *not* the whole core
+// surface: utility types that merely live in core (`BytesBuilder`, `Args`,
+// `Indexed`, …) are ordinary owner-resolved names a user may redeclare.
 pub fn is_reserved_type_name(_ name: String) -> Bool {
     return name == 'Result' || name == 'Option' || name == 'Ordering'
         || name == 'List' || name == 'Map' || name == 'Set'
@@ -90,10 +90,9 @@ pub fn is_reserved_type_name(_ name: String) -> Bool {
 }
 
 // A built-in type def that declares it implements `Display` and `Ord` — the
-// hermetic-floor stand-in for a primitive's `impl Display for …` /
-// `impl Ord for …` in std.core (all four primitives declare both). The
-// conformances carry the floor interfaces' identities; the real core impls
-// carry the core file's.
+// hermetic-floor stand-in for a primitive's `impl Display for …` / `impl Ord for …`
+// in std.core (all four primitives declare both). The conformances carry the floor
+// interfaces' identities; the real core impls carry the core file's.
 fn builtin_displayable(_ name: String) -> TypeDefElement {
     let def = new_builtin(BUILTIN_OWNER, name, []);
     def.interfaces.push(TypeId { owner: BUILTIN_OWNER, name: 'Display' });
@@ -101,17 +100,17 @@ fn builtin_displayable(_ name: String) -> TypeDefElement {
     return def;
 }
 
-// Register `el` as the flat by-name registry entry for `name`. A reserved core
-// name is pinned to the *file* that first really registered it — std.core loads
-// before user files (imports precede the primary), so even an *unchecked*
-// program (an open LSP buffer with an illegal `struct Result` mid-edit) can't
-// steal core identity from the registry (audit EL8). A re-registration from the
-// **same owner file** must still overwrite: when a core file is itself the
-// check primary it appears in the program list twice (once via the prelude
-// closure, once as the primary), and blocking the second copy would leave the
-// flat entry pointing at a stale element while pass 2 fills the per-file one
-// (methods vanish program-wide). Other names keep last-wins: the flat table is
-// only a fallback beneath the authoritative per-file tables.
+// Register `el` as the flat by-name registry entry for `name`. A reserved core name
+// is pinned to the *file* that first really registered it — std.core loads before
+// user files (imports precede the primary), so even an *unchecked* program (an open
+// LSP buffer with an illegal `struct Result` mid-edit) can't steal core identity
+// from the registry (audit EL8). A re-registration from the **same owner file**
+// must still overwrite: when a core file is itself the check primary it appears in
+// the program list twice (once via the prelude closure, once as the primary), and
+// blocking the second copy would leave the flat entry pointing at a stale element
+// while pass 2 fills the per-file one (methods vanish program-wide). Other names
+// keep last-wins: the flat table is only a fallback beneath the authoritative
+// per-file tables.
 fn record_flat_type(
     _ type_defs: Map<String, TypeDefElement>,
     _ name: String,
@@ -132,11 +131,10 @@ fn record_flat_type(
 // Build the resolved LibraryElement for `program` plus any `imports`.
 //
 // Pass 1 registers a skeleton element for every declared type (so mutually
-// recursive references resolve); pass 2 fills member types, signatures, consts,
-// and impl methods; pass 3 flattens the inherited interface closure. The
-// per-program pass bodies are shared with the incremental pair below
-// (`build_import_library` + `layer_primary`), which must stay
-// behavior-identical to this full build.
+// recursive references resolve); pass 2 fills member types, signatures, consts, and
+// impl methods; pass 3 flattens the inherited interface closure. The per-program
+// pass bodies are shared with the incremental pair below (`build_import_library` +
+// `layer_primary`), which must stay behavior-identical to this full build.
 pub fn build_library(
     _ program: Program,
     _ imports: List<Program>,
@@ -158,31 +156,30 @@ pub fn build_library(
     return library;
 }
 
-// Pass 4: infer the type of each un-annotated module-global `let`/`const` from
-// its initializer, writing it into the (otherwise `Unknown`) `ConstElement.ty`.
-// Runs last, after the interface closure, so the full element model is visible.
-// Lives here rather than the resolver's inner passes only because it needs
-// `inference`; it is nonetheless part of building a fully-typed library, so every
-// build path (`build_library`/`build_import_library`/`layer_primary`) runs it —
-// no caller has to. Per-program (never the whole shared library at once), so the
-// incremental path types the base's imports once at base-build and `layer_primary`
-// types only the primary — the frozen-base invariant holds.
+// Pass 4: infer the type of each un-annotated module-global `let`/`const` from its
+// initializer, writing it into the (otherwise `Unknown`) `ConstElement.ty`. Runs
+// last, after the interface closure, so the full element model is visible. Lives
+// here rather than the resolver's inner passes only because it needs `inference`;
+// it is nonetheless part of building a fully-typed library, so every build path
+// (`build_library`/`build_import_library`/`layer_primary`) runs it — no caller has
+// to. Per-program (never the whole shared library at once), so the incremental path
+// types the base's imports once at base-build and `layer_primary` types only the
+// primary — the frozen-base invariant holds.
 fn resolve_global_types(_ library: LibraryElement, _ programs: List<Program>) -> Void {
     for p in programs {
         inference.infer_program_globals(library, p);
     }
 }
 
-// The imports-only library: the closure's element model with no primary
-// layered in — the cacheable base `layer_primary` builds on (LD14). Runs the
-// same passes as `build_library` over `imports` alone (dependency-first
-// order — the registration-order invariant — with the builtin floor
-// included).
+// The imports-only library: the closure's element model with no primary layered in
+// — the cacheable base `layer_primary` builds on (LD14). Runs the same passes as
+// `build_library` over `imports` alone (dependency-first order — the
+// registration-order invariant — with the builtin floor included).
 //
-// **Frozen-base invariant:** once a base is cached and layered on, every
-// element reachable from it is frozen — `layer_primary` must mutate only
-// primary-owned elements (any new element-mutation site in the resolver must
-// respect this, or repeated layered requests silently poison the cache).
+// **Frozen-base invariant:** once a base is cached and layered on, every element
+// reachable from it is frozen — `layer_primary` must mutate only primary-owned
+// elements (any new element-mutation site in the resolver must respect this, or
+// repeated layered requests silently poison the cache).
 pub fn build_import_library(
     _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
@@ -193,21 +190,21 @@ pub fn build_import_library(
     for owner in library.file_type_defs.keys() {
         flatten_owner_interfaces(library, owner);
     }
-    // Type the imports' globals into the base now, so the cached-and-frozen base
-    // is complete — `layer_primary` never has to (and must not) touch them.
+    // Type the imports' globals into the base now, so the cached-and-frozen base is
+    // complete — `layer_primary` never has to (and must not) touch them.
     resolve_global_types(library, imports);
     return library;
 }
 
-// Layer `program` over a cached imports-only `base` WITHOUT mutating it: the
-// flat registry and the per-file outer maps are shallow-copied (element
-// objects shared), then passes 1/2/3 run for the primary alone against the
-// copy. Returns None — the caller falls back to a full `build_library` — when
-// a primary `impl`'s target type is not declared by the primary itself: the
-// impl would push methods onto an import-owned (or builtin-floor) element,
-// poisoning the shared base. `file_namespaces`/`file_bare_surface` are the
-// *current* load's (they match the base's for import files — the caller's
-// invalidation guarantees it — plus the primary's own entries).
+// Layer `program` over a cached imports-only `base` WITHOUT mutating it: the flat
+// registry and the per-file outer maps are shallow-copied (element objects shared),
+// then passes 1/2/3 run for the primary alone against the copy. Returns None — the
+// caller falls back to a full `build_library` — when a primary `impl`'s target type
+// is not declared by the primary itself: the impl would push methods onto an
+// import-owned (or builtin-floor) element, poisoning the shared base.
+// `file_namespaces`/`file_bare_surface` are the *current* load's (they match the
+// base's for import files — the caller's invalidation guarantees it — plus the
+// primary's own entries).
 pub fn layer_primary(
     _ base: LibraryElement,
     _ program: Program,
@@ -229,9 +226,9 @@ pub fn layer_primary(
     let primary_key = file_key(program.file_path);
     collect_owned(library.file_owned, program);
     register_skeletons(library.type_defs, library.file_type_defs, program);
-    // The poisoning gate, after pass 1 so the primary's own types are
-    // registered: an impl on anything the primary doesn't declare would
-    // resolve to (and mutate) a frozen base element.
+    // The poisoning gate, after pass 1 so the primary's own types are registered:
+    // an impl on anything the primary doesn't declare would resolve to (and mutate)
+    // a frozen base element.
     for decl in program.decls {
         if let Impl(x) = decl {
             if !file_type_def(library.file_type_defs, program.file_path, x.type_name).is_some() {
@@ -247,14 +244,13 @@ pub fn layer_primary(
     return Option.Some(library);
 }
 
-// Distinct identity for path-less (in-memory) programs, stamped before any
-// table is keyed: two hermetic programs aliasing one `<anon>` key merge
-// their name spaces — a same-named helper in each reads as a same-file
-// duplicate, and private access looks same-file (LD8). The primary keeps
-// the plain `<anon>` key (hermetic callers address it as `file_key(None)`);
-// path-less imports count up from 2. Stamping mutates the program — as the
-// loader's canonical re-stamp does — so the checker's and codegen's builds
-// agree on one identity.
+// Distinct identity for path-less (in-memory) programs, stamped before any table is
+// keyed: two hermetic programs aliasing one `<anon>` key merge their name spaces —
+// a same-named helper in each reads as a same-file duplicate, and private access
+// looks same-file (LD8). The primary keeps the plain `<anon>` key (hermetic callers
+// address it as `file_key(None)`); path-less imports count up from 2. Stamping
+// mutates the program — as the loader's canonical re-stamp does — so the checker's
+// and codegen's builds agree on one identity.
 fn stamp_anon_keys(_ program: Program, _ imports: List<Program>) -> Void {
     if program.file_path.is_none() {
         program.file_path = Option.Some(file_key(Option.None));
@@ -281,9 +277,9 @@ fn map_copy<K, V>(_ m: Map<K, V>) -> Map<K, V> {
     return out;
 }
 
-// Passes 1 and 2 over `programs`, in order, into a fresh library (the builtin
-// floor included). Pass 3 (interface flattening) is the caller's — the
-// layered build flattens only the primary's interfaces.
+// Passes 1 and 2 over `programs`, in order, into a fresh library (the builtin floor
+// included). Pass 3 (interface flattening) is the caller's — the layered build
+// flattens only the primary's interfaces.
 fn library_over(
     _ programs: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
@@ -291,7 +287,8 @@ fn library_over(
 ) -> LibraryElement {
     let type_defs = builtin_type_defs();
     let file_type_defs: Map<String, Map<String, TypeDefElement>> = [:];
-    // The top-level names each file declares — the same-file half of bare resolution.
+    // The top-level names each file declares — the same-file half of bare
+    // resolution.
     let file_owned: Map<String, Set<String>> = [:];
 
     for p in programs {
@@ -321,8 +318,8 @@ fn library_over(
     return library;
 }
 
-// Collect one program's declared top-level names into `file_owned` (the
-// same-file half of bare resolution).
+// Collect one program's declared top-level names into `file_owned` (the same-file
+// half of bare resolution).
 fn collect_owned(_ file_owned: Map<String, Set<String>>, _ p: Program) -> Void {
     let key = file_key(p.file_path);
     if !file_owned.has(key) {
@@ -396,9 +393,9 @@ fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
     let file_functions = library.file_functions;
     let file_type_defs = library.file_type_defs;
     let file_consts = library.file_consts;
-    // Resolve every type reference in this file's declarations against the
-    // file's own scope, so a name shared by two libraries stamps the owner the
-    // file actually sees — not the flat table's last-wins entry.
+    // Resolve every type reference in this file's declarations against the file's
+    // own scope, so a name shared by two libraries stamps the owner the file
+    // actually sees — not the flat table's last-wins entry.
     let fs = file_scope(library, p.file_path);
     for decl in p.decls {
         match decl {
@@ -445,10 +442,10 @@ fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
                     ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
                 });
             },
-            // Module-level `let` (top-level globals; docs/language.md). For
-            // type resolution it behaves exactly like a `const` — a named
-            // binding with a type — so it shares the const element table; only
-            // codegen distinguishes them (a stored slot vs. inlining).
+            // Module-level `let` (top-level globals; docs/language.md). For type
+            // resolution it behaves exactly like a `const` — a named binding with a
+            // type — so it shares the const element table; only codegen
+            // distinguishes them (a stored slot vs. inlining).
             Let(x) => {
                 record_file_const(file_consts, p.file_path, x.name, ConstElement {
                     name: x.name,
@@ -463,8 +460,8 @@ fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
             Interface(x) => {
                 if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
                     fill_type_param_bounds(element, x.type_params, fs);
-                    // Supers by resolved identity — the interface this
-                    // file's scope sees under the name.
+                    // Supers by resolved identity — the interface this file's scope
+                    // sees under the name.
                     for s in x.super_interfaces {
                         element.super_interfaces.push(bound_id(fs, s));
                     }
@@ -489,14 +486,14 @@ fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
     }
 }
 
-// ---- pass 3: flatten one file's inherited interface closures ----
-// A sub-interface exposes its supers' methods too, and is assignable where a
-// super is expected. Walk supers transitively (the `seen` check tolerates a
-// cycle, which the checker reports), copy inherited methods the sub doesn't
-// declare, and rewrite super_interfaces to the full closure. Operates on the
-// *per-file* table so a shadowed same-named interface flattens too. Supers
-// were resolved to `TypeId`s in pass 2 (each from its declaring file's
-// scope), so the walk — and the closure it stores — is by identity (EL9).
+// ---- pass 3: flatten one file's inherited interface closures ---- A sub-interface
+// exposes its supers' methods too, and is assignable where a super is expected.
+// Walk supers transitively (the `seen` check tolerates a cycle, which the checker
+// reports), copy inherited methods the sub doesn't declare, and rewrite
+// super_interfaces to the full closure. Operates on the *per-file* table so a
+// shadowed same-named interface flattens too. Supers were resolved to `TypeId`s in
+// pass 2 (each from its declaring file's scope), so the walk — and the closure it
+// stores — is by identity (EL9).
 fn flatten_owner_interfaces(_ library: LibraryElement, _ owner: String) -> Void {
     if let Some(defs) = library.file_type_defs.get(owner) {
         for def in defs.values() {
@@ -530,8 +527,8 @@ fn flatten_interface_closure(_ def: TypeDefElement, _ library: LibraryElement) -
                             Some(_) => void,
                             None => {
                                 def.methods.push(m);
-                                // A defaulted super method stays defaulted in
-                                // the sub-interface.
+                                // A defaulted super method stays defaulted in the
+                                // sub-interface.
                                 if is_default_method(super_def, m.name) {
                                     def.default_methods.push(m.name);
                                 }
@@ -578,8 +575,8 @@ fn file_type_def(
     };
 }
 
-// Record `el` under its declaring `file` in the per-file function table —
-// the `FunctionElement` sibling of `record_file_type`/`record_file_const`.
+// Record `el` under its declaring `file` in the per-file function table — the
+// `FunctionElement` sibling of `record_file_type`/`record_file_const`.
 fn record_file_function(
     _ tbl: Map<String, Map<String, FunctionElement>>,
     _ file: Option<String>,
@@ -628,8 +625,8 @@ fn resolve_impl(_ decl: ImplDecl, _ scope: FileScope) -> Void {
     let owner_key = scope.resolve_type_owner(decl.type_name, Option.None);
     if let Some(owner) = scope.resolve_type_def(TypeId { owner: owner_key, name: decl.type_name }) {
         let impl_params = type_param_set(decl.type_params);
-        // For an `impl Int`/`String`/… the receiver's type is the primitive
-        // itself, not an interface wrapper.
+        // For an `impl Int`/`String`/… the receiver's type is the primitive itself,
+        // not an interface wrapper.
         let self_type = primitive_type(decl.type_name).unwrap_or_else(
             () => Type.Interface(
                 TypeId { owner: owner.owner_file, name: decl.type_name },
@@ -637,9 +634,9 @@ fn resolve_impl(_ decl: ImplDecl, _ scope: FileScope) -> Void {
             )
         );
         if let Some(iface) = decl.interface_name {
-            // The conformance's identity is the interface *this file's scope*
-            // sees under the name — a same-named interface elsewhere in the
-            // closure is a different interface.
+            // The conformance's identity is the interface *this file's scope* sees
+            // under the name — a same-named interface elsewhere in the closure is a
+            // different interface.
             let iface_id = TypeId {
                 owner: scope.resolve_type_owner(iface, decl.interface_namespace),
                 name: iface,
@@ -647,9 +644,9 @@ fn resolve_impl(_ decl: ImplDecl, _ scope: FileScope) -> Void {
             if !implements_interface(owner, iface_id) {
                 owner.interfaces.push(iface_id);
             }
-            // Record the conformance's resolved type arguments, so a
-            // default method called on a concrete receiver can bind the
-            // interface's type parameters (`impl Iterator<Int>` -> [Int]).
+            // Record the conformance's resolved type arguments, so a default method
+            // called on a concrete receiver can bind the interface's type
+            // parameters (`impl Iterator<Int>` -> [Int]).
             owner.interface_args[id_key(iface_id)] = decl.interface_args.map((a) =>
                 resolve_type_ref_in(a, scope, impl_params, Option.Some(self_type)));
         }
@@ -756,18 +753,18 @@ fn type_param_names(_ tps: List<TypeParam>) -> List<String> {
 }
 
 // The resolved identity of a bound / super-interface / conformance name — the
-// interface the declaring file's scope sees, honoring a `ns.Name` qualifier.
-// Shared with the checker and codegen, which resolve the same AST bound lists
-// at their use sites.
+// interface the declaring file's scope sees, honoring a `ns.Name` qualifier. Shared
+// with the checker and codegen, which resolve the same AST bound lists at their use
+// sites.
 pub fn bound_id(_ fs: FileScope, _ b: BoundRef) -> TypeId {
     return TypeId { owner: fs.resolve_type_owner(b.name, b.namespace), name: b.name };
 }
 
 // Fill a type def's per-parameter interface bounds from its declared type params
-// (`type Box<T: Display>` -> {T: [Display]}), each resolved in the declaring
-// file's scope. Index-assign into the (already-empty) map, so the field needn't
-// be `mut` — the same way `fields` is filled. Runs in pass 2 (bounds resolve
-// names, so pass 1 is too early).
+// (`type Box<T: Display>` -> {T: [Display]}), each resolved in the declaring file's
+// scope. Index-assign into the (already-empty) map, so the field needn't be `mut` —
+// the same way `fields` is filled. Runs in pass 2 (bounds resolve names, so pass 1
+// is too early).
 fn fill_type_param_bounds(_ el: TypeDefElement, _ tps: List<TypeParam>, _ fs: FileScope) -> Void {
     for tp in tps {
         el.type_parameter_bounds[tp.name] = tp.bounds.map((b) => bound_id(fs, b));

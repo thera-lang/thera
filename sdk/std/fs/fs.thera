@@ -18,8 +18,8 @@
 //! ```
 //!
 //! Paths are plain `String`s (compose with `std.path`); directory entries are
-//! basenames. Every fallible call returns `Result<_, FsError>`, a per-domain
-//! error you can `match` on (and which implements the common `Error`).
+//! basenames. Every fallible call returns `Result<_, FsError>`, a per-domain error
+//! you can `match` on (and which implements the common `Error`).
 
 import std.path;
 import std.io;
@@ -91,15 +91,15 @@ pub struct Metadata {
     // last-modified time (None if the platform can't report it)
 }
 
-/// One entry of a `read_dir`: a basename plus the kind the directory read
-/// reported, without following symlinks (see `read_dir`).
+/// One entry of a `read_dir`: a basename plus the kind the directory read reported,
+/// without following symlinks (see `read_dir`).
 pub struct DirEntry {
     let name: String;   // basename, not a full path — join it with the directory
     let kind: FileKind;
 }
 
-// The native reports last-modified as Unix milliseconds, using 0 to mean
-// "unknown"; surface that as `None` rather than a misleading 1970 timestamp.
+// The native reports last-modified as Unix milliseconds, using 0 to mean "unknown";
+// surface that as `None` rather than a misleading 1970 timestamp.
 fn modified_from_millis(_ millis: Int) -> Option<time.DateTime> {
     if millis == 0 {
         return Option.None;
@@ -207,9 +207,9 @@ pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError> {
 
 // --- metadata & directories ---
 
-/// Metadata for the file or directory at `path`, **following** symlinks (a
-/// symlink reports its target's kind, size, and time). Use `symlink_metadata` to
-/// inspect the link itself.
+/// Metadata for the file or directory at `path`, **following** symlinks (a symlink
+/// reports its target's kind, size, and time). Use `symlink_metadata` to inspect
+/// the link itself.
 pub fn metadata(_ path: String) -> Result<Metadata, FsError> {
     return match _metadata(path) {
         Ok(fields) => Result.Ok(build_metadata(fields)),
@@ -235,8 +235,8 @@ fn build_metadata(_ fields: List<Int>) -> Metadata {
     };
 }
 
-/// The entry basenames within a directory (not full paths, in no guaranteed
-/// order). Join with `path.join(dir, name)` to descend.
+/// The entry basenames within a directory (not full paths, in no guaranteed order).
+/// Join with `path.join(dir, name)` to descend.
 ///
 /// Prefer `read_dir` when you need to know which entries are directories: it
 /// reports each entry's kind for free, where `list_dir` + `metadata` per entry
@@ -249,13 +249,13 @@ pub fn list_dir(_ path: String) -> Result<List<String>, FsError> {
 }
 
 /// The entries within a directory, each with the kind the directory read already
-/// knew (no guaranteed order). This is the one to walk a tree with: `list_dir`
-/// only yields names, so telling a file from a subdirectory costs a `metadata`
-/// call per entry, while the directory read reported that inline all along.
+/// knew (no guaranteed order). This is the one to walk a tree with: `list_dir` only
+/// yields names, so telling a file from a subdirectory costs a `metadata` call per
+/// entry, while the directory read reported that inline all along.
 ///
 /// `kind` does **not** follow symlinks (a symlink is `Symlink`, not its target's
-/// kind), because following one costs the very syscall this avoids. Call
-/// `metadata` on the joined path when a link's target matters.
+/// kind), because following one costs the very syscall this avoids. Call `metadata`
+/// on the joined path when a link's target matters.
 ///
 ///     for e in fs.read_dir(dir)? {
 ///         match e.kind {
@@ -271,17 +271,17 @@ pub fn read_dir(_ path: String) -> Result<List<DirEntry>, FsError> {
 }
 
 // The native packs each entry as "<kind>\u{1}<name>" (the same tag convention the
-// error payloads use) — a list can't hold a String and an Int side by side.
-// Split on the *first* separator only: every byte but `/` and NUL is legal in a
-// filename, `\u{1}` included, and `split` would truncate such a name at it.
+// error payloads use) — a list can't hold a String and an Int side by side. Split
+// on the *first* separator only: every byte but `/` and NUL is legal in a filename,
+// `\u{1}` included, and `split` would truncate such a name at it.
 fn build_dir_entry(_ raw: String) -> DirEntry {
     return match raw.find('\u{1}') {
         Some(i) => DirEntry {
             name: raw.slice(i + 1, raw.len()),
             kind: file_kind(raw.slice(0, i).to_int().unwrap_or(3)),
         },
-        // Unreachable — the native always tags. Treat an untagged entry as a
-        // plain name of unknown kind rather than dropping it.
+        // Unreachable — the native always tags. Treat an untagged entry as a plain
+        // name of unknown kind rather than dropping it.
         None => DirEntry { name: raw, kind: FileKind.Other },
     };
 }
@@ -338,19 +338,19 @@ pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
 
 // --- streaming files ---
 
-/// An open file: a streaming `Reader` + `Writer` + `Seek` + `Closer` over a
-/// runtime file handle. `open` gives a read handle and `create` a write handle;
-/// the OS enforces the mode (writing to a read handle, or reading a write one,
-/// is an error). **Close it when done** — an unclosed file leaks its descriptor
-/// until the process exits.
+/// An open file: a streaming `Reader` + `Writer` + `Seek` + `Closer` over a runtime
+/// file handle. `open` gives a read handle and `create` a write handle; the OS
+/// enforces the mode (writing to a read handle, or reading a write one, is an
+/// error). **Close it when done** — an unclosed file leaks its descriptor until the
+/// process exits.
 pub struct File {
     let handle: Int;
     let path: String;
 }
 
 impl File {
-    /// The path this file was opened with (or created at, for a `temp_file`).
-    /// Handy to report the file, or to `fs.remove` a temp file when done.
+    /// The path this file was opened with (or created at, for a `temp_file`). Handy
+    /// to report the file, or to `fs.remove` a temp file when done.
     pub fn path(self) -> String {
         return self.path;
     }
@@ -362,8 +362,8 @@ native fn _open(_ path: String) -> Result<Int, String>
 @extern('fs_create')
 native fn _create(_ path: String) -> Result<Int, String>
 
-// Returns "<handle>\u{1}<path>" so the open handle and its generated path come
-// back together (the native creates + opens atomically, avoiding a re-open race).
+// Returns "<handle>\u{1}<path>" so the open handle and its generated path come back
+// together (the native creates + opens atomically, avoiding a re-open race).
 @extern('fs_temp_file')
 native fn _temp_file(_ prefix: String) -> Result<String, String>
 
@@ -437,10 +437,10 @@ pub fn create(_ path: String) -> Result<File, FsError> {
     };
 }
 
-/// Create a new, uniquely-named file in the system temp directory (its name
-/// starts with `prefix`), opened for reading and writing. Creation is atomic, so
-/// it never clobbers an existing file. Returns an open `File` — read its `path()`
-/// to locate it. **Temp files are not auto-deleted**: `close()` it, then
+/// Create a new, uniquely-named file in the system temp directory (its name starts
+/// with `prefix`), opened for reading and writing. Creation is atomic, so it never
+/// clobbers an existing file. Returns an open `File` — read its `path()` to locate
+/// it. **Temp files are not auto-deleted**: `close()` it, then
 /// `fs.remove(f.path())` when done (there are no finalizers).
 ///
 /// ```thera
@@ -463,16 +463,16 @@ pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError> {
 
 // --- recursive traversal ---
 
-/// A recursive directory walk. Yields the full path of every descendant of the
-/// root — files and directories, each directory before its contents. It is an
+/// A recursive directory walk. Yields the full path of every descendant of the root
+/// — files and directories, each directory before its contents. It is an
 /// `Iterator<String>`, so a `for` loop and the iterator adapters both drive it
 /// (`fs.walk(dir).filter((p) => p.ends_with('.thera'))`).
 ///
 /// Traversal is resilient: a directory that can't be listed (e.g. permission
-/// denied) is skipped rather than aborting the walk, and the first such failure
-/// is kept for `error()`. Symlinks are **not** followed (the walk classifies
-/// entries with `symlink_metadata`), so a symlinked directory is yielded as a
-/// leaf and a link cycle can't loop the traversal.
+/// denied) is skipped rather than aborting the walk, and the first such failure is
+/// kept for `error()`. Symlinks are **not** followed (the walk classifies entries
+/// with `symlink_metadata`), so a symlinked directory is yielded as a leaf and a
+/// link cycle can't loop the traversal.
 pub struct WalkIter {
     let stack: List<String>;  // frontier of discovered paths to visit (LIFO)
     let mut err: Option<FsError>;
@@ -508,9 +508,9 @@ impl Iterator<String> for WalkIter {
         return match self.stack.pop() {
             None => Option.None,
             Some(p) => {
-                // Descend into directories (pushes their entries, so a directory
-                // is yielded before its contents). `symlink_metadata` doesn't
-                // follow links, so a symlinked dir stays a leaf — no cycle.
+                // Descend into directories (pushes their entries, so a directory is
+                // yielded before its contents). `symlink_metadata` doesn't follow
+                // links, so a symlinked dir stays a leaf — no cycle.
                 match symlink_metadata(p) {
                     Ok(md) => {
                         if md.kind == FileKind.Dir {
@@ -532,8 +532,8 @@ impl Iterator<String> for WalkIter {
 
 /// Walk the directory tree rooted at `root`, recursively. The result is a
 /// `WalkIter` — an `Iterator<String>` of full descendant paths; drive it with
-/// `for p in fs.walk(root)` or an adapter chain. Check `.error()` afterwards if
-/// a directory that couldn't be read must be distinguished from an empty tree.
+/// `for p in fs.walk(root)` or an adapter chain. Check `.error()` afterwards if a
+/// directory that couldn't be read must be distinguished from an empty tree.
 pub fn walk(_ root: String) -> WalkIter {
     let w = WalkIter { stack: [], err: Option.None };
     w.expand(root);

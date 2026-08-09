@@ -291,8 +291,8 @@ fn test_run_exit_codes() -> Result<Void, Error> {
 
 @test
 fn test_run_flat_command_proceeds() -> Result<Void, Error> {
-    // A command with no subcommands reads its own flags — a bare invocation is
-    // not a usage error; only a parse error or --help short-circuits.
+    // A command with no subcommands reads its own flags — a bare invocation is not
+    // a usage error; only a parse error or --help short-circuits.
     let flat = Command.new('greet').flag('loud', abbr: 'l');
     match flat.run(['--loud']) {
         Proceed(m) => {
@@ -312,8 +312,8 @@ fn exit_code(_ a: Action) -> Int {
     };
 }
 
-/// The column (offset within its line) of `needle`'s first occurrence in `text`,
-/// or an error if absent — for asserting help columns line up.
+/// The column (offset within its line) of `needle`'s first occurrence in `text`, or
+/// an error if absent — for asserting help columns line up.
 fn column_of(_ text: String, _ needle: String) -> Result<Int, Error> {
     for line in text.lines() {
         if let Some(col) = line.find(needle) { return Result.Ok(col); }

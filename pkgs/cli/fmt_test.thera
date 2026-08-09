@@ -1,6 +1,6 @@
-// Tests for `thera fmt`. Each case pins the output for a representative shape,
-// plus the cross-cutting properties: multi-line strings are untouched, blank
-// runs collapse, and formatting is idempotent.
+// Tests for `thera fmt`. Each case pins the output for a representative shape, plus
+// the cross-cutting properties: multi-line strings are untouched, blank runs
+// collapse, and formatting is idempotent.
 //
 // Split in two, as the formatter is. [check] drives `format_lines` alone — the
 // line-layout half, which preserves the breaks it is given — so those cases pin
@@ -71,11 +71,11 @@ fn preserves_multiline_string() -> Result<Void, Error> {
 
 @test
 fn reindents_a_text_block_opener_but_not_its_content() -> Result<Void, Error> {
-    // A text block's value comes from its content lines and its closing
-    // delimiter, never from the column the opening `'''` sits at — so the
-    // opening line reindents like ordinary code while everything inside is
-    // emitted verbatim. (An ordinary multi-line string carries value from its
-    // opening line, so that line stays put; see preserves_multiline_string.)
+    // A text block's value comes from its content lines and its closing delimiter,
+    // never from the column the opening `'''` sits at — so the opening line
+    // reindents like ordinary code while everything inside is emitted verbatim. (An
+    // ordinary multi-line string carries value from its opening line, so that line
+    // stays put; see preserves_multiline_string.)
     let src = 'fn f() {\nreturn \'\'\'\n    body\n      more\n    \'\'\';\n}\n';
     let want = 'fn f() {\n    return \'\'\'\n    body\n      more\n    \'\'\';\n}\n';
     return check(src, want);
@@ -182,9 +182,9 @@ fn spaces_struct_literal_interior() -> Result<Void, Error> {
 
 @test
 fn spaces_keyword_member_names() -> Result<Void, Error> {
-    // A keyword after `.` is a member name (the parser's `expect_member_name`):
-    // it ends a value, so a following `(`/`[` opens a call/index and a
-    // following `-` is binary.
+    // A keyword after `.` is a member name (the parser's `expect_member_name`): it
+    // ends a value, so a following `(`/`[` opens a call/index and a following `-`
+    // is binary.
     return check(
         'fn f() {\nlet a = x . match ( y ) ;\nlet b = p . in - 1 ;\nlet c = q . enum [ 0 ] ;\n}\n',
         'fn f() {\n    let a = x.match(y);\n    let b = p.in - 1;\n    let c = q.enum[0];\n}\n',
@@ -215,8 +215,8 @@ fn check_canonical(_ src: String, _ want: String, _ width: Int) -> Result<Void, 
 
 @test
 fn reflow_splits_an_over_width_call() -> Result<Void, Error> {
-    // All-or-nothing: every argument goes to its own line, rather than packing
-    // as many as fit (packing makes one added argument rewrap its neighbours).
+    // All-or-nothing: every argument goes to its own line, rather than packing as
+    // many as fit (packing makes one added argument rewrap its neighbours).
     return check_canonical(
         'fn f() {\n    g(alpha, beta, gamma);\n}\n',
         'fn f() {\n    g(\n        alpha,\n        beta,\n        gamma,\n    );\n}\n',
@@ -235,8 +235,8 @@ fn reflow_splits_a_parameter_list() -> Result<Void, Error> {
 
 @test
 fn reflow_joins_a_group_that_fits() -> Result<Void, Error> {
-    // Stage 2: an author break inside a group that fits is *removed*, so the
-    // layout is a function of the token stream rather than of how it was typed.
+    // Stage 2: an author break inside a group that fits is *removed*, so the layout
+    // is a function of the token stream rather than of how it was typed.
     return check_canonical(
         'fn f() {\n    g(\n        a,\n        b);\n}\n',
         'fn f() {\n    g(a, b);\n}\n',
@@ -261,9 +261,9 @@ fn reflow_keeps_a_match_body_split() -> Result<Void, Error> {
 
 @test
 fn reflow_joins_a_struct_literal() -> Result<Void, Error> {
-    // The one `{` that does join. It cannot be told from a block by tokens
-    // alone (`impl Foo {` and `Point {` read alike), so this is the single
-    // place the AST is consulted.
+    // The one `{` that does join. It cannot be told from a block by tokens alone
+    // (`impl Foo {` and `Point {` read alike), so this is the single place the AST
+    // is consulted.
     return check_canonical(
         'fn f() {\n    let p = Point {\n        x: 1\n    };\n}\n',
         'fn f() {\n    let p = Point { x: 1 };\n}\n',
@@ -274,8 +274,8 @@ fn reflow_joins_a_struct_literal() -> Result<Void, Error> {
 @test
 fn reflow_deletes_a_trailing_comma_when_joining() -> Result<Void, Error> {
     // The comma is optional in every comma list (docs/grammar.md), so the join
-    // removes it rather than leaving `g(a, b, )` — and a trailing comma no
-    // longer silently pins a group open.
+    // removes it rather than leaving `g(a, b, )` — and a trailing comma no longer
+    // silently pins a group open.
     return check_canonical(
         'fn f() {\n    g(\n        a,\n        b,\n    );\n}\n',
         'fn f() {\n    g(a, b);\n}\n',
@@ -286,9 +286,9 @@ fn reflow_deletes_a_trailing_comma_when_joining() -> Result<Void, Error> {
 @test
 fn reflow_deletes_a_nested_trailing_comma_when_joining() -> Result<Void, Error> {
     // A joined span is the *outermost* group that fits, so its own closer is only
-    // the last of several. The struct literal's comma is a trailing comma too
-    // once the join puts it on one line — testing only against the span's end
-    // left it stranded as `…, span: span, });`.
+    // the last of several. The struct literal's comma is a trailing comma too once
+    // the join puts it on one line — testing only against the span's end left it
+    // stranded as `…, span: span, });`.
     return check_canonical(
         'fn f() {\n    push(Comment {\n        kind: k,\n        span: span,\n    });\n}\n',
         'fn f() {\n    push(Comment { kind: k, span: span });\n}\n',
@@ -298,8 +298,8 @@ fn reflow_deletes_a_nested_trailing_comma_when_joining() -> Result<Void, Error> 
 
 @test
 fn reflow_adds_a_trailing_comma_when_splitting() -> Result<Void, Error> {
-    // The symmetric half: a split comma list ends in a comma, so adding an
-    // element later is a one-line diff instead of two.
+    // The symmetric half: a split comma list ends in a comma, so adding an element
+    // later is a one-line diff instead of two.
     return check_canonical(
         'fn f() {\n    g(alphaaaaaa, betaaaaaa);\n}\n',
         'fn f() {\n    g(\n        alphaaaaaa,\n        betaaaaaa,\n    );\n}\n',
@@ -310,10 +310,10 @@ fn reflow_adds_a_trailing_comma_when_splitting() -> Result<Void, Error> {
 @test
 fn reflow_completes_a_half_split_comma_list() -> Result<Void, Error> {
     // A list broken at some of its break points is broken at all of them, even
-    // where no break can bring the line under the margin. Otherwise this call
-    // keeps its hand-wrapping forever while the same call with a shorter middle
-    // argument comes out one per line — layout deciding itself on how long an
-    // argument happens to be.
+    // where no break can bring the line under the margin. Otherwise this call keeps
+    // its hand-wrapping forever while the same call with a shorter middle argument
+    // comes out one per line — layout deciding itself on how long an argument
+    // happens to be.
     return check_canonical(
         'fn f() {\n    g(aaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbb,\n        cccc);\n}\n',
         'fn f() {\n    g(\n        aaaa,\n        bbbbbbbbbbbbbbbbbbbbbbbbbb,\n'
@@ -324,8 +324,8 @@ fn reflow_completes_a_half_split_comma_list() -> Result<Void, Error> {
 
 @test
 fn reflow_completes_a_half_split_block() -> Result<Void, Error> {
-    // The same invariant on a `{` group, which needs it most: nothing ever joins
-    // a block (groups.thera), so a half-broken one would otherwise be its own
+    // The same invariant on a `{` group, which needs it most: nothing ever joins a
+    // block (groups.thera), so a half-broken one would otherwise be its own
     // fixpoint. Both halves snap to the fully-split form.
     let want = 'fn f() -> Int {\n    return 1;\n}\n';
     check_canonical('fn f() -> Int {\n    return 1; }\n', want, 100)?;
@@ -335,8 +335,8 @@ fn reflow_completes_a_half_split_block() -> Result<Void, Error> {
 @test
 fn reflow_keeps_a_one_line_block_flat() -> Result<Void, Error> {
     // A block flat on one line takes none of its own breaks, so all-or-nothing
-    // leaves it alone — the one-line block stays available for the shapes that
-    // want it (a guard clause, a match arm), it just cannot be half of one.
+    // leaves it alone — the one-line block stays available for the shapes that want
+    // it (a guard clause, a match arm), it just cannot be half of one.
     let src = 'fn f() -> Int {\n    if a { return 1; }\n    match b {\n'
         + '        A => { p(); },\n        B => { q(); },\n    }\n    return 0;\n}\n';
     return check_canonical(src, src, 100);
@@ -356,9 +356,9 @@ fn reflow_splits_a_block_packing_two_statements_a_line() -> Result<Void, Error> 
 
 @test
 fn reflow_keeps_a_hugged_list_whole() -> Result<Void, Error> {
-    // `g(…)` is a comma list spanning lines, but none of its *own* breaks are
-    // taken — it is multi-line because an argument is. That is the hugging
-    // shape, so all-or-nothing must not read it as a half-finished split.
+    // `g(…)` is a comma list spanning lines, but none of its *own* breaks are taken
+    // — it is multi-line because an argument is. That is the hugging shape, so
+    // all-or-nothing must not read it as a half-finished split.
     let src = 'fn f() {\n    g(a, hh(\n        xxxxxxxxxxxx,\n        y,\n    ));\n}\n';
     return check_canonical(src, src, 24);
 }
@@ -410,8 +410,8 @@ fn reflow_keeps_a_packed_scalar_list_at_a_narrower_margin() -> Result<Void, Erro
 
 @test
 fn reflow_never_commas_a_grouping_paren() -> Result<Void, Error> {
-    // `(a + b,)` is a parse error, so a paren with no top-level comma is split
-    // like any other group but never gains a trailing comma.
+    // `(a + b,)` is a parse error, so a paren with no top-level comma is split like
+    // any other group but never gains a trailing comma.
     return check_canonical(
         'fn f() -> Int {\n    return (aaaaaaaaaaaa + bbbbbbbbbbbb);\n}\n',
         'fn f() -> Int {\n    return (\n        aaaaaaaaaaaa + bbbbbbbbbbbb\n    );\n}\n',
@@ -428,9 +428,9 @@ fn reflow_comment_keeps_a_group_split() -> Result<Void, Error> {
 
 @test
 fn reflow_leaves_a_line_it_cannot_split() -> Result<Void, Error> {
-    // No bracket group on the line, so no break point exists: a long string
-    // literal is left over-width rather than mangled. The enclosing block is not
-    // a candidate either — its own break points are already taken.
+    // No bracket group on the line, so no break point exists: a long string literal
+    // is left over-width rather than mangled. The enclosing block is not a
+    // candidate either — its own break points are already taken.
     let src = 'fn f() {\n    let s = \'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\';\n}\n';
     return check_canonical(src, src, 20);
 }
@@ -473,9 +473,9 @@ fn reflow_splits_the_outermost_group_first() -> Result<Void, Error> {
 
 @test
 fn closer_line_aligns_with_its_own_opener() -> Result<Void, Error> {
-    // `));` closes `.bar(` and then `foo(`. It aligns to the *inner* one — the
-    // `)` it starts with is the one that belongs at that column; dedenting to
-    // `foo(`'s anchor would put the closer left of the arguments it closes.
+    // `));` closes `.bar(` and then `foo(`. It aligns to the *inner* one — the `)`
+    // it starts with is the one that belongs at that column; dedenting to `foo(`'s
+    // anchor would put the closer left of the arguments it closes.
     let src = 'fn f() {\n    a.foo(b.new(\'x\')\n        .bar(\n            \'y\',\n'
         + '            z: 1,\n        ));\n}\n';
     return check(src, src);
@@ -486,4 +486,57 @@ fn leaves_trailing_comment_untouched() -> Result<Void, Error> {
     // The gap before a `//` comment holds a newline (comments end their line), so
     // Stage A never touches it — but code spacing on the line is still fixed.
     return check('fn f() {\nlet x=1 ; // set x\n}\n', 'fn f() {\n    let x = 1; // set x\n}\n');
+}
+
+// --- comment prose ---
+//
+// The prose pass itself is pinned in `prose/`; these cases are about it being part
+// of `format_source`, and about the two passes not disturbing each other.
+
+@test
+fn comment_prose_refills_at_its_own_margin() -> Result<Void, Error> {
+    let words = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi';
+    let out = format_source('/// ${words} ${words}\nfn f() {}\n');
+    // Prose targets 84 even though code targets 100, so a comment that would sit
+    // happily under the code margin still wraps.
+    for line in out.lines() {
+        testing.assert(line.len() <= 84)?;
+    }
+    let mut doc_lines = 0;
+    for line in out.lines() {
+        if line.starts_with('///') {
+            doc_lines = doc_lines + 1;
+        }
+    }
+    testing.assert(doc_lines > 1)?; // the one input line really did wrap
+    return testing.assert_eq(actual: format_source(out), expected: out);
+}
+
+@test
+fn a_comment_run_inside_a_group_keeps_its_indent() -> Result<Void, Error> {
+    // Prose reflow runs after the code passes have settled, so it wraps against the
+    // indentation they chose — and changing the run's line count moves no code,
+    // because a comment-only line carries no tokens.
+    let words = 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi';
+    let out = format_source('fn f() {\n    g(\n        // ${words}\n        a,\n    );\n}\n');
+    testing.assert(out.contains('\n    g(\n'))?;
+    testing.assert(out.contains('\n        a,\n'))?;
+    testing.assert(out.contains('\n    );\n'))?;
+    for line in out.lines() {
+        if line.trim().starts_with('//') {
+            testing.assert(line.starts_with('        // '))?;
+        }
+    }
+    return testing.assert_eq(actual: format_source(out), expected: out);
+}
+
+@test
+fn an_unbreakable_comment_line_does_not_pry_its_group_apart() -> Result<Void, Error> {
+    // A comment line no wrap can shorten is left over the margin, exactly as a long
+    // string literal is. What must not happen is the *code* around it being split
+    // to make room — a comment-only line carries no break point.
+    let url = 'https://example.com/${'a'.repeat(100)}';
+    let out = format_source('fn f() {\n    g(a, b);\n    // ${url}\n}\n');
+    testing.assert(out.contains('\n    g(a, b);\n'))?;
+    return testing.assert_eq(actual: format_source(out), expected: out);
 }

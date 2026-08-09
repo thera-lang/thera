@@ -15,9 +15,9 @@ fn program_of(_ src: String) -> Program {
     return testkit.parse_at(src, 't.thera');
 }
 
-// A resolution context with the primary's committed-type record populated the
-// way `analyze_at` does (straight from the hermetic checker) — so inferred-
-// receiver resolution can consult it.
+// A resolution context with the primary's committed-type record populated the way
+// `analyze_at` does (straight from the hermetic checker) — so inferred- receiver
+// resolution can consult it.
 fn typed_ctx(_ program: Program) -> ResolveCtx {
     let nss: Map<String, Map<String, LibraryNamespace>> = [:];
     let bare: Map<String, Map<String, String>> = [:];
@@ -239,8 +239,8 @@ fn test_identifier_inside_interpolation_resolves() -> Result<Void, Error> {
 
 @test
 fn test_self_member_inside_interpolation_resolves() -> Result<Void, Error> {
-    // `self.count` inside an interpolation resolves through the receiver path —
-    // the interpolation redirect must feed `receiver_at` too, not just `name_at`.
+    // `self.count` inside an interpolation resolves through the receiver path — the
+    // interpolation redirect must feed `receiver_at` too, not just `name_at`.
     let src = 'struct S { let count: Int; }\n'
         + 'impl S {\n'
         + '    fn show(self) -> String { return \'n=\${self.count}\'; }\n'
@@ -262,8 +262,8 @@ fn test_self_member_inside_interpolation_resolves() -> Result<Void, Error> {
 
 @test
 fn test_inferred_receiver_method_resolves() -> Result<Void, Error> {
-    // `p.scaled()` where `p`'s type is inferred (not written): the member
-    // resolves on the receiver's committed type and navigates to the method decl.
+    // `p.scaled()` where `p`'s type is inferred (not written): the member resolves
+    // on the receiver's committed type and navigates to the method decl.
     let src = 'struct Point { let x: Int; }\n'
         + 'impl Point {\n'
         + '    fn scaled(self) -> Point { return self; }\n'
@@ -495,9 +495,9 @@ fn program_at(_ src: String, _ path: String) -> Program {
 }
 
 // A two-library closure where BOTH imports declare `pub fn helper`, but the
-// primary's bare surface attributes the name to lib_b (an `as _` import) and
-// its `util` namespace maps to lib_a. The maps are hand-rolled stand-ins for
-// what the loader computes.
+// primary's bare surface attributes the name to lib_b (an `as _` import) and its
+// `util` namespace maps to lib_a. The maps are hand-rolled stand-ins for what the
+// loader computes.
 fn cross_ctx(_ primary: Program) -> ResolveCtx {
     let a = program_at('pub fn helper(_ n: Int) -> Int { return n; }\n'
         + 'pub const width: Int = 4;\n', '/libs/a.thera');
@@ -525,8 +525,8 @@ fn cross_ctx(_ primary: Program) -> ResolveCtx {
 
 @test
 fn test_bare_name_resolves_via_the_bare_surface_owner() -> Result<Void, Error> {
-    // Bare `helper` must go to the file the surface attributes it to (b),
-    // not the first import that happens to declare the name (a).
+    // Bare `helper` must go to the file the surface attributes it to (b), not the
+    // first import that happens to declare the name (a).
     let src = 'import \'b\' as _;\nfn main() -> Void { helper(\'x\'); }\n';
     let primary = program_at(src, '/app/main.thera');
     let use_off = src.find('helper(\'x\'').unwrap_or(0);
@@ -541,8 +541,8 @@ fn test_bare_name_resolves_via_the_bare_surface_owner() -> Result<Void, Error> {
 
 @test
 fn test_ns_member_resolves_on_the_namespace_surface() -> Result<Void, Error> {
-    // `util.helper` resolves through util's surface origin — lib_a — even
-    // though the bare surface points the same name at lib_b.
+    // `util.helper` resolves through util's surface origin — lib_a — even though
+    // the bare surface points the same name at lib_b.
     let src = 'import \'a\' as util;\nfn main() -> Void { util.helper(1); }\n';
     let primary = program_at(src, '/app/main.thera');
     let use_off = src.find('.helper(1').unwrap_or(0) + 1;
@@ -585,9 +585,9 @@ fn test_member_of_computed_receiver_does_not_guess() -> Result<Void, Error> {
 
 @test
 fn test_unimported_name_does_not_resolve() -> Result<Void, Error> {
-    // `width` exists in lib_a but the primary neither declares it nor has it on
-    // its bare surface — a whole-closure name scan would find it; the
-    // owner-correct resolver must not.
+    // `width` exists in lib_a but the primary neither declares it nor has it on its
+    // bare surface — a whole-closure name scan would find it; the owner-correct
+    // resolver must not.
     let src = 'fn main() -> Void { let w = width; }\n';
     let primary = program_at(src, '/app/main.thera');
     let use_off = src.find('width;').unwrap_or(0);
@@ -629,8 +629,8 @@ fn test_shadowing_let_beats_the_parameter() -> Result<Void, Error> {
 
 @test
 fn test_inner_block_binding_not_visible_after_the_block() -> Result<Void, Error> {
-    // A binding inside an if-block is out of scope after it: the reference
-    // resolves to the outer binding, not the (nearer) inner one.
+    // A binding inside an if-block is out of scope after it: the reference resolves
+    // to the outer binding, not the (nearer) inner one.
     let src = 'fn f(_ c: Bool) -> Int {\n'
         + '    let v = 1;\n'
         + '    if c {\n'
@@ -691,10 +691,10 @@ fn test_lambda_param_resolves_in_the_lambda_body() -> Result<Void, Error> {
 
 @test
 fn test_field_on_global_receiver_navigates() -> Result<Void, Error> {
-    // A struct field reached through a module-level global (`G.level`) navigates
-    // to the field declaration — the same as through a local (`l.level`). A
-    // global is a top-level decl, so it must still route to inferred-receiver
-    // resolution (its committed type) rather than being read as a type name.
+    // A struct field reached through a module-level global (`G.level`) navigates to
+    // the field declaration — the same as through a local (`l.level`). A global is
+    // a top-level decl, so it must still route to inferred-receiver resolution (its
+    // committed type) rather than being read as a type name.
     let src = 'struct P { let level: Int; }\n'
         + 'let G: P = P { level: 1 };\n'
         + 'fn use_it() -> Int {\n'
@@ -719,7 +719,8 @@ fn test_field_on_global_receiver_navigates() -> Result<Void, Error> {
 
 @test
 fn test_hover_field_definition_name() -> Result<Void, Error> {
-    // The `count` in `struct S { let count: Int; }` resolves to itself (hover + nav).
+    // The `count` in `struct S { let count: Int; }` resolves to itself (hover +
+    // nav).
     let src = 'struct S { let count: Int; }\n';
     let program = program_of(src);
     let ctx = typed_ctx(program);
@@ -774,10 +775,10 @@ fn def_offset_of(_ r: Option<Resolved>) -> Int {
 
 @test
 fn test_hover_method_on_bounded_type_param() -> Result<Void, Error> {
-    // `x.weight()` where `x: T` and `T: Weighted`: the method resolves against
-    // the bound interface and navigates to its declaration — directly, and as a
-    // lambda parameter passed to a generic higher-order function (`apply` is
-    // local so the closure's parameter type resolves without the prelude).
+    // `x.weight()` where `x: T` and `T: Weighted`: the method resolves against the
+    // bound interface and navigates to its declaration — directly, and as a lambda
+    // parameter passed to a generic higher-order function (`apply` is local so the
+    // closure's parameter type resolves without the prelude).
     let src = 'interface Weighted { fn weight(self) -> Int; }\n'
         + 'fn apply<T: Weighted>(_ x: T, _ f: (T) -> Int) -> Int { return f(x); }\n'
         + 'fn direct<T: Weighted>(_ x: T) -> Int { return x.weight(); }\n'
@@ -797,9 +798,9 @@ fn test_hover_method_on_bounded_type_param() -> Result<Void, Error> {
 
 // --- primitive receivers (the core-declaration bridge, `member_target`) ---
 
-// A stand-in core: `String` is a bodyless native type whose methods live in an
-// impl block, attributed through the primary's bare surface — the shape the
-// prelude provides in a real session.
+// A stand-in core: `String` is a bodyless native type whose methods live in an impl
+// block, attributed through the primary's bare surface — the shape the prelude
+// provides in a real session.
 fn prim_ctx(_ program: Program) -> ResolveCtx {
     let core = testkit.parse_at('pub native type String\n'
         + 'impl String {\n'
@@ -821,9 +822,9 @@ fn prim_ctx(_ program: Program) -> ResolveCtx {
 
 @test
 fn test_string_receiver_member_resolves_to_core() -> Result<Void, Error> {
-    // `s.len` on an inferred String local: the committed `Primitive(Str)`
-    // looks through to the core `String` declaration — the render is the
-    // method signature and the definition lands in the core file.
+    // `s.len` on an inferred String local: the committed `Primitive(Str)` looks
+    // through to the core `String` declaration — the render is the method signature
+    // and the definition lands in the core file.
     let src = 'fn f() -> Int {\n'
         + '    let s = \'abc\';\n'
         + '    return s.len();\n'

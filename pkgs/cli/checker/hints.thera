@@ -1,18 +1,18 @@
-//! Corrective hints for guessed-wrong names — the curated half of did-you-mean
-//! (the tracker's did-you-mean item covers the edit-distance long tail). Each
-//! entry maps a name agents guess by cross-language prior onto the Thera form
-//! that answers the same need; the checker appends the hint to its
-//! unknown-method / not-a-public-member diagnostic, teaching at the moment of
-//! the mistake (the roadmap's diagnostics-first policy).
+//! Corrective hints for guessed-wrong names — the curated half of did-you-mean (the
+//! tracker's did-you-mean item covers the edit-distance long tail). Each entry maps
+//! a name agents guess by cross-language prior onto the Thera form that answers the
+//! same need; the checker appends the hint to its unknown-method /
+//! not-a-public-member diagnostic, teaching at the moment of the mistake (the
+//! roadmap's diagnostics-first policy).
 //!
 //! Curation rule: an entry earns its place with evidence (the idioms transcript
-//! mining, the stdlib naming audit's keep-with-rationale table) or an
-//! overwhelming prior, and its hint must name the *current* surface — a stale
-//! hint is worse than none, so `hints_test` compiles every suggested form.
+//! mining, the stdlib naming audit's keep-with-rationale table) or an overwhelming
+//! prior, and its hint must name the *current* surface — a stale hint is worse than
+//! none, so `hints_test` compiles every suggested form.
 
 // The corrective hint for a missing `ns.member`, if `member` is a known guess
-// against that namespace. Keyed on the conventional (unaliased) import name;
-// an aliased import simply gets no hint.
+// against that namespace. Keyed on the conventional (unaliased) import name; an
+// aliased import simply gets no hint.
 pub fn namespace_hint(_ ns: String, _ member: String) -> Option<String> {
     return match '${ns}.${member}' {
         'time.monotonic_ms' => Option.Some(
@@ -30,9 +30,9 @@ pub fn namespace_hint(_ ns: String, _ member: String) -> Option<String> {
     };
 }
 
-// The corrective hint for a missing method, if `method` is a known guess
-// against the receiver's base type (`rendered` as `type_to_string` gives it,
-// e.g. `Option<Int>`; generic arguments are stripped here).
+// The corrective hint for a missing method, if `method` is a known guess against
+// the receiver's base type (`rendered` as `type_to_string` gives it, e.g.
+// `Option<Int>`; generic arguments are stripped here).
 pub fn method_hint(_ rendered: String, _ method: String) -> Option<String> {
     let base = match rendered.find('<') {
         Some(i) => rendered.slice(0, i),

@@ -1,5 +1,5 @@
-//! Tests for std.iter — the Iterator<T> sources, plus the prelude's adapters
-//! and consumers (default methods on Iterator).
+//! Tests for std.iter — the Iterator<T> sources, plus the prelude's adapters and
+//! consumers (default methods on Iterator).
 
 import std.testing;
 
@@ -129,8 +129,8 @@ fn test_chained_filter_map_take() -> Result<Void, Error> {
 
 @test
 fn test_adapters_are_lazy() -> Result<Void, Error> {
-    // `take(4)` over a huge range only pulls what it needs — eager evaluation
-    // would be ruinous. That it terminates quickly *is* the laziness assertion.
+    // `take(4)` over a huge range only pulls what it needs — eager evaluation would
+    // be ruinous. That it terminates quickly *is* the laziness assertion.
     let n = iter.range(0, 1000000).take(4).count();
     testing.assert_eq(actual: n, expected: 4)?;
     return Result.Ok(void);
@@ -166,8 +166,8 @@ fn test_for_loop_over_list_iter() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// A user-defined iterator, looped over by its *concrete* type (not the
-/// Iterator interface) — exercises the concrete-conformer dispatch path.
+/// A user-defined iterator, looped over by its *concrete* type (not the Iterator
+/// interface) — exercises the concrete-conformer dispatch path.
 struct Doubler {
     let mut next_val: Int;
     let limit: Int;

@@ -177,9 +177,9 @@ fn test_hover_bare_variant_pattern() -> Result<Void, Error> {
 
 @test
 fn test_hover_for_loop_variable_shows_element_type() -> Result<Void, Error> {
-    // The loop variable's element type is reported at its `for x in …`
-    // declaration site (the checker stamps its name span), matching the render
-    // at its use sites in the body.
+    // The loop variable's element type is reported at its `for x in …` declaration
+    // site (the checker stamps its name span), matching the render at its use sites
+    // in the body.
     let src = 'fn f(_ xs: List<Task>) -> Int {\n'
         + '    for x in xs {\n'
         + '        println(x.title);\n'

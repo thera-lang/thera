@@ -350,40 +350,6 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
   `@example`/references with the doc generator, oracles and the `// =>`
   migration sweep after.
 
-- **Reflowing doc comments — the prose half of the formatter.** `thera fmt`
-  normalizes code layout but never touches comment text, so `///` prose is
-  hand-wrapped and drifts. A follow-on to the canonical-formatter arc (see
-  _Reflowing formatter_): rewrap `///` / `//!` runs to the same margin the code
-  uses.
-
-  **It needs its own guard, and the existing one does not cover it.** The
-  formatter's safety check is token equality, and **comments are not in the
-  token stream** — the lexer records them on a side channel
-  ([lexer.thera](../pkgs/cli/lexer/lexer.thera)), so `same_tokens` says nothing
-  about them. That is benign today (no pass touches comment text) but it means
-  reflowing prose would be unguarded. The invariant to add is **normalized prose
-  equality**: strip the `///` prefixes and collapse whitespace on both sides,
-  and require the text to match. Note this also means doc-comment reflow was
-  never blocked by the whitespace-only contract — the two are independent.
-
-  **What must not be rewrapped**, and the reason this is a real pass rather than
-  a word-wrap loop:
-  - **Fenced code blocks.** A ` ```thera ` block is source, not prose. This
-    interlocks with _Verify the code snippets in docs_ below, which wants those
-    same fences extracted and compiled — both features need one fence-detector,
-    so build it once.
-  - **Lists, tables, and indented examples**, where the line structure is the
-    content.
-  - **Ordinary `//` comments — scope call.** Doc comments have a defined shape;
-    plain comments are often deliberately laid out (aligned trailing notes, the
-    ASCII diagrams in module headers). Leaning toward `///` / `//!` only, with
-    plain comments left alone.
-
-  Sequencing: after the formatter arc settles, and after (or with) the
-  fence-detector from the doctest item. Not urgent — measured over the corpus,
-  comment prose already sits at ≤84 chars in 99.3% of lines, so this buys
-  consistency rather than relief.
-
 - **Doc-comment tooling — machinery pending.** The conventions
   ([language.md](language.md#documentation)), the `sdk/std/` migration to
   `///`/`//!`, and the lexer's comment side-channel are done (see _Changelog_) —
@@ -470,9 +436,10 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
 - **Width: keeping 100, and the reason is not that the data chose it.** The
   study ran — the corpus reformatted at 80 / 88 / 90 / 92 / 94 / 96 / 98 / 100 /
   110, via `format_source_at` in [fmt.thera](../pkgs/cli/fmt.thera). Comments
-  are excluded from the code columns (the formatter does not rewrap them yet);
-  the irreducible column is lines dominated by one long string literal, and
-  unbroken is the rest of what stayed over the margin.
+  are excluded from the code columns (the formatter did not rewrap them at the
+  time of the study; it does now, at its own margin — see _Changelog_); the
+  irreducible column is lines dominated by one long string literal, and unbroken
+  is the rest of what stayed over the margin.
 
   | width |  lines | vs 100 | irreducible | unbroken | split groups | crowding margin | code p90 |
   | ----: | -----: | -----: | ----------: | -------: | -----------: | --------------: | -------: |
@@ -492,8 +459,10 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
   - **80 is the one width the data does rule out.** Lines the formatter cannot
     break rise to 90 (3–4× every other width), crowding nearly doubles against
     88, and separately **2,009 comment lines already exceed 80** — the corpus's
-    prose is hand-wrapped at p75 = 80, p99 = 84. Until doc-comment reflow lands
-    those would simply sit over the margin.
+    prose is hand-wrapped at p75 = 80, p99 = 84. At the time those would simply
+    sit over the margin; comment reflow has since landed and given prose its own
+    84, so this particular argument against 80 for _code_ no longer holds —
+    which changes nothing, because the other two do.
   - **The margin governs only the top decile.** Code p90 moves 64 → 73 across
     the whole 80–110 range: nine columns for thirty. Half the corpus's code
     lines are under 30 columns wide. Whatever this choice is worth, it is not
@@ -525,12 +494,15 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     interfaces (grep output, `file:line:col`, patch hunks) — an argument for a
     ceiling against outliers, not for tight wrapping. The outliers here are the
     116 irreducible string literals, and no width in the range touches them.
-  - **Prose should get its own, narrower width** when _Reflowing doc comments_
-    lands, rather than inheriting 100. The corpus already votes for it —
-    comments sit at p75 = 80, p90 = 82, p99 = 84, with six over 88, written that
+  - **Prose got its own, narrower width** rather than inheriting 100 — the one
+    place these measurements pointed somewhere definite, and the prediction has
+    since been cashed (2026-08, see _Changelog_). The corpus voted for it:
+    comments sat at p75 = 80, p90 = 82, p99 = 84, with six over 88, written that
     way by hand against a 100-column guideline. PEP 8 codifies the same split
-    (79 for code, 72 for prose), and it is the one place these measurements
-    point somewhere definite.
+    (79 for code, 72 for prose). What shipped is **80 columns of prose, 84 of
+    line** — the p99 the corpus had already chosen, with the marker paid for out
+    of the difference, so a doc comment and a `*.md` paragraph get the same
+    prose budget.
 
 ### Language
 
@@ -919,6 +891,42 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`thera fmt` reflows comment prose** (2026-08, issue #127). Comment text was
+  the last layout in the tree still hand-maintained: the formatter owned code
+  and `bin/fmt_docs.sh` owned `*.md`, while `//` / `///` / `//!` prose was
+  wrapped by hand and drifted. It is now refilled to **84 columns of line**,
+  which is **80 columns of prose** behind a top-level `///` — the same budget
+  `.prettierrc` gives the markdown files once the marker is paid for, and the
+  number the corpus had already converged on by hand (p99 = 84), so the sweep
+  came out line-neutral. This resolves the width study's open prediction that
+  "prose wants its own narrower width"; the answer is 80 of prose, 84 of line.
+  Scope is **every own-line comment**, not just doc comments — measurement
+  killed the recorded leaning toward `///`/`//!` only, since plain `//` is 70%
+  of the corpus's comment prose and the "deliberately laid out" worry it rested
+  on is 1 paragraph in 2,184. Trailing comments are excluded (moving one would
+  move code). Inline code spans and `[Symbol]` refs are unbreakable atoms, which
+  cost nothing (no atom exceeds the margin) and fixed 17 lines that broke
+  mid-span.
+  - **Two predicates, and the asymmetry is the design.** Segmentation reads only
+    the markdown subset [language.md](language.md#markdown) specifies for doc
+    comments, which is what makes the pass idempotent — a wrapped line opening
+    with `#` re-reads as the same prose because nothing ever read `#` as a
+    construct. The wrapper nonetheless refuses to _emit_ a line opening with
+    anything full CommonMark would call a block, because the text is read by
+    other tools and a doc renderer will not share the subset. Interpret
+    narrowly, emit conservatively.
+  - **Its own guard, because comments are not tokens.** Prose blocks compare by
+    words, structure byte-for-byte, and the output is re-segmented and required
+    to yield the same block sequence — the third part is what catches a wrap
+    that manufactured a list item, which word comparison is blind to. Rejection
+    falls back to un-rewrapped text and reports the file, mirroring
+    `reflow_guarded`.
+  - **Sweep: 192 files, +5870/−5849** (net +21). Provably comment-only: with the
+    front-end code held fixed, `bin/build_sdk.sh` emits a byte-identical
+    `frontend.thera-bc` before and after it. The block/fence model lives in
+    `pkgs/cli/prose/blocks.thera` and is the fence detector _Verify the code
+    snippets in docs_ needs.
 
 - **`debug()` declared on the built-ins — and the auto-derive design decision**
   (2026-08, #142's B1). `std.core` now carries `impl Debug` for the primitives,
@@ -1660,9 +1668,10 @@ conformance specs. Newest first.
   the lexer skips doc comments on the compile path, so it stayed
   fixpoint-clean). And the lexer now surfaces comments, classified, on
   `LexResult.comments` as a source-ordered, parser-invisible side channel (the
-  gofmt positioned-comment model; compile path byte-identical). Every consumer
-  (doc-to-AST attachment, hover docs, a doc generator, `[Symbol]` resolution) is
-  still pending — see _Developer tooling_.
+  gofmt positioned-comment model; compile path byte-identical). The formatter
+  became its first consumer in 2026-08 (comment reflow, see _Changelog_); the
+  rest (doc-to-AST attachment, hover docs, a doc generator, `[Symbol]`
+  resolution) is still pending — see _Developer tooling_.
 
 - **Collection/string/bytes staples; `std.term` + `std.http`** (2026-07). The
   staples landed pure-Thera over the existing primitives (except the two

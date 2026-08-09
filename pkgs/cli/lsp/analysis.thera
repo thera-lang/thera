@@ -1,8 +1,8 @@
-// The LSP's view of the analysis session: the open documents (uri -> text) and
-// a `session.Session` (the one engine — see session.thera and docs/roadmap.md).
-// This layer owns only the URI translation and the position math; the caches,
-// overlays, and the pipeline itself live on the session, shared with the batch
-// commands. The incremental engine (Phase 2) grows on the session, not here.
+// The LSP's view of the analysis session: the open documents (uri -> text) and a
+// `session.Session` (the one engine — see session.thera and docs/roadmap.md). This
+// layer owns only the URI translation and the position math; the caches, overlays,
+// and the pipeline itself live on the session, shared with the batch commands. The
+// incremental engine (Phase 2) grows on the session, not here.
 
 import std.json as _;
 import std.fs;
@@ -31,16 +31,16 @@ pub struct Analysis {
     // Reported as the `version` of an open buffer's `workspace/diagnostic` item so
     // the client can discard results computed against a superseded revision (LS9).
     let versions: Map<String, Int>;
-    // Documents (URIs) edited since the last diagnostics flush. Lives beside
-    // the caches so invalidation state is one object (LS-D1): an edit marks
-    // here in the same call that evicts the session's caches, and Phase 2's
-    // dependency-graph invalidation will mark importers dirty through the same
-    // set. The server's flush drains it via `take_dirty`.
+    // Documents (URIs) edited since the last diagnostics flush. Lives beside the
+    // caches so invalidation state is one object (LS-D1): an edit marks here in the
+    // same call that evicts the session's caches, and Phase 2's dependency-graph
+    // invalidation will mark importers dirty through the same set. The server's
+    // flush drains it via `take_dirty`.
     let dirty: Set<String>;
     // The workspace root directories the client opened (from `initialize`'s
-    // `workspaceFolders`/`rootUri`). Empty until `initialize` arrives, or when
-    // the client is folder-less (a single loose file). These bound the on-disk
-    // scan that makes references/rename project-wide — see `workspace_files`.
+    // `workspaceFolders`/`rootUri`). Empty until `initialize` arrives, or when the
+    // client is folder-less (a single loose file). These bound the on-disk scan
+    // that makes references/rename project-wide — see `workspace_files`.
     let mut roots: List<String>;
     // Workspace-relative `thera.exclude` globs (from `initialize`'s
     // `initializationOptions`, updated by `workspace/didChangeConfiguration`). A
@@ -56,10 +56,10 @@ pub struct Analysis {
     // diagnostics (cross-file), so a workspace re-pull is warranted; a body-only
     // edit leaves it identical and the nudge is suppressed.
     let surface_sigs: Map<String, String>;
-    // Set when a change since the last flush could alter another file's
-    // diagnostics — a public-surface edit or a document close. The server's flush
-    // nudges a workspace re-pull only when it's set. A body-only edit leaves it
-    // false (that file's own diagnostics are re-pulled per document by the client).
+    // Set when a change since the last flush could alter another file's diagnostics
+    // — a public-surface edit or a document close. The server's flush nudges a
+    // workspace re-pull only when it's set. A body-only edit leaves it false (that
+    // file's own diagnostics are re-pulled per document by the client).
     let mut ws_dirty: Bool;
     // Canonical path -> the last diagnostic report we emitted: the opaque
     // `resultId` and the exact rendered items (as a JSON string) it stands for. On
@@ -72,21 +72,21 @@ pub struct Analysis {
     // (its uri and exact items), across the initial report and every streamed
     // delta. This is what `workspace_delta_interruptible` diffs against, and it is
     // deliberately not `diag_reports`: a document pull updates that one too, and a
-    // file the client re-pulled per document still holds its *workspace* state
-    // from whatever the workspace channel last said. Keys are also the retraction
-    // set — a file that leaves the scan must be reported empty, or its squiggles
-    // outlive it client-side.
+    // file the client re-pulled per document still holds its *workspace* state from
+    // whatever the workspace channel last said. Keys are also the retraction set —
+    // a file that leaves the scan must be reported empty, or its squiggles outlive
+    // it client-side.
     let mut ws_emitted: Map<String, WsSent>;
     // The next opaque resultId to hand out (monotonic; stringified).
     let mut next_result_id: Int;
-    // Bumped by every mutation of the inputs a workspace scan is a function of:
-    // an edit, a close, a watcher event, a roots or exclude change. The cheap
+    // Bumped by every mutation of the inputs a workspace scan is a function of: an
+    // edit, a close, a watcher event, a roots or exclude change. The cheap
     // staleness clock — a `ScanCache` stamped with the current generation was
     // computed from exactly the current inputs, so a re-pull can reuse it without
     // even the per-file byte-compare (`reusable_by_file`'s fast tier). The five
-    // bump sites are exactly the five input-mutation entry points; a mutation
-    // that skipped its bump would let the fast tier serve stale results, so err
-    // toward bumping (a spurious bump only costs one byte-compare).
+    // bump sites are exactly the five input-mutation entry points; a mutation that
+    // skipped its bump would let the fast tier serve stale results, so err toward
+    // bumping (a spurious bump only costs one byte-compare).
     let mut input_generation: Int;
     // What the last completed workspace scan checked, and what it produced. A pull
     // that reads back byte-identical content reuses the result instead of
@@ -99,18 +99,18 @@ pub struct Analysis {
     let mut disk_cache: Option<List<ScanFile>>;
 }
 
-// The last completed workspace scan: the exact text each file held (canonical
-// path -> text) and the diagnostics that content produced (owning path -> items).
+// The last completed workspace scan: the exact text each file held (canonical path
+// -> text) and the diagnostics that content produced (owning path -> items).
 //
-// Keyed on content, so it is self-correcting rather than invalidated: any edit,
-// on disk or in a buffer, changes the text the next scan reads and the reuse
-// simply doesn't fire. Exact comparison, not a hash — the same reasoning as
-// `DiagReport`: a collision would serve diagnostics for content nobody has.
+// Keyed on content, so it is self-correcting rather than invalidated: any edit, on
+// disk or in a buffer, changes the text the next scan reads and the reuse simply
+// doesn't fire. Exact comparison, not a hash — the same reasoning as `DiagReport`:
+// a collision would serve diagnostics for content nobody has.
 //
-// `generation` is the `input_generation` the scanned texts were captured at:
-// while it still matches, no input has moved and the content compare itself can
-// be skipped (and it is re-stamped when the compare proves a match the clock
-// missed — an edit that reverted). `mut` for that re-stamp.
+// `generation` is the `input_generation` the scanned texts were captured at: while
+// it still matches, no input has moved and the content compare itself can be
+// skipped (and it is re-stamped when the compare proves a match the clock missed —
+// an edit that reverted). `mut` for that re-stamp.
 struct ScanCache {
     let contents: Map<String, String>;
     let by_file: Map<String, List<Json>>;
@@ -155,9 +155,9 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
     };
 }
 
-// A parsed open document plus its import closure — with the loader's
-// owner-correct resolution surfaces (LS1) — and a cursor offset: the shared
-// input to the position-based requests (hover, definition).
+// A parsed open document plus its import closure — with the loader's owner-correct
+// resolution surfaces (LS1) — and a cursor offset: the shared input to the
+// position-based requests (hover, definition).
 pub struct DocAnalysis {
     let ctx: resolve.ResolveCtx;
     let text: String;
@@ -165,8 +165,8 @@ pub struct DocAnalysis {
 }
 
 // One file in a project-wide references/rename scan: its display `uri` (for
-// returned Locations), filesystem `path` (for owner comparison + closure), and
-// the `text` to resolve against (open-buffer overlay or on-disk contents).
+// returned Locations), filesystem `path` (for owner comparison + closure), and the
+// `text` to resolve against (open-buffer overlay or on-disk contents).
 struct ScanFile {
     let uri: String;
     let path: String;
@@ -175,10 +175,11 @@ struct ScanFile {
 
 // The result of a rename request: an `Edit` to apply (a WorkspaceEdit as JSON), a
 // benign `Decline` (no renamable symbol at the cursor, an illegal new name, or an
-// SDK/no-match case — a null LSP result), or a pre-flight `Collision` (the new
-// name is already bound in an affected scope — an LSP error carrying the message).
+// SDK/no-match case — a null LSP result), or a pre-flight `Collision` (the new name
+// is already bound in an affected scope — an LSP error carrying the message).
 // Keeping the three apart lets the server surface a collision as a visible error
-// rather than a silent no-op — the point of the pre-flight check (rename.collision).
+// rather than a silent no-op — the point of the pre-flight check
+// (rename.collision).
 pub enum RenameOutcome {
     Edit(Json),
     Decline,
@@ -186,11 +187,11 @@ pub enum RenameOutcome {
 }
 
 impl Analysis {
-    // Open or update `uri`'s text: the session's overlay is the loader's view
-    // of the buffer, and setting it evicts the file's cached parse and
-    // checked-clean status so the next analysis re-sees the change. The edit
-    // marks the document — and every open document that transitively imports
-    // it — dirty for the next diagnostics flush.
+    // Open or update `uri`'s text: the session's overlay is the loader's view of
+    // the buffer, and setting it evicts the file's cached parse and checked-clean
+    // status so the next analysis re-sees the change. The edit marks the document —
+    // and every open document that transitively imports it — dirty for the next
+    // diagnostics flush.
     pub fn set_document(self, _ uri: String, _ text: String, _ version: Option<Int>) -> Void {
         self.input_generation = self.input_generation + 1;
         self.docs[uri] = text;
@@ -223,10 +224,10 @@ impl Analysis {
     }
 
     // Forget `uri` (closed): analyses revert to the on-disk content — a change of
-    // view for the file and its open importers. The close is itself a change, so
-    // it marks dirty (the flush nudges a re-pull): the client refetches, and a
-    // loose file drops out of the workspace report. (Under the push model this
-    // instead *cleared* the dirty mark; pull inverts it.)
+    // view for the file and its open importers. The close is itself a change, so it
+    // marks dirty (the flush nudges a re-pull): the client refetches, and a loose
+    // file drops out of the workspace report. (Under the push model this instead
+    // *cleared* the dirty mark; pull inverts it.)
     pub fn close_document(self, _ uri: String) -> Void {
         self.input_generation = self.input_generation + 1;
         match self.docs.remove(uri) {
@@ -249,19 +250,19 @@ impl Analysis {
         // The client discards its copy of a closed file's diagnostics along with
         // the buffer, so both pull channels must re-send in full: forget what we
         // last emitted (else the next poll answers `unchanged` to a client that
-        // holds nothing), and *invalidate* — not remove — what the workspace
-        // stream delivered ('' matches no rendered items, so a file still in the
-        // scan re-sends full; the entry itself is what marks a departed loose
-        // file as delivered, which the next delta must still retract).
+        // holds nothing), and *invalidate* — not remove — what the workspace stream
+        // delivered ('' matches no rendered items, so a file still in the scan
+        // re-sends full; the entry itself is what marks a departed loose file as
+        // delivered, which the next delta must still retract).
         self.diag_reports.remove(canon);
         if let Some(sent) = self.ws_emitted.get(canon) {
             self.ws_emitted[canon] = WsSent { uri: sent.uri, content: '' };
         }
     }
 
-    // Mark every *open* document in `uri`'s invalidation cone dirty: an edit
-    // to a dependency changes its importers' diagnostics (editing `b.thera`
-    // re-publishes an open `a.thera` that imports it on the next flush).
+    // Mark every *open* document in `uri`'s invalidation cone dirty: an edit to a
+    // dependency changes its importers' diagnostics (editing `b.thera` re-publishes
+    // an open `a.thera` that imports it on the next flush).
     fn mark_open_dependents_dirty(self, _ uri: String) -> Void {
         let affected: Set<String> = Set.new();
         for k in self.session.dependents_of(paths.uri_to_path(uri)) {
@@ -274,8 +275,8 @@ impl Analysis {
         }
     }
 
-    // The documents edited since the last call, clearing the set — the
-    // diagnostics flush's worklist.
+    // The documents edited since the last call, clearing the set — the diagnostics
+    // flush's worklist.
     pub fn take_dirty(self) -> List<String> {
         let uris = self.dirty.to_list();
         self.dirty.clear();
@@ -307,7 +308,8 @@ impl Analysis {
     // Whether a change since the last flush could alter another file's diagnostics
     // — a public-surface edit or a document close (see `ws_dirty`). Drains the
     // per-document change set too (its identities aren't consumed once the nudge is
-    // surface-gated), and clears the flag. The server's flush nudges iff this is true.
+    // surface-gated), and clears the flag. The server's flush nudges iff this is
+    // true.
     pub fn pending_workspace_refresh(self) -> Bool {
         self.dirty.clear();
         let ws = self.ws_dirty;
@@ -319,7 +321,8 @@ impl Analysis {
     // `prev` resultId (LSP 3.17 pull caching). Reuses the cached resultId — and
     // reports `unchanged` — only when the items are byte-identical to what we last
     // emitted *and* the client echoed that id (so it genuinely holds this content);
-    // otherwise assigns a fresh id, caches the items, and re-sends. Updates the cache.
+    // otherwise assigns a fresh id, caches the items, and re-sends. Updates the
+    // cache.
     fn report_result(self, _ canon: String, _ items: Json, _ prev: Option<String>) -> ReportResult {
         return self.report_result_content(canon, json.stringify(items), prev);
     }
@@ -367,8 +370,8 @@ impl Analysis {
         return self.record_report(canon, content);
     }
 
-    // The client-reported version for an open buffer's report item; JSON null for
-    // a file with no buffer open, per the spec.
+    // The client-reported version for an open buffer's report item; JSON null for a
+    // file with no buffer open, per the spec.
     fn version_of(self, _ uri: String) -> Json {
         return match self.versions.get(uri) {
             Some(v) => int(v),
@@ -384,14 +387,13 @@ impl Analysis {
         return self.docs.keys();
     }
 
-    // Record the workspace roots the client opened (`initialize`). Idempotent —
-    // a re-`initialize` replaces the set. Paths, not URIs (the caller decodes).
+    // Record the workspace roots the client opened (`initialize`). Idempotent — a
+    // re-`initialize` replaces the set. Paths, not URIs (the caller decodes).
     pub fn set_roots(self, _ roots: List<String>) -> Void {
         self.input_generation = self.input_generation + 1;
         self.roots = roots;
-        // Which files a scan even sees is derived from these, so last scan's
-        // result no longer describes this workspace — nor does the walk it came
-        // from.
+        // Which files a scan even sees is derived from these, so last scan's result
+        // no longer describes this workspace — nor does the walk it came from.
         self.scan_cache = Option.None;
         self.drop_disk_cache();
     }
@@ -449,11 +451,10 @@ impl Analysis {
         return false;
     }
 
-    // Whether `path` is a language-conformance fixture (under `tests/lang/`) —
-    // the scope in which a declared `// expect error:` diagnostic is dropped from
-    // the editor report (`fixtures.suppress_declared`). Keyed on the
-    // workspace-relative path, so the marker convention can't leak into an
-    // arbitrary user project.
+    // Whether `path` is a language-conformance fixture (under `tests/lang/`) — the
+    // scope in which a declared `// expect error:` diagnostic is dropped from the
+    // editor report (`fixtures.suppress_declared`). Keyed on the workspace-relative
+    // path, so the marker convention can't leak into an arbitrary user project.
     fn is_fixture(self, _ path: String) -> Bool {
         return fixtures.is_fixture_rel(self.workspace_relative(loader.canonical_path(path)));
     }
@@ -470,17 +471,17 @@ impl Analysis {
         return canon;
     }
 
-    // The parsed AST of an open document, through the session's parse cache —
-    // the entry for the parse-only requests (document symbols, code actions,
-    // workspace symbols), which used to re-tokenize the buffer per request.
+    // The parsed AST of an open document, through the session's parse cache — the
+    // entry for the parse-only requests (document symbols, code actions, workspace
+    // symbols), which used to re-tokenize the buffer per request.
     pub fn parsed(self, _ uri: String) -> Option<Program> {
         return self.docs.get(uri).map((text) => self.session.parse(text, paths.uri_to_path(uri)));
     }
 
     // The owner-correct resolution context for `text` as the file at `path`: its
-    // import closure plus the loader's surfaces (LS1) and the committed-type
-    // record (CH19). Works for any file, open or on disk — the caller supplies
-    // the text (an open buffer's overlay, or the on-disk contents for a scan).
+    // import closure plus the loader's surfaces (LS1) and the committed-type record
+    // (CH19). Works for any file, open or on disk — the caller supplies the text
+    // (an open buffer's overlay, or the on-disk contents for a scan).
     fn ctx_for(self, _ path: String, _ text: String) -> resolve.ResolveCtx {
         let closure = self.session.load_closure(text, path);
         return resolve.ResolveCtx {
@@ -493,18 +494,18 @@ impl Analysis {
         };
     }
 
-    // The resolution context for an open document, or None when it isn't open.
-    // The shared setup behind hover/definition.
+    // The resolution context for an open document, or None when it isn't open. The
+    // shared setup behind hover/definition.
     fn doc_ctx(self, _ uri: String) -> Option<resolve.ResolveCtx> {
         return self.docs.get(uri).map((text) => self.ctx_for(paths.uri_to_path(uri), text));
     }
 
     // Every file to scan for project-wide references/rename: the open documents
-    // unioned with the `.thera` files under the workspace roots (closed files
-    // read from disk). Keyed by canonical path so an open buffer shadows its
-    // on-disk copy — the unsaved edits win, and a loose file outside every root
-    // is still covered. With no roots announced (a folder-less client), this is
-    // just the open documents, the pre-workspace-scan behavior.
+    // unioned with the `.thera` files under the workspace roots (closed files read
+    // from disk). Keyed by canonical path so an open buffer shadows its on-disk
+    // copy — the unsaved edits win, and a loose file outside every root is still
+    // covered. With no roots announced (a folder-less client), this is just the
+    // open documents, the pre-workspace-scan behavior.
     //
     // Only `cone_files` builds each returned file's closure to resolve it, so the
     // expensive work scales with the target's reachability, not the whole project.
@@ -538,8 +539,8 @@ impl Analysis {
     // regardless of the text handed to it, so the old re-read never actually caught
     // an unreported change (measured). This drops the cost of a defense that wasn't
     // one. Known gap, not currently reconciled: VS Code's watcher honors
-    // `files.watcherExclude`, so a directory excluded there reports no events —
-    // see the roadmap.
+    // `files.watcherExclude`, so a directory excluded there reports no events — see
+    // the roadmap.
     //
     // Dedupes by canonical path, first spelling winning, as the walk always has
     // (overlapping roots can yield one file twice).
@@ -559,11 +560,11 @@ impl Analysis {
                 }
             }
         }
-        // The walk and reads park, so an invalidation can land mid-build (a
-        // watcher event evicting this very cache); storing unconditionally would
-        // reinstate what the eviction just dropped, and the stale text would be
-        // served until the file's *next* event. Serve this scan's list either
-        // way, but cache it only if nothing moved while it was built.
+        // The walk and reads park, so an invalidation can land mid-build (a watcher
+        // event evicting this very cache); storing unconditionally would reinstate
+        // what the eviction just dropped, and the stale text would be served until
+        // the file's *next* event. Serve this scan's list either way, but cache it
+        // only if nothing moved while it was built.
         if self.input_generation == gen {
             self.disk_cache = Option.Some(out);
         }
@@ -634,8 +635,8 @@ impl Analysis {
         };
     }
 
-    // The `Location[]` (as JSON) for every reference to the symbol at `position`
-    // in `uri`, across the project — the open documents unioned with the on-disk
+    // The `Location[]` (as JSON) for every reference to the symbol at `position` in
+    // `uri`, across the project — the open documents unioned with the on-disk
     // `.thera` files under the workspace roots (see `scan_files`). Semantic — only
     // occurrences that resolve to the *same declaration* are returned (SymbolId
     // identity), so unrelated same-named symbols are excluded. With no roots
@@ -665,12 +666,12 @@ impl Analysis {
         return arr(out);
     }
 
-    // The `WorkspaceEdit` (as JSON) that renames the symbol at `position` in
-    // `uri` to `new_name`, or JSON null when the cursor names no renamable symbol
-    // or the new name isn't a legal identifier. Rewrites exactly the occurrences
-    // that resolve to the same declaration (its own name included), across the
-    // project (open documents + on-disk files under the roots, like references).
-    // A pre-flight collision check runs against the target's own file: if the new
+    // The `WorkspaceEdit` (as JSON) that renames the symbol at `position` in `uri`
+    // to `new_name`, or JSON null when the cursor names no renamable symbol or the
+    // new name isn't a legal identifier. Rewrites exactly the occurrences that
+    // resolve to the same declaration (its own name included), across the project
+    // (open documents + on-disk files under the roots, like references). A
+    // pre-flight collision check runs against the target's own file: if the new
     // name is already bound in its top-level name space, the rename is a
     // `Collision` (the server surfaces the reason) rather than an edit the checker
     // would reject on the next publish (see rename.collision).
@@ -781,13 +782,13 @@ impl Analysis {
     // workspace file (and open buffer), each carrying that file's own diagnostics.
     // This is what makes diagnostics project-wide with no file open. It reuses the
     // session's shared check and checked-clean dedup — the `thera check <dir>` loop
-    // — so a shared import is checked once per pass, not once per importer; a
-    // clean file gets an empty full report so the client releases prior squiggles.
+    // — so a shared import is checked once per pass, not once per importer; a clean
+    // file gets an empty full report so the client releases prior squiggles.
     //
     // Runs on a background fiber (see server.start_workspace_scan): it `yield`s
     // every few files so the request loop stays responsive while it works, and
-    // consults `still_current` at each file — returning None (the caller replies
-    // a cancellation error) when a newer pull or a cancel has superseded this scan.
+    // consults `still_current` at each file — returning None (the caller replies a
+    // cancellation error) when a newer pull or a cancel has superseded this scan.
     // `prev_ids` maps each URI to the resultId the client last holds for it; a file
     // whose current items match returns a light `unchanged` item (LSP 3.17 pull
     // caching) instead of re-sending, so a re-pull re-emits only changed files.
@@ -857,8 +858,8 @@ impl Analysis {
     // last delivered them (`ws_emitted`) — the streamed update batch for a
     // held-open `workspace/diagnostic` pull. Only changed files appear: partial
     // results merge per uri client-side ("the last one reported wins"), so an
-    // omitted file keeps its previous state and an idle workspace streams nothing
-    // — there is no `unchanged` chatter on this path. A file that left the scan
+    // omitted file keeps its previous state and an idle workspace streams nothing —
+    // there is no `unchanged` chatter on this path. A file that left the scan
     // (deleted, newly excluded, a closed loose file) gets a retraction.
     //
     // None when a newer pull or a cancel superseded this scan, exactly as
@@ -936,8 +937,8 @@ impl Analysis {
         }
         // `files`' texts were captured under this generation (the caller's
         // `scan_files` and this call run without an intervening park); the checks
-        // below *do* park, so an edit can land mid-scan — the stamp then no
-        // longer matches at the next pull and the content compare arbitrates.
+        // below *do* park, so an edit can land mid-scan — the stamp then no longer
+        // matches at the next pull and the content compare arbitrates.
         let gen = self.input_generation;
         // Check each file once, folding every diagnostic under its owning file
         // (deduped by identity — an imported file's error surfaces from several
@@ -1012,8 +1013,8 @@ impl Analysis {
     // back — a match there re-stamps the cache so later pulls take the fast tier.
     //
     // Skipping the check does not strand the query layer: `records_for` re-checks
-    // on demand for an open buffer with no stored records, and hover/definition only
-    // ever run against open buffers.
+    // on demand for an open buffer with no stored records, and hover/definition
+    // only ever run against open buffers.
     fn reusable_by_file(self, _ files: List<ScanFile>) -> Option<Map<String, List<Json>>> {
         let cache = match self.scan_cache {
             Some(c) => c,
@@ -1043,8 +1044,8 @@ impl Analysis {
 }
 
 // An empty `full` report for `uri` — the retraction shape. The empty items release
-// the client's diagnostics for the file; carrying no resultId makes the client
-// drop its stored id too, so the uri stops appearing in `previousResultIds`.
+// the client's diagnostics for the file; carrying no resultId makes the client drop
+// its stored id too, so the uri stops appearing in `previousResultIds`.
 fn retraction_item(_ uri: String) -> Json {
     return obj(['kind': str('full'), 'uri': str(uri), 'version': null(), 'items': arr([])]);
 }

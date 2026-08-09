@@ -1,5 +1,5 @@
-// Tests for the resolver: parse a program, build the element model, and check
-// that member types, signatures, enum variants, impl methods, and the flattened
+// Tests for the resolver: parse a program, build the element model, and check that
+// member types, signatures, enum variants, impl methods, and the flattened
 // interface closure resolve as expected.
 
 import std.testing;
@@ -15,8 +15,8 @@ fn lib_of(_ src: String) -> LibraryElement {
     return build_library(testkit.parse(src), [], [:], [:]);
 }
 
-// Parse `src` stamped with `path` — for the multi-file / layered-build tests,
-// which need real per-file identities.
+// Parse `src` stamped with `path` — for the multi-file / layered-build tests, which
+// need real per-file identities.
 fn prog_of(_ src: String, _ path: String) -> Program {
     return testkit.parse_at(src, path);
 }
@@ -145,15 +145,16 @@ fn test_impl_methods_attach() -> Result<Void, Error> {
 
 @test
 fn test_per_file_tables_populated() -> Result<Void, Error> {
-    // The per-file type/const tables (Phase 2e S1) record each declaration under its
-    // declaring file, referencing the same element as the flat tables. The anonymous
-    // program keys under '' (file_key of None).
+    // The per-file type/const tables (Phase 2e S1) record each declaration under
+    // its declaring file, referencing the same element as the flat tables. The
+    // anonymous program keys under '' (file_key of None).
     let lib = lib_of('struct Point { let x: Int; }\nconst K: Int = 1\n'
         + 'fn f() -> Int { return 0; }');
     match lib.file_type_defs.get(file_key(Option.None)) {
         Some(types) => {
             testing.assert(types.has('Point'), message: 'Point recorded per-file')?;
-            // Same object as the flat table (member fills are visible through both).
+            // Same object as the flat table (member fills are visible through
+            // both).
             testing.assert_eq(
                 actual: types.get('Point').is_some(),
                 expected: lib.type_defs.get('Point').is_some(),
@@ -203,9 +204,9 @@ fn test_interface_inheritance_flattens() -> Result<Void, Error> {
 @test
 fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error> {
     // A reserved core name's flat registry entry is pinned to its first real
-    // registration (EL8): a later — illegal, but possibly *unchecked* (an open
-    // LSP buffer) — declaration must not steal core identity. `is_core_id`
-    // therefore keeps pointing at the first owner.
+    // registration (EL8): a later — illegal, but possibly *unchecked* (an open LSP
+    // buffer) — declaration must not steal core identity. `is_core_id` therefore
+    // keeps pointing at the first owner.
     let core = testkit.parse_at('pub enum Result { Good, Bad }', '/core/result.thera');
     let user = testkit.parse_at('struct Result { let x: Int; }', '/app/main.thera');
     let lib = build_library(user, [core], [:], [:]);
@@ -228,8 +229,8 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
         TypeId { owner: '/app/main.thera', name: 'Result' },
         'Result',
     ))?;
-    // The user file's own table still holds its (illegal) declaration — only
-    // the shared flat entry is protected.
+    // The user file's own table still holds its (illegal) declaration — only the
+    // shared flat entry is protected.
     match lib.file_type_defs.get('/app/main.thera') {
         Some(m) => { testing.assert(m.has('Result'))?; },
         None => { testing.assert(false, message: 'no /app/main.thera table')?; },
@@ -248,8 +249,8 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
 @test
 fn test_pathless_programs_get_distinct_keys() -> Result<Void, Error> {
     // `build_library` stamps path-less programs distinct identities (LD8): the
-    // primary keeps `<anon>`, imports mint `<anon:2>`… — two in-memory
-    // programs must never merge into one per-file table.
+    // primary keeps `<anon>`, imports mint `<anon:2>`… — two in-memory programs
+    // must never merge into one per-file table.
     let dep = testkit.parse('fn helper() -> Int { return 1; }');
     let main = testkit.parse('fn helper() -> Int { return 2; }');
     let lib = build_library(main, [dep], [:], [:]);
@@ -269,11 +270,11 @@ fn test_pathless_programs_get_distinct_keys() -> Result<Void, Error> {
 @test
 fn test_reserved_pin_allows_same_owner_reregistration() -> Result<Void, Error> {
     // A core file that is itself the check primary appears in the program list
-    // twice (once via the prelude closure, once as the primary). The reserved
-    // pin must let the same owner re-register — the flat entry has to track the
-    // latest element object, the one pass 2 fills — or its methods vanish
-    // program-wide. Probe object identity through reference semantics: a
-    // mutation via the per-file table must be visible through the flat entry.
+    // twice (once via the prelude closure, once as the primary). The reserved pin
+    // must let the same owner re-register — the flat entry has to track the latest
+    // element object, the one pass 2 fills — or its methods vanish program-wide.
+    // Probe object identity through reference semantics: a mutation via the
+    // per-file table must be visible through the flat entry.
     let first = testkit.parse_at('pub enum Result { Good, Bad }', '/core/result.thera');
     let again = testkit.parse_at('pub enum Result { Good, Bad }', '/core/result.thera');
     let lib = build_library(again, [first], [:], [:]);
@@ -298,9 +299,9 @@ fn test_reserved_pin_allows_same_owner_reregistration() -> Result<Void, Error> {
 
 @test
 fn test_elements_carry_symbol_identity() -> Result<Void, Error> {
-    // Symbol identity (EL13): resolved elements carry the declaring file's key
-    // and the declaration's name-token span — the (file, kind, name, span)
-    // quadruple Phase 3 rename/references keys on. A path-less program keys as
+    // Symbol identity (EL13): resolved elements carry the declaring file's key and
+    // the declaration's name-token span — the (file, kind, name, span) quadruple
+    // Phase 3 rename/references keys on. A path-less program keys as
     // file_key(None); the spans point at the exact name tokens.
     let src = 'struct Point { let x: Int; }\n'
         + 'enum Color { Red, Green }\n'
@@ -350,16 +351,16 @@ fn test_elements_carry_symbol_identity() -> Result<Void, Error> {
 
 // --- the layered build (LD14 batch C) ---
 
-// `build_import_library` + `layer_primary` must equal the full build: same
-// flat keys, same primary tables, same impl attachment — and the base must
-// come out untouched.
+// `build_import_library` + `layer_primary` must equal the full build: same flat
+// keys, same primary tables, same impl attachment — and the base must come out
+// untouched.
 @test
 fn test_layered_build_matches_full_build() -> Result<Void, Error> {
     let dep_src = 'pub interface Greet { fn hello(self) -> Int }\n';
     let main_src = 'struct Point { let x: Int; }\n'
         + 'impl Greet for Point { pub fn hello(self) -> Int { return self.x; } }\n';
-    // Two parses of the dep so the full and layered builds don't share
-    // mutated programs.
+    // Two parses of the dep so the full and layered builds don't share mutated
+    // programs.
     let dep_a = prog_of(dep_src, '/dep.thera');
     let dep_b = prog_of(dep_src, '/dep.thera');
     let surface: Map<String, Map<String, String>> = [:];
@@ -389,9 +390,9 @@ fn test_layered_build_matches_full_build() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The poisoning gate (the frozen-base invariant's enforcement): a primary
-// `impl` on a type the primary doesn't declare returns None — twice — and the
-// base element accumulates nothing.
+// The poisoning gate (the frozen-base invariant's enforcement): a primary `impl` on
+// a type the primary doesn't declare returns None — twice — and the base element
+// accumulates nothing.
 @test
 fn test_layer_primary_gates_foreign_impl() -> Result<Void, Error> {
     let dep = prog_of('pub struct Point { let x: Int; }\n', '/dep.thera');
@@ -412,8 +413,8 @@ fn test_layer_primary_gates_foreign_impl() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// `impl Int` (a builtin-floor target) is foreign too: the gate falls back
-// rather than mutating the shared floor element.
+// `impl Int` (a builtin-floor target) is foreign too: the gate falls back rather
+// than mutating the shared floor element.
 @test
 fn test_layer_primary_gates_builtin_impl() -> Result<Void, Error> {
     let base = build_import_library([], [:], [:]);
@@ -423,9 +424,9 @@ fn test_layer_primary_gates_builtin_impl() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Interface flattening in the layered build writes only primary elements: a
-// primary interface extending an imported one gains the inherited method; the
-// imported super's element is unchanged.
+// Interface flattening in the layered build writes only primary elements: a primary
+// interface extending an imported one gains the inherited method; the imported
+// super's element is unchanged.
 @test
 fn test_layer_primary_flattens_into_primary_only() -> Result<Void, Error> {
     let dep = prog_of('pub interface Base { fn root(self) -> Int }\n', '/dep.thera');

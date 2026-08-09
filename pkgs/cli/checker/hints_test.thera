@@ -1,7 +1,7 @@
-// Tests for the corrective-hint table (hints.thera): the lookups themselves,
-// and — per the module's curation rule — that every form a hint suggests
-// exists on the current surface, by exercising each one. A hint that names a
-// method this file can no longer call fails here before it misleads anyone.
+// Tests for the corrective-hint table (hints.thera): the lookups themselves, and —
+// per the module's curation rule — that every form a hint suggests exists on the
+// current surface, by exercising each one. A hint that names a method this file can
+// no longer call fails here before it misleads anyone.
 
 import std.math;
 import std.testing;
@@ -78,8 +78,8 @@ fn test_suggested_forms_exist() -> Result<Void, Error> {
     let _ = o.ok_or(error('missing'))?;
     let r: Result<Int, Error> = Result.Ok(2);
     testing.assert_eq(actual: r.unwrap_or(0), expected: 2)?;
-    // List.reduce → fold; append → push; size/length → len;
-    // sort_by → sort / sorted_by
+    // List.reduce → fold; append → push; size/length → len; sort_by → sort /
+    // sorted_by
     let xs = [3, 1, 2];
     testing.assert_eq(actual: xs.fold(0, (acc, x) => acc + x), expected: 6)?;
     xs.push(4);
@@ -97,7 +97,7 @@ fn test_suggested_forms_exist() -> Result<Void, Error> {
     let it = [1, 2].iter();
     testing.assert_eq(actual: it.next(), expected: Option.Some(1))?;
     testing.assert_eq(actual: [5, 6].iter().to_list(), expected: [5, 6])?;
-    // testing.assert_true / expect_eq → assert / assert_eq are what this whole
-    // file runs on.
+    // testing.assert_true / expect_eq → assert / assert_eq are what this whole file
+    // runs on.
     return Result.Ok(void);
 }

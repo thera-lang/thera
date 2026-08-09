@@ -2,18 +2,18 @@
 ///
 /// `Option<T>` represents an optional value: `Some(T)` when present, `None` when
 /// absent. It is one of the two language-blessed enums (the `?` operator and the
-/// built-in helper methods know it by name), but it is otherwise an ordinary
-/// enum defined here in Thera.
+/// built-in helper methods know it by name), but it is otherwise an ordinary enum
+/// defined here in Thera.
 ///
-/// The variant order is significant: it fixes the runtime tags (Some = 0,
-/// None = 1) shared with the bytecode runtime — do not reorder.
+/// The variant order is significant: it fixes the runtime tags (Some = 0, None = 1)
+/// shared with the bytecode runtime — do not reorder.
 ///
-/// Reaching for the right tool (see also `if let` / `let … else` in
-/// language.md): `if let` to act on a present value, `let … else` to bind or
-/// bail, and these combinators to transform or default a value inline —
-/// `map`/`and_then` to carry a computation through, `unwrap_or`/`unwrap_or_else`
-/// to exit with a default, `ok_or` to turn absence into a `Result`. Reserve
-/// `match` for genuinely choosing among variants.
+/// Reaching for the right tool (see also `if let` / `let … else` in language.md):
+/// `if let` to act on a present value, `let … else` to bind or bail, and these
+/// combinators to transform or default a value inline — `map`/`and_then` to carry a
+/// computation through, `unwrap_or`/`unwrap_or_else` to exit with a default,
+/// `ok_or` to turn absence into a `Result`. Reserve `match` for genuinely choosing
+/// among variants.
 pub enum Option<T> {
     Some(T),
     None,
@@ -33,8 +33,8 @@ impl Option<T> {
         };
     }
 
-    /// The contained value if present, else `fallback`. Reach for it to exit with
-    /// a default when the fallback is a cheap, already-computed value (use
+    /// The contained value if present, else `fallback`. Reach for it to exit with a
+    /// default when the fallback is a cheap, already-computed value (use
     /// `unwrap_or_else` if it is expensive).
     ///
     /// ```thera
@@ -87,8 +87,8 @@ impl Option<T> {
     }
 
     /// Chain a fallible step: apply `f` (itself returning an `Option`) when
-    /// present, flattening the result. Reach for it over nested `match`/`map`
-    /// when the next step can also be absent.
+    /// present, flattening the result. Reach for it over nested `match`/`map` when
+    /// the next step can also be absent.
     ///
     /// ```thera
     /// let port = config.get('port').and_then((s) => s.to_int());   // Option<Int>
@@ -100,9 +100,9 @@ impl Option<T> {
         };
     }
 
-    /// The contained value if present, else the result of calling `f`. Reach for
-    /// it over `unwrap_or` when the fallback is expensive or has a side effect —
-    /// `f` runs only on `None`.
+    /// The contained value if present, else the result of calling `f`. Reach for it
+    /// over `unwrap_or` when the fallback is expensive or has a side effect — `f`
+    /// runs only on `None`.
     ///
     /// ```thera
     /// let conf = cached.unwrap_or_else(() => load_config());
@@ -126,8 +126,8 @@ impl Debug for Option<T> {
 }
 
 /// An option's display form *is* its developer form — the structural `Debug`
-/// rendering is canonical (there is no prettier user-facing shape; the
-/// Python `str`-delegates-to-`repr` convention for containers).
+/// rendering is canonical (there is no prettier user-facing shape; the Python
+/// `str`-delegates-to-`repr` convention for containers).
 impl Display for Option<T> {
     fn to_string(self) -> String {
         return self.debug();

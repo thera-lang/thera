@@ -1,6 +1,6 @@
-// LSP document symbols (the outline): a parsed program's top-level declarations
-// as a `DocumentSymbol[]` tree. Purely syntactic — no type analysis — so it
-// works on a partially-recovered parse while the file still has errors.
+// LSP document symbols (the outline): a parsed program's top-level declarations as
+// a `DocumentSymbol[]` tree. Purely syntactic — no type analysis — so it works on a
+// partially-recovered parse while the file still has errors.
 //
 // Ported from the Dart `lsp/symbols.dart`.
 
@@ -16,8 +16,8 @@ import 'positions';     // span_to_range
 
 // The LSP `SymbolKind` for a top-level declaration. Shared with workspace symbols
 // so the decl→kind mapping lives in one place (`Import` has no symbol; 0 is
-// unused). An impl block is neither a class nor an interface — it maps to
-// `Object` (the convention rust-analyzer uses for impls). See the table above.
+// unused). An impl block is neither a class nor an interface — it maps to `Object`
+// (the convention rust-analyzer uses for impls). See the table above.
 pub fn decl_kind(_ decl: Decl) -> Int {
     return match decl {
         Fn(_) => 12,
@@ -116,8 +116,8 @@ fn variant_symbols(_ variants: List<EnumVariant>) -> List<Json> {
     return out;
 }
 
-// One `DocumentSymbol`: `detail` is "pub" when `is_pub`; `children` is present
-// only for container symbols (enums/interfaces/impls).
+// One `DocumentSymbol`: `detail` is "pub" when `is_pub`; `children` is present only
+// for container symbols (enums/interfaces/impls).
 fn make_symbol(
     _ name: String,
     _ kind: Int,

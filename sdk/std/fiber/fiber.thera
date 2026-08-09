@@ -1,11 +1,10 @@
 //! std.fiber — cooperative concurrency on the single thread.
 //!
-//! Spawn work as a fiber and join its result. Fibers are scheduled cooperatively:
-//! a fiber runs until it blocks (a `join` on an unfinished fiber) or `yield`s,
-//! then the scheduler runs the next runnable one. Single-threaded, so there are
-//! no data races and no locks needed. The runtime design (fibers as stackless
-//! coroutines over the interpreter's frame stack) is in docs/architecture.md
-//! §Concurrency.
+//! Spawn work as a fiber and join its result. Fibers are scheduled cooperatively: a
+//! fiber runs until it blocks (a `join` on an unfinished fiber) or `yield`s, then
+//! the scheduler runs the next runnable one. Single-threaded, so there are no data
+//! races and no locks needed. The runtime design (fibers as stackless coroutines
+//! over the interpreter's frame stack) is in docs/architecture.md §Concurrency.
 
 import std.time;
 
@@ -92,18 +91,18 @@ native fn _chan_close(_ id: Int) -> Void
 // Waiting on more than one thing at once. Everything second-order reduces to it:
 // timeouts, cancellation-aware waits, first-result-wins, N-way muxing.
 //
-// The shape is a `Selectable` interface plus an index, rather than Go's `select {
-// case ... }` syntax — and it can be, because scheduling is **cooperative**. Go
-// fuses the receive into the branch because between "this channel is ready" and
-// "receive from it" another thread could take the value. Here nothing runs between
-// those two steps, so asking which source is ready and *then* acting on it is
-// exactly equivalent, with no new syntax.
+// The shape is a `Selectable` interface plus an index, rather than Go's
+// `select { case ... }` syntax — and it can be, because scheduling is
+// **cooperative**. Go fuses the receive into the branch because between "this
+// channel is ready" and "receive from it" another thread could take the value. Here
+// nothing runs between those two steps, so asking which source is ready and *then*
+// acting on it is exactly equivalent, with no new syntax.
 
 /// How `select` should wait for a source that isn't ready yet. Returned by
 /// [Selectable.source]; `select` parks on the union across its sources.
 pub enum SelectSource {
-    /// Woken by any other fiber's progress — a channel send, a fiber finishing.
-    /// The right answer for anything built out of channels and fibers.
+    /// Woken by any other fiber's progress — a channel send, a fiber finishing. The
+    /// right answer for anything built out of channels and fibers.
     Progress,
     /// Woken when socket `handle` becomes ready.
     Socket(Int),
@@ -196,9 +195,9 @@ impl Selectable for Channel<T> {
 
 /// A deadline, as a [Selectable] — the way to put a time limit on a `select`.
 ///
-/// It lives here rather than in `std.time` for a boring reason: it has to
-/// implement `Selectable`, and if `std.time` imported `std.fiber` for the
-/// interface, the two would import each other.
+/// It lives here rather than in `std.time` for a boring reason: it has to implement
+/// `Selectable`, and if `std.time` imported `std.fiber` for the interface, the two
+/// would import each other.
 pub struct Timer {
     let deadline_millis: Int;
 }

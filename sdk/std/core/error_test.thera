@@ -30,8 +30,8 @@ fn test_error_is_display() -> Result<Void, Error> {
 
 @test
 fn test_message_satisfies_error_interface() -> Result<Void, Error> {
-    // A concrete value flows where the Error interface is expected, and
-    // message() dispatches back to the concrete impl.
+    // A concrete value flows where the Error interface is expected, and message()
+    // dispatches back to the concrete impl.
     testing.assert_eq(actual: describe(as_error('nope')), expected: 'nope')?;
     return Result.Ok(void);
 }

@@ -186,8 +186,8 @@ fn caller_headers_are_sent_and_win_over_the_defaults() -> Result<Void, Error> {
     return testing.assert_eq(seen_header(resp, 'user-agent')?, 'custom/9');
 }
 
-/// No pooling, so the client says so — it lets the server release the connection
-/// at once rather than hold it for a reuse that will never come.
+/// No pooling, so the client says so — it lets the server release the connection at
+/// once rather than hold it for a reuse that will never come.
 @test
 fn sends_connection_close() -> Result<Void, Error> {
     let base = serving(echo)?;
@@ -197,9 +197,9 @@ fn sends_connection_close() -> Result<Void, Error> {
 
 // --- chunked ---
 
-/// The client must read a chunked response — the framing a real server uses when
-/// it doesn't know the length up front. Sent here by hand, since our own server
-/// always sets content-length.
+/// The client must read a chunked response — the framing a real server uses when it
+/// doesn't know the length up front. Sent here by hand, since our own server always
+/// sets content-length.
 @test
 fn reads_a_chunked_response() -> Result<Void, Error> {
     let listener = net.listen('127.0.0.1:0')?;
@@ -252,8 +252,8 @@ fn a_fragment_is_not_sent() -> Result<Void, Error> {
 // off unless `THERA_NET_TESTS` is set.
 
 /// The hermetic half: `https` to a peer that speaks plaintext HTTP fails as `Tls`.
-/// If `send` ignored the scheme this would return a `Response` instead, so the
-/// test pins scheme routing and the error mapping together, with no network.
+/// If `send` ignored the scheme this would return a `Response` instead, so the test
+/// pins scheme routing and the error mapping together, with no network.
 @test
 fn https_to_a_plaintext_peer_fails_as_tls() -> Result<Void, Error> {
     // `serving` hands back an `http://` base; asking for it over `https` is the
@@ -356,8 +356,8 @@ fn a_refused_connection_is_a_connect_error() -> Result<Void, Error> {
     return testing.assert(failed, message: 'expected HttpError.Connect');
 }
 
-/// A peer that hangs up mid-response is a Body error — the framing was fine and
-/// the bytes stopped, which is a different fault from a malformed message.
+/// A peer that hangs up mid-response is a Body error — the framing was fine and the
+/// bytes stopped, which is a different fault from a malformed message.
 @test
 fn a_truncated_response_is_a_body_error() -> Result<Void, Error> {
     let listener = net.listen('127.0.0.1:0')?;
@@ -402,8 +402,8 @@ fn a_non_http_peer_is_a_protocol_error() -> Result<Void, Error> {
 
 // --- streaming ---
 
-/// A GET as a `common.Request`, since the streaming entry points take one directly —
-/// there is no `http.stream_get`, and there shouldn't be.
+/// A GET as a `common.Request`, since the streaming entry points take one directly
+/// — there is no `http.stream_get`, and there shouldn't be.
 fn get_request(_ url: String) -> common.Request {
     return common.Request { method: 'GET', url: url, headers: [:], body: Bytes.empty() };
 }
@@ -428,9 +428,9 @@ fn event_name(_ ev: Option<sse.Event>) -> String {
 }
 
 /// Whether `s`'s connection was already closed, asked by closing it again: the
-/// runtime refuses a second close, which is what makes the first one observable from
-/// out here. Reading would not do — the body may still have buffered bytes to hand
-/// back long after the socket underneath is gone.
+/// runtime refuses a second close, which is what makes the first one observable
+/// from out here. Reading would not do — the body may still have buffered bytes to
+/// hand back long after the socket underneath is gone.
 fn already_closed(_ s: http.Stream) -> Bool {
     return match s.close() {
         Ok(_) => false,
@@ -452,8 +452,9 @@ fn streams_a_response_body() -> Result<Void, Error> {
     return testing.assert(body.to_string()?.contains('"url"'), message: 'the echo report');
 }
 
-/// The end-to-end shape the arc was for: a `text/event-stream` off the wire, through
-/// the streaming body, into `std.http.sse`, with nothing in between holding it whole.
+/// The end-to-end shape the arc was for: a `text/event-stream` off the wire,
+/// through the streaming body, into `std.http.sse`, with nothing in between holding
+/// it whole.
 @test
 fn a_streamed_body_decodes_as_server_sent_events() -> Result<Void, Error> {
     let base = serving(event_source)?;
@@ -468,7 +469,8 @@ fn a_streamed_body_decodes_as_server_sent_events() -> Result<Void, Error> {
 }
 
 /// `send` is `stream` plus a capped read plus the close, so the two paths have to
-/// agree about the bytes — which they do by construction, and this keeps them there.
+/// agree about the bytes — which they do by construction, and this keeps them
+/// there.
 @test
 fn the_streamed_and_buffered_clients_agree() -> Result<Void, Error> {
     let base = serving(event_source)?;
@@ -515,9 +517,9 @@ fn with_stream_closes_when_the_callback_fails() -> Result<Void, Error> {
 /// The assertion the whole arc exists for: events reach the caller **while the
 /// server is still writing**. The server sends the first event, then waits to be
 /// told it arrived before sending the second — so a client that read the body whole
-/// would leave it waiting, and the flag the server reports back says which happened.
-/// The wait is bounded by a timer rather than a bare `receive`, so a regression
-/// fails this assertion instead of hanging the suite.
+/// would leave it waiting, and the flag the server reports back says which
+/// happened. The wait is bounded by a timer rather than a bare `receive`, so a
+/// regression fails this assertion instead of hanging the suite.
 @test
 fn events_arrive_while_the_server_is_still_writing() -> Result<Void, Error> {
     let go = fiber.channel<Bool>();

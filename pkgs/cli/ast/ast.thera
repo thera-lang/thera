@@ -2,22 +2,22 @@
 //
 // Dart's sealed class hierarchies (Decl / Stmt / Expr / TypeRef / Pattern /
 // StringPart) become one Thera `enum` per base, with each node a variant. Nodes
-// with several fields carry a named payload struct; small nodes carry their
-// fields positionally. Dart's record fields (`List<(String, TypeRef)>`, …)
-// become small named structs (`FieldDef`, `MapEntry`, `FieldInit`).
+// with several fields carry a named payload struct; small nodes carry their fields
+// positionally. Dart's record fields (`List<(String, TypeRef)>`, …) become small
+// named structs (`FieldDef`, `MapEntry`, `FieldInit`).
 //
-// Every node carries a `SourceSpan` (the incremental/IDE guardrail). The
-// inference pass's mutable `resolvedType` annotations are deferred — the parser
-// produces a pure tree, and how a later phase attaches types is its own design
-// question. The enums/structs derive structural Eq/Debug, so a parsed tree can
-// be compared with `assert_eq` (the diff-against-Dart approach the port uses).
+// Every node carries a `SourceSpan` (the incremental/IDE guardrail). The inference
+// pass's mutable `resolvedType` annotations are deferred — the parser produces a
+// pure tree, and how a later phase attaches types is its own design question. The
+// enums/structs derive structural Eq/Debug, so a parsed tree can be compared with
+// `assert_eq` (the diff-against-Dart approach the port uses).
 //
 // `type` is a reserved word, so fields Dart names `type` are `type_ann` here.
 
 import '../source' as _; // SourceSpan, used by every node
 
-// The AST's renderer surface rides the barrel: type/decl describers and the
-// debug dump, re-exported for the LSP and tests.
+// The AST's renderer surface rides the barrel: type/decl describers and the debug
+// dump, re-exported for the LSP and tests.
 pub import 'describe';
 pub import 'dump';
 
@@ -49,8 +49,8 @@ pub struct ImportDecl {
     let alias: Option<String>;
     let alias_span: Option<SourceSpan>; // the alias identifier (Some iff `alias` is)
     let is_pub: Bool; // `pub import` re-exports the target's public symbols
-    // `import 'x' as _;` — bind no namespace; bring the library's public names
-    // into this file's scope *unqualified* (see docs/language.md). `alias` is None.
+    // `import 'x' as _;` — bind no namespace; bring the library's public names into
+    // this file's scope *unqualified* (see docs/language.md). `alias` is None.
     let unqualified: Bool;
 }
 
@@ -70,8 +70,8 @@ pub struct FnDecl {
 pub struct TypeDecl {
     let span: SourceSpan;
     let is_pub: Bool;
-    // A `native type` (`native type List<T>`): an opaque, runtime-represented
-    // type with no field layout — a declaration site for the built-in types whose
+    // A `native type` (`native type List<T>`): an opaque, runtime-represented type
+    // with no field layout — a declaration site for the built-in types whose
     // representation lives in the runtime. `fields` is empty; methods come from
     // `impl` blocks like any other type.
     let is_native: Bool;
@@ -99,8 +99,8 @@ pub struct ImplDecl {
     let type_params: List<TypeParam>;
     let interface_name: Option<String>; // None = inherent impl
     let interface_name_span: Option<SourceSpan>; // Some iff `interface_name` is
-    // The namespace qualifying the interface name (`impl io.Reader for X`), if
-    // any — the interface resolves through it, like a `ns.T` annotation.
+    // The namespace qualifying the interface name (`impl io.Reader for X`), if any
+    // — the interface resolves through it, like a `ns.T` annotation.
     let interface_namespace: Option<String>;
     // The interface's type args, e.g. <Int> in `impl Iterator<Int> for RangeIter`.
     let interface_args: List<TypeRef>;
@@ -126,9 +126,9 @@ pub struct ConstDecl {
     let value: Expr;
 }
 
-// A module-level `let NAME[: Type] = expr;` — an immutable binding computed once
-// at load into a stored global slot (see docs/language.md). There is no
-// top-level `let mut` (the parser rejects it), so this carries no `is_mut`.
+// A module-level `let NAME[: Type] = expr;` — an immutable binding computed once at
+// load into a stored global slot (see docs/language.md). There is no top-level
+// `let mut` (the parser rejects it), so this carries no `is_mut`.
 pub struct LetDecl {
     let span: SourceSpan;
     let is_pub: Bool;
@@ -238,26 +238,26 @@ pub enum Stmt {
     Throw(SourceSpan, Expr),
     Expr(SourceSpan, Expr),
     // target (Ident/Field/Index), compound operator, value. The operator is
-    // `Some('+')` for `x += y` (etc.) with `value` the *raw* right-hand side —
-    // the AST keeps the compound shape faithfully instead of desugaring to
-    // `x = x + y`, which aliased the target node into the value (PA5: one node
-    // in two positions breaks span-keyed consumers, and the `+=` shape was
-    // unrecoverable for fmt/lint). Pipeline consumers that need the stored
-    // value's shape build it with [assign_value].
+    // `Some('+')` for `x += y` (etc.) with `value` the *raw* right-hand side — the
+    // AST keeps the compound shape faithfully instead of desugaring to `x = x + y`,
+    // which aliased the target node into the value (PA5: one node in two positions
+    // breaks span-keyed consumers, and the `+=` shape was unrecoverable for
+    // fmt/lint). Pipeline consumers that need the stored value's shape build it
+    // with [assign_value].
     Assign(SourceSpan, Expr, Option<String>, Expr),
     If(IfStmt),
     For(ForStmt),
     While(WhileStmt),
     // Loop control: exit the enclosing loop (`break`) or advance to its next
-    // iteration (`continue`). Statement-only, unlabeled — the checker rejects
-    // one outside a loop. Each carries just its span.
+    // iteration (`continue`). Statement-only, unlabeled — the checker rejects one
+    // outside a loop. Each carries just its span.
     Break(SourceSpan),
     Continue(SourceSpan),
 }
 
 // The value an assignment stores: the RHS for a plain `=`, or the synthesized
-// `target op rhs` Binary for a compound assignment (`x += y` stores `x + y`).
-// Built fresh per call — the transient node exists only inside the consumer
+// `target op rhs` Binary for a compound assignment (`x += y` stores `x + y`). Built
+// fresh per call — the transient node exists only inside the consumer
 // (checker/inference/codegen), never in the AST that walks see.
 pub fn assign_value(_ target: Expr, _ op: Option<String>, _ value: Expr) -> Expr {
     return match op {
@@ -304,11 +304,11 @@ pub struct Block {
     // position (a BlockExpr or a `{…}` match arm); None for statement-position
     // blocks (fn/if/while/for bodies). See docs/language.md.
     let tail: Option<Expr>;
-    // True when a phase fabricated the block with no source braces of its own:
-    // the `else if` chain wrapper (PA8 — otherwise indistinguishable from a
-    // source `else { if … }`), an `if let`'s missing-else Unit block, a
-    // `let … else` assertion body, a lifted lambda's body. fmt/lint/LSP
-    // consumers must not attribute source text to a synthetic block.
+    // True when a phase fabricated the block with no source braces of its own: the
+    // `else if` chain wrapper (PA8 — otherwise indistinguishable from a source
+    // `else { if … }`), an `if let`'s missing-else Unit block, a `let … else`
+    // assertion body, a lifted lambda's body. fmt/lint/LSP consumers must not
+    // attribute source text to a synthetic block.
     let synthetic: Bool;
 }
 
@@ -346,9 +346,9 @@ pub enum Expr {
     If(IfExpr),
     Return(SourceSpan, Option<Expr>),
     Throw(SourceSpan, Expr),
-    // The `#loc` metaconstant — the source location of this expression, resolved
-    // by codegen to a `SourceLoc` value. As a default parameter value it captures
-    // the *call site* (defaults are materialized there); elsewhere, its own site.
+    // The `#loc` metaconstant — the source location of this expression, resolved by
+    // codegen to a `SourceLoc` value. As a default parameter value it captures the
+    // *call site* (defaults are materialized there); elsewhere, its own site.
     Loc(SourceSpan),
     // A parser recovery placeholder: an expression was required but none could be
     // parsed (`let x =` ⏎, `a +` ⏎, an empty argument slot). It carries only its
@@ -375,7 +375,8 @@ pub struct StructExpr {
     let type_name: String;
     // The import namespace a qualified construction was written with (`element` in
     // `element.LibraryNamespace { … }`), or None for a bare type. Resolution is by
-    // `type_name` alone; the qualifier is carried for diagnostics (as in NamedType).
+    // `type_name` alone; the qualifier is carried for diagnostics (as in
+    // NamedType).
     let namespace: Option<String>;
     let fields: List<FieldInit>;
 }
@@ -407,11 +408,11 @@ pub struct CallArg {
     let value: Expr;
 }
 
-// How a `MatchExpr` came to be: written as a `match`, or synthesized by the
-// parser desugaring `if let` / `let … else` (which lower to a match — see
-// `parse_if_let`/`parse_let_else`). Tooling that suggests rewriting a `match`
-// (e.g. `match → if let`) keys off `Source` so it never re-fires on its own
-// desugared output. Codegen ignores it — the lowering is identical.
+// How a `MatchExpr` came to be: written as a `match`, or synthesized by the parser
+// desugaring `if let` / `let … else` (which lower to a match — see
+// `parse_if_let`/`parse_let_else`). Tooling that suggests rewriting a `match` (e.g.
+// `match → if let`) keys off `Source` so it never re-fires on its own desugared
+// output. Codegen ignores it — the lowering is identical.
 pub enum MatchOrigin {
     Source,
     IfLet,
@@ -447,9 +448,8 @@ pub struct LambdaExpr {
 
 // `if` in expression position — its value is the chosen branch's value. Distinct
 // from the statement-position `Stmt.If`. `else_block` is required where the value
-// is used (enforced in the parser/checker) and optional for a discarded
-// statement `if`. An `else if` chain is the else block's tail. See
-// docs/language.md.
+// is used (enforced in the parser/checker) and optional for a discarded statement
+// `if`. An `else if` chain is the else block's tail. See docs/language.md.
 pub struct IfExpr {
     let span: SourceSpan;
     let condition: Expr;

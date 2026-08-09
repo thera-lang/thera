@@ -1,14 +1,15 @@
 // Tests for conformance-fixture diagnostic suppression (fixtures.thera): a
 // `tests/lang/` fixture's *declared* `// expect error:` / `// expect warning:`
-// diagnostics are dropped from its editor report, while a surprise error — one
-// on a line with no marker, or whose message no longer matches — survives.
+// diagnostics are dropped from its editor report, while a surprise error — one on a
+// line with no marker, or whose message no longer matches — survives.
 
 import std.testing;
 import std.json as _;
 
 import 'fixtures';
 
-// A single LSP `Diagnostic` item on `line0` (0-based) with `severity` and `message`.
+// A single LSP `Diagnostic` item on `line0` (0-based) with `severity` and
+// `message`.
 fn diag(_ line0: Int, _ severity: Int, _ message: String) -> Json {
     return json.obj([
         'range': json.obj([
@@ -79,8 +80,8 @@ fn test_expect_warning_matches_only_warning_severity() -> Result<Void, Error> {
     // A Warning (severity 2) with matching text is declared → dropped.
     let warn = fixtures.suppress_declared([diag(0, 2, 'unused import: std.fs')], text);
     testing.assert_eq(actual: warn.len(), expected: 0)?;
-    // An Error (severity 1) with the same text is *not* what the marker predicted
-    // — a warning expectation can't hide an error, as in the harness.
+    // An Error (severity 1) with the same text is *not* what the marker predicted —
+    // a warning expectation can't hide an error, as in the harness.
     let err = fixtures.suppress_declared([diag(0, 1, 'unused import: std.fs')], text);
     testing.assert_eq(actual: err.len(), expected: 1)?;
     return Result.Ok(void);

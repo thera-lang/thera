@@ -1,19 +1,18 @@
 //! std.regex — regular expressions.
 //!
-//! Import as: import std.regex
-//! Usage:     let re = regex.Regex.compile(r'\d+')?;
+//! Import as: `import std.regex`; usage: `let re = regex.Regex.compile(r'\d+')?;`.
 //!
 //! Write patterns as **raw strings** (`r'…'`) — no escape processing, so the
 //! pattern reads as the regex engine sees it and backslashes need no doubling.
 //!
 //! Compile a pattern once, then match / find / capture / replace against text.
-//! Backed by the Rust `regex` crate — RE2 syntax, **linear-time** (no
-//! backtracking or lookaround); see <https://github.com/google/re2/wiki/Syntax>.
+//! Backed by the Rust `regex` crate — RE2 syntax, **linear-time** (no backtracking
+//! or lookaround); see <https://github.com/google/re2/wiki/Syntax>.
 //!
-//! Offsets in a [Match] are **UTF-8 byte positions** (the string-offset
-//! convention; slice them out of the original text with `String.byte_slice`).
-//! A compiled [Regex] holds a runtime handle to the compiled pattern; compile it
-//! once and reuse it.
+//! Offsets in a [Match] are **UTF-8 byte positions** (the string-offset convention;
+//! slice them out of the original text with `String.byte_slice`). A compiled
+//! [Regex] holds a runtime handle to the compiled pattern; compile it once and
+//! reuse it.
 
 // --- native engine bindings (the compiled pattern is a runtime-held handle) ---
 
@@ -77,8 +76,8 @@ impl Captures {
         return self.group(0);
     }
 
-    /// The `index`-th group, or `None` if it is out of range or did not
-    /// participate in the match.
+    /// The `index`-th group, or `None` if it is out of range or did not participate
+    /// in the match.
     pub fn group(self, _ index: Int) -> Option<String> {
         if index < 0 || index >= self.groups.len() {
             return Option.None;

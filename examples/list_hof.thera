@@ -23,8 +23,8 @@ fn main() -> Result<Int, Error> {
     let big = scaled.filter(n => n > threshold);       // [40, 60]
     println('big: ${big.len()}');
 
-    // fold: reduce to a single value. `acc` and `n` are typed from fold's
-    // signature — `acc` from the `0` seed, `n` from the list's element type.
+    // fold: reduce to a single value. `acc` and `n` are typed from fold's signature
+    // — `acc` from the `0` seed, `n` from the list's element type.
     let total = nums.fold(0, (acc, n) => acc + n);     // 21
     println('total: ${total}');
 

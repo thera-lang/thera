@@ -1,17 +1,16 @@
 //! std.sort — sorting and extrema over the `Ord` interface.
 //!
-//! Import as: import std.sort
-//! Usage:     sort.sorted([3, 1, 2])   // [1, 2, 3]
+//! Import as: `import std.sort`; usage: `sort.sorted([3, 1, 2])` — `[1, 2, 3]`.
 //!            sort.min(scores)          // Option<T>
 //!
-//! These are the `Ord`-driven counterparts to `List.sorted_by(less)` (which takes an
-//! explicit comparator): they work for any element type that implements `Ord`
+//! These are the `Ord`-driven counterparts to `List.sorted_by(less)` (which takes
+//! an explicit comparator): they work for any element type that implements `Ord`
 //! (the primitives, and any user type with an `impl Ord`). Implemented in Thera
 //! over `List.sort` and `Ord.compare` — they live in their own module (not the
 //! prelude) so the common names `sorted`/`min`/`max` stay qualified.
 
-/// A new list with `xs`'s elements in ascending order. Stable (equal elements
-/// keep their input order — `List.sort` is a stable merge sort).
+/// A new list with `xs`'s elements in ascending order. Stable (equal elements keep
+/// their input order — `List.sort` is a stable merge sort).
 ///
 /// ```thera
 /// sort.sorted([3, 1, 2])        // [1, 2, 3]
@@ -26,8 +25,8 @@ pub fn sorted_desc<T: Ord>(_ xs: List<T>) -> List<T> {
     return xs.sorted_by((a, b) => a.compare(b).is_gt());
 }
 
-/// The smallest element, or None if `xs` is empty. Ties go to the earlier
-/// element (so `min`/`max` over the same list pick opposite ends of a tie).
+/// The smallest element, or None if `xs` is empty. Ties go to the earlier element
+/// (so `min`/`max` over the same list pick opposite ends of a tie).
 pub fn min<T: Ord>(_ xs: List<T>) -> Option<T> {
     if xs.is_empty() {
         return Option.None;

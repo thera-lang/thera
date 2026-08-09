@@ -1,13 +1,12 @@
 // The analysis session — the one engine every front-end consumer drives
-// (docs/roadmap.md layer 1; audit LD16). It owns the state the stateless
-// pipeline phases share across requests: the SDK root, open-buffer overlays,
-// the cross-file parse cache, and the checked-clean set. Batch commands
-// (`thera check`/`test`/`emit`) construct one per run; the LSP holds one for
-// the workspace and mutates it on document events. There is no second
-// stateless path to keep in sync — the driver's entry points are thin
-// wrappers over a one-shot session. Phase 2's incremental engine (a
-// resolved-library cache + dependency-graph invalidation over
-// `LoadedImports.file_imports`) grows here.
+// (docs/roadmap.md layer 1; audit LD16). It owns the state the stateless pipeline
+// phases share across requests: the SDK root, open-buffer overlays, the cross-file
+// parse cache, and the checked-clean set. Batch commands
+// (`thera check`/`test`/`emit`) construct one per run; the LSP holds one for the
+// workspace and mutates it on document events. There is no second stateless path to
+// keep in sync — the driver's entry points are thin wrappers over a one-shot
+// session. Phase 2's incremental engine (a resolved-library cache +
+// dependency-graph invalidation over `LoadedImports.file_imports`) grows here.
 
 import 'ast/ast' as _; // Program, Decl
 import 'source' as _; // SourceSpan (the digest's decl-text fallback)
@@ -24,9 +23,9 @@ import std.path;
 
 // The most distinct closure signatures the imports-only library cache retains
 // before evicting the least-recently-used entry. Sized to comfortably exceed the
-// distinct import-sets of a real project (files sharing imports share a
-// signature), so workspace-wide analysis effectively never evicts; a size-aware
-// policy can refine this later.
+// distinct import-sets of a real project (files sharing imports share a signature),
+// so workspace-wide analysis effectively never evicts; a size-aware policy can
+// refine this later.
 const LIBRARY_CACHE_CAP: Int = 1024;
 
 // The outcome of compiling a source: any diagnostics, and the encoded `.thera-bc`
@@ -36,8 +35,8 @@ pub struct CompileOutcome {
     let bytes: Option<Bytes>;
 }
 
-// A parsed primary program plus its loaded import closure — what position-based
-// LSP queries consume (the resolution surfaces ride on `loaded`). `tokens` is the
+// A parsed primary program plus its loaded import closure — what position-based LSP
+// queries consume (the resolution surfaces ride on `loaded`). `tokens` is the
 // primary's cached tokenization (from the same parse as `program`), carried so the
 // resolver reads it instead of re-lexing the buffer per request.
 pub struct Closure {
@@ -48,47 +47,45 @@ pub struct Closure {
 
 pub struct Session {
     let sdk_root: Option<String>;
-    // Canonical path -> current text: open-buffer overlays over disk, consulted
-    // by the loader before reading a file (an unsaved import is analyzed as the
-    // user sees it).
+    // Canonical path -> current text: open-buffer overlays over disk, consulted by
+    // the loader before reading a file (an unsaved import is analyzed as the user
+    // sees it).
     let overlays: Map<String, String>;
-    // Canonical path -> parsed AST, reused across requests so the import
-    // closure (the `std.core` prelude above all) is parsed once and only
-    // re-parsed when its file changes.
+    // Canonical path -> parsed AST, reused across requests so the import closure
+    // (the `std.core` prelude above all) is parsed once and only re-parsed when its
+    // file changes.
     let parse_cache: Map<String, loader.ParsedFile>;
     // Canonical keys of closure files that already checked clean this session —
-    // skipped on later checks, so a batch (or a keystroke) costs the changed
-    // files, not the whole closure. Files with diagnostics are never marked.
+    // skipped on later checks, so a batch (or a keystroke) costs the changed files,
+    // not the whole closure. Files with diagnostics are never marked.
     let checked: Set<String>;
-    // The merged forward import graph across every closure this session has
-    // loaded: canonical key -> that file's last-known resolved import edges
-    // (`LoadedImports.file_imports`, replaced entry-wise per load). Reversed
-    // on demand by `dependents_of`, the invalidation cone for an edit.
+    // The merged forward import graph across every closure this session has loaded:
+    // canonical key -> that file's last-known resolved import edges
+    // (`LoadedImports.file_imports`, replaced entry-wise per load). Reversed on
+    // demand by `dependents_of`, the invalidation cone for an edit.
     let import_graph: Map<String, List<String>>;
-    // Canonical path -> the file's derived surfaces (`loader.FileSurface`) —
-    // reused across requests so a load re-derives only changed files'
-    // surfaces. Evicted over the invalidation cone: a file's surfaces depend
-    // on its imports' surfaces (and, for `bare_surface`, on the prelude —
-    // the SDK invalidate-all rule covers that implicit edge). Like the parse
-    // cache, only overlay events invalidate — out-of-band disk edits are
-    // invisible to a long-lived session.
+    // Canonical path -> the file's derived surfaces (`loader.FileSurface`) — reused
+    // across requests so a load re-derives only changed files' surfaces. Evicted
+    // over the invalidation cone: a file's surfaces depend on its imports' surfaces
+    // (and, for `bare_surface`, on the prelude — the SDK invalidate-all rule covers
+    // that implicit edge). Like the parse cache, only overlay events invalidate —
+    // out-of-band disk edits are invisible to a long-lived session.
     let surface_cache: Map<String, loader.FileSurface>;
-    // Closure signature (sorted member keys) -> the imports-only element
-    // model, reused across requests so a keystroke re-resolves the primary,
-    // not the whole closure (`element.layer_primary` stacks the primary on
-    // the cached base without mutating it — the frozen-base invariant).
-    // Evicted when any member is invalidated.
+    // Closure signature (sorted member keys) -> the imports-only element model,
+    // reused across requests so a keystroke re-resolves the primary, not the whole
+    // closure (`element.layer_primary` stacks the primary on the cached base
+    // without mutating it — the frozen-base invariant). Evicted when any member is
+    // invalidated.
     let library_cache: Map<String, CachedLibrary>;
-    // Canonical path -> the file's committed-type record from the last check
-    // that walked it (CH19), serving `type_at`/`records_for`. As fresh as that
-    // check: evicted over the invalidation cone with `checked`; files the
-    // checker skipped (the SDK, files already clean before records existed)
-    // have no entry.
+    // Canonical path -> the file's committed-type record from the last check that
+    // walked it (CH19), serving `type_at`/`records_for`. As fresh as that check:
+    // evicted over the invalidation cone with `checked`; files the checker skipped
+    // (the SDK, files already clean before records existed) have no entry.
     let type_records: Map<String, List<element.TypeRecord>>;
 }
 
-// One cached imports-only library plus its member set (for eviction: an entry
-// dies when any member file is invalidated).
+// One cached imports-only library plus its member set (for eviction: an entry dies
+// when any member file is invalidated).
 pub struct CachedLibrary {
     let members: Set<String>;
     let library: element.LibraryElement;
@@ -108,19 +105,18 @@ pub fn new_session(_ sdk_root: Option<String>) -> Session {
 }
 
 impl Session {
-    // Set (or update) the overlay text for `p` — the open-buffer content the
-    // loader reads instead of disk.
+    // Set (or update) the overlay text for `p` — the open-buffer content the loader
+    // reads instead of disk.
     //
-    // **The surface-digest gate** (scale.md item 2): the new text is parsed
-    // here (not an extra parse — the result seeds the parse cache the next
-    // analysis would fill anyway) and its printed public surface compared to
-    // the cached parse's. A **surface-preserving edit** — the overwhelming
-    // case for agent edits: bodies, comments, private decls — invalidates
-    // only this file and its white-box test sibling; importers' checked
-    // status stays valid, so a body edit costs one file's re-check, not the
-    // dependent cone's. A surface *change* (or either side failing to parse
-    // cleanly — mid-edit states stay conservative) falls back to the full
-    // cone eviction below.
+    // **The surface-digest gate** (scale.md item 2): the new text is parsed here
+    // (not an extra parse — the result seeds the parse cache the next analysis
+    // would fill anyway) and its printed public surface compared to the cached
+    // parse's. A **surface-preserving edit** — the overwhelming case for agent
+    // edits: bodies, comments, private decls — invalidates only this file and its
+    // white-box test sibling; importers' checked status stays valid, so a body edit
+    // costs one file's re-check, not the dependent cone's. A surface *change* (or
+    // either side failing to parse cleanly — mid-edit states stay conservative)
+    // falls back to the full cone eviction below.
     pub fn set_overlay(self, _ p: String, _ text: String) -> Void {
         let key = loader.canonical_path(p);
         let old_sig = match self.parse_cache.get(key) {
@@ -156,12 +152,12 @@ impl Session {
         self.invalidate(p);
     }
 
-    // Evict `p` from the cross-request caches (a no-op when absent). Only
-    // `p`'s own text changed, so importers keep their parses — but their
-    // checked-clean status is stale (they checked against `p`'s old content),
-    // so the eviction cascades over the invalidation cone. This closes the
-    // stale-`checked` gap: an edit to `util.thera` re-checks its importers on
-    // their next check, not just `util.thera` itself.
+    // Evict `p` from the cross-request caches (a no-op when absent). Only `p`'s own
+    // text changed, so importers keep their parses — but their checked-clean status
+    // is stale (they checked against `p`'s old content), so the eviction cascades
+    // over the invalidation cone. This closes the stale-`checked` gap: an edit to
+    // `util.thera` re-checks its importers on their next check, not just
+    // `util.thera` itself.
     pub fn invalidate(self, _ p: String) -> Void {
         let key = loader.canonical_path(p);
         match self.parse_cache.remove(key) {
@@ -189,16 +185,15 @@ impl Session {
         }
     }
 
-    // The narrow eviction for a surface-preserving edit: `key`'s own caches,
-    // its forward edges (the edit may have changed its imports), and its
-    // white-box test sibling — `<base>_test.thera` sees `key`'s *private*
-    // top-level names, which the surface digest deliberately excludes.
-    // Importers' checked status survives (their view of `key` is its public
-    // surface, unchanged by definition here). Cached library bases containing
-    // `key` are still evicted: they hold `key`'s old AST, and keeping them
-    // would serve stale spans to position tooling (go-to-definition into the
-    // edited file). Removing *that* rebuild cost is item 2's per-library
-    // composition arc, not this gate's job.
+    // The narrow eviction for a surface-preserving edit: `key`'s own caches, its
+    // forward edges (the edit may have changed its imports), and its white-box test
+    // sibling — `<base>_test.thera` sees `key`'s *private* top-level names, which
+    // the surface digest deliberately excludes. Importers' checked status survives
+    // (their view of `key` is its public surface, unchanged by definition here).
+    // Cached library bases containing `key` are still evicted: they hold `key`'s
+    // old AST, and keeping them would serve stale spans to position tooling
+    // (go-to-definition into the edited file). Removing *that* rebuild cost is item
+    // 2's per-library composition arc, not this gate's job.
     fn invalidate_file(self, _ key: String) -> Void {
         match self.import_graph.remove(key) {
             Some(_) => void,
@@ -220,8 +215,8 @@ impl Session {
     }
 
     // Drop the least-recently-used cached library — the front entry, since a hit
-    // moves its signature to the back (see `library_for`). Bounds the cache
-    // without the old clear-all, which threw away every warm base at once.
+    // moves its signature to the back (see `library_for`). Bounds the cache without
+    // the old clear-all, which threw away every warm base at once.
     fn evict_lru_library(self) -> Void {
         let keys = self.library_cache.keys();
         if keys.len() > 0 {
@@ -249,12 +244,12 @@ impl Session {
     }
 
     // The element model for this request through the library cache: the
-    // imports-only base — cache-hit by closure signature, else built and
-    // stored — with the primary layered on top. None when the layered path
-    // can't serve the request (the primary appears in its own import closure:
-    // an SDK file checked as the primary, or an import cycle through the
-    // root; or a primary `impl` targets a type the primary doesn't declare) —
-    // the caller then runs the full uncached build.
+    // imports-only base — cache-hit by closure signature, else built and stored —
+    // with the primary layered on top. None when the layered path can't serve the
+    // request (the primary appears in its own import closure: an SDK file checked
+    // as the primary, or an import cycle through the root; or a primary `impl`
+    // targets a type the primary doesn't declare) — the caller then runs the full
+    // uncached build.
     fn library_for(
         self,
         _ program: Program,
@@ -314,13 +309,12 @@ impl Session {
         );
     }
 
-    // `p` (canonicalized) plus every file that transitively imports it, per
-    // the session's merged import graph — the invalidation cone for an edit
-    // to `p`. Conservative: the graph's edges are unlabeled (no pub/non-pub
-    // distinction), so any import path counts — over-eviction only. A key
-    // under the SDK's std root returns every known file: each file's bare
-    // surface implicitly depends on the std.core prelude, and that implicit
-    // edge isn't in the graph.
+    // `p` (canonicalized) plus every file that transitively imports it, per the
+    // session's merged import graph — the invalidation cone for an edit to `p`.
+    // Conservative: the graph's edges are unlabeled (no pub/non-pub distinction),
+    // so any import path counts — over-eviction only. A key under the SDK's std
+    // root returns every known file: each file's bare surface implicitly depends on
+    // the std.core prelude, and that implicit edge isn't in the graph.
     pub fn dependents_of(self, _ p: String) -> List<String> {
         let key = loader.canonical_path(p);
         if let Some(prefix) = sdk_prefix(self.sdk_root) {
@@ -332,9 +326,9 @@ impl Session {
                 return all;
             }
         }
-        // Reverse adjacency, rebuilt per call: edits are rare next to loads,
-        // and rebuilding sidesteps the bookkeeping when a file's edge list is
-        // replaced wholesale.
+        // Reverse adjacency, rebuilt per call: edits are rare next to loads, and
+        // rebuilding sidesteps the bookkeeping when a file's edge list is replaced
+        // wholesale.
         let importers_of: Map<String, List<String>> = [:];
         for importer in self.import_graph.keys() {
             for dep in self.import_graph[importer] {
@@ -365,9 +359,9 @@ impl Session {
     }
 
     // Whether `p` is a file under the SDK's std root — a trusted library source
-    // reached by `import std.*`. Such files are read-only to editing tools
-    // (rename skips them, and refuses a rename whose declaration lives in one),
-    // matching how the checker already trusts and skips them.
+    // reached by `import std.*`. Such files are read-only to editing tools (rename
+    // skips them, and refuses a rename whose declaration lives in one), matching
+    // how the checker already trusts and skips them.
     pub fn is_sdk_file(self, _ p: String) -> Bool {
         return match sdk_prefix(self.sdk_root) {
             Some(prefix) => loader.canonical_path(p).starts_with(prefix),
@@ -376,15 +370,15 @@ impl Session {
     }
 
     // Record the forward import edges of every file in `files` the graph doesn't
-    // already know — the cheap edges-only probe (`loader.import_edges`), not a
-    // full closure load. The references/rename cone (`dependents_of`) reverses
-    // this graph, so it must cover the whole scan set to be complete; this fills
-    // the gaps for files never loaded (or edited since — `invalidate` drops their
-    // entry) so a cold reference request doesn't miss an unopened importer.
-    // `files` maps canonical path -> current text (an open buffer's overlay or the
-    // on-disk contents). Already-known files are skipped, so a warm request does
-    // no work here. The probed parse populates the parse cache, so the cone files
-    // that go on to resolve reuse it (no re-parse).
+    // already know — the cheap edges-only probe (`loader.import_edges`), not a full
+    // closure load. The references/rename cone (`dependents_of`) reverses this
+    // graph, so it must cover the whole scan set to be complete; this fills the
+    // gaps for files never loaded (or edited since — `invalidate` drops their
+    // entry) so a cold reference request doesn't miss an unopened importer. `files`
+    // maps canonical path -> current text (an open buffer's overlay or the on-disk
+    // contents). Already-known files are skipped, so a warm request does no work
+    // here. The probed parse populates the parse cache, so the cone files that go
+    // on to resolve reuse it (no re-parse).
     pub fn index_edges(self, _ files: Map<String, String>) -> Void {
         for key in files.keys() {
             if !self.import_graph.has(key) {
@@ -394,8 +388,8 @@ impl Session {
         }
     }
 
-    // Merge one load's dependency edges into the session graph (entry-wise
-    // replace: the load's view of a file's imports is current).
+    // Merge one load's dependency edges into the session graph (entry-wise replace:
+    // the load's view of a file's imports is current).
     fn record_graph(self, _ loaded: loader.LoadedImports) -> Void {
         for f in loaded.file_imports.keys() {
             self.import_graph[f] = loaded.file_imports[f];
@@ -411,17 +405,17 @@ impl Session {
 
     // The cached syntactic parse of `text` at `p` — the entry point for the
     // parse-only consumers (document symbols, code actions, workspace symbols).
-    // Cached under the canonical key; an edit must `invalidate`/`set_overlay`
-    // first (the LSP does, on every document event), so a hit is current.
+    // Cached under the canonical key; an edit must `invalidate`/`set_overlay` first
+    // (the LSP does, on every document event), so a hit is current.
     pub fn parse(self, _ text: String, _ p: String) -> Program {
         return self.parsed_primary(loader.canonical_path(p), text).program;
     }
 
     // The primary's cached parse (`canon` must be canonical): a hit returns the
-    // session's entry — evicted on every overlay event — and a miss parses
-    // `source` best-effort, lex and parse diagnostics riding on the
-    // `ParsedFile` exactly as imported files behave via the loader, then
-    // stores it for the closure loads that follow.
+    // session's entry — evicted on every overlay event — and a miss parses `source`
+    // best-effort, lex and parse diagnostics riding on the `ParsedFile` exactly as
+    // imported files behave via the loader, then stores it for the closure loads
+    // that follow.
     fn parsed_primary(self, _ canon: String, _ source: String) -> loader.ParsedFile {
         if let Some(pf) = self.parse_cache.get(canon) {
             return pf;
@@ -431,9 +425,9 @@ impl Session {
         return pf;
     }
 
-    // Parse `text` at `p` and load its import closure through the session's
-    // caches and overlays — the shared setup for the LSP's position-based
-    // queries (hover, definition).
+    // Parse `text` at `p` and load its import closure through the session's caches
+    // and overlays — the shared setup for the LSP's position-based queries (hover,
+    // definition).
     pub fn load_closure(self, _ text: String, _ p: String) -> Closure {
         let pf = self.parsed_primary(loader.canonical_path(p), text);
         let loaded = loader.load_imports(
@@ -448,17 +442,17 @@ impl Session {
         return Closure { program: pf.program, tokens: pf.tokens, loaded: loaded };
     }
 
-    // Type-check `source` (located at `p`) with its full import closure. The
-    // whole *local* closure is checked, not just the primary: a check error in
-    // an imported file is a diagnostic (attributed to that file) rather than
-    // shipping to bytecode. Files under the SDK's std root are trusted (the SDK
-    // is fixpoint-validated; its diagnostics aren't actionable here) and
-    // skipped, as is everything already checked clean this session.
+    // Type-check `source` (located at `p`) with its full import closure. The whole
+    // *local* closure is checked, not just the primary: a check error in an
+    // imported file is a diagnostic (attributed to that file) rather than shipping
+    // to bytecode. Files under the SDK's std root are trusted (the SDK is
+    // fixpoint-validated; its diagnostics aren't actionable here) and skipped, as
+    // is everything already checked clean this session.
     pub fn check(self, _ source: String, _ p: String) -> List<diagnostic.Diagnostic> {
-        // Canonical identity from the start, so the primary's attribution
-        // matches the keys the loader mints (`Diagnostic.file` is canonical).
-        // The parse comes through the cache (R1): a keystroke's diagnostics
-        // request reuses the parse the position queries already made.
+        // Canonical identity from the start, so the primary's attribution matches
+        // the keys the loader mints (`Diagnostic.file` is canonical). The parse
+        // comes through the cache (R1): a keystroke's diagnostics request reuses
+        // the parse the position queries already made.
         let canon = loader.canonical_path(p);
         let pf = self.parsed_primary(canon, source);
         let program = pf.program;
@@ -492,14 +486,14 @@ impl Session {
             out.push(d);
         }
         self.store_records(result.records);
-        // A primary that failed to lex/parse still went through the full
-        // pipeline above: the parser's recovered tree keeps the committed-type
-        // records fresh, so the position queries (`type_at`, completion) answer
-        // mid-edit. Only its lex/parse diagnostics are *reported*, though — a
-        // statement recovery dropped would cascade into secondary errors
-        // (`undefined name`) after the root cause (roadmap: cascade
-        // suppression / cause-naming). Marking still sees the full set, so a
-        // clean import checks as clean and the broken primary never does.
+        // A primary that failed to lex/parse still went through the full pipeline
+        // above: the parser's recovered tree keeps the committed-type records
+        // fresh, so the position queries (`type_at`, completion) answer mid-edit.
+        // Only its lex/parse diagnostics are *reported*, though — a statement
+        // recovery dropped would cascade into secondary errors (`undefined name`)
+        // after the root cause (roadmap: cascade suppression / cause-naming).
+        // Marking still sees the full set, so a clean import checks as clean and
+        // the broken primary never does.
         if pf.diagnostics.len() > 0 {
             let all: List<diagnostic.Diagnostic> = [];
             for d in pf.diagnostics {
@@ -516,9 +510,9 @@ impl Session {
     }
 
     // Compile `source` (located at `p`) to `.thera-bc` bytes with its import
-    // closure linked in. Like `check`, the whole local (non-SDK) closure is
-    // checked — an imported file's check error blocks the compile instead of
-    // shipping to bytecode.
+    // closure linked in. Like `check`, the whole local (non-SDK) closure is checked
+    // — an imported file's check error blocks the compile instead of shipping to
+    // bytecode.
     pub fn compile(self, _ source: String, _ p: String) -> CompileOutcome {
         let canon = loader.canonical_path(p);
         let pf = self.parsed_primary(canon, source);
@@ -537,8 +531,8 @@ impl Session {
         self.record_graph(loaded);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // An imported file that failed to lex/parse/resolve leaves the closure
-        // incomplete, so its diagnostics (root causes) block codegen alongside
-        // any check errors.
+        // incomplete, so its diagnostics (root causes) block codegen alongside any
+        // check errors.
         let import_diags = loaded.diagnostics;
         let result = checker.check_files(
             program,
@@ -573,9 +567,9 @@ impl Session {
         };
     }
 
-    // Fold a check run's committed-type records into the per-file store:
-    // group by file, then replace those files' entries wholesale (files the
-    // checker skipped don't appear and keep their stored records).
+    // Fold a check run's committed-type records into the per-file store: group by
+    // file, then replace those files' entries wholesale (files the checker skipped
+    // don't appear and keep their stored records).
     fn store_records(self, _ records: List<element.TypeRecord>) -> Void {
         let by_file: Map<String, List<element.TypeRecord>> = [:];
         for r in records {
@@ -590,9 +584,9 @@ impl Session {
     }
 
     // The committed-type record for `p` from the last check that walked it —
-    // checking on demand when `p` is an open overlay with no stored records
-    // (the post-edit LSP case). Entries are in walk order; a later entry for
-    // the same span supersedes an earlier one (the `let` refinement override).
+    // checking on demand when `p` is an open overlay with no stored records (the
+    // post-edit LSP case). Entries are in walk order; a later entry for the same
+    // span supersedes an earlier one (the `let` refinement override).
     pub fn records_for(self, _ p: String) -> List<element.TypeRecord> {
         let canon = loader.canonical_path(p);
         if !self.type_records.has(canon) {
@@ -603,10 +597,10 @@ impl Session {
         return self.type_records.get(canon).unwrap_or([]);
     }
 
-    // The committed type of the node at `offset` in `p` — the smallest
-    // recorded span containing the offset (ties go to the later entry, so the
-    // refinement override wins). None when the offset sits outside any
-    // recorded node or the file has no records (never walked, or evicted).
+    // The committed type of the node at `offset` in `p` — the smallest recorded
+    // span containing the offset (ties go to the later entry, so the refinement
+    // override wins). None when the offset sits outside any recorded node or the
+    // file has no records (never walked, or evicted).
     pub fn type_at(self, _ p: String, _ offset: Int) -> Option<element.Type> {
         let mut best: Option<element.Type> = Option.None;
         let mut best_len = 0;
@@ -666,10 +660,10 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
 // `file:line:column: message` — the diagnostic line the CLI prints. Attribution
 // (`d.file`) is canonical (absolute); printing shows the primary file exactly as
 // the user spelled it (`file_path`, the compiler convention), and any other
-// attributed file relative to the current directory when it lies under it.
-// An error line carries no severity token (the default reading); a warning is
-// tagged `warning:` and closes with its rule name — the key a
-// `// ignore: <rule>` comment names to suppress it.
+// attributed file relative to the current directory when it lies under it. An error
+// line carries no severity token (the default reading); a warning is tagged
+// `warning:` and closes with its rule name — the key a `// ignore: <rule>` comment
+// names to suppress it.
 pub fn format_diagnostic(_ d: diagnostic.Diagnostic, _ file_path: String) -> String {
     let file = match d.file {
         Some(f) => {
@@ -699,10 +693,10 @@ fn failed(_ diagnostics: List<diagnostic.Diagnostic>) -> CompileOutcome {
 }
 
 // The closure files to skip when checking: everything under the SDK's std root
-// (trusted — fixpoint-validated, and its diagnostics aren't actionable from a
-// user program) plus everything already checked clean this run. The primary —
-// the file explicitly asked about — is exempt from the SDK skip (checking an
-// SDK file directly must still check it), but not from `checked`.
+// (trusted — fixpoint-validated, and its diagnostics aren't actionable from a user
+// program) plus everything already checked clean this run. The primary — the file
+// explicitly asked about — is exempt from the SDK skip (checking an SDK file
+// directly must still check it), but not from `checked`.
 fn skip_keys(
     _ primary_key: String,
     _ programs: List<Program>,
@@ -735,9 +729,9 @@ fn sdk_prefix(_ sdk_root: Option<String>) -> Option<String> {
     };
 }
 
-// Record which closure files checked *clean* this run: every non-skipped file
-// with no diagnostic attributed to it (an unattributed diagnostic is the
-// primary's, conservatively). Skipped files keep their existing state.
+// Record which closure files checked *clean* this run: every non-skipped file with
+// no diagnostic attributed to it (an unattributed diagnostic is the primary's,
+// conservatively). Skipped files keep their existing state.
 fn mark_checked_clean(
     _ checked: Set<String>,
     _ primary_key: String,
@@ -769,8 +763,8 @@ fn mark_checked_clean(
 // --- the surface digest (scale.md item 2) ---
 
 // `foo.thera` -> its white-box sibling `foo_test.thera`, in the same directory.
-// (For a `_test` file this yields a `_test_test` name that exists nowhere —
-// the evictions against it are no-ops.)
+// (For a `_test` file this yields a `_test_test` name that exists nowhere — the
+// evictions against it are no-ops.)
 fn test_sibling_of(_ key: String) -> String {
     let dir = path.dirname(key);
     let seg = path.basename(key);
@@ -779,19 +773,18 @@ fn test_sibling_of(_ key: String) -> String {
     return '${dir}/${base}_test${ext}';
 }
 
-// The file's public surface, printed canonically — what the overlay gate
-// compares. Everything an *importer's* check can observe is included: pub
-// fn/interface signatures, pub type/enum shapes (fields and variants are
-// public), pub const/let annotations, impl headers plus pub method signatures
-// (conformance is cross-file even though `impl` carries no `pub`), and pub
-// imports (re-exports). Bodies are excluded on purpose, and soundly: return
-// types are always written (omitted means Void, never inferred), and a
-// module-level binding is an annotated boundary — so a body can't leak into
-// an importer-visible type. The one exception is an *unannotated* const/let,
-// whose type comes from its initializer: those contribute their whole decl
-// text, so an initializer edit reads as a surface change (conservative).
-// Private decls are excluded: only the white-box test sibling sees them, and
-// `invalidate_file` evicts that sibling unconditionally.
+// The file's public surface, printed canonically — what the overlay gate compares.
+// Everything an *importer's* check can observe is included: pub fn/interface
+// signatures, pub type/enum shapes (fields and variants are public), pub const/let
+// annotations, impl headers plus pub method signatures (conformance is cross-file
+// even though `impl` carries no `pub`), and pub imports (re-exports). Bodies are
+// excluded on purpose, and soundly: return types are always written (omitted means
+// Void, never inferred), and a module-level binding is an annotated boundary — so a
+// body can't leak into an importer-visible type. The one exception is an
+// *unannotated* const/let, whose type comes from its initializer: those contribute
+// their whole decl text, so an initializer edit reads as a surface change
+// (conservative). Private decls are excluded: only the white-box test sibling sees
+// them, and `invalidate_file` evicts that sibling unconditionally.
 fn surface_signature(_ p: Program) -> String {
     let lines: List<String> = [];
     for decl in p.decls {
@@ -856,14 +849,13 @@ fn surface_signature(_ p: Program) -> String {
             },
         }
     }
-    // Sorted: declaration order is invisible to importers (names resolve by
-    // name), so reordering decls is not a surface change.
+    // Sorted: declaration order is invisible to importers (names resolve by name),
+    // so reordering decls is not a surface change.
     return lines.sorted_by((a, b) => a.compare(b) == Ordering.Less).join('\n');
 }
 
-// A function's importer-visible signature. The param's *external* label, type,
-// and default-presence matter to callers; its internal name and default
-// *value* don't.
+// A function's importer-visible signature. The param's *external* label, type, and
+// default-presence matter to callers; its internal name and default *value* don't.
 fn fn_sig(_ x: FnDecl) -> String {
     let ps = x.params.map((p) => param_sig(p));
     let ret = match x.return_type {
@@ -907,9 +899,9 @@ fn type_params_sig(_ tps: List<TypeParam>) -> String {
     return '<${parts.join(', ')}>';
 }
 
-// The written annotation, or — unannotated — the whole decl's source text
-// (the initializer *is* the type's source then, so its edits must read as
-// surface changes).
+// The written annotation, or — unannotated — the whole decl's source text (the
+// initializer *is* the type's source then, so its edits must read as surface
+// changes).
 fn ann_or_decl_text(_ ann: Option<TypeRef>, _ span: SourceSpan) -> String {
     return match ann {
         Some(t) => describe_type(t),

@@ -270,8 +270,8 @@ impl Display for DecodeError {
 /// navigation never fails, an absent value is `Option.None`, and nothing is an
 /// error — which is how a server should read a request it must not crash on. A
 /// client of a typed API wants the opposite: a required field that is absent or the
-/// wrong type is an error, and the error has to name the field. It has to name it as
-/// a **path**, too — `expected string, got number` with no location is not
+/// wrong type is an error, and the error has to name the field. It has to name it
+/// as a **path**, too — `expected string, got number` with no location is not
 /// debuggable once a program decodes hundreds of schemas.
 ///
 /// A bare `Json` cannot report that, because it has no idea where it came from: the
@@ -295,8 +295,8 @@ impl Display for DecodeError {
 /// **Navigating never fails; reading does.** `field` and `index` always answer a
 /// cursor — for a key the document doesn't have, one at the extended path holding
 /// `Null` and marked absent — so a field is one `?`, at the read, where the wanted
-/// type is known. Chains work the same way: `at.field('a').field('b').string()?`.
-/// A decoder that can be handed a non-object (a list element, say) should open with
+/// type is known. Chains work the same way: `at.field('a').field('b').string()?`. A
+/// decoder that can be handed a non-object (a list element, say) should open with
 /// `let obj = at.object()?;`, which validates and reports `at`'s own path.
 pub struct Cursor {
     let value: Json;
@@ -382,8 +382,8 @@ impl Cursor {
         return self.require('an array', self.as_element_cursors());
     }
 
-    /// The value itself, checked only for presence. For a subschema the API does not
-    /// model, where any JSON is legitimate and a type check would be a lie.
+    /// The value itself, checked only for presence. For a subschema the API does
+    /// not model, where any JSON is legitimate and a type check would be a lie.
     pub fn raw(self) -> Result<Json, DecodeError> {
         return self.require('a value', Option.Some(self.value));
     }
@@ -673,8 +673,8 @@ impl Scanner {
             } else if c == char.BACKSLASH {
                 self.parse_escape(out)?; // decodes into `out`
             } else if c < char.SPACE {
-                // Control characters (U+0000–U+001F) must be escaped, so a raw
-                // tab or newline inside a string is a syntax error (RFC 8259).
+                // Control characters (U+0000–U+001F) must be escaped, so a raw tab
+                // or newline inside a string is a syntax error (RFC 8259).
                 return Result.Err(self.syntax('unescaped control character in string'));
             } else {
                 out.push(c);
@@ -734,8 +734,8 @@ impl Scanner {
             }
             return Result.Err(self.syntax('expected a low surrogate'));
         }
-        // A low surrogate (U+DC00..U+DFFF) with no preceding high surrogate is
-        // not a scalar value: reject it rather than emit an invalid code point.
+        // A low surrogate (U+DC00..U+DFFF) with no preceding high surrogate is not
+        // a scalar value: reject it rather than emit an invalid code point.
         if hi >= 56320 && hi <= 57343 {
             return Result.Err(self.syntax('unexpected low surrogate'));
         }
@@ -760,8 +760,8 @@ impl Scanner {
         return Result.Ok(value);
     }
 
-    /// number = '-'? int frac? exp?  (RFC 8259); leading zeros are rejected, as
-    /// are a bare '.'/'e' without the digits the grammar requires.
+    /// number = '-'? int frac? exp? (RFC 8259); leading zeros are rejected, as are
+    /// a bare '.'/'e' without the digits the grammar requires.
     fn parse_number(self) -> Result<Json, JsonError> {
         let start = self.pos;
         let mut is_double = false;

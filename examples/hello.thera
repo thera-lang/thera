@@ -1,6 +1,6 @@
-// A small CLI: greets the name given by `--name` (default: world), and shouts
-// when `--loud` is passed. Demonstrates the entry/args convention, std.cli
-// (option + flag), Option.unwrap_or, and a String method.
+// A small CLI: greets the name given by `--name` (default: world), and shouts when
+// `--loud` is passed. Demonstrates the entry/args convention, std.cli (option +
+// flag), Option.unwrap_or, and a String method.
 
 import std.cli;
 

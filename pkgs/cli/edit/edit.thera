@@ -1,10 +1,10 @@
-// Source edits — the currency of code fixes (`thera lint --fix`) and LSP code actions.
-// An edit replaces a code-point range of the source with new text; applying a
-// batch of non-overlapping edits reassembles the source.
+// Source edits — the currency of code fixes (`thera lint --fix`) and LSP code
+// actions. An edit replaces a code-point range of the source with new text;
+// applying a batch of non-overlapping edits reassembles the source.
 //
-// Edits are representation-only (code-point offsets, not line/col) so they
-// compose directly with the AST's `SourceSpan`s; line/column conversion is
-// provided separately for the LSP protocol boundary.
+// Edits are representation-only (code-point offsets, not line/col) so they compose
+// directly with the AST's `SourceSpan`s; line/column conversion is provided
+// separately for the LSP protocol boundary.
 
 import '../source' as _; // SourceSpan
 import std.char;
@@ -71,9 +71,9 @@ pub fn apply_edits(_ source: String, _ edits: List<TextEdit>) -> String {
 
 // --- line/column conversion (for the LSP boundary) ---
 
-// A 1-based (line, column) source position, matching `SourceSpan` (code points,
-// a `\n` ends a line). LSP positions are 0-based UTF-16 — that conversion belongs
-// to the LSP layer; this is the code-point view the front-end works in.
+// A 1-based (line, column) source position, matching `SourceSpan` (code points, a
+// `\n` ends a line). LSP positions are 0-based UTF-16 — that conversion belongs to
+// the LSP layer; this is the code-point view the front-end works in.
 pub struct Position {
     let line: Int;
     let column: Int;
@@ -98,8 +98,8 @@ pub fn offset_to_line_col(_ source: String, _ offset: Int) -> Position {
     return Position { line: line, column: col };
 }
 
-// The position just past the end of a span (its exclusive end), for building an
-// LSP range `{start, end}` from a `SourceSpan` (which carries only its start).
+// The position just past the end of a span (its exclusive end), for building an LSP
+// range `{start, end}` from a `SourceSpan` (which carries only its start).
 pub fn span_end_position(_ source: String, _ span: SourceSpan) -> Position {
     return offset_to_line_col(source, span.offset + span.length);
 }

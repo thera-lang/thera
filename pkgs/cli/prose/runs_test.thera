@@ -1,0 +1,110 @@
+// Tests for comment-run discovery — which comments are rewritable, and where one
+// run ends and the next begins.
+
+import std.testing;
+
+import '../lexer' as _;
+import 'runs' as _;
+
+// Each run as `<marker>@<indent>[<content lines joined by |>]`, so a case pins
+// grouping and extraction in one string.
+fn shape(_ source: String) -> String {
+    let parts: List<String> = [];
+    for r in comment_runs(source, tokenize(source)) {
+        parts.push('${r.marker}@${r.indent.len()}[${r.lines.join('|')}]');
+    }
+    return parts.join(' ');
+}
+
+@test
+fn groups_contiguous_lines_of_one_marker() -> Result<Void, Error> {
+    return testing.assert_eq(
+        actual: shape('// one\n// two\nfn f() {}\n'),
+        expected: '//@0[one|two]',
+    );
+}
+
+@test
+fn a_blank_line_ends_a_run() -> Result<Void, Error> {
+    return testing.assert_eq(
+        actual: shape('// one\n\n// two\n'),
+        expected: '//@0[one] //@0[two]',
+    );
+}
+
+@test
+fn a_marker_change_ends_a_run() -> Result<Void, Error> {
+    // `//` and `///` mean different things; a run that mixed them would reflow an
+    // aside into documentation.
+    return testing.assert_eq(
+        actual: shape('//! head\n/// doc\n// aside\n'),
+        expected: '//!@0[head] ///@0[doc] //@0[aside]',
+    );
+}
+
+@test
+fn an_indent_change_ends_a_run() -> Result<Void, Error> {
+    return testing.assert_eq(
+        actual: shape('fn f() {\n    // inner\n}\n// outer\n'),
+        expected: '//@4[inner] //@0[outer]',
+    );
+}
+
+@test
+fn a_bare_marker_line_is_empty_content() -> Result<Void, Error> {
+    // The paragraph separator inside a doc run.
+    return testing.assert_eq(
+        actual: shape('/// one\n///\n/// two\n'),
+        expected: '///@0[one||two]',
+    );
+}
+
+@test
+fn a_trailing_comment_is_not_a_run() -> Result<Void, Error> {
+    return testing.assert_eq(actual: shape('let x = 1; // note\n'), expected: '');
+}
+
+@test
+fn a_comment_after_a_multiline_string_is_trailing() -> Result<Void, Error> {
+    // The token starts three lines up, so a start-line index would call this
+    // own-line and rewrap it — moving code. The occupancy map must be a range.
+    let src = 'let s = \'a\nb\nc\'; // note\n';
+    return testing.assert_eq(actual: shape(src), expected: '');
+}
+
+@test
+fn a_slash_run_divider_is_left_alone() -> Result<Void, Error> {
+    // `////`+ is an ordinary comment by the lexer's rule, and a divider by
+    // convention. Reflowing one would turn it into a sentence.
+    return testing.assert_eq(actual: shape('//// ----\n//// ----\n'), expected: '');
+}
+
+@test
+fn a_comment_with_no_space_after_the_marker_is_left_alone() -> Result<Void, Error> {
+    return testing.assert_eq(actual: shape('//no space\n'), expected: '');
+}
+
+@test
+fn an_ineligible_line_breaks_the_run_around_it() -> Result<Void, Error> {
+    // The `//nospace` line is dropped, and because a run must be contiguous the
+    // lines either side become two runs rather than silently joining.
+    return testing.assert_eq(
+        actual: shape('// one\n//nospace\n// two\n'),
+        expected: '//@0[one] //@0[two]',
+    );
+}
+
+@test
+fn trailing_whitespace_is_trimmed_from_content() -> Result<Void, Error> {
+    // Normalizing here means a blank line is always `''`, so the guard can compare
+    // blank blocks byte-exactly and no rendered line can end in space.
+    return testing.assert_eq(actual: shape('// one   \n//   \n'), expected: '//@0[one|]');
+}
+
+@test
+fn the_span_covers_the_whole_run() -> Result<Void, Error> {
+    let src = 'x();\n// one\n// two\ny();\n';
+    let rs = comment_runs(src, tokenize(src));
+    testing.assert_eq(actual: rs.len(), expected: 1)?;
+    return testing.assert_eq(actual: src.slice(rs[0].start, rs[0].end), expected: '// one\n// two');
+}

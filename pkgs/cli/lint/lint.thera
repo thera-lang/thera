@@ -1,25 +1,25 @@
-// Suggestion diagnostics — a read-only pass that locates non-idiomatic code
-// shapes that have a mechanical, more-idiomatic rewrite (e.g. a two-arm `match`
-// with an empty catch-all arm → `if let`). This is the shared shape-matching the
-// `thera lint --fix` / LSP code actions are built from; by default it only *reports*
-// (and the CLI tallies) convertible sites, to measure how many wins each rewrite
-// would actually yield before any rewriter is built.
+// Suggestion diagnostics — a read-only pass that locates non-idiomatic code shapes
+// that have a mechanical, more-idiomatic rewrite (e.g. a two-arm `match` with an
+// empty catch-all arm → `if let`). This is the shared shape-matching the
+// `thera lint --fix` / LSP code actions are built from; by default it only
+// *reports* (and the CLI tallies) convertible sites, to measure how many wins each
+// rewrite would actually yield before any rewriter is built.
 //
 // Purely syntactic: it walks the parsed AST and needs no resolution or types, so
 // `thera lint` parses each file in isolation (no import closure). A site is only
-// flagged when the shape is unambiguous — precision over recall, so each tally is
-// a floor. The rules partition: a given `match` matches at most one of them (an
-// empty arm → `if let`; an error-propagating arm → `?`; a diverging arm in a
-// `let` initializer → `let … else`; a value-returning fallback → `unwrap_or`).
-// The one per-arm style rule — `=> {}` → `=> void` — defers to `if let` (whose
-// rewrite removes the empty arm entirely).
+// flagged when the shape is unambiguous — precision over recall, so each tally is a
+// floor. The rules partition: a given `match` matches at most one of them (an empty
+// arm → `if let`; an error-propagating arm → `?`; a diverging arm in a `let`
+// initializer → `let … else`; a value-returning fallback → `unwrap_or`). The one
+// per-arm style rule — `=> {}` → `=> void` — defers to `if let` (whose rewrite
+// removes the empty arm entirely).
 
 import '../source' as _; // SourceSpan
 import '../ast/ast' as _;
 
 // One located suggestion: which rule fired, where, and a human-readable message.
-// `rule` is a stable kebab-case id the CLI tallies by (and a code action would
-// key off).
+// `rule` is a stable kebab-case id the CLI tallies by (and a code action would key
+// off).
 pub struct Suggestion {
     let rule: String;
     let span: SourceSpan;
@@ -59,8 +59,8 @@ pub struct UnwrapOrMatch {
     let err_binding: Option<String>;
 }
 
-// A `match` convertible to `.map(…)`: the payload binding and the mapped
-// expression from the `Some(v) => Option.Some(EXPR)` arm.
+// A `match` convertible to `.map(…)`: the payload binding and the mapped expression
+// from the `Some(v) => Option.Some(EXPR)` arm.
 pub struct MapMatch {
     let match_span: SourceSpan;
     let subject: Expr;
@@ -87,11 +87,10 @@ pub struct LetElseMatch {
 
 // `match X { Some(v) => { … }, None => {} }` → `if let Some(v) = X { … }`.
 //
-// A source two-arm `match` with exactly one empty-bodied arm whose *kept* arm
-// binds a constructor pattern. The dropped arm may be `_`, an identifier, a
-// nullary variant (`None`), or any arm whose body is empty — all collapse to the
-// omitted `else` of an `if let`. Returns the pieces, or None if the shape doesn't
-// match.
+// A source two-arm `match` with exactly one empty-bodied arm whose *kept* arm binds
+// a constructor pattern. The dropped arm may be `_`, an identifier, a nullary
+// variant (`None`), or any arm whose body is empty — all collapse to the omitted
+// `else` of an `if let`. Returns the pieces, or None if the shape doesn't match.
 pub fn match_if_let(_ m: MatchExpr) -> Option<IfLetMatch> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
@@ -143,10 +142,10 @@ fn detect_match_to_question(_ m: MatchExpr) -> Option<Suggestion> {
     };
 }
 
-// `let x = match opt { Some(v) => v, None => { …diverge… } };`
-// → `let Some(x) = opt else { …diverge… };`. Fires on a `let` whose initializer
-// is a source two-arm match: one arm binds a constructor and yields its binding,
-// the other diverges (return/throw). Excludes the `?` shape (that is
+// `let x = match opt { Some(v) => v, None => { …diverge… } };` →
+// `let Some(x) = opt else { …diverge… };`. Fires on a `let` whose initializer is a
+// source two-arm match: one arm binds a constructor and yields its binding, the
+// other diverges (return/throw). Excludes the `?` shape (that is
 // match-to-question's, the more specific rewrite).
 fn detect_match_to_let_else(_ l: LetStmt) -> Option<Suggestion> {
     return match l.value {
@@ -184,8 +183,8 @@ fn detect_match_to_unwrap_or(_ m: MatchExpr) -> Option<Suggestion> {
     return Option.None;
 }
 
-// `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` →
-// `opt.map(…)`. Both arms re-wrap into the same enum, mapping only the payload.
+// `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` → `opt.map(…)`.
+// Both arms re-wrap into the same enum, mapping only the payload.
 fn detect_match_to_map(_ m: MatchExpr) -> Option<Suggestion> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
@@ -200,12 +199,12 @@ fn detect_match_to_map(_ m: MatchExpr) -> Option<Suggestion> {
     return Option.None;
 }
 
-// `pat => {}` → `pat => void`. A no-result arm written as an empty block reads
-// as an accident (and, once map literals move to brackets, stays one keystroke
-// from an empty map — see the map-literal roadmap item); the idiomatic spelling
-// is the explicit unit value. Fires once per empty-block arm, on source matches
-// only (a desugared `if let` fabricates empty else-blocks), and the caller
-// skips matches the `if let` rule already claims — its rewrite removes the arm.
+// `pat => {}` → `pat => void`. A no-result arm written as an empty block reads as
+// an accident (and, once map literals move to brackets, stays one keystroke from an
+// empty map — see the map-literal roadmap item); the idiomatic spelling is the
+// explicit unit value. Fires once per empty-block arm, on source matches only (a
+// desugared `if let` fabricates empty else-blocks), and the caller skips matches
+// the `if let` rule already claims — its rewrite removes the arm.
 fn detect_void_arms(_ m: MatchExpr, _ out: List<Suggestion>) -> Void {
     if !is_source_match(m) {
         return;
@@ -230,8 +229,8 @@ fn is_empty_block_body(_ e: Expr) -> Bool {
     };
 }
 
-// `while i < xs.len() { … }` → a `for` loop. Flags the manual-index condition
-// shape (`<ident> < <recv>.len()`); the body is left to the reader/rewriter.
+// `while i < xs.len() { … }` → a `for` loop. Flags the manual-index condition shape
+// (`<ident> < <recv>.len()`); the body is left to the reader/rewriter.
 fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
     return match w.condition {
         Binary(_, lhs, op, rhs) => {
@@ -254,8 +253,8 @@ fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
 // The strict, structured counterparts of the `detect_*` reporters above: they
 // return the pieces a rewrite needs, and only for shapes a mechanical fix can
 // safely handle (precision over recall — the reporters flag a broader set). A
-// block-bodied arm is left to a human, since it may drop statements or `return`
-// out of the enclosing fn when moved into a closure or `else`.
+// block-bodied arm is left to a human, since it may drop statements or `return` out
+// of the enclosing fn when moved into a closure or `else`.
 
 // `match r { Ok(v) => v, Err(e) => return Result.Err(e) }` → `r?` (and the
 // `Some(v)`/`None => return Option.None` analogue). Behavior-preserving: the `?`
@@ -271,9 +270,9 @@ pub fn match_question(_ m: MatchExpr) -> Option<QuestionMatch> {
 }
 
 // `match SUBJ { Some(v) => v, None => FB }` → `SUBJ.unwrap_or(FB)`, or
-// `.unwrap_or_else(…)` when the fallback isn't a cheap value (the fix decides).
-// The fallback must be a bare value; the catch-all must bind nothing (`Some`) or
-// be an `Err(e)`/`Err(_)`/`_` whose binding the closure can carry (`Ok`).
+// `.unwrap_or_else(…)` when the fallback isn't a cheap value (the fix decides). The
+// fallback must be a bare value; the catch-all must bind nothing (`Some`) or be an
+// `Err(e)`/`Err(_)`/`_` whose binding the closure can carry (`Ok`).
 pub fn match_unwrap_or(_ m: MatchExpr) -> Option<UnwrapOrMatch> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
@@ -492,8 +491,8 @@ fn block_is_empty(_ b: Block) -> Bool {
     };
 }
 
-// A body that yields a value (has a value expression), as opposed to an empty
-// block or a bare divergence.
+// A body that yields a value (has a value expression), as opposed to an empty block
+// or a bare divergence.
 fn is_value_body(_ e: Expr) -> Bool {
     return match e {
         Block(_, b) => match b.tail {
@@ -603,8 +602,8 @@ fn body_yields_var(_ e: Expr, _ name: String) -> Bool {
 
 // --- Pattern helpers ---
 
-// A constructor pattern that carries a payload (`Some(v)`, `Ok(_)`, `Err(e)`) —
-// the refutable, binding shape that becomes an `if let` pattern. A bare variant
+// A constructor pattern that carries a payload (`Some(v)`, `Ok(_)`, `Err(e)`) — the
+// refutable, binding shape that becomes an `if let` pattern. A bare variant
 // (`None`), a wildcard, or an identifier is not.
 fn is_binding_ctor(_ p: Pattern) -> Bool {
     return match p {
@@ -613,8 +612,8 @@ fn is_binding_ctor(_ p: Pattern) -> Bool {
     };
 }
 
-// The single variable a one-field constructor pattern binds (`Some(v)` → `v`);
-// None for a wildcard sub-pattern, a multi-field or nullary constructor, or a
+// The single variable a one-field constructor pattern binds (`Some(v)` → `v`); None
+// for a wildcard sub-pattern, a multi-field or nullary constructor, or a
 // non-constructor pattern.
 fn ctor_binding(_ p: Pattern) -> Option<String> {
     return match p {
@@ -706,8 +705,8 @@ fn result_err_binding(_ p: Pattern) -> Option<String> {
 }
 
 // An irrefutable / complement arm pattern (`_`, an identifier, or a variant like
-// `None`/`Err(_)`) — the "other case" of a two-arm match. A literal pattern is
-// not (it matches only one value).
+// `None`/`Err(_)`) — the "other case" of a two-arm match. A literal pattern is not
+// (it matches only one value).
 fn is_catch_all_pattern(_ p: Pattern) -> Bool {
     return match p {
         Literal(_, _) => false,
@@ -765,8 +764,8 @@ fn is_len_call(_ e: Expr) -> Bool {
 // --- AST walk ---
 //
 // A plain recursive descent collecting suggestions into `out`. It visits every
-// expression so a rule fires no matter how deeply a shape is nested; the
-// traversal itself is rule-agnostic.
+// expression so a rule fires no matter how deeply a shape is nested; the traversal
+// itself is rule-agnostic.
 
 fn push_opt(_ s: Option<Suggestion>, _ out: List<Suggestion>) -> Void {
     if let Some(sug) = s { out.push(sug); }

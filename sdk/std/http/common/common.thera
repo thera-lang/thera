@@ -4,24 +4,24 @@
 //!
 //! **You do not need to import this.** `import std.http` re-exports all of it, so
 //! the types are spelled `http.Request`, `http.Response`, `http.HttpError`. It is
-//! its own library rather than a file beside the client because
-//! `std.http.server` is a *separate* library and so cannot reach a private sibling
-//! of `std.http` — that is the whole reason for the directory, and the reason
+//! its own library rather than a file beside the client because `std.http.server`
+//! is a *separate* library and so cannot reach a private sibling of `std.http` —
+//! that is the whole reason for the directory, and the reason
 //! `import std.http.common` resolves at all. Prefer the barrel spelling.
 //!
 //! Being shared is the point: the server builds on this **without** importing the
 //! client, so serving does not drag in the client's TLS dial.
 //!
 //! Everything here is pure Thera over `io.Reader`/`io.Writer`, so it is testable
-//! with no sockets: point it at `io.from_bytes(...)` and an `io.StringWriter`.
-//! The two directions are mirror images — the server parses a `Request` and writes
-//! a `Response`, the client does the reverse — so both live together.
+//! with no sockets: point it at `io.from_bytes(...)` and an `io.StringWriter`. The
+//! two directions are mirror images — the server parses a `Request` and writes a
+//! `Response`, the client does the reverse — so both live together.
 //!
 //! A response can be read either way round. `read_response` is the common case: the
 //! body lands in memory as `Bytes`, capped. `stream_response` stops at the head and
-//! hands back the body as a `BodyReader` (an `io.Reader`), for a body that should be
-//! consumed as it arrives — an event stream, a large download. The first is defined
-//! as the second plus a drain, so the framing is decided in one place.
+//! hands back the body as a `BodyReader` (an `io.Reader`), for a body that should
+//! be consumed as it arrives — an event stream, a large download. The first is
+//! defined as the second plus a drain, so the framing is decided in one place.
 
 import std.io;
 import std.json;
@@ -56,16 +56,16 @@ pub enum HttpError {
     Status(Int),
     /// The body could not be read or decoded, or exceeds `MAX_BODY_BYTES`.
     Body(String),
-    /// TLS refused the connection: a certificate that doesn't verify or isn't
-    /// valid for the host, a protocol violation, or a stream that ended without a
+    /// TLS refused the connection: a certificate that doesn't verify or isn't valid
+    /// for the host, a protocol violation, or a stream that ended without a
     /// `close_notify`. Its own variant rather than a `Connect` for the same reason
     /// `net.NetError.Tls` is: it is not a network failure, so **retrying will not
     /// fix it** — and a client that retries a rejected certificate is doing
     /// something worse than failing.
     Tls(String),
-    /// The peer is not speaking HTTP/1.1: a malformed start line, header, or
-    /// chunk framing. (An addition to the sketch in docs/stdlib.md — a bad status
-    /// line is not a `Body` failure, and conflating them costs the caller the one
+    /// The peer is not speaking HTTP/1.1: a malformed start line, header, or chunk
+    /// framing. (An addition to the sketch in docs/stdlib.md — a bad status line is
+    /// not a `Body` failure, and conflating them costs the caller the one
     /// distinction that says *whose* bug it is.)
     Protocol(String),
 }
@@ -114,9 +114,10 @@ pub struct Response {
 /// Header names whose values are credentials. `Debug` prints these redacted.
 ///
 /// A denylist is not a security boundary and is not pretending to be one — a custom
-/// header carrying a token still leaks. It is a floor: these five are where credentials
-/// actually live, they are named by RFC 9110 (§11.6.2, §11.6.3) and RFC 6265 or are the
-/// de-facto API-key spelling, and a caller who invents their own header knows they did.
+/// header carrying a token still leaks. It is a floor: these five are where
+/// credentials actually live, they are named by RFC 9110 (§11.6.2, §11.6.3) and RFC
+/// 6265 or are the de-facto API-key spelling, and a caller who invents their own
+/// header knows they did.
 pub let SENSITIVE_HEADERS: List<String> = [
     'authorization',
     'proxy-authorization',
@@ -128,7 +129,8 @@ pub let SENSITIVE_HEADERS: List<String> = [
 /// `headers` with every credential value replaced by `<redacted>`.
 ///
 /// Exposed because a caller that logs its own headers wants the same treatment, and
-/// because the alternative to a shared helper is each one writing a different denylist.
+/// because the alternative to a shared helper is each one writing a different
+/// denylist.
 pub fn redact_headers(_ headers: Map<String, String>) -> Map<String, String> {
     let safe: Map<String, String> = [:];
     for name in headers.keys() {
@@ -152,15 +154,15 @@ fn str_list_has(_ names: List<String>, _ name: String) -> Bool {
 
 /// `Debug` for a request, with credential headers redacted.
 ///
-/// The structural derive printed `authorization` in full, so `'${req}'` — the shortest
-/// thing anyone writes while debugging a client — put a live credential in a log, and a
-/// failing `assert_eq` on a request did the same in CI output. Every client that sends a
-/// credential builds one of these, so this is the one place that fixes it for all of
-/// them.
+/// The structural derive printed `authorization` in full, so `'${req}'` — the
+/// shortest thing anyone writes while debugging a client — put a live credential in
+/// a log, and a failing `assert_eq` on a request did the same in CI output. Every
+/// client that sends a credential builds one of these, so this is the one place
+/// that fixes it for all of them.
 ///
 /// **Only `Debug` changes.** `Eq` stays structural, so redaction never affects
-/// comparison — two requests differing solely in their token are still unequal, and a
-/// test that checks a header's real value still can.
+/// comparison — two requests differing solely in their token are still unequal, and
+/// a test that checks a header's real value still can.
 impl Debug for Request {
     pub fn debug(self) -> String {
         return 'Request { method: \'${self.method}\', url: \'${self.url}\', '
@@ -200,8 +202,8 @@ impl Request {
         return self.body.to_string();
     }
 
-    /// The body parsed as JSON — the common case for a handler receiving a
-    /// webhook or an API call.
+    /// The body parsed as JSON — the common case for a handler receiving a webhook
+    /// or an API call.
     pub fn json(self) -> Result<json.Json, Error> {
         return parse_json_body(self.body);
     }
@@ -221,8 +223,8 @@ fn parse_json_body(_ body: Bytes) -> Result<json.Json, Error> {
 // --- headers ---
 //
 // Headers are a `Map<String, String>`, which models neither of two facts about
-// HTTP: names are case-insensitive, and some headers may repeat. Rather than grow
-// a bespoke header type, both are normalized into what a `Map` represents well
+// HTTP: names are case-insensitive, and some headers may repeat. Rather than grow a
+// bespoke header type, both are normalized into what a `Map` represents well
 // (docs/stdlib.md § Sequencing):
 //
 //   * **Names are lowercased** on parse. `content-type` is the spelling to look
@@ -235,8 +237,8 @@ fn parse_json_body(_ body: Bytes) -> Result<json.Json, Error> {
 //     comma-join is genuinely ambiguous. A newline can't occur in a header value,
 //     so the split is unambiguous — `resp.headers['set-cookie'].split('\n')`.
 
-/// Add `value` under `name`, folding a repeat into the existing entry per the
-/// rules above.
+/// Add `value` under `name`, folding a repeat into the existing entry per the rules
+/// above.
 fn add_header(_ headers: Map<String, String>, _ name: String, _ value: String) -> Void {
     let key = name.to_lowercase();
     match headers.get(key) {
@@ -255,9 +257,9 @@ pub fn header(_ headers: Map<String, String>, _ name: String) -> Option<String> 
 
 // --- status codes ---
 
-/// The reason phrase for a status code — `'OK'` for 200. Only the codes a client
-/// or a simple server actually emits are spelled out; anything else reports its
-/// class, which is all a recipient may rely on anyway (RFC 9110 §15: the phrase is
+/// The reason phrase for a status code — `'OK'` for 200. Only the codes a client or
+/// a simple server actually emits are spelled out; anything else reports its class,
+/// which is all a recipient may rely on anyway (RFC 9110 §15: the phrase is
 /// advisory, and clients ignore it).
 pub fn reason_phrase(_ status: Int) -> String {
     if status == 200 { return 'OK'; }
@@ -294,8 +296,8 @@ pub fn reason_phrase(_ status: Int) -> String {
 }
 
 /// Whether a response with this status carries no body at all, regardless of its
-/// headers (RFC 9110 §6.4.1). Reading one anyway would block until the peer
-/// closed, or eat the next response on a kept-alive connection.
+/// headers (RFC 9110 §6.4.1). Reading one anyway would block until the peer closed,
+/// or eat the next response on a kept-alive connection.
 fn status_has_no_body(_ status: Int) -> Bool {
     return (status >= 100 && status < 200) || status == 204 || status == 304;
 }
@@ -445,8 +447,9 @@ impl Wire {
     /// whole frame has arrived.
     fn take_buffered(self, _ max: Int) -> Result<Bytes, HttpError> {
         if max <= 0 {
-            // Not a no-op worth skipping but a hazard: falling through would `fill`,
-            // which blocks for bytes the caller didn't ask for and may never come.
+            // Not a no-op worth skipping but a hazard: falling through would
+            // `fill`, which blocks for bytes the caller didn't ask for and may
+            // never come.
             return Result.Ok(Bytes.empty());
         }
         if self.buffered() == 0 {
@@ -494,9 +497,9 @@ impl Wire {
         }
     }
 
-    /// The next request, or `None` at a clean end-of-stream — which on a
-    /// kept-alive connection just means the client is done, and is how a serve
-    /// loop terminates.
+    /// The next request, or `None` at a clean end-of-stream — which on a kept-alive
+    /// connection just means the client is done, and is how a serve loop
+    /// terminates.
     pub fn read_request(self) -> Result<Option<Request>, HttpError> {
         let line = match self.read_line()? {
             Some(l) => l,
@@ -529,8 +532,8 @@ impl Wire {
     /// stream, a large download) rather than assembled in memory first.
     ///
     /// The body must be read, or abandoned along with the connection, **before**
-    /// another message is read from this `Wire`: on the wire a body sits between two
-    /// messages, so skipping it would read the body as the next response.
+    /// another message is read from this `Wire`: on the wire a body sits between
+    /// two messages, so skipping it would read the body as the next response.
     ///
     /// `to_head` must say whether the request was a `HEAD`: the response then
     /// describes a body it does not send, and reading one would hang until the peer
@@ -633,9 +636,9 @@ fn framing_of(_ headers: Map<String, String>, until_eof: Bool) -> Result<Framing
 /// next message is read from that `Wire` (see `stream_response`).
 ///
 /// `read_some` is the honest primitive and the `io.Reader` impl is the composable
-/// one — the same split `io.BufReader` makes between `read_line` and its `Iterator`,
-/// and for the same reason: the interface's `Error` loses the `Protocol`-vs-`Body`
-/// distinction, which is the one that says whose bug it is.
+/// one — the same split `io.BufReader` makes between `read_line` and its
+/// `Iterator`, and for the same reason: the interface's `Error` loses the
+/// `Protocol`-vs-`Body` distinction, which is the one that says whose bug it is.
 ///
 /// **Nothing here is capped.** Streaming is how you read a body that need not fit
 /// in memory, so bounding it is the caller's business; `ResponseStream.buffered` is
@@ -733,16 +736,16 @@ impl BodyReader {
         return Result.Ok(got);
     }
 
-    /// Read the next chunk-size line into `remaining`, returning whether a non-empty
-    /// chunk follows. A zero-size one consumes the trailer block and completes the
-    /// body.
+    /// Read the next chunk-size line into `remaining`, returning whether a
+    /// non-empty chunk follows. A zero-size one consumes the trailer block and
+    /// completes the body.
     fn next_chunk(self) -> Result<Bool, HttpError> {
         let line = match self.wire.read_line()? {
             Some(l) => l,
             None => { return protocol('stream ended inside a chunked body'); },
         };
-        // A chunk-size line may carry `;ext=value` extensions; nothing uses them, but
-        // they are legal, so drop them rather than choke.
+        // A chunk-size line may carry `;ext=value` extensions; nothing uses them,
+        // but they are legal, so drop them rather than choke.
         let digits = match line.find(';') {
             Some(i) => line.slice(0, i),
             None => line,
@@ -775,8 +778,8 @@ impl BodyReader {
 
     /// Everything left, assembled in memory and capped at `MAX_BODY_BYTES` — the
     /// in-memory form of a body that was going to fit anyway. The counterpart to
-    /// reading it: `io.read_all` over the same reader is the *uncapped* version, and
-    /// the cap is the whole difference.
+    /// reading it: `io.read_all` over the same reader is the *uncapped* version,
+    /// and the cap is the whole difference.
     pub fn buffered(self) -> Result<Bytes, HttpError> {
         let acc = BytesBuilder.new();
         while true {
@@ -846,8 +849,8 @@ fn too_large<T>() -> Result<T, HttpError> {
 }
 
 /// Accept the HTTP/1.x versions we can actually frame. HTTP/1.0 differs only in
-/// defaults this codec already handles (no keep-alive, close-delimited bodies);
-/// 0.9 and 2+ are different protocols wearing a similar prefix.
+/// defaults this codec already handles (no keep-alive, close-delimited bodies); 0.9
+/// and 2+ are different protocols wearing a similar prefix.
 fn check_version(_ token: String) -> Result<Void, HttpError> {
     if token == 'HTTP/1.1' || token == 'HTTP/1.0' {
         return Result.Ok(void);

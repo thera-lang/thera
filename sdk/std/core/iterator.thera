@@ -4,8 +4,8 @@
 //! element as `Some(v)`, or `None` once the sequence is exhausted. It is part of
 //! the prelude (always in scope) because the language drives it directly: a
 //! `for x in it` loop iterates any `Iterator`. A `List` bridges to this protocol
-//! with `xs.iter()` (in `list.thera`); other sources (`range`, `from_list`) live
-//! in `std.iter`.
+//! with `xs.iter()` (in `list.thera`); other sources (`range`, `from_list`) live in
+//! `std.iter`.
 //!
 //! Beyond the one required `next`, the interface provides **default methods** —
 //! lazy adapters (`map`/`filter`/`take`/`enumerate`) and eager consumers
@@ -158,10 +158,10 @@ impl Iterator<Indexed<T>> for EnumerateIter<T> {
 }
 
 // The iterator backing `List.iter()` — a plain index cursor over a list. `pub`
-// because `List.iter` (in list.thera) constructs it across the file boundary. It
-// is the single list→`Iterator` bridge: `List.enumerate`, `map`/`filter`
-// chains, and `iter.from_list` all flow through it, so the whole lazy protocol
-// walks a list from here.
+// because `List.iter` (in list.thera) constructs it across the file boundary. It is
+// the single list→`Iterator` bridge: `List.enumerate`, `map`/`filter` chains, and
+// `iter.from_list` all flow through it, so the whole lazy protocol walks a list
+// from here.
 pub struct ListIter<T> {
     let items: List<T>;
     let mut pos: Int;
@@ -169,8 +169,8 @@ pub struct ListIter<T> {
 
 impl Iterator<T> for ListIter<T> {
     pub fn next(self) -> Option<T> {
-        // `get` returns None past the end; advancing `pos` regardless is
-        // harmless once exhausted (it just keeps returning None).
+        // `get` returns None past the end; advancing `pos` regardless is harmless
+        // once exhausted (it just keeps returning None).
         let item = self.items.get(self.pos);
         self.pos = self.pos + 1;
         return item;

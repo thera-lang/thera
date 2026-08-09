@@ -2,10 +2,10 @@
 //!
 //! Import as: import std.toml
 //!
-//! The structural `Toml` value models any TOML document; `parse` reads text
-//! into one (the root is always a `Table`). TOML is a config format, so the
-//! reading surface is config-shaped: `get` takes a dotted path — the format's
-//! own spelling — and the typed `get_*` helpers read one value leniently.
+//! The structural `Toml` value models any TOML document; `parse` reads text into
+//! one (the root is always a `Table`). TOML is a config format, so the reading
+//! surface is config-shaped: `get` takes a dotted path — the format's own spelling
+//! — and the typed `get_*` helpers read one value leniently.
 //!
 //! ```thera
 //! let doc = toml.parse(text)?;
@@ -14,13 +14,13 @@
 //! let ops = doc.get_array('generate.operations').unwrap_or([]);
 //! ```
 //!
-//! Unlike JSON there is no null: absence is the only optionality, so every
-//! lenient read is an `Option` and a miss is `None`.
+//! Unlike JSON there is no null: absence is the only optionality, so every lenient
+//! read is an `Option` and a miss is `None`.
 //!
 //! The strict counterpart is `Cursor` — `json.Cursor`'s mirror, deliberately
-//! name-for-name — for the reader where a wrong shape is a failure that has
-//! to be findable: navigating accumulates a path in TOML's own dotted
-//! spelling, and a failed read names it
+//! name-for-name — for the reader where a wrong shape is a failure that has to be
+//! findable: navigating accumulates a path in TOML's own dotted spelling, and a
+//! failed read names it
 //! (`expected a string at generate.operations[2], got integer`).
 //!
 //! ```thera
@@ -29,28 +29,27 @@
 //! let lane = at.field('generate').field('beta_lane').opt_bool()?;  // absent → None
 //! ```
 //!
-//! `get`'s path splits on `.` before matching, so it addresses bare-keyed
-//! tables only; a key that itself contains a dot (quoted in the source) is
-//! reachable via `as_table` and direct map access.
+//! `get`'s path splits on `.` before matching, so it addresses bare-keyed tables
+//! only; a key that itself contains a dot (quoted in the source) is reachable via
+//! `as_table` and direct map access.
 //!
-//! The full TOML 1.0.0 grammar: scalar values including the four date-time
-//! kinds, arrays, inline tables, dotted keys, and `[table]` /
-//! `[[array-of-tables]]` headers with TOML's definition rules (a table is
-//! defined once; dotted keys extend only their own block's tables; inline
-//! tables and static arrays are closed). Conformance is pinned by the
-//! vendored toml-test snapshot in `third_party/toml-test/` (run by
-//! `conformance_test.thera`). Parse-only until a tool needs to write a
-//! manifest — see docs/stdlib.md § `std.toml`.
+//! The full TOML 1.0.0 grammar: scalar values including the four date-time kinds,
+//! arrays, inline tables, dotted keys, and `[table]` / `[[array-of-tables]]`
+//! headers with TOML's definition rules (a table is defined once; dotted keys
+//! extend only their own block's tables; inline tables and static arrays are
+//! closed). Conformance is pinned by the vendored toml-test snapshot in
+//! `third_party/toml-test/` (run by `conformance_test.thera`). Parse-only until a
+//! tool needs to write a manifest — see docs/stdlib.md § `std.toml`.
 //!
-//! Implementation: a hand-written scanner + recursive-descent parser, pure
-//! Thera, following std.json's.
+//! Implementation: a hand-written scanner + recursive-descent parser, pure Thera,
+//! following std.json's.
 
 import std.char;
 import std.math;
 import std.time;
 
-/// The structural TOML value. `Int` and `Double` mirror TOML's own
-/// integer/float split; there is no null variant because TOML has none.
+/// The structural TOML value. `Int` and `Double` mirror TOML's own integer/float
+/// split; there is no null variant because TOML has none.
 pub enum Toml {
     Bool(Bool),
     Int(Int),
@@ -69,18 +68,18 @@ pub enum DatetimeKind {
     LocalTime,         // 07:32:00
 }
 
-/// A TOML date-time: the kind plus the validated, normalized source text
-/// (the date/time delimiter as `T`, zone `z` as `Z`; components as written,
-/// each range-checked — including the day against its month and leap year).
+/// A TOML date-time: the kind plus the validated, normalized source text (the
+/// date/time delimiter as `T`, zone `z` as `Z`; components as written, each
+/// range-checked — including the day against its month and leap year).
 pub struct Datetime {
     let kind: DatetimeKind;
     let text: String;
 }
 
 impl Datetime {
-    /// The instant this date-time names, via `time.DateTime.parse_rfc3339` —
-    /// for `OffsetDateTime` only. The three local kinds carry no zone, so
-    /// they name no instant; converting one is an error, not a guess.
+    /// The instant this date-time names, via `time.DateTime.parse_rfc3339` — for
+    /// `OffsetDateTime` only. The three local kinds carry no zone, so they name no
+    /// instant; converting one is an error, not a guess.
     pub fn to_datetime(self) -> Result<time.DateTime, Error> {
         let offset = match self.kind {
             OffsetDateTime => true,
@@ -95,10 +94,9 @@ impl Datetime {
     }
 }
 
-/// What `parse` can reject. A domain error: implements the common `Error`.
-/// One variant covers both lexical errors and TOML's document-level rules
-/// (duplicate keys, extending a closed table) — the message names the rule
-/// and the position.
+/// What `parse` can reject. A domain error: implements the common `Error`. One
+/// variant covers both lexical errors and TOML's document-level rules (duplicate
+/// keys, extending a closed table) — the message names the rule and the position.
 pub enum TomlError {
     Syntax(String),
 }
@@ -120,10 +118,10 @@ impl Display for TomlError {
 // --- accessors ---
 
 impl Toml {
-    /// The value at a dotted path (`'server.port'`), or None anywhere along
-    /// the way — a missing key, a non-table in the middle, a non-table self.
-    /// Segments are matched literally after splitting on `.`, so quoted keys
-    /// containing dots are not addressable here (use `as_table`).
+    /// The value at a dotted path (`'server.port'`), or None anywhere along the way
+    /// — a missing key, a non-table in the middle, a non-table self. Segments are
+    /// matched literally after splitting on `.`, so quoted keys containing dots are
+    /// not addressable here (use `as_table`).
     pub fn get(self, _ path: String) -> Option<Toml> {
         let mut cur = self;
         for seg in path.split('.') {
@@ -157,8 +155,7 @@ impl Toml {
         };
     }
 
-    /// The value as an Int — for an `Int` only; a TOML float never quietly
-    /// narrows.
+    /// The value as an Int — for an `Int` only; a TOML float never quietly narrows.
     pub fn as_int(self) -> Option<Int> {
         return match self {
             Int(n) => Option.Some(n),
@@ -216,8 +213,8 @@ impl Toml {
         };
     }
 
-    // The typed path reads — `get` composed with one `as_*`, since that pair
-    // is what a config consumer writes every time.
+    // The typed path reads — `get` composed with one `as_*`, since that pair is
+    // what a config consumer writes every time.
 
     pub fn get_bool(self, _ path: String) -> Option<Bool> {
         return self.get(path).and_then((v) => v.as_bool());
@@ -246,13 +243,12 @@ impl Toml {
 
 // --- the strict reader: Cursor ---
 
-/// What a strict read can reject, distinct from `TomlError` deliberately: a
-/// syntax error is the *document's* failure, a shape mismatch is a
-/// disagreement between the document and the reader's schema — different
-/// problems with different fixes.
+/// What a strict read can reject, distinct from `TomlError` deliberately: a syntax
+/// error is the *document's* failure, a shape mismatch is a disagreement between
+/// the document and the reader's schema — different problems with different fixes.
 ///
-/// Both variants lead with a path, because that is what makes a failure
-/// findable. Build them through `Cursor`'s readers rather than by hand.
+/// Both variants lead with a path, because that is what makes a failure findable.
+/// Build them through `Cursor`'s readers rather than by hand.
 pub enum DecodeError {
     /// The path of a required key the document does not have.
     Missing(String),
@@ -277,12 +273,12 @@ impl Display for DecodeError {
 
 /// A `Toml` paired with where in the document it came from.
 ///
-/// The accessors above (`get`, `get_int`, …) suit a **lenient** reader:
-/// navigation never fails and a miss is `Option.None` — the right reading for
-/// a config consumer with defaults. A manifest reader wants the opposite: a
-/// required key that is absent or the wrong type is an error, and the error
-/// has to name where — as a **path**, in TOML's own dotted spelling, because
-/// that is the line the user typed.
+/// The accessors above (`get`, `get_int`, …) suit a **lenient** reader: navigation
+/// never fails and a miss is `Option.None` — the right reading for a config
+/// consumer with defaults. A manifest reader wants the opposite: a required key
+/// that is absent or the wrong type is an error, and the error has to name where —
+/// as a **path**, in TOML's own dotted spelling, because that is the line the user
+/// typed.
 ///
 /// ```thera
 /// fn auth_from_toml(_ at: toml.Cursor) -> Result<Auth, toml.DecodeError> {
@@ -296,28 +292,27 @@ impl Display for DecodeError {
 /// let auth = auth_from_toml(root.field('auth').table()?)?;
 /// ```
 ///
-/// **Navigating never fails; reading does.** `field` and `index` always
-/// answer a cursor — for a key the document doesn't have, one at the extended
-/// path marked absent — so a required field is one `?`, at the read, where
-/// the wanted type is known. Chains work the same way:
-/// `at.field('a').field('b').string()?`. A decoder that can be handed a
-/// non-table should open with `let t = at.table()?;`, which validates and
-/// reports `at`'s own path. With no null in TOML, absent is the only thing
-/// the `opt_*` readers tolerate — a present key of the wrong type is always
-/// a `Shape` error.
+/// **Navigating never fails; reading does.** `field` and `index` always answer a
+/// cursor — for a key the document doesn't have, one at the extended path marked
+/// absent — so a required field is one `?`, at the read, where the wanted type is
+/// known. Chains work the same way: `at.field('a').field('b').string()?`. A decoder
+/// that can be handed a non-table should open with `let t = at.table()?;`, which
+/// validates and reports `at`'s own path. With no null in TOML, absent is the only
+/// thing the `opt_*` readers tolerate — a present key of the wrong type is always a
+/// `Shape` error.
 pub struct Cursor {
     let value: Toml;
-    /// Where `value` sits, in TOML's own spelling: `overrides.messages_post`
-    /// or `generate.operations[2]`. Empty for the document root.
+    /// Where `value` sits, in TOML's own spelling: `overrides.messages_post` or
+    /// `generate.operations[2]`. Empty for the document root.
     let path: String;
-    /// False only for a cursor produced by navigating to a key or an index
-    /// the document does not have — what lets a required read say
+    /// False only for a cursor produced by navigating to a key or an index the
+    /// document does not have — what lets a required read say
     /// `missing required key auth.header` rather than a shape error.
     let present: Bool;
 }
 
-/// A cursor on `value` as a document root (its path is empty; errors at the
-/// root itself say `the document root`).
+/// A cursor on `value` as a document root (its path is empty; errors at the root
+/// itself say `the document root`).
 pub fn cursor(_ value: Toml) -> Cursor {
     return Cursor { value: value, path: '', present: true };
 }
@@ -325,8 +320,8 @@ pub fn cursor(_ value: Toml) -> Cursor {
 impl Cursor {
     // --- navigating (never fails) ---
 
-    /// The cursor at `key` of this table — at the extended path, marked
-    /// absent if this is not a table or has no such key.
+    /// The cursor at `key` of this table — at the extended path, marked absent if
+    /// this is not a table or has no such key.
     pub fn field(self, _ key: String) -> Cursor {
         let mut at = key;
         if self.path != '' {
@@ -341,8 +336,8 @@ impl Cursor {
         };
     }
 
-    /// The cursor at element `i` of this array — marked absent if this is
-    /// not an array or `i` is out of range.
+    /// The cursor at element `i` of this array — marked absent if this is not an
+    /// array or `i` is out of range.
     pub fn index(self, _ i: Int) -> Cursor {
         let at = '${self.path}[${i}]';
         return match self.value {
@@ -376,30 +371,30 @@ impl Cursor {
         return self.require('a date-time', self.value.as_datetime());
     }
 
-    /// This cursor, having checked it holds a table — the shape a decoder
-    /// opens with so that a non-table is blamed on its own path rather than
-    /// on the first field read out of it.
+    /// This cursor, having checked it holds a table — the shape a decoder opens
+    /// with so that a non-table is blamed on its own path rather than on the first
+    /// field read out of it.
     pub fn table(self) -> Result<Cursor, DecodeError> {
         return self.require('a table', self.as_self_if_table());
     }
 
-    /// The elements of this array, each as a cursor whose path carries its
-    /// index — so a failure deep in a list says `generate.operations[2]`
-    /// without the caller building that string.
+    /// The elements of this array, each as a cursor whose path carries its index —
+    /// so a failure deep in a list says `generate.operations[2]` without the caller
+    /// building that string.
     pub fn list(self) -> Result<List<Cursor>, DecodeError> {
         return self.require('an array', self.as_element_cursors());
     }
 
-    /// The value itself, checked only for presence. For a subschema the
-    /// reader does not model, where any TOML is legitimate.
+    /// The value itself, checked only for presence. For a subschema the reader does
+    /// not model, where any TOML is legitimate.
     pub fn raw(self) -> Result<Toml, DecodeError> {
         return self.require('a value', Option.Some(self.value));
     }
 
     // --- reading an optional value ---
     //
-    // Absent reads as `Option.None`; a present key of the wrong type is
-    // still a `Shape` error. TOML has no null, so absent is the whole story.
+    // Absent reads as `Option.None`; a present key of the wrong type is still a
+    // `Shape` error. TOML has no null, so absent is the whole story.
 
     pub fn opt_string(self) -> Result<Option<String>, DecodeError> {
         return self.allow('a string', self.value.as_string());
@@ -431,8 +426,8 @@ impl Cursor {
 
     // --- rejecting on your own terms ---
 
-    /// A `Shape` error at this cursor's path, for a check the readers can't
-    /// make: `at.field('spec_hash').unexpected('a 40-char hex digest')`.
+    /// A `Shape` error at this cursor's path, for a check the readers can't make:
+    /// `at.field('spec_hash').unexpected('a 40-char hex digest')`.
     pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError> {
         return Result.Err(DecodeError.Shape(self.spot(), expected, self.value.kind()));
     }
@@ -450,9 +445,9 @@ impl Cursor {
         };
     }
 
-    /// Absent is `None`; the wrong kind is still `Shape`. Tolerating an
-    /// absent key is not tolerating a key of the wrong type — the first is
-    /// the schema saying "optional", the second is a bug in the document.
+    /// Absent is `None`; the wrong kind is still `Shape`. Tolerating an absent key
+    /// is not tolerating a key of the wrong type — the first is the schema saying
+    /// "optional", the second is a bug in the document.
     fn allow<T>(self, _ expected: String, _ read: Option<T>) -> Result<Option<T>, DecodeError> {
         if !self.present {
             return Result.Ok(Option.None);
@@ -490,8 +485,8 @@ impl Cursor {
     }
 }
 
-/// An absent cursor. The placeholder value is unobservable through the
-/// readers — `require`/`allow` answer on `present` before looking at it.
+/// An absent cursor. The placeholder value is unobservable through the readers —
+/// `require`/`allow` answer on `present` before looking at it.
 fn absent(_ path: String) -> Cursor {
     return Cursor { value: Toml.Bool(false), path: path, present: false };
 }
@@ -505,24 +500,24 @@ struct Parser {
     let len: Int;
 }
 
-/// The separator used to render a key path into the `states` bookkeeping map
-/// — NUL, which no decoded key can contain a run of alongside real segments
-/// ambiguously enough to collide.
+/// The separator used to render a key path into the `states` bookkeeping map — NUL,
+/// which no decoded key can contain a run of alongside real segments ambiguously
+/// enough to collide.
 let path_sep: String = String.from_chars([0]);
 
 pub fn parse(_ text: String) -> Result<Toml, TomlError> {
     let cps = text.chars();
     let p = Parser { chars: cps, pos: 0, len: cps.len() };
-    // The document root, built line by line. `states` records how each table
-    // was created — 'header' ([a]), 'implicit' (an intermediate of a header
-    // path), 'array' ([[a]]), or 'dotted:<block>' (a dotted key, scoped to
-    // the block that wrote it) — keyed by NUL-joined path. A table with data
-    // but no state is a value's interior (an inline table, a static array's
-    // element): closed to every later definition.
+    // The document root, built line by line. `states` records how each table was
+    // created — 'header' ([a]), 'implicit' (an intermediate of a header path),
+    // 'array' ([[a]]), or 'dotted:<block>' (a dotted key, scoped to the block that
+    // wrote it) — keyed by NUL-joined path. A table with data but no state is a
+    // value's interior (an inline table, a static array's element): closed to every
+    // later definition.
     let mut root: Map<String, Toml> = [:];
     let mut states: Map<String, String> = [:];
-    // Key/value lines land in the current block: the root until the first
-    // header, then the table (or array element) the latest header named.
+    // Key/value lines land in the current block: the root until the first header,
+    // then the table (or array element) the latest header named.
     let mut cur_map = root;
     let mut cur_path = '';
     let mut block = 0;
@@ -575,9 +570,9 @@ pub fn parse(_ text: String) -> Result<Toml, TomlError> {
     return Result.Ok(Toml.Table(root));
 }
 
-/// Where a table header points: the table key/value lines now land in, and
-/// its rendered path (array elements carry their index as a pseudo-segment,
-/// so each `[[a]]` element gets distinct sub-paths in the state map).
+/// Where a table header points: the table key/value lines now land in, and its
+/// rendered path (array elements carry their index as a pseudo-segment, so each
+/// `[[a]]` element gets distinct sub-paths in the state map).
 struct BlockTarget {
     let map: Map<String, Toml>;
     let path: String;
@@ -661,8 +656,8 @@ impl Parser {
         return Result.Err(self.syntax('expected a newline'));
     }
 
-    /// After a key/value pair: optional whitespace and comment, then a
-    /// newline or end of input. Anything else is trailing junk.
+    /// After a key/value pair: optional whitespace and comment, then a newline or
+    /// end of input. Anything else is trailing junk.
     fn expect_line_end(self) -> Result<Void, TomlError> {
         self.skip_inline_ws();
         if self.peek() == char.HASH {
@@ -674,8 +669,8 @@ impl Parser {
         return self.expect_newline();
     }
 
-    /// Consume `#` to end of line, validating the comment's characters
-    /// (control characters other than tab are not permitted).
+    /// Consume `#` to end of line, validating the comment's characters (control
+    /// characters other than tab are not permitted).
     fn skip_comment(self) -> Result<Void, TomlError> {
         self.pos = self.pos + 1; // consume '#'
         let mut going = true;
@@ -724,12 +719,12 @@ impl Parser {
         return Result.Ok(segs);
     }
 
-    /// Insert `value` at the dotted `path` under the block rooted at `base`
-    /// (whose rendered path is `prefix`), enforcing TOML's dotted-key rules:
-    /// an intermediate segment may create a table, or descend into one that a
-    /// dotted key of the **same block** created. Everything else — a value,
-    /// an inline table, and any table defined by a header or by another
-    /// block's dotted keys — is closed to dotted extension.
+    /// Insert `value` at the dotted `path` under the block rooted at `base` (whose
+    /// rendered path is `prefix`), enforcing TOML's dotted-key rules: an
+    /// intermediate segment may create a table, or descend into one that a dotted
+    /// key of the **same block** created. Everything else — a value, an inline
+    /// table, and any table defined by a header or by another block's dotted keys —
+    /// is closed to dotted extension.
     fn insert(
         self,
         _ base: Map<String, Toml>,
@@ -784,13 +779,13 @@ impl Parser {
         return Result.Ok(void);
     }
 
-    /// Walk a `[table]` / `[[array]]` header path and return the block it
-    /// opens. Intermediates may be created (as 'implicit'), or descended
-    /// through — a header-defined or dotted-defined table directly, an array
-    /// of tables via its last element. The final segment carries the real
-    /// rules: a `[table]` may name a fresh key or promote an 'implicit'
-    /// table, exactly once; a `[[array]]` may name a fresh key or append to
-    /// an existing array of tables. Everything else is a redefinition error.
+    /// Walk a `[table]` / `[[array]]` header path and return the block it opens.
+    /// Intermediates may be created (as 'implicit'), or descended through — a
+    /// header-defined or dotted-defined table directly, an array of tables via its
+    /// last element. The final segment carries the real rules: a `[table]` may name
+    /// a fresh key or promote an 'implicit' table, exactly once; a `[[array]]` may
+    /// name a fresh key or append to an existing array of tables. Everything else
+    /// is a redefinition error.
     fn open_table(
         self,
         _ root: Map<String, Toml>,
@@ -980,15 +975,15 @@ impl Parser {
         return Result.Ok(void);
     }
 
-    /// `{ key = value, … }` — single-line, no trailing comma; dotted keys
-    /// work inside, scoped to this table. An inline table is closed: nothing
-    /// may extend it later.
+    /// `{ key = value, … }` — single-line, no trailing comma; dotted keys work
+    /// inside, scoped to this table. An inline table is closed: nothing may extend
+    /// it later.
     fn parse_inline_table(self) -> Result<Toml, TomlError> {
         self.pos = self.pos + 1; // consume '{'
         let mut fields: Map<String, Toml> = [:];
-        // A private state map: dotted keys inside the braces share one scope,
-        // and nothing here leaks into the document's states — which is what
-        // keeps an inline table's interior closed to later definitions.
+        // A private state map: dotted keys inside the braces share one scope, and
+        // nothing here leaks into the document's states — which is what keeps an
+        // inline table's interior closed to later definitions.
         let mut states: Map<String, String> = [:];
         self.skip_inline_ws();
         if self.peek() == char.RBRACE {
@@ -1067,8 +1062,8 @@ impl Parser {
         return Result.Ok(String.from_chars(out));
     }
 
-    /// The upcoming chars are `"""`. Trims a newline immediately after the
-    /// opener, normalizes CRLF to LF, and supports the line-ending backslash.
+    /// The upcoming chars are `"""`. Trims a newline immediately after the opener,
+    /// normalizes CRLF to LF, and supports the line-ending backslash.
     fn parse_ml_basic_string(self) -> Result<String, TomlError> {
         self.pos = self.pos + 3; // consume '"""'
         self.trim_leading_newline()?;
@@ -1153,9 +1148,9 @@ impl Parser {
         return n;
     }
 
-    /// The current position starts a run of >= 3 `quote`s: the last three are
-    /// the closing delimiter, up to two before it belong to the content, and
-    /// three or more before it are malformed.
+    /// The current position starts a run of >= 3 `quote`s: the last three are the
+    /// closing delimiter, up to two before it belong to the content, and three or
+    /// more before it are malformed.
     fn close_ml_delimiter(self, _ quote: Int, _ out: List<Int>) -> Result<Void, TomlError> {
         let run = self.quotes_ahead(quote);
         if run > 5 {
@@ -1170,8 +1165,8 @@ impl Parser {
         return Result.Ok(void);
     }
 
-    /// After a backslash in a multiline basic string: is this the line-ending
-    /// form (only whitespace up to a newline)? Peeks; consumes nothing.
+    /// After a backslash in a multiline basic string: is this the line-ending form
+    /// (only whitespace up to a newline)? Peeks; consumes nothing.
     fn at_line_ending_backslash(self) -> Bool {
         let mut i = self.pos;
         while self.cp_at(i) == char.SPACE || self.cp_at(i) == char.TAB {
@@ -1181,8 +1176,8 @@ impl Parser {
         return c == char.LF || c == char.CR;
     }
 
-    /// Consume the whitespace (including newlines) a line-ending backslash
-    /// escapes, up to the next non-whitespace character.
+    /// Consume the whitespace (including newlines) a line-ending backslash escapes,
+    /// up to the next non-whitespace character.
     fn skip_escaped_whitespace(self) -> Result<Void, TomlError> {
         let mut going = true;
         while going {
@@ -1198,9 +1193,9 @@ impl Parser {
         return Result.Ok(void);
     }
 
-    /// Decode one escape sequence (the `\` is already consumed) into `out`.
-    /// TOML's set — note `\/` is not in it, and `\uXXXX`/`\UXXXXXXXX` must
-    /// name a Unicode scalar value (no surrogates, unlike JSON's pairing).
+    /// Decode one escape sequence (the `\` is already consumed) into `out`. TOML's
+    /// set — note `\/` is not in it, and `\uXXXX`/`\UXXXXXXXX` must name a Unicode
+    /// scalar value (no surrogates, unlike JSON's pairing).
     fn parse_escape(self, _ out: List<Int>) -> Result<Void, TomlError> {
         let e = self.peek();
         if e == -1 {
@@ -1255,8 +1250,8 @@ impl Parser {
 
     // --- numbers and date-times ---
 
-    /// A value starting with a digit or sign: a number, unless the lookahead
-    /// spells a date (`DDDD-`) or time (`DD:`).
+    /// A value starting with a digit or sign: a number, unless the lookahead spells
+    /// a date (`DDDD-`) or time (`DD:`).
     fn parse_number_or_datetime(self) -> Result<Toml, TomlError> {
         let c = self.peek();
         if char.is_digit(c) {
@@ -1276,12 +1271,12 @@ impl Parser {
         return self.parse_number();
     }
 
-    /// A date-time (TOML 1.0.0 § Offset Date-Time through § Local Time). The
-    /// text is normalized as it is scanned — the delimiter to `T`, `z` to `Z`
-    /// — and every component is range-checked, including the day against its
-    /// month and leap year. Which of the four kinds this is falls out of what
-    /// follows the date: nothing (LocalDate), a time (LocalDateTime), a time
-    /// plus `Z` or a numeric offset (OffsetDateTime).
+    /// A date-time (TOML 1.0.0 § Offset Date-Time through § Local Time). The text
+    /// is normalized as it is scanned — the delimiter to `T`, `z` to `Z` — and
+    /// every component is range-checked, including the day against its month and
+    /// leap year. Which of the four kinds this is falls out of what follows the
+    /// date: nothing (LocalDate), a time (LocalDateTime), a time plus `Z` or a
+    /// numeric offset (OffsetDateTime).
     fn parse_datetime(self, _ with_date: Bool) -> Result<Toml, TomlError> {
         let mut out: List<Int> = [];
         let mut kind = DatetimeKind.LocalTime;
@@ -1298,8 +1293,8 @@ impl Parser {
                 return Result.Err(self.syntax('day out of range in date-time'));
             }
             // A time part follows via 'T'/'t', or a space that is genuinely a
-            // delimiter (the next chars spell HH:) — otherwise the space ends
-            // a plain local date.
+            // delimiter (the next chars spell HH:) — otherwise the space ends a
+            // plain local date.
             let c = self.peek();
             let delimited = c == 84 || c == 116; // 'T' 't'
             let spaced = c == char.SPACE
@@ -1503,9 +1498,8 @@ impl Parser {
         return Result.Ok(out);
     }
 
-    /// A `0x`/`0o`/`0b` integer (the `0` is current; the marker is next).
-    /// Leading zeros are legal here; the value must fit in a 64-bit signed
-    /// integer.
+    /// A `0x`/`0o`/`0b` integer (the `0` is current; the marker is next). Leading
+    /// zeros are legal here; the value must fit in a 64-bit signed integer.
     fn parse_radix_int(self, _ base: Int) -> Result<Toml, TomlError> {
         self.pos = self.pos + 2; // consume '0x' / '0o' / '0b'
         let mut digits: List<Int> = [];
@@ -1569,8 +1563,8 @@ fn is_bare_key_char(_ c: Int) -> Bool {
     return char.is_alphanumeric(c) || c == char.UNDERSCORE || c == char.MINUS;
 }
 
-/// Raw control characters are not permitted in any string form; tab is the
-/// one exception (newlines are handled by each form's own rules).
+/// Raw control characters are not permitted in any string form; tab is the one
+/// exception (newlines are handled by each form's own rules).
 fn is_forbidden_string_char(_ c: Int) -> Bool {
     return (c < char.SPACE && c != char.TAB) || c == char.DEL;
 }
@@ -1617,8 +1611,8 @@ fn render_path(_ path: List<String>, _ last: Int) -> String {
     return parts.join('.');
 }
 
-/// Does a decimal magnitude (digit code points, no leading zeros) exceed the
-/// i64 range for its sign? Compared textually so overflow never wraps.
+/// Does a decimal magnitude (digit code points, no leading zeros) exceed the i64
+/// range for its sign? Compared textually so overflow never wraps.
 fn exceeds_i64(_ digits: List<Int>, _ negative: Bool) -> Bool {
     let mut limit = '9223372036854775807'.chars();
     if negative {

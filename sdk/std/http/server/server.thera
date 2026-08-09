@@ -19,8 +19,8 @@
 //! ecosystem. Plaintext HTTP/1.1 only — a simple server's TLS is normally
 //! terminated upstream by a reverse proxy.
 //!
-//! One fiber per connection, over the scheduler. Errors are values: return a 4xx
-//! or 5xx `Response`, or propagate an `Error` and the server renders a 500.
+//! One fiber per connection, over the scheduler. Errors are values: return a 4xx or
+//! 5xx `Response`, or propagate an `Error` and the server renders a 500.
 //!
 //! This imports [std.http.common](../common/common.thera) rather than the
 //! `std.http` barrel, so serving never pulls in the client, nor its TLS dial. The
@@ -145,13 +145,13 @@ pub fn path_of(_ url: String) -> String {
 
 // --- serving ---
 
-/// Bind `addr` and serve it forever. `addr` is an `<ip>:<port>`:
-/// `'127.0.0.1:8080'` for loopback only, `'0.0.0.0:8080'` for every interface.
+/// Bind `addr` and serve it forever. `addr` is an `<ip>:<port>`: `'127.0.0.1:8080'`
+/// for loopback only, `'0.0.0.0:8080'` for every interface.
 ///
 /// **Blocks** — it only returns if binding or accepting fails. There is no way to
 /// stop it: that needs cancellation, which needs the scheduler's `select`
-/// (docs/roadmap.md § Networking punchlist). Use `serve_listener` when you need
-/// the bound address first.
+/// (docs/roadmap.md § Networking punchlist). Use `serve_listener` when you need the
+/// bound address first.
 pub fn serve(
     _ addr: String,
     _ handler: (common.Request) -> Result<common.Response, Error>,
@@ -199,8 +199,8 @@ pub fn serve_connection(
                 }
             },
             // The client is not speaking HTTP. Say so and hang up: the framing is
-            // untrustworthy, so there is no way to find the start of a next
-            // request on this connection.
+            // untrustworthy, so there is no way to find the start of a next request
+            // on this connection.
             Err(e) => {
                 let _ = respond(conn, error_response(status_for(e), e), keep_alive: false);
                 going = false;

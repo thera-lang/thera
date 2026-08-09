@@ -2,9 +2,9 @@
 //!
 //! Import as: import std.encoding
 //!
-//! Convert between `Bytes`/`String` and their textual encodings. The binary
-//! codecs (`base64`, `hex`) take and return `Bytes`; the URL codec works on text.
-//! Decoding is fallible — malformed input is a `Result.Err`, never a trap.
+//! Convert between `Bytes`/`String` and their textual encodings. The binary codecs
+//! (`base64`, `hex`) take and return `Bytes`; the URL codec works on text. Decoding
+//! is fallible — malformed input is a `Result.Err`, never a trap.
 //!
 //! ```thera
 //! let tag = encoding.base64_encode('hi'.bytes());   // 'aGk='
@@ -57,8 +57,8 @@ pub fn base64_encode(_ data: Bytes) -> String {
     return String.from_chars(cps);
 }
 
-/// Decode standard base64. Input length must be a multiple of 4 (with `=`
-/// padding); any non-alphabet character, misplaced padding, or a bad length is a
+/// Decode standard base64. Input length must be a multiple of 4 (with `=` padding);
+/// any non-alphabet character, misplaced padding, or a bad length is a
 /// `Result.Err`.
 ///
 /// ```thera
@@ -125,8 +125,8 @@ pub fn hex_encode(_ data: Bytes) -> String {
     return String.from_chars(cps);
 }
 
-/// Decode a hex string (upper- or lowercase). An odd length or a non-hex
-/// character is a `Result.Err`.
+/// Decode a hex string (upper- or lowercase). An odd length or a non-hex character
+/// is a `Result.Err`.
 ///
 /// ```thera
 /// encoding.hex_decode('6869')?.to_string()?   // 'hi'
@@ -152,10 +152,10 @@ pub fn hex_decode(_ s: String) -> Result<Bytes, Error> {
 
 // --- percent (URL) encoding (RFC 3986) ---
 
-/// Percent-encode `s` for use in a URL: the unreserved set
-/// (`A-Z a-z 0-9 - _ . ~`) passes through; every other byte of the UTF-8 encoding
-/// becomes `%XX` (uppercase hex). A space becomes `%20` (this is RFC 3986
-/// component encoding, not form encoding, so it is **not** `+`).
+/// Percent-encode `s` for use in a URL: the unreserved set (`A-Z a-z 0-9 - _ . ~`)
+/// passes through; every other byte of the UTF-8 encoding becomes `%XX` (uppercase
+/// hex). A space becomes `%20` (this is RFC 3986 component encoding, not form
+/// encoding, so it is **not** `+`).
 ///
 /// ```thera
 /// encoding.url_encode('a b&c')   // 'a%20b%26c'
@@ -237,8 +237,8 @@ fn b64_char(_ v: Int) -> Int {
     return char.SLASH;
 }
 
-/// The 6-bit value of a base64 character (code point), or -1 if not in the
-/// alphabet (`=` padding included — it is handled by the caller).
+/// The 6-bit value of a base64 character (code point), or -1 if not in the alphabet
+/// (`=` padding included — it is handled by the caller).
 fn b64_value(_ cp: Int) -> Int {
     if char.is_upper(cp) {
         return cp - char.UPPER_A;           // 'A'..'Z' -> 0..25
@@ -280,8 +280,8 @@ fn hex_value(_ cp: Int) -> Int {
     };
 }
 
-/// True for the RFC 3986 unreserved bytes (`A-Z a-z 0-9 - _ . ~`), which never
-/// need percent-encoding.
+/// True for the RFC 3986 unreserved bytes (`A-Z a-z 0-9 - _ . ~`), which never need
+/// percent-encoding.
 fn is_unreserved(_ b: Int) -> Bool {
     if char.is_alphanumeric(b) {
         return true;

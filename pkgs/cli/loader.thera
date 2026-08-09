@@ -1,8 +1,8 @@
 // The import-closure loader — the Thera mirror of the Dart toolchain's loader.dart
 // (plus the namespace layer of element/namespace.dart).
 //
-// Resolves and parses a program's transitive imports so the checker and emitter
-// can link them in: `std.core` is auto-imported (the unqualified prelude), `std.x`
+// Resolves and parses a program's transitive imports so the checker and emitter can
+// link them in: `std.core` is auto-imported (the unqualified prelude), `std.x`
 // anchors at the SDK std root, and any other path is relative to the importing
 // file. A path resolves to a single-file library (`<base>.thera`) or a directory's
 // barrel (`<base>/<name>.thera`). Cycles terminate via a file cache (a library is
@@ -22,18 +22,19 @@ import std.path;
 const STD_PREFIX: String = 'std.';
 
 // A loaded library and the libraries its imports resolve to, keyed by the import
-// path exactly as written (so a namespace can be derived per import and barrels
-// can be followed). `imports` is filled after construction so caching the node
-// first guards re-export cycles.
+// path exactly as written (so a namespace can be derived per import and barrels can
+// be followed). `imports` is filled after construction so caching the node first
+// guards re-export cycles.
 pub struct LibrarySource {
     let program: Program;
     let imports: Map<String, LibrarySource>;
 }
 
 // The loaded import closure: the flat list of imported programs (the typing /
-// linking substrate) and the per-file import namespaces. Resolution is per-file —
-// a file may qualify only with namespaces it itself imports — so each file carries
-// its own table (file key -> namespace -> surface) rather than a closure-wide union.
+// linking substrate) and the per-file import namespaces. Resolution is per-file — a
+// file may qualify only with namespaces it itself imports — so each file carries
+// its own table (file key -> namespace -> surface) rather than a closure-wide
+// union.
 pub struct LoadedImports {
     let programs: List<Program>;
     // Lex/parse diagnostics from every imported file (best-effort recovery), each
@@ -49,18 +50,18 @@ pub struct LoadedImports {
     // The import graph: canonical file key -> the canonical keys its `import`s
     // resolve to (deduped, in decl order; unresolved imports contribute no edge).
     // This is the dependency graph incremental invalidation walks (reverse the
-    // edges for "who must recheck when X changes") — carried out of the loader,
-    // the one place that knows it, instead of being re-derived. Only *explicit*
-    // imports are recorded: the implicit `std.core` prelude dependency is
-    // universal, so it isn't repeated per file.
+    // edges for "who must recheck when X changes") — carried out of the loader, the
+    // one place that knows it, instead of being re-derived. Only *explicit* imports
+    // are recorded: the implicit `std.core` prelude dependency is universal, so it
+    // isn't repeated per file.
     let file_imports: Map<String, List<String>>;
 }
 
 // --- SDK root discovery ---
 
-// The stdlib directory under an SDK root, or None if there's no stdlib there.
-// The two layouts diverge only here: a distributed SDK keeps it at `<root>/std`,
-// the in-repo checkout at `<root>/sdk/std`.
+// The stdlib directory under an SDK root, or None if there's no stdlib there. The
+// two layouts diverge only here: a distributed SDK keeps it at `<root>/std`, the
+// in-repo checkout at `<root>/sdk/std`.
 pub fn std_root(_ root: String) -> Option<String> {
     if is_dir(path.join(root, 'std')) {
         return Option.Some(path.join(root, 'std'));
@@ -72,16 +73,16 @@ pub fn std_root(_ root: String) -> Option<String> {
 }
 
 // Locate the SDK root — the directory whose stdlib `std_root` can find. Discovery
-// is location-based (no environment variable) and works from any working
-// directory: first a walk upward from the running executable's own directory,
-// then a walk upward from the current directory.
+// is location-based (no environment variable) and works from any working directory:
+// first a walk upward from the running executable's own directory, then a walk
+// upward from the current directory.
 //
 // The executable walk is the robust primary: the installed `<install>/bin/thera`
 // finds `<install>/std` one level up, and the dev `thera-rt` (buried under
-// `<repo>/runtime/target/<profile>/`) finds the repo's `sdk/std` a few levels up
-// — so `thera run /tmp/x.thera` resolves the prelude regardless of where it's
-// invoked from. The current-directory walk is a fallback for a front-end whose
-// executable doesn't sit near an SDK.
+// `<repo>/runtime/target/<profile>/`) finds the repo's `sdk/std` a few levels up —
+// so `thera run /tmp/x.thera` resolves the prelude regardless of where it's invoked
+// from. The current-directory walk is a fallback for a front-end whose executable
+// doesn't sit near an SDK.
 pub fn find_sdk_root() -> Option<String> {
     if let Some(exe) = env.current_exe() {
         if let Some(root) = walk_up_for_std(path.dirname(exe)) { return Option.Some(root); }
@@ -92,16 +93,16 @@ pub fn find_sdk_root() -> Option<String> {
     return Option.None;
 }
 
-// Walk upward from `start` (inclusive), returning the first ancestor whose
-// stdlib `std_root` can locate, or None within the depth bound. The bound keeps
-// a rootless path (no SDK anywhere above) from walking to the filesystem root.
+// Walk upward from `start` (inclusive), returning the first ancestor whose stdlib
+// `std_root` can locate, or None within the depth bound. The bound keeps a rootless
+// path (no SDK anywhere above) from walking to the filesystem root.
 fn walk_up_for_std(_ start: String) -> Option<String> {
     let mut dir = start;
     let mut i = 0;
     while i < 12 {
         if let Some(_) = std_root(dir) { return Option.Some(dir); }
-        // Stop on no progress: `path.dirname` fixes at '/' (absolute) or '.'
-        // (a bare relative name — its own parent).
+        // Stop on no progress: `path.dirname` fixes at '/' (absolute) or '.' (a
+        // bare relative name — its own parent).
         let parent = path.dirname(dir);
         if parent == dir || parent == '.' {
             return Option.None;
@@ -113,13 +114,13 @@ fn walk_up_for_std(_ start: String) -> Option<String> {
 }
 
 // The std directory that *contains* `base_dir`, or None when `base_dir` isn't
-// inside an SDK's std tree. Powers per-file `std.*` resolution: a file living
-// under some `…/std/` resolves the prelude from that same tree (its own siblings)
-// rather than a configured, possibly-foreign SDK. `walk_up_for_std` finds the
-// nearest SDK root above `base_dir`; the containment check ensures `base_dir` is
-// genuinely *within* that root's std (not merely a sibling of one), so ordinary
-// project files — which may have an unrelated SDK somewhere above — keep resolving
-// against the configured SDK.
+// inside an SDK's std tree. Powers per-file `std.*` resolution: a file living under
+// some `…/std/` resolves the prelude from that same tree (its own siblings) rather
+// than a configured, possibly-foreign SDK. `walk_up_for_std` finds the nearest SDK
+// root above `base_dir`; the containment check ensures `base_dir` is genuinely
+// *within* that root's std (not merely a sibling of one), so ordinary project files
+// — which may have an unrelated SDK somewhere above — keep resolving against the
+// configured SDK.
 fn own_std_dir(_ base_dir: String) -> Option<String> {
     if base_dir == '' {
         return Option.None;
@@ -140,19 +141,19 @@ fn own_std_dir(_ base_dir: String) -> Option<String> {
 
 // --- canonical file identity ---
 
-// The loader's canonical identity form for a source-file path: **absolute**
-// (a relative path is resolved against the current directory) and **lexically
+// The loader's canonical identity form for a source-file path: **absolute** (a
+// relative path is resolved against the current directory) and **lexically
 // normalized** (`.`/`..` collapsed). Every key the loader mints — the closure
 // cache, `file_path` stamps, the per-file namespace/bare-surface tables, the
-// caller-supplied parse cache — is in this form, so the same physical file
-// reached under different spellings (`/abs/x.thera`, `./x.thera`, `x.thera`,
+// caller-supplied parse cache — is in this form, so the same physical file reached
+// under different spellings (`/abs/x.thera`, `./x.thera`, `x.thera`,
 // `a/../x.thera`) has exactly one identity. Purely lexical beyond the cwd
 // resolution: symlinks and case-folding are not resolved (no stdlib native yet).
 //
 // **This canonical String IS the front-end's file id (LD17).** Mint here only:
 // every table key, `TypeId.owner`, and `Diagnostic.file` carries this form
-// (`element.file_key` bridges `Program.file_path`'s Option; `display_path` is
-// the printing inverse). Don't stamp identity from a raw/relative path.
+// (`element.file_key` bridges `Program.file_path`'s Option; `display_path` is the
+// printing inverse). Don't stamp identity from a raw/relative path.
 pub fn canonical_path(_ p: String) -> String {
     if path.is_absolute(p) {
         return path.normalize(p);
@@ -166,8 +167,8 @@ pub fn canonical_path(_ p: String) -> String {
 }
 
 // The display inverse of [canonical_path]: a canonical (absolute) path shown
-// relative to the current directory when it lies under it, else unchanged.
-// Identity stays canonical everywhere; only the printing edge relativizes.
+// relative to the current directory when it lies under it, else unchanged. Identity
+// stays canonical everywhere; only the printing edge relativizes.
 pub fn display_path(_ path: String) -> String {
     if let Ok(cwd) = env.current_dir() {
         let prefix = cwd + '/';
@@ -206,12 +207,12 @@ fn resolve_library_file(_ base: String) -> Option<String> {
 }
 
 // The recovered program for a file plus any lex/parse diagnostics it produced.
-// `pub` so a caller checking many files (`check <dir>`) can hold a cross-file
-// parse cache (`Map<path, ParsedFile>`) and hand it to `load_imports` — the
-// shared import closure (the `std.core` prelude above all) is then lexed and
-// parsed once per run instead of once per file. The AST is immutable after parse
-// (the element model is built *from* it; inference is pure), so sharing a parsed
-// program across files is safe — as the loader already does within one closure.
+// `pub` so a caller checking many files (`check <dir>`) can hold a cross-file parse
+// cache (`Map<path, ParsedFile>`) and hand it to `load_imports` — the shared import
+// closure (the `std.core` prelude above all) is then lexed and parsed once per run
+// instead of once per file. The AST is immutable after parse (the element model is
+// built *from* it; inference is pure), so sharing a parsed program across files is
+// safe — as the loader already does within one closure.
 pub struct ParsedFile {
     let program: Program;
     // The file's tokens — retained from the same lex that fed the parse, so the
@@ -227,8 +228,8 @@ pub struct ParsedFile {
 // returned program is usable (its recovered decls link) even when the file has
 // lex/parse errors — which are returned alongside it, stamped with `path`, rather
 // than dropped. Err carries the read failure's message (the file is missing or
-// unreadable) so the caller can attribute the root cause instead of degrading to
-// a downstream "undefined name". Stamps `file_path` so cycle detection and
+// unreadable) so the caller can attribute the root cause instead of degrading to a
+// downstream "undefined name". Stamps `file_path` so cycle detection and
 // diagnostics can key on it.
 fn parse_file(_ path: String) -> Result<ParsedFile, String> {
     match fs.read_text(path) {
@@ -255,9 +256,9 @@ pub fn parse_source(_ path: String, _ source: String) -> ParsedFile {
     return ParsedFile { program: prog, tokens: lex.tokens, diagnostics: diagnostics };
 }
 
-// Lex and parse `path`, or None if it can't be read or has lex/parse errors.
-// Stamps the program's `file_path`. (A strict wrapper over [parse_file] for
-// callers that only want a clean parse.)
+// Lex and parse `path`, or None if it can't be read or has lex/parse errors. Stamps
+// the program's `file_path`. (A strict wrapper over [parse_file] for callers that
+// only want a clean parse.)
 pub fn parse_file_or_null(_ path: String) -> Option<Program> {
     return match parse_file(path) {
         Ok(pf) => {
@@ -284,15 +285,15 @@ struct Loader {
     let parse_cache: Map<String, ParsedFile>;
     // In-memory file contents (canonical path -> text) that take precedence over
     // disk — the LSP's open, possibly-unsaved buffers. An imported file that is
-    // open in the editor is analyzed as the user sees it, not as last saved.
-    // The caller must evict a file's `parse_cache` entry whenever its overlay
-    // text changes or is removed (the LSP does, on every document event) — the
-    // cache is consulted first, so a stale entry would win otherwise.
+    // open in the editor is analyzed as the user sees it, not as last saved. The
+    // caller must evict a file's `parse_cache` entry whenever its overlay text
+    // changes or is removed (the LSP does, on every document event) — the cache is
+    // consulted first, so a stale entry would win otherwise.
     let overlays: Map<String, String>;
-    // Per-call memo: file key -> the file's flattened public surface. Kills
-    // the per-edge re-walk (LD14): `public_surface_of` used to be invoked once
-    // per import edge — namespaces ×1, bare surface ×1, the collision check
-    // ×2 — each re-walking the transitive pub-import closure from scratch.
+    // Per-call memo: file key -> the file's flattened public surface. Kills the
+    // per-edge re-walk (LD14): `public_surface_of` used to be invoked once per
+    // import edge — namespaces ×1, bare surface ×1, the collision check ×2 — each
+    // re-walking the transitive pub-import closure from scratch.
     let surfaces: Map<String, element.LibraryNamespace>;
 }
 
@@ -304,11 +305,12 @@ impl Loader {
         if import_path.starts_with(STD_PREFIX) {
             let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
             // Per-file SDK: if the importing file lives *inside* an SDK's std tree,
-            // resolve `std.*` from that tree — so a file under `sdk/std` uses its own
-            // siblings as the prelude, not a foreign installed SDK. Without this, an
-            // LSP whose configured SDK differs from the repo it's editing loads two
-            // copies of the core types (one from each tree) with distinct identities,
-            // and generic method bodies stop type-checking against their own `List<T>`.
+            // resolve `std.*` from that tree — so a file under `sdk/std` uses its
+            // own siblings as the prelude, not a foreign installed SDK. Without
+            // this, an LSP whose configured SDK differs from the repo it's editing
+            // loads two copies of the core types (one from each tree) with distinct
+            // identities, and generic method bodies stop type-checking against
+            // their own `List<T>`.
             if let Some(std) = own_std_dir(base_dir) {
                 if let Some(f) = resolve_library_file(std + '/' + rel) {
                     return canonical_resolved(Option.Some(f));
@@ -328,8 +330,8 @@ impl Loader {
         }
         // Canonicalize so the same physical file reached by different spellings
         // (`codegen/../element/element` vs `element/element`, or the root file
-        // re-reached through an import cycle) gets one canonical key — otherwise
-        // it loads (and compiles) once per spelling, and owner-correct resolution
+        // re-reached through an import cycle) gets one canonical key — otherwise it
+        // loads (and compiles) once per spelling, and owner-correct resolution
         // can't tell the duplicate units apart.
         return canonical_resolved(resolve_library_file(base_dir + '/' + import_path));
     }
@@ -342,7 +344,8 @@ impl Loader {
         // Parse best-effort: even a file with lex/parse errors yields a recovered
         // program that we still link (its good decls resolve) — and its diagnostics
         // are collected here so the importer surfaces them attributed to this file,
-        // rather than the broken import vanishing into a downstream "undefined name".
+        // rather than the broken import vanishing into a downstream "undefined
+        // name".
         match self.parsed_file(file) {
             Ok(pf) => {
                 for d in pf.diagnostics {
@@ -389,21 +392,21 @@ impl Loader {
         }
     }
 
-    // Resolve each `import` in `prog` and record the child library under the
-    // import path on `into`. A failure — the path doesn't resolve to a file, or
-    // the file can't be read — is a diagnostic at the import's span, attributed
-    // to the importer: the root cause, not a downstream "undefined name" (and an
-    // unused broken import no longer passes silently).
+    // Resolve each `import` in `prog` and record the child library under the import
+    // path on `into`. A failure — the path doesn't resolve to a file, or the file
+    // can't be read — is a diagnostic at the import's span, attributed to the
+    // importer: the root cause, not a downstream "undefined name" (and an unused
+    // broken import no longer passes silently).
     fn link_imports(self, _ prog: Program, _ base_dir: String, _ into: LibrarySource) -> Void {
         let importer = element.file_key(prog.file_path);
         for decl in prog.decls {
             if let Import(x) = decl {
                 match self.resolve(x.path, base_dir) {
                     Some(file) => {
-                        // A direct self-import is meaningless (a file's own
-                        // names are already in scope) — reject it rather than
-                        // silently linking a no-op edge. Longer cycles through
-                        // other files stay legal (the cache breaks them).
+                        // A direct self-import is meaningless (a file's own names
+                        // are already in scope) — reject it rather than silently
+                        // linking a no-op edge. Longer cycles through other files
+                        // stay legal (the cache breaks them).
                         if element.file_key(Option.Some(file)) == importer {
                             self.diagnostics.push(diagnostic.in_file(
                                 'a file cannot import itself',
@@ -456,13 +459,13 @@ impl Loader {
 // Resolve and parse the import closure of `program` (located at `path`). `program`
 // itself is used as-is (not re-read), so in-memory edits are honored.
 //
-// `path` is canonicalized at entry ([canonical_path]) and the program's
-// `file_path` is re-stamped with the canonical form, so the root carries the
-// same identity import resolution produces: a cycle that re-reaches the root
-// hits the cache instead of loading the file a second time as a duplicate unit,
-// and a bare `thera run root.thera` resolves its imports against the invocation
-// directory (the pre-canonical `dirname('root.thera')` was `''`, which sent
-// imports to the filesystem root).
+// `path` is canonicalized at entry ([canonical_path]) and the program's `file_path`
+// is re-stamped with the canonical form, so the root carries the same identity
+// import resolution produces: a cycle that re-reaches the root hits the cache
+// instead of loading the file a second time as a duplicate unit, and a bare
+// `thera run root.thera` resolves its imports against the invocation directory (the
+// pre-canonical `dirname('root.thera')` was `''`, which sent imports to the
+// filesystem root).
 pub fn load_imports(
     _ entry: String,
     _ program: Program,
@@ -487,8 +490,8 @@ pub fn load_imports(
     // impls (Display for Error), and the prelude methods on built-in types link.
     // Its public surface is bare-legal in every file (the prelude); each prelude
     // name maps to the file that *declares* it (from the surface's origin map), not
-    // the barrel — a prelude name re-exported from a std.core sub-file (e.g. `error`
-    // in core/error.thera) owns to that sub-file, where its element lives.
+    // the barrel — a prelude name re-exported from a std.core sub-file (e.g.
+    // `error` in core/error.thera) owns to that sub-file, where its element lives.
     // (With no SDK — `sdk_root: None`, the deliberate hermetic mode — the resolve
     // misses and no prelude loads; explicit `std.*` imports get the "no Thera SDK
     // found" diagnostic in `link_imports`, and the CLI warns once at startup.)
@@ -506,9 +509,9 @@ pub fn load_imports(
         }
     }
 
-    // The primary program is already parsed; link its imports so its namespaces
-    // can be derived. Cached under the canonical key, so an import that resolves
-    // back to the root (a cycle) reuses this in-memory program.
+    // The primary program is already parsed; link its imports so its namespaces can
+    // be derived. Cached under the canonical key, so an import that resolves back
+    // to the root (a cycle) reuses this in-memory program.
     let root = LibrarySource { program: program, imports: [:] };
     loader.cache[canon] = root;
     loader.link_imports(program, path.dirname(canon), root);
@@ -563,14 +566,13 @@ pub fn load_imports(
 }
 
 // One file's cached surface products — everything the per-file loop in
-// `load_imports` derives for it: the namespaces its imports bind, its
-// bare-legal surface, its import edges, and its surface-collision diagnostics
-// (replayed on a hit). An entry is valid until the file or anything in its
-// import cone changes: the caller (the session) evicts via its dependency
-// graph — the white-box `foo_test.thera` → `foo.thera` dependency is an
-// explicit import edge in that graph, and the implicit std.core dependency
-// (`bare_surface` bakes in the prelude names) is covered by the session's
-// SDK invalidate-all rule.
+// `load_imports` derives for it: the namespaces its imports bind, its bare-legal
+// surface, its import edges, and its surface-collision diagnostics (replayed on a
+// hit). An entry is valid until the file or anything in its import cone changes:
+// the caller (the session) evicts via its dependency graph — the white-box
+// `foo_test.thera` → `foo.thera` dependency is an explicit import edge in that
+// graph, and the implicit std.core dependency (`bare_surface` bakes in the prelude
+// names) is covered by the session's SDK invalidate-all rule.
 pub struct FileSurface {
     let namespaces: Map<String, element.LibraryNamespace>;
     let bare_surface: Map<String, String>;
@@ -579,10 +581,10 @@ pub struct FileSurface {
 }
 
 // The canonical file keys `program`'s **direct** imports resolve to — a cheap
-// forward-edge probe that skips the whole closure load (no child sources,
-// surfaces, element model, or recursion). Resolves each import specifier the same
-// way the full loader does (`std.*` at the SDK std root, else relative to
-// `entry`'s directory), so it yields exactly the keys `load_imports` records in
+// forward-edge probe that skips the whole closure load (no child sources, surfaces,
+// element model, or recursion). Resolves each import specifier the same way the
+// full loader does (`std.*` at the SDK std root, else relative to `entry`'s
+// directory), so it yields exactly the keys `load_imports` records in
 // `file_imports`. Powers the LSP's workspace edge index — the references/rename
 // dependency cone — without paying for every file's closure. `entry` is the
 // importing file's path; a specifier that resolves to no file is dropped.
@@ -639,9 +641,9 @@ fn import_edges_of(_ source: LibrarySource) -> List<String> {
 impl Loader {
     // The names that resolve *bare* in `root` from another library: the prelude
     // (`core_names`), the public surface of each `import … as _` (unqualified)
-    // import, and — for a `foo_test.thera` — the *full* surface (incl. private)
-    // of the `foo` it imports (the white-box test exception; the filenames
-    // match). A `Loader` method for the surface memo.
+    // import, and — for a `foo_test.thera` — the *full* surface (incl. private) of
+    // the `foo` it imports (the white-box test exception; the filenames match). A
+    // `Loader` method for the surface memo.
     fn bare_surface_of(
         self,
         _ root: LibrarySource,
@@ -668,9 +670,9 @@ impl Loader {
                         }
                     }
                     // White-box: `foo_test.thera` sees `foo.thera`'s private
-                    // top-level names bare, in addition to its public surface —
-                    // for the `foo.thera` in its *own directory* only (LD9: a
-                    // basename match alone granted private access to any imported
+                    // top-level names bare, in addition to its public surface — for
+                    // the `foo.thera` in its *own directory* only (LD9: a basename
+                    // match alone granted private access to any imported
                     // `foo.thera` from any directory).
                     if let Some(base) = test_base {
                         if basename_no_ext(child.program.file_path) == base
@@ -698,10 +700,10 @@ impl Loader {
 //   diagnosed at the second import; the fix is importing one of them with a
 //   namespace.
 //
-// Same-origin re-exposure (a diamond of re-exports reaching one declaring
-// file) is not a collision. Prelude and white-box-test names are not checked
-// here: a file's *own* declarations may shadow the prelude (soft-reserved),
-// and the existing insertion order implements that precedence.
+// Same-origin re-exposure (a diamond of re-exports reaching one declaring file) is
+// not a collision. Prelude and white-box-test names are not checked here: a file's
+// *own* declarations may shadow the prelude (soft-reserved), and the existing
+// insertion order implements that precedence.
 impl Loader {
     fn collect_collisions(
         self,
@@ -765,8 +767,8 @@ impl Loader {
         }
     }
 
-    // The namespaces bound by `root`'s own imports — the memoized twin of the
-    // free `namespaces_for` (which stays for surface-shape callers/tests).
+    // The namespaces bound by `root`'s own imports — the memoized twin of the free
+    // `namespaces_for` (which stays for surface-shape callers/tests).
     fn namespaces_of(self, _ root: LibrarySource) -> Map<String, element.LibraryNamespace> {
         let result: Map<String, element.LibraryNamespace> = [:];
         for decl in root.program.decls {
@@ -802,8 +804,8 @@ fn basename_no_ext(_ file: Option<String>) -> String {
     return seg;
 }
 
-// Every top-level name a library declares — public and private — for white-box
-// test access.
+// Every top-level name a library declares — public and private — for white-box test
+// access.
 fn all_top_names(_ source: LibrarySource) -> Set<String> {
     let names: Set<String> = Set.new();
     for decl in source.program.decls {
@@ -843,8 +845,8 @@ pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNames
     return result;
 }
 
-// The public surface of `lib`: its own `pub` declarations plus the flattened
-// public surfaces of its `pub import`s.
+// The public surface of `lib`: its own `pub` declarations plus the flattened public
+// surfaces of its `pub import`s.
 pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
     let names: Set<String> = Set.new();
     let collisions: Set<String> = Set.new();
@@ -873,8 +875,8 @@ fn collect_surface(
                 collisions.add(name);
             } else {
                 names.add(name);
-                // The declaring file owns this public name (a barrel re-export
-                // owns to the re-exporting file via the recursion below). A later
+                // The declaring file owns this public name (a barrel re-export owns
+                // to the re-exporting file via the recursion below). A later
                 // collision keeps the first owner; `collisions` flags the clash.
                 origin[name] = key;
             }
@@ -891,14 +893,14 @@ fn collect_surface(
     }
 }
 
-// The namespace an import binds: its explicit alias, or the trailing segment of
-// its path (`std.fs` -> `fs`, `util/strings` -> `strings`).
+// The namespace an import binds: its explicit alias, or the trailing segment of its
+// path (`std.fs` -> `fs`, `util/strings` -> `strings`).
 fn namespace_of(_ decl: ImportDecl) -> String {
     return decl.alias.unwrap_or_else(() => last_dot_segment(path.basename(decl.path)));
 }
 
-// The last `.`-separated segment (`std.fs` -> `fs`) — a namespace derivation,
-// not a path operation (extensions don't apply to import paths).
+// The last `.`-separated segment (`std.fs` -> `fs`) — a namespace derivation, not a
+// path operation (extensions don't apply to import paths).
 fn last_dot_segment(_ s: String) -> String {
     let parts = s.split('.');
     return parts[parts.len() - 1];
@@ -921,17 +923,17 @@ fn public_name(_ decl: Decl) -> Option<String> {
 
 // --- import-cycle detection (language.md § Import resolution) ---
 //
-// Imports between libraries must be acyclic. The unit of acyclicity is the
-// library: a directory library (a directory fronted by its `<dir>/<name>.thera`
-// barrel) is one unit — its files may import each other freely, cycles included
-// — and every other file is a unit of its own. Test files (`foo_test.thera`)
-// are consumers of the libraries they import, not members: their imports don't
-// participate. Every cross-unit import inside a cycle is diagnosed — the
-// flagged imports are exactly the edges an edit could break — each carrying
-// one full cycle path at unit granularity.
+// Imports between libraries must be acyclic. The unit of acyclicity is the library:
+// a directory library (a directory fronted by its `<dir>/<name>.thera` barrel) is
+// one unit — its files may import each other freely, cycles included — and every
+// other file is a unit of its own. Test files (`foo_test.thera`) are consumers of
+// the libraries they import, not members: their imports don't participate. Every
+// cross-unit import inside a cycle is diagnosed — the flagged imports are exactly
+// the edges an edit could break — each carrying one full cycle path at unit
+// granularity.
 
-// Whether `dir` is a directory library — its barrel `<dir>/<name>.thera`
-// exists on disk. Memoized per pass in `dir_cache`.
+// Whether `dir` is a directory library — its barrel `<dir>/<name>.thera` exists on
+// disk. Memoized per pass in `dir_cache`.
 fn is_library_dir(_ dir: String, _ dir_cache: Map<String, Bool>) -> Bool {
     return match dir_cache.get(dir) {
         Some(b) => b,
@@ -948,15 +950,15 @@ fn barrel_path(_ dir: String) -> String {
     return path.join(dir, path.basename(dir) + source_exts()[0]);
 }
 
-// The acyclicity unit for a canonical file key: its directory when that
-// directory is a library, else the file itself.
+// The acyclicity unit for a canonical file key: its directory when that directory
+// is a library, else the file itself.
 fn unit_of(_ key: String, _ dir_cache: Map<String, Bool>) -> String {
     let dir = path.dirname(key);
     return if is_library_dir(dir, dir_cache) { dir } else { key };
 }
 
-// A unit rendered for the cycle message: a directory library with a trailing
-// '/', a single-file unit as its display path.
+// A unit rendered for the cycle message: a directory library with a trailing '/', a
+// single-file unit as its display path.
 fn unit_display(_ unit: String) -> String {
     if unit.ends_with(source_exts()[0]) {
         return display_path(unit);
@@ -982,11 +984,11 @@ fn add_unit(_ u: String, _ units: List<String>, _ seen: Set<String>) -> Void {
     return;
 }
 
-// Strongly connected components of the unit graph — Kosaraju's two-pass sweep
-// with explicit stacks (no recursion, so a deep import chain can't overflow).
-// Returns unit -> component id; two units share an id exactly when each can
-// reach the other (a cycle: same-unit edges are excluded upstream, so a
-// single-unit component is acyclic).
+// Strongly connected components of the unit graph — Kosaraju's two-pass sweep with
+// explicit stacks (no recursion, so a deep import chain can't overflow). Returns
+// unit -> component id; two units share an id exactly when each can reach the other
+// (a cycle: same-unit edges are excluded upstream, so a single-unit component is
+// acyclic).
 fn scc_ids(_ units: List<String>, _ adj: Map<String, List<String>>) -> Map<String, Int> {
     // Pass 1: DFS post-order ("finish order") over the forward graph.
     let finished: List<String> = [];
@@ -1052,9 +1054,9 @@ fn scc_ids(_ units: List<String>, _ adj: Map<String, List<String>>) -> Map<Strin
     return comp;
 }
 
-// The cycle message for a participating edge `from → to`: the edge itself,
-// then a shortest path from `to` back to `from` inside their shared component
-// (BFS restricted to it) — `a → b/ → a`. Same component ⇒ the path exists.
+// The cycle message for a participating edge `from → to`: the edge itself, then a
+// shortest path from `to` back to `from` inside their shared component (BFS
+// restricted to it) — `a → b/ → a`. Same component ⇒ the path exists.
 fn cycle_path(
     _ from: String,
     _ to: String,
@@ -1082,8 +1084,8 @@ fn cycle_path(
             }
         }
     }
-    // Walk the parent links `from` -> … -> `to` (the reversed path), then emit
-    // the cycle: from -> to -> … -> from.
+    // Walk the parent links `from` -> … -> `to` (the reversed path), then emit the
+    // cycle: from -> to -> … -> from.
     let walk: List<String> = [];
     let mut cur = from;
     while cur != to {
@@ -1106,8 +1108,8 @@ fn cycle_path(
 
 // Detect library-level import cycles across the loaded closure and report every
 // participating cross-unit import at its own span. Runs per closure load — the
-// graph pass is linear in the closure's edges; `thera check`'s printed-line
-// dedupe collapses the repeats across a multi-file run.
+// graph pass is linear in the closure's edges; `thera check`'s printed-line dedupe
+// collapses the repeats across a multi-file run.
 fn detect_import_cycles(
     _ cache: Map<String, LibrarySource>,
     _ file_imports: Map<String, List<String>>,
@@ -1138,8 +1140,8 @@ fn detect_import_cycles(
         }
     }
     let comp = scc_ids(units, adj);
-    // Flag each import whose edge stays inside one component — those imports
-    // are exactly the places an edit can break the cycle.
+    // Flag each import whose edge stays inside one component — those imports are
+    // exactly the places an edit can break the cycle.
     for file in file_imports.keys() {
         if let Some(_) = test_base_name(Option.Some(file)) {
             continue;
@@ -1169,16 +1171,16 @@ fn detect_import_cycles(
 // --- deep-import enforcement (language.md § Import resolution) ---
 //
 // A directory library's files are importable only from inside that directory:
-// outsiders import the barrel (by directory path or barrel-file path — the
-// same file), which re-exports the library's surface. This is what makes the
-// barrel the library's one API — without it, any internal file an outsider
-// imports becomes a second, undocumented surface. The rule is the same for
-// every importer, test files included: white-box access rides the
-// same-directory `foo_test.thera` convention, which sibling imports cover.
+// outsiders import the barrel (by directory path or barrel-file path — the same
+// file), which re-exports the library's surface. This is what makes the barrel the
+// library's one API — without it, any internal file an outsider imports becomes a
+// second, undocumented surface. The rule is the same for every importer, test files
+// included: white-box access rides the same-directory `foo_test.thera` convention,
+// which sibling imports cover.
 
-// Report every import that resolves to a non-barrel file inside a directory
-// library the importer is not itself in. Runs per closure load, beside the
-// cycle pass; `thera check`'s printed-line dedupe collapses multi-run repeats.
+// Report every import that resolves to a non-barrel file inside a directory library
+// the importer is not itself in. Runs per closure load, beside the cycle pass;
+// `thera check`'s printed-line dedupe collapses multi-run repeats.
 fn detect_deep_imports(
     _ cache: Map<String, LibrarySource>,
     _ diags: List<diagnostic.Diagnostic>,

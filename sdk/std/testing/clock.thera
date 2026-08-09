@@ -1,16 +1,15 @@
-//! std.testing clock doubles — test substitutes for the std.time clock
-//! capability.
+//! std.testing clock doubles — test substitutes for the std.time clock capability.
 //!
 //! A frozen clock is almost purely a test affordance (hard to justify outside a
-//! test), so it lives in std.testing rather than beside std.time. Doubles that
-//! are also useful in production — like an in-memory filesystem — live beside
-//! their real library instead. See docs/stdlib.md § Cross-cutting #7.
+//! test), so it lives in std.testing rather than beside std.time. Doubles that are
+//! also useful in production — like an in-memory filesystem — live beside their
+//! real library instead. See docs/stdlib.md § Cross-cutting #7.
 
 import std.time;
 
-/// A `time.Clock` frozen at a fixed instant, for deterministic tests of code
-/// that takes a clock capability. Pass it where the code under test expects a
-/// `Clock`; it always reports `millis`.
+/// A `time.Clock` frozen at a fixed instant, for deterministic tests of code that
+/// takes a clock capability. Pass it where the code under test expects a `Clock`;
+/// it always reports `millis`.
 ///
 /// ```thera
 /// let clock = testing.fixed_clock(1000);

@@ -1,12 +1,12 @@
-//! std.cli — declarative command-line parsing: typed flags, options,
-//! positionals, subcommands, and a generated `--help`.
+//! std.cli — declarative command-line parsing: typed flags, options, positionals,
+//! subcommands, and a generated `--help`.
 //!
 //! Import as: import std.cli
 //!
-//! Declare a command with a fluent builder, then parse the program arguments
-//! (the `List<String>` `main` receives, or `env.args()`). Names are declared
-//! **bare** — `flag('verbose')`, not `flag('--verbose')`; the parser owns the
-//! dash conventions and accepts:
+//! Declare a command with a fluent builder, then parse the program arguments (the
+//! `List<String>` `main` receives, or `env.args()`). Names are declared **bare** —
+//! `flag('verbose')`, not `flag('--verbose')`; the parser owns the dash conventions
+//! and accepts:
 //!
 //! ```
 //! --name             a long flag            (foo --verbose)
@@ -17,8 +17,8 @@
 //! --no-name          a negated flag         (foo --no-color)   [if negatable]
 //! ```
 //!
-//! A `--help` / `-h` flag is registered automatically. Parsing never exits on
-//! its own — you decide when to show help:
+//! A `--help` / `-h` flag is registered automatically. Parsing never exits on its
+//! own — you decide when to show help:
 //!
 //! ```thera
 //! import std.cli;
@@ -46,19 +46,19 @@
 //! }
 //! ```
 //!
-//! `parse` is the mechanism. For the common shape — parse, show help on
-//! `--help`, report a parse error with usage, dispatch a subcommand — reach for
-//! the `run` adapter instead: it folds that glue (and the exit codes) into one
-//! call, leaving the client just the subcommand switch. See `Command.run`.
+//! `parse` is the mechanism. For the common shape — parse, show help on `--help`,
+//! report a parse error with usage, dispatch a subcommand — reach for the `run`
+//! adapter instead: it folds that glue (and the exit codes) into one call, leaving
+//! the client just the subcommand switch. See `Command.run`.
 //!
 //! For raw, undeclared access to the argument list, see `std.cli/args` (the
 //! low-level escape hatch); `Command` is the declarative layer on the same idea.
 
 // --- declarations ---
 
-/// A boolean flag. `fallback` is the value reported when the flag is absent
-/// (the `default:` builder argument); a `negatable` flag also accepts
-/// `--no-<name>`, which reports false.
+/// A boolean flag. `fallback` is the value reported when the flag is absent (the
+/// `default:` builder argument); a `negatable` flag also accepts `--no-<name>`,
+/// which reports false.
 pub struct Flag {
     let name: String;
     let help: String;
@@ -80,8 +80,8 @@ pub struct Positional {
     let help: String;
 }
 
-/// A command: its declared flags/options/positionals and any subcommands. Build
-/// one with the fluent `Command.new(...).flag(...).option(...)` builder.
+/// A command: its declared flags/options/positionals and any subcommands. Build one
+/// with the fluent `Command.new(...).flag(...).option(...)` builder.
 pub struct Command {
     let name: String;
     let mut about_text: String;
@@ -94,14 +94,13 @@ pub struct Command {
     let positionals: List<Positional>;
     let subcommands: List<Command>;
     /// When true, the first positional token (and everything after it, flags
-    /// included) is captured verbatim as positionals — for a launcher command
-    /// that forwards a trailing argv to a wrapped program (`run <file> [args]`).
+    /// included) is captured verbatim as positionals — for a launcher command that
+    /// forwards a trailing argv to a wrapped program (`run <file> [args]`).
     let mut trailing_var_arg: Bool;
 }
 
-/// What kind of thing `parse` rejected. The payload is the offending token
-/// (`match` on it for the cause); the surrounding `CliError` adds *where* it
-/// happened.
+/// What kind of thing `parse` rejected. The payload is the offending token (`match`
+/// on it for the cause); the surrounding `CliError` adds *where* it happened.
 pub enum CliErrorKind {
     UnknownFlag(String),        // an undeclared --flag / -x
     MissingValue(String),       // an option given with no value
@@ -112,9 +111,9 @@ pub enum CliErrorKind {
 /// A parse failure: its `kind` (the cause) plus the command `path` where it
 /// occurred (`[]` at the top level, `['run']` inside the `run` subcommand). The
 /// path lets a client — or the `run` adapter — show the *failing* command's own
-/// help instead of the top-level usage. Implements the common `Error` interface,
-/// so it can be returned as `Result<_, Error>` at a boundary while callers who
-/// want the cause still `match` on `.kind()`.
+/// help instead of the top-level usage. Implements the common `Error` interface, so
+/// it can be returned as `Result<_, Error>` at a boundary while callers who want
+/// the cause still `match` on `.kind()`.
 pub struct CliError {
     let kind: CliErrorKind;
     let path: List<String>;
@@ -185,10 +184,10 @@ pub struct Selection {
     let matches: Matches;
 }
 
-/// The outcome of the `run` entry adapter. Either the parse succeeded and no
-/// help was requested — `Proceed` with the resolved `Matches` for the client to
-/// dispatch on — or the adapter already handled the invocation (printed help or
-/// an error) and the program should `Exit` with the given status code.
+/// The outcome of the `run` entry adapter. Either the parse succeeded and no help
+/// was requested — `Proceed` with the resolved `Matches` for the client to dispatch
+/// on — or the adapter already handled the invocation (printed help or an error)
+/// and the program should `Exit` with the given status code.
 pub enum Action {
     Proceed(Matches),
     Exit(Int),
@@ -230,9 +229,9 @@ impl Command {
         return self;
     }
 
-    /// Declare a boolean flag (present → true). `abbr` is a single-character
-    /// short form (`-a`); `negatable` also accepts `--no-<name>`; `default` is
-    /// the value when the flag is absent.
+    /// Declare a boolean flag (present → true). `abbr` is a single-character short
+    /// form (`-a`); `negatable` also accepts `--no-<name>`; `default` is the value
+    /// when the flag is absent.
     pub fn flag(
         self,
         _ name: String,
@@ -274,8 +273,8 @@ impl Command {
         return self;
     }
 
-    /// Attach a subcommand. When the command has subcommands, the first bare
-    /// token selects one and the remaining arguments are parsed under it.
+    /// Attach a subcommand. When the command has subcommands, the first bare token
+    /// selects one and the remaining arguments are parsed under it.
     pub fn subcommand(self, _ cmd: Command) -> Command {
         self.subcommands.push(cmd);
         return self;
@@ -416,9 +415,9 @@ impl Command {
         return Result.Ok(m);
     }
 
-    /// The opinionated entry adapter: parse `argv` and handle the glue every
-    /// client otherwise re-implements. It collapses the parse + `--help` +
-    /// error + exit-code boilerplate into one call. Specifically:
+    /// The opinionated entry adapter: parse `argv` and handle the glue every client
+    /// otherwise re-implements. It collapses the parse + `--help` + error +
+    /// exit-code boilerplate into one call. Specifically:
     ///
     ///   - **Parse error** → print `name: <message>` and the *failing*
     ///     (sub)command's help to stderr; `Exit(2)`. (Command-path-aware: a
@@ -430,9 +429,9 @@ impl Command {
     ///   - **Otherwise** → `Proceed(matches)`; the client dispatches — typically
     ///     `match matches.selected() { Some(sel) => … }`.
     ///
-    /// Stdout/stderr and the exit-code convention (0 help, 1 usage, 2 parse
-    /// error) are the library's opinion; a client wanting different policy uses
-    /// `parse` directly.
+    /// Stdout/stderr and the exit-code convention (0 help, 1 usage, 2 parse error)
+    /// are the library's opinion; a client wanting different policy uses `parse`
+    /// directly.
     ///
     /// ```thera
     /// fn main(argv: List<String>) -> Result<Int, Error> {
@@ -465,8 +464,8 @@ impl Command {
             return Action.Proceed(m);
         }
         // No subcommand: top-level `--help` is a success; a bare invocation of a
-        // command that *expects* a subcommand is a usage error; a flat command
-        // (no subcommands) proceeds to read its own flags/positionals.
+        // command that *expects* a subcommand is a usage error; a flat command (no
+        // subcommands) proceeds to read its own flags/positionals.
         if m.flag('help') {
             println(self.help());
             return Action.Exit(0);
@@ -507,9 +506,9 @@ impl Command {
         }
         lines.push(usage);
 
-        // Align every section's description onto one column: the widest head
-        // (with a description) across all sections sets it, so flags, options,
-        // arguments, and commands read down a single gutter.
+        // Align every section's description onto one column: the widest head (with
+        // a description) across all sections sets it, so flags, options, arguments,
+        // and commands read down a single gutter.
         let width = self.description_column();
 
         if self.flags.len() > 0 {
@@ -577,8 +576,8 @@ impl Command {
 
     /// The `help()` text for the immediate subcommand named `name`, or this
     /// command's own help when no such subcommand exists. This is the
-    /// "`<tool> <command> --help`" text — a client (or the `run` adapter) shows
-    /// it for the selected subcommand.
+    /// "`<tool> <command> --help`" text — a client (or the `run` adapter) shows it
+    /// for the selected subcommand.
     pub fn help_for(self, _ name: String) -> String {
         return self.help_along([name]);
     }
@@ -600,8 +599,8 @@ impl Command {
 }
 
 impl Matches {
-    /// Whether `name` resolved to true (positive form present, or its default;
-    /// a negated `--no-name` and absence both yield the false/default value).
+    /// Whether `name` resolved to true (positive form present, or its default; a
+    /// negated `--no-name` and absence both yield the false/default value).
     pub fn flag(self, _ name: String) -> Bool {
         return match self.flag_values.get(name) {
             Some(v) => v,
@@ -637,8 +636,8 @@ impl Matches {
     /// The selected subcommand's name **and** its `Matches` together, if one
     /// matched — the pair a dispatcher needs, so a client reads
     /// `match m.selected() { Some(sel) => …sel.name…sel.matches… }` instead of
-    /// threading `subcommand()` and `matches()` (which are always both present
-    /// or both absent) separately.
+    /// threading `subcommand()` and `matches()` (which are always both present or
+    /// both absent) separately.
     pub fn selected(self) -> Option<Selection> {
         return match self.sub_name {
             Some(name) => match self.sub {
@@ -653,8 +652,8 @@ impl Matches {
 // --- internal helpers ---
 
 /// A help row: `head`, then `help` on the same line at the shared description
-/// column (`width`) with a two-space gutter. A row with no description is just
-/// its head — no trailing whitespace.
+/// column (`width`) with a two-space gutter. A row with no description is just its
+/// head — no trailing whitespace.
 fn describe(_ head: String, _ help: String, _ width: Int) -> String {
     if help == '' {
         return head;

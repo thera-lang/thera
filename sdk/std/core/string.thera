@@ -1,10 +1,9 @@
-//! std.core — the built-in String type's methods (auto-imported with the
-//! prelude).
+//! std.core — the built-in String type's methods (auto-imported with the prelude).
 //!
 //! Methods on string *values* (len, trim, split, …) are declared here as
 //! `native fn`s backed by runtime natives, plus named constructors as static
-//! methods. A String value is a primitive, but methods resolve through its
-//! element like any other type (see docs/roadmap.md, "primitives").
+//! methods. A String value is a primitive, but methods resolve through its element
+//! like any other type (see docs/roadmap.md, "primitives").
 
 /// The built-in Unicode string type — an opaque, runtime-represented value whose
 /// methods attach below; a string literal (`'hi'`) constructs one.
@@ -24,8 +23,8 @@ impl String {
         return self.len() == 0;
     }
 
-    /// The substring of the code points in the half-open range `[start, end)`,
-    /// by code-point index (not byte offset). Indices are clamped to the string's
+    /// The substring of the code points in the half-open range `[start, end)`, by
+    /// code-point index (not byte offset). Indices are clamped to the string's
     /// length, so out-of-range or reversed ranges yield a shorter or empty string.
     /// Walks to the range's end in one pass (O(end)), not the whole string.
     ///
@@ -36,9 +35,9 @@ impl String {
     pub native fn slice(self, _ start: Int, _ end: Int) -> String
 
     /// The substring in the half-open **UTF-8 byte** range `[start, end)` — the
-    /// byte-offset counterpart to [slice], for callers that work in byte
-    /// positions (e.g. `byte_len`, `std.regex` match offsets). Offsets are clamped
-    /// to the string; a range whose ends fall mid-code-point yields `''`.
+    /// byte-offset counterpart to [slice], for callers that work in byte positions
+    /// (e.g. `byte_len`, `std.regex` match offsets). Offsets are clamped to the
+    /// string; a range whose ends fall mid-code-point yields `''`.
     ///
     /// ```thera
     /// 'héllo'.byte_slice(0, 1)   // 'h'  ('é' is 2 bytes, so byte 3 ends it)
@@ -138,8 +137,8 @@ impl String {
         return String.from_chars(self.chars().reversed());
     }
 
-    /// The code-point index of the first occurrence of `needle`, or None if it
-    /// does not occur. An empty `needle` matches at 0 (as `contains('')` is true).
+    /// The code-point index of the first occurrence of `needle`, or None if it does
+    /// not occur. An empty `needle` matches at 0 (as `contains('')` is true).
     ///
     /// ```thera
     /// 'hello'.find('ll')   // Some(2)
@@ -203,8 +202,8 @@ impl String {
         return p.slice(0, deficit);
     }
 
-    /// The Unicode scalar values (code points) of the string, as Int. The
-    /// inverse of `String.from_chars`:
+    /// The Unicode scalar values (code points) of the string, as Int. The inverse
+    /// of `String.from_chars`:
     ///
     /// ```thera
     /// let cps = source.chars();
@@ -213,14 +212,14 @@ impl String {
     @extern('str_chars')
     pub native fn chars(self) -> List<Int>
 
-    /// The string's UTF-8 encoding as a `Bytes` buffer — for hashing, transport,
-    /// or byte-level work. Use `s.bytes().to_list()` for the raw byte values.
+    /// The string's UTF-8 encoding as a `Bytes` buffer — for hashing, transport, or
+    /// byte-level work. Use `s.bytes().to_list()` for the raw byte values.
     @extern('str_bytes')
     pub native fn bytes(self) -> Bytes
 
-    /// Parse the whole string as a base-10 Int, or None if it isn't one. The
-    /// entire string must be the number (no surrounding whitespace) — call
-    /// `s.trim()` first if needed.
+    /// Parse the whole string as a base-10 Int, or None if it isn't one. The entire
+    /// string must be the number (no surrounding whitespace) — call `s.trim()`
+    /// first if needed.
     ///
     /// ```thera
     /// '42'.to_int()    // Some(42)
@@ -240,8 +239,8 @@ impl String {
     /// Parse the whole string as an integer in `radix` (2..=16), or None if it
     /// isn't a valid numeral in that radix (bad digit, empty, or a lone `-`). An
     /// optional leading `-` is allowed; letters a-f / A-F are digits 10..15.
-    /// Overflow wraps two's-complement to 64 bits (matching `Int` arithmetic), so
-    /// a full-width pattern like `'9E3779B97F4A7C15'.to_int_radix(16)` yields its
+    /// Overflow wraps two's-complement to 64 bits (matching `Int` arithmetic), so a
+    /// full-width pattern like `'9E3779B97F4A7C15'.to_int_radix(16)` yields its
     /// signed value — mirroring the front-end's `0x…` literal handling. Pure Thera
     /// over wrapping `*`/`+`; the ASCII digit ranges are inlined to avoid a
     /// std.core → std.char dependency.
@@ -275,9 +274,9 @@ impl String {
         return Option.Some(acc);
     }
 
-    /// Construct a String from a list of Unicode code points (as Int). The
-    /// inverse of `s.chars()`. This is total: a value that is not a valid Unicode
-    /// scalar (a surrogate, out of range, or negative) becomes U+FFFD (�). Use
+    /// Construct a String from a list of Unicode code points (as Int). The inverse
+    /// of `s.chars()`. This is total: a value that is not a valid Unicode scalar (a
+    /// surrogate, out of range, or negative) becomes U+FFFD (�). Use
     /// `try_from_chars` to reject such input instead.
     @extern('str_from_chars')
     pub native fn from_chars(_ cps: List<Int>) -> String
@@ -294,9 +293,9 @@ impl String {
     pub native fn try_from_chars(_ cps: List<Int>) -> Option<String>
 }
 
-/// The value 0..35 of an ASCII alphanumeric code point (`0-9`, `a-z`, `A-Z`), or
-/// -1 for anything else. Used by `to_int_radix`; the caller checks the value
-/// against the radix. Inlined ASCII ranges keep std.core independent of std.char.
+/// The value 0..35 of an ASCII alphanumeric code point (`0-9`, `a-z`, `A-Z`), or -1
+/// for anything else. Used by `to_int_radix`; the caller checks the value against
+/// the radix. Inlined ASCII ranges keep std.core independent of std.char.
 fn digit_value_for(_ cp: Int) -> Int {
     if cp >= 48 && cp <= 57 { // '0'..'9'
         return cp - 48;

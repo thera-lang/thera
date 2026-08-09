@@ -2,20 +2,20 @@
 // docs/api-access.md Arc 2's checklist.
 //
 // A `Client` is three fields and no state: no connection pool (`std.http` opens one
-// connection per request), no cached authentication, no retry policy yet (Arc 1 item
-// 5). So it is a value, freely copied, and every operation is a method on something
-// reachable from it.
+// connection per request), no cached authentication, no retry policy yet (Arc 1
+// item 5). So it is a value, freely copied, and every operation is a method on
+// something reachable from it.
 //
-// **`base_url` is here because the tests need it, not because callers do.** There is
-// no server-side TLS in `std.http` (docs/http-tls.md defers `serve_tls`), so the only
-// way to exercise a real request end to end in-process is a plaintext loopback server
-// — which means the base URL has to be overridable. That is a happy accident worth
-// naming: the field that makes a client testable is the same one that makes GitHub
-// Enterprise work.
+// **`base_url` is here because the tests need it, not because callers do.** There
+// is no server-side TLS in `std.http` (docs/http-tls.md defers `serve_tls`), so the
+// only way to exercise a real request end to end in-process is a plaintext loopback
+// server — which means the base URL has to be overridable. That is a happy accident
+// worth naming: the field that makes a client testable is the same one that makes
+// GitHub Enterprise work.
 //
 // **Every operation goes through `request`.** Thera has no error conversion, so the
-// hop from `Result<_, http.HttpError>` to `Result<_, GitHubError>` needs a `match` at
-// the point of the call. Written once here that is a feature; written once per
+// hop from `Result<_, http.HttpError>` to `Result<_, GitHubError>` needs a `match`
+// at the point of the call. Written once here that is a feature; written once per
 // operation it would be 1220 copies of the same six lines in generated output.
 
 import std.encoding;
@@ -29,8 +29,8 @@ import 'errors' as _;
 pub const API_BASE: String = 'https://api.github.com';
 
 /// The REST API version to pin. GitHub versions by date and requires the header;
-/// omitting it opts into "whatever is current", which is how a working client breaks
-/// on someone else's release day.
+/// omitting it opts into "whatever is current", which is how a working client
+/// breaks on someone else's release day.
 pub const API_VERSION: String = '2022-11-28';
 
 /// The media type that selects the versioned JSON representation.
@@ -51,15 +51,15 @@ pub struct Client {
 
 /// A redacting `Debug`, overriding the structural derive.
 ///
-/// The derive printed the bearer token in full, so `'${client}'` — the shortest thing
-/// anyone writes while debugging — put a live credential in a log. That is exactly the
-/// hazard [api-access.md](../../docs/api-access.md) item 6 names, and a client is the
-/// first value in the tree to hold a real secret.
+/// The derive printed the bearer token in full, so `'${client}'` — the shortest
+/// thing anyone writes while debugging — put a live credential in a log. That is
+/// exactly the hazard [api-access.md](../../docs/api-access.md) item 6 names, and a
+/// client is the first value in the tree to hold a real secret.
 ///
-/// Overriding `Debug` specifically is what closes the path rather than narrowing it:
-/// `${}` renders via `Display` if a type has one and `Debug` otherwise, and `Debug` is
-/// total, so it is the fallback every unprepared print goes through. With this in place
-/// there is no way to render a `Client` that does not come here.
+/// Overriding `Debug` specifically is what closes the path rather than narrowing
+/// it: `${}` renders via `Display` if a type has one and `Debug` otherwise, and
+/// `Debug` is total, so it is the fallback every unprepared print goes through.
+/// With this in place there is no way to render a `Client` that does not come here.
 ///
 /// **Presence survives, the value does not.** "Am I authenticated?" is the question
 /// worth answering while debugging, and answering it leaks nothing.
@@ -93,7 +93,8 @@ impl Client {
         };
     }
 
-    /// An absolute URL for `path` (which starts with `/`), with `query` percent-encoded.
+    /// An absolute URL for `path` (which starts with `/`), with `query`
+    /// percent-encoded.
     ///
     /// `Map` iterates in insertion order, so the query string is a function of the
     /// call — which is what lets a test compare a URL as text.
@@ -109,15 +110,17 @@ impl Client {
         return head + '?' + pairs.join('&');
     }
 
-    /// Send a request to `url` and return the response **only if the server said yes**.
+    /// Send a request to `url` and return the response **only if the server said
+    /// yes**.
     ///
     /// A non-2xx becomes a `GitHubError` here rather than reaching the caller as a
-    /// `Response`, which is the opposite of `std.http`'s convention and deliberately
-    /// so: `http.send` serves callers who might want the 404 body, while a typed API
-    /// client's whole job is to turn "the server refused" into an error value with the
-    /// refusal decoded. The 3xx band goes the same way — `std.http` does not follow
-    /// redirects, so GitHub's 301 for a renamed repository arrives as a `Status`, which
-    /// is at least honest about not having handled it.
+    /// `Response`, which is the opposite of `std.http`'s convention and
+    /// deliberately so: `http.send` serves callers who might want the 404 body,
+    /// while a typed API client's whole job is to turn "the server refused" into an
+    /// error value with the refusal decoded. The 3xx band goes the same way —
+    /// `std.http` does not follow redirects, so GitHub's 301 for a renamed
+    /// repository arrives as a `Status`, which is at least honest about not having
+    /// handled it.
     pub fn request(
         self,
         _ method: String,
@@ -134,7 +137,8 @@ impl Client {
         };
         let sent = http.Request { method: method, url: url, headers: headers, body: payload };
         // The one place a transport failure is named. Every operation reaches the
-        // network through here, so this `match` is written once instead of per call.
+        // network through here, so this `match` is written once instead of per
+        // call.
         let resp = match http.send(sent) {
             Ok(r) => r,
             Err(e) => {
@@ -147,9 +151,9 @@ impl Client {
         return Result.Err(error_of(resp.status, resp.headers, text_of(resp)));
     }
 
-    /// The headers every request carries. A caller cannot override them, because none
-    /// of them is a choice: two are the API contract, one is required by GitHub, and
-    /// the fourth is the credential.
+    /// The headers every request carries. A caller cannot override them, because
+    /// none of them is a choice: two are the API contract, one is required by
+    /// GitHub, and the fourth is the credential.
     fn headers(self) -> Map<String, String> {
         let headers: Map<String, String> = [
             'accept': ACCEPT,
@@ -167,11 +171,11 @@ impl Client {
 /// (the `gh` CLI's spelling, so a developer who has authenticated that way needs no
 /// second variable).
 ///
-/// **An absent token is not an error.** GitHub serves public reads unauthenticated at
-/// a much lower rate limit, so returning an error here would refuse to do work the
-/// server would have done. The missing credential surfaces where it actually bites —
-/// as a `Status` 401 on the first call that needs one — which is a better error than
-/// anything this function could say, because it names the operation.
+/// **An absent token is not an error.** GitHub serves public reads unauthenticated
+/// at a much lower rate limit, so returning an error here would refuse to do work
+/// the server would have done. The missing credential surfaces where it actually
+/// bites — as a `Status` 401 on the first call that needs one — which is a better
+/// error than anything this function could say, because it names the operation.
 pub fn from_env(_ environment: env.Env = env.system_env(), base_url: String = API_BASE) -> Client {
     let token = match environment.get('GITHUB_TOKEN') {
         Some(t) => Option.Some(t),
@@ -183,9 +187,9 @@ pub fn from_env(_ environment: env.Env = env.system_env(), base_url: String = AP
 /// Decode a successful response's body with `decode`.
 ///
 /// The three ways this fails are three flavours of the same news — the body was not
-/// what we can read — so they share `GitHubError.Body` and differ only in the message.
-/// `json.DecodeError` already carries the failing path, so the third case names the
-/// field.
+/// what we can read — so they share `GitHubError.Body` and differ only in the
+/// message. `json.DecodeError` already carries the failing path, so the third case
+/// names the field.
 pub fn decoded<T>(
     _ resp: http.Response,
     _ decode: (json.Cursor) -> Result<T, json.DecodeError>,
@@ -210,11 +214,12 @@ pub fn decoded<T>(
 
 /// The query parameters that were actually supplied, dropping the absent ones.
 ///
-/// The counterpart of `json.obj(omit_nulls: true)` on the body side, and it exists for
-/// the same reason: without it, every optional query parameter costs an `if let` and a
-/// mutable map, so an operation with four of them is twelve lines of plumbing around
-/// one URL. With it, every parameter is exactly one line whether it is required or not
-/// — which is what makes the shape mechanical enough to generate.
+/// The counterpart of `json.obj(omit_nulls: true)` on the body side, and it exists
+/// for the same reason: without it, every optional query parameter costs an
+/// `if let` and a mutable map, so an operation with four of them is twelve lines of
+/// plumbing around one URL. With it, every parameter is exactly one line whether it
+/// is required or not — which is what makes the shape mechanical enough to
+/// generate.
 ///
 /// ```thera
 /// let url = client.url('/repos/${owner}/${repo}/pulls', query: params([
@@ -234,8 +239,8 @@ pub fn params(_ values: Map<String, Option<String>>) -> Map<String, String> {
 }
 
 /// A response body as text, or `''` if it is not UTF-8 — for the error path, where
-/// there is nothing useful to do about undecodable bytes and failing would replace the
-/// server's refusal with our complaint about it.
+/// there is nothing useful to do about undecodable bytes and failing would replace
+/// the server's refusal with our complaint about it.
 fn text_of(_ resp: http.Response) -> String {
     return match resp.body.to_string() {
         Ok(s) => s,

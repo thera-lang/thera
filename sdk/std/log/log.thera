@@ -2,10 +2,10 @@
 //!
 //! Import as: import std.log
 //!
-//! Good-enough logging for CLI tools, agents, and libraries — levels, named
-//! loggers with per-source filtering, and text or JSON on stderr. The
-//! industrial tier (async sinks, sampling, rotation, routing) is deliberately
-//! ecosystem; see docs/stdlib.md § std.log.
+//! Good-enough logging for CLI tools, agents, and libraries — levels, named loggers
+//! with per-source filtering, and text or JSON on stderr. The industrial tier
+//! (async sinks, sampling, rotation, routing) is deliberately ecosystem; see
+//! docs/stdlib.md § std.log.
 //!
 //! Three layers:
 //!
@@ -27,11 +27,11 @@
 //!     `StringWriter` and assert). Self-contained: its own level and sink, no
 //!     global state.
 //!
-//! Configuration (`set_level`, `set_level_for`, `set_format`,
-//! `configure_from_env`) is application-only — call it once from `main`; a
-//! library must only ever emit. See docs/stdlib.md § std.log for the rationale
-//! (logging is a deliberate, narrow exception to the "no global state"
-//! principle: its config is write-only diagnostics set once by the app).
+//! Configuration (`set_level`, `set_level_for`, `set_format`, `configure_from_env`)
+//! is application-only — call it once from `main`; a library must only ever emit.
+//! See docs/stdlib.md § std.log for the rationale (logging is a deliberate, narrow
+//! exception to the "no global state" principle: its config is write-only
+//! diagnostics set once by the app).
 
 import std.env;
 import std.io;
@@ -45,13 +45,13 @@ pub enum Format { Text, Json }
 
 // --- the config (the one piece of mutable global state) ---
 //
-// docs/stdlib.md § std.log: the default threshold, the per-source level
-// overrides, and the output format. A deliberate, narrow exception to "no global
-// state" — write-only diagnostics, set once by the app. It needs neither a
-// native cell nor a mutable global: `config` is an *immutable* binding (a module
-// initializer, computed once), but the struct it points at has `mut` fields, so
-// the config mutates in place. Library-private — the sanctioned way to change it
-// is the application-only `set_*` functions below.
+// docs/stdlib.md § std.log: the default threshold, the per-source level overrides,
+// and the output format. A deliberate, narrow exception to "no global state" —
+// write-only diagnostics, set once by the app. It needs neither a native cell nor a
+// mutable global: `config` is an *immutable* binding (a module initializer,
+// computed once), but the struct it points at has `mut` fields, so the config
+// mutates in place. Library-private — the sanctioned way to change it is the
+// application-only `set_*` functions below.
 struct Config {
     let mut default_level: Level;
     let filters: Map<String, Level>; // per-source overrides; content mutates in place
@@ -72,9 +72,9 @@ fn rank(_ level: Level) -> Int {
 }
 
 // The threshold rank in force for a logger `name`: the level of the
-// longest-matching prefix filter, else the default. A filter prefix matches
-// `name` when it equals it or is a dotted ancestor (`http` covers `http.client`,
-// not `httpx`).
+// longest-matching prefix filter, else the default. A filter prefix matches `name`
+// when it equals it or is a dotted ancestor (`http` covers `http.client`, not
+// `httpx`).
 fn effective_level(_ name: String) -> Int {
     let mut best_rank = rank(config.default_level);
     let mut best_len = -1;
@@ -140,10 +140,10 @@ fn json_line(_ name: String, _ level: Level, _ msg: String) -> String {
 
 // --- the Logger capability ---
 
-/// A logger you can hold and pass. `named` returns the process-backed form
-/// (stderr, under the global config); `to_writer` returns a self-contained one
-/// (its own sink and level). Middle-layer logic can take a `Logger` parameter
-/// and a test can pass one writing to a buffer.
+/// A logger you can hold and pass. `named` returns the process-backed form (stderr,
+/// under the global config); `to_writer` returns a self-contained one (its own sink
+/// and level). Middle-layer logic can take a `Logger` parameter and a test can pass
+/// one writing to a buffer.
 pub interface Logger {
     fn debug(self, _ msg: String) -> Void;
     fn info(self, _ msg: String) -> Void;
@@ -157,8 +157,8 @@ struct NamedLogger {
 }
 
 // Write a rendered line + newline to `sink`, discarding any write failure — a
-// logger must never crash the program it observes. (`io.stderr().write` returns
-// a `Result`, so a broken pipe is a dropped record here, not a trap.)
+// logger must never crash the program it observes. (`io.stderr().write` returns a
+// `Result`, so a broken pipe is a dropped record here, not a trap.)
 fn write_line(_ sink: io.Writer, _ line: String) -> Void {
     match sink.write('${line}\n'.bytes()) {
         Ok(_) => void,
@@ -221,16 +221,16 @@ impl Logger for WriterLogger {
 
 // --- emission entry points ---
 
-/// A named logger. Records carry `name` as their source, so `set_level_for`
-/// (and `THERA_LOG`) can tune this source's threshold independently.
+/// A named logger. Records carry `name` as their source, so `set_level_for` (and
+/// `THERA_LOG`) can tune this source's threshold independently.
 pub fn named(_ name: String) -> Logger {
     return NamedLogger { name: name };
 }
 
-/// A self-contained logger writing every record at or above `min_level` to
-/// `sink`, rendered as `format`. Independent of the global config — the
-/// capability form to pass into testable logic (point it at a `StringWriter` and
-/// assert on the output), or to log to a file.
+/// A self-contained logger writing every record at or above `min_level` to `sink`,
+/// rendered as `format`. Independent of the global config — the capability form to
+/// pass into testable logic (point it at a `StringWriter` and assert on the
+/// output), or to log to a file.
 pub fn to_writer(
     _ name: String,
     _ sink: io.Writer,
@@ -266,12 +266,12 @@ pub fn warn(_ msg: String) -> Void {
 // TODO: add an ambient `error(_ msg: String)` here, for symmetry with the three
 // above (the natural `log.error('boom')`). Blocked today: a top-level `error`
 // collides with the prelude `error()` constructor under the "one name space per
-// scope" rule. Tracked in docs/roadmap.md — de-privilege prelude *value* names so
-// a user scope may shadow them (reserved core *types* stay interdicted). Until
-// then, log at error level via `log.named('').error(msg)` or a named logger.
+// scope" rule. Tracked in docs/roadmap.md — de-privilege prelude *value* names so a
+// user scope may shadow them (reserved core *types* stay interdicted). Until then,
+// log at error level via `log.named('').error(msg)` or a named logger.
 
-/// Whether a record at `level` from a logger `name` would pass the global
-/// filter — for guarding an expensive message before building it:
+/// Whether a record at `level` from a logger `name` would pass the global filter —
+/// for guarding an expensive message before building it:
 ///
 /// ```thera
 /// if log.enabled('myapp.db', log.Level.Debug) {

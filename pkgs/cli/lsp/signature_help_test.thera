@@ -1,6 +1,6 @@
-// Tests for signature help (signature_help.thera): the `signature_help_at`
-// oracle over mid-keystroke calls — the unterminated-call framing the parser's
-// recovery now provides (`add(` before the body's `}` keeps its call node).
+// Tests for signature help (signature_help.thera): the `signature_help_at` oracle
+// over mid-keystroke calls — the unterminated-call framing the parser's recovery
+// now provides (`add(` before the body's `}` keeps its call node).
 
 import std.testing;
 
@@ -12,8 +12,8 @@ import 'resolve' as _;
 import 'signature_help' as _;
 
 // A hermetic ResolveCtx over `src` alone, with committed-type records from a
-// hermetic check of the recovered tree (instance-method callees resolve on
-// the receiver's committed type).
+// hermetic check of the recovered tree (instance-method callees resolve on the
+// receiver's committed type).
 fn ctx_of(_ src: String) -> ResolveCtx {
     let toks = lexer.tokenize(src).tokens;
     let program = parser.parse_tokens(toks).program;
@@ -70,8 +70,8 @@ fn test_signature_help_active_parameter_advances() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// An instance-method call resolves on the receiver's committed type; `self`
-// is dropped, so the first written argument is parameter 0.
+// An instance-method call resolves on the receiver's committed type; `self` is
+// dropped, so the first written argument is parameter 0.
 @test
 fn test_signature_help_on_method_call() -> Result<Void, Error> {
     let src = 'struct S { let count: Int; }\n'
@@ -109,9 +109,9 @@ fn test_signature_help_innermost_call_wins() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A method call on a primitive receiver resolves through the core
-// declaration (`member_target`): the String stand-in's `slice` signature,
-// with parameter 1 active after the first argument.
+// A method call on a primitive receiver resolves through the core declaration
+// (`member_target`): the String stand-in's `slice` signature, with parameter 1
+// active after the first argument.
 @test
 fn test_signature_help_on_string_receiver() -> Result<Void, Error> {
     let core_src = 'pub native type String\n'

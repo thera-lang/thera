@@ -1,7 +1,7 @@
-// LSP find references — semantic. An occurrence counts only if it *resolves to
-// the same declaration* as the cursor's symbol (`SymbolId` identity), not merely
-// the same text — so a local `x`, a field `x`, and another library's `x` are no
-// longer conflated (the flaw that kept the lexical version unregistered).
+// LSP find references — semantic. An occurrence counts only if it *resolves to the
+// same declaration* as the cursor's symbol (`SymbolId` identity), not merely the
+// same text — so a local `x`, a field `x`, and another library's `x` are no longer
+// conflated (the flaw that kept the lexical version unregistered).
 //
 // The orchestration — which documents to scan, each in its own owner-correct
 // resolution context — lives in analysis.thera (`references_at`); this module
@@ -16,9 +16,9 @@ import 'resolve';
 import 'paths';
 
 // The spans of every reference to `target` in one resolved document — each
-// identifier with the target's name resolved at its own offset and kept only
-// when it names the *same declaration* (SymbolId identity). When `include_decl`
-// is false, the declaration's own name occurrence is dropped. Shared by
+// identifier with the target's name resolved at its own offset and kept only when
+// it names the *same declaration* (SymbolId identity). When `include_decl` is
+// false, the declaration's own name occurrence is dropped. Shared by
 // find-references and rename (which rewrites exactly these spans).
 pub fn matching_spans(
     _ ctx: resolve.ResolveCtx,

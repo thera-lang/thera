@@ -1,5 +1,5 @@
-// The Thera command-line front-end — argument parsing (on the declarative
-// `std.cli` Command) and dispatch to the real pipeline (driver/runner/lsp).
+// The Thera command-line front-end — argument parsing (on the declarative `std.cli`
+// Command) and dispatch to the real pipeline (driver/runner/lsp).
 //
 //   thera run   <file> [args] run a Thera program (args after <file> go to it)
 //   thera check <file|dir>…   type-check programs without running them
@@ -165,8 +165,8 @@ Runs until stdin closes.
 fn main(parameters: List<String>) -> Result<Int, Error> {
     // `run` is the std.cli entry adapter: it parses, and on a parse error, a
     // `--help`, or a bare no-command invocation it prints the right (sub)command
-    // help / message and hands back an exit code. We're left with just the
-    // dispatch of a resolved subcommand.
+    // help / message and hands back an exit code. We're left with just the dispatch
+    // of a resolved subcommand.
     match build_app().run(parameters) {
         Exit(code) => {
             return Result.Ok(code);
@@ -201,9 +201,9 @@ fn sdk_root_or_warn() -> Option<String> {
 }
 
 // Run the selected subcommand from its own parsed arguments. (The adapter has
-// already handled `--help` and parse errors.) Named `run_subcommand`, not `run`,
-// to avoid colliding with the imported `process.run` — free-function names still
-// share one global namespace.
+// already handled `--help` and parse errors.) Named `run_subcommand`, not `run`, to
+// avoid colliding with the imported `process.run` — free-function names still share
+// one global namespace.
 fn run_subcommand(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     // `lsp` is the only command that takes no file argument.
     if name == 'lsp' {
@@ -213,9 +213,9 @@ fn run_subcommand(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     return run_on_file(name, sub);
 }
 
-// The file-taking subcommands (run/check/emit/test): dispatch to the real
-// pipeline. `test` and `check` take one or more `<file|dir>` targets; `emit`
-// takes `<file> <out>`; `run` takes `<file>` then forwards trailing args.
+// The file-taking subcommands (run/check/emit/test): dispatch to the real pipeline.
+// `test` and `check` take one or more `<file|dir>` targets; `emit` takes
+// `<file> <out>`; `run` takes `<file>` then forwards trailing args.
 fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     let positionals = sub.positionals();
     if name == 'test' {
@@ -242,8 +242,8 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     }
     if name == 'lint' {
         if sub.flag('fix') {
-            // A writing run keeps its target explicit (like `fmt`) — no
-            // implicit whole-project rewrite from a bare invocation.
+            // A writing run keeps its target explicit (like `fmt`) — no implicit
+            // whole-project rewrite from a bare invocation.
             if positionals.len() == 0 {
                 eprintln('thera lint --fix: expected a <file|dir> argument');
                 return Result.Ok(2);
@@ -286,10 +286,10 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     }
 }
 
-// The analyzer commands (test/check/lint) default to the current directory
-// when no target is given — the friendly no-argument invocation for a project
-// checkout — while the commands that write (`fmt`, `fix`) or need an output
-// path (`emit`) keep their targets explicit.
+// The analyzer commands (test/check/lint) default to the current directory when no
+// target is given — the friendly no-argument invocation for a project checkout —
+// while the commands that write (`fmt`, `fix`) or need an output path (`emit`) keep
+// their targets explicit.
 fn default_cwd(_ positionals: List<String>) -> List<String> {
     if positionals.len() == 0 {
         return ['.'];
@@ -298,13 +298,12 @@ fn default_cwd(_ positionals: List<String>) -> List<String> {
 }
 
 // `thera check [file|dir]...` — type-check each target, printing
-// `file:line:col: message` for every diagnostic and a closing summary line
-// (proof of work even when clean). A directory is searched recursively for
-// `*.thera`; a file is checked directly; no target means the current directory.
-// Exit 0 when clean, 1 when any errors (or, with `fatal_warnings`, any
-// warnings), 2 when a target is missing or a file is unreadable (operational
-// trumps diagnostics — LD12: an unreadable file used to count as a diagnostic
-// and exit 1).
+// `file:line:col: message` for every diagnostic and a closing summary line (proof
+// of work even when clean). A directory is searched recursively for `*.thera`; a
+// file is checked directly; no target means the current directory. Exit 0 when
+// clean, 1 when any errors (or, with `fatal_warnings`, any warnings), 2 when a
+// target is missing or a file is unreadable (operational trumps diagnostics — LD12:
+// an unreadable file used to count as a diagnostic and exit 1).
 fn do_check(
     _ targets: List<String>,
     _ sdk_root: Option<String>,
@@ -332,13 +331,13 @@ fn do_check(
         return Result.Ok(2);
     }
 
-    // One analysis session for the whole run: its parse cache (every file
-    // imports the `std.core` prelude, and most share internal imports — parsed
-    // once per run, not once per file) and checked-clean set (a shared import
-    // is *checked* once per run, not once per importer) are shared across the
-    // targets. Files whose check has errors are re-encountered per importer;
-    // `printed` de-duplicates their output so each diagnostic prints — and
-    // counts — once per run.
+    // One analysis session for the whole run: its parse cache (every file imports
+    // the `std.core` prelude, and most share internal imports — parsed once per
+    // run, not once per file) and checked-clean set (a shared import is *checked*
+    // once per run, not once per importer) are shared across the targets. Files
+    // whose check has errors are re-encountered per importer; `printed`
+    // de-duplicates their output so each diagnostic prints — and counts — once per
+    // run.
     let sess = session.new_session(sdk_root);
     let printed: Set<String> = Set.new();
     let mut total = 0;
@@ -348,10 +347,10 @@ fn do_check(
     for file in sorted {
         match fs.read_text(file) {
             Ok(source) => {
-                // Diagnostics are `check`'s product (it emits no artifact), so
-                // they go to stdout — like `thera test`, and like the linters/
-                // analyzers it resembles (eslint, ruff, mypy). stderr is reserved
-                // for operational failures (below) and `emit`, which is a compiler
+                // Diagnostics are `check`'s product (it emits no artifact), so they
+                // go to stdout — like `thera test`, and like the linters/ analyzers
+                // it resembles (eslint, ruff, mypy). stderr is reserved for
+                // operational failures (below) and `emit`, which is a compiler
                 // whose product is the `.thera-bc`. (See docs/architecture.md.)
                 let diags = sess.check(source, file);
                 for d in diags {
@@ -376,11 +375,11 @@ fn do_check(
     if unreadable {
         return Result.Ok(2);
     }
-    // The closing summary: proof the analyzer ran even when there is nothing
-    // to report (somewhat duplicative of the exit code, but a bare exit is
-    // indistinguishable from a tool that silently did no work). Warnings are
-    // a separate trailing segment, present only when nonzero — and they don't
-    // affect the exit code (errors gate, warnings inform).
+    // The closing summary: proof the analyzer ran even when there is nothing to
+    // report (somewhat duplicative of the exit code, but a bare exit is
+    // indistinguishable from a tool that silently did no work). Warnings are a
+    // separate trailing segment, present only when nonzero — and they don't affect
+    // the exit code (errors gate, warnings inform).
     if total + warnings > 0 {
         println('');
     }
@@ -390,8 +389,8 @@ fn do_check(
         summary = '${summary}; ${warnings} ${runner.plural(warnings, 'warning')}';
     }
     println('${summary}.');
-    // Errors always gate. `--fatal-warnings` additionally promotes any warning
-    // to a failing exit (the CI knob for a warning-free tree).
+    // Errors always gate. `--fatal-warnings` additionally promotes any warning to a
+    // failing exit (the CI knob for a warning-free tree).
     if total > 0 || (fatal_warnings && warnings > 0) {
         return Result.Ok(1);
     }
@@ -423,10 +422,9 @@ fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
 
     if check {
         // Read-only: report the files that would change, exit 1 if any do. An
-        // unreadable file is an operational failure (exit 2), not "unformatted"
-        // — but it doesn't abort the run: the remaining files still get
-        // reported, like write mode (LD12: this used to stop at the first
-        // unreadable file).
+        // unreadable file is an operational failure (exit 2), not "unformatted" —
+        // but it doesn't abort the run: the remaining files still get reported,
+        // like write mode (LD12: this used to stop at the first unreadable file).
         let mut unformatted = 0;
         let mut unreadable = false;
         for file in runner.sort_dedup(files) {
@@ -452,8 +450,8 @@ fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
         return Result.Ok(0);
     }
 
-    // Write mode continues past a failed file too, and reports the failure in
-    // the exit code (it used to swallow it and exit 0 — LD12).
+    // Write mode continues past a failed file too, and reports the failure in the
+    // exit code (it used to swallow it and exit 0 — LD12).
     let mut failed = false;
     for file in runner.sort_dedup(files) {
         match fmt.format_file(file) {
@@ -527,8 +525,8 @@ fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
     return Result.Ok(0);
 }
 
-// `thera lint --fix <file|dir>...` — apply the safe lint rewrites in place.
-// The read-only report is plain `thera lint`; exits 0 (advisory — fixes are
+// `thera lint --fix <file|dir>...` — apply the safe lint rewrites in place. The
+// read-only report is plain `thera lint`; exits 0 (advisory — fixes are
 // opportunistic, not a gate).
 fn do_fix(_ targets: List<String>, only: List<String> = []) -> Result<Int, Error> {
     let files: List<String> = [];
@@ -612,9 +610,9 @@ fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
     }
 }
 
-/// Join the continuation lines of `text` — the indented ones — onto the line
-/// above, so the help text above can be hard-wrapped to keep this file's lines
-/// short and still print as whole paragraphs and bullets.
+/// Join the continuation lines of `text` — the indented ones — onto the line above,
+/// so the help text above can be hard-wrapped to keep this file's lines short and
+/// still print as whole paragraphs and bullets.
 fn unwrap_lines(_ text: String) -> String {
     let lines: List<String> = [];
 

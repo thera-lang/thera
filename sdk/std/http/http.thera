@@ -17,8 +17,8 @@
 //! chain and host name against the bundled roots; a certificate that doesn't check
 //! out is an `HttpError.Tls` — its own variant because, unlike a `Connect`,
 //! retrying will not fix it. A 4xx/5xx is a `Response`, not an error: `HttpError`
-//! is for exchanges that did not happen. Redirects are not followed, and there is no
-//! connection pooling (one connection per request).
+//! is for exchanges that did not happen. Redirects are not followed, and there is
+//! no connection pooling (one connection per request).
 //!
 //! `get`/`post`/`send` buffer the body, which is what almost every caller wants.
 //! For one that should be consumed as it arrives — a `text/event-stream`, a large
@@ -33,23 +33,24 @@
 //! ```
 //!
 //! This is a barrel: it re-exports its sibling files (see docs/language.md) and
-//! defines nothing of its own — it re-exports [std.http.common](common/common.thera)
-//! (the shared codec and types) and the `client` sibling, so `http.get(url)` stays
-//! the spelling of the most-written line here.
+//! defines nothing of its own — it re-exports
+//! [std.http.common](common/common.thera) (the shared codec and types) and the
+//! `client` sibling, so `http.get(url)` stays the spelling of the most-written line
+//! here.
 //!
 //! **The layout, and why.** `std.http.server` and `std.http.sse` are separate
 //! libraries — separate *directories*, since from outside a directory library the
 //! only importable surface is its barrel. That is what forces `common` to be a
 //! directory too: the server cannot reach a private sibling of `std.http`, so the
 //! code they share has to be a library of its own. The payoff is that serving never
-//! pulls in the client, and that `sse` (which needs nothing but `io.Reader`) doesn't
-//! put `Event` and `Decoder` into the namespace whose main line is `http.get(url)`.
-//! The client stays a private sibling *here* because the client is what `std.http`
-//! is for.
+//! pulls in the client, and that `sse` (which needs nothing but `io.Reader`)
+//! doesn't put `Event` and `Decoder` into the namespace whose main line is
+//! `http.get(url)`. The client stays a private sibling *here* because the client is
+//! what `std.http` is for.
 //!
 //! So: `import std.http` for the client and the types, `import std.http.server` to
-//! serve, `import std.http.sse` to decode an event stream. See docs/stdlib.md
-//! § `std.http`.
+//! serve, `import std.http.sse` to decode an event stream. See docs/stdlib.md §
+//! `std.http`.
 
 pub import 'common'; // Request, Response, HttpError, status codes, the HTTP/1.1 codec
 pub import 'client'; // get / post / send

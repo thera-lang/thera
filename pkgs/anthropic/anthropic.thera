@@ -4,10 +4,10 @@
 //!
 //! **Status: a forcing function, not yet a client.** It exists to answer the
 //! typed-JSON question in [docs/typed-json.md](../../docs/typed-json.md) with real
-//! code rather than a prediction — so today it is the Messages *response* types
-//! and their decoders, exercised against recorded response bodies. No credential,
-//! no socket, no live call. The rest (auth, retries, streaming, the request side)
-//! is [docs/api-access.md](../../docs/api-access.md) Arc 2.
+//! code rather than a prediction — so today it is the Messages *response* types and
+//! their decoders, exercised against recorded response bodies. No credential, no
+//! socket, no live call. The rest (auth, retries, streaming, the request side) is
+//! [docs/api-access.md](../../docs/api-access.md) Arc 2.
 //!
 //! ```thera
 //! let msg = anthropic.message_from_json(json.cursor(json.parse(body)?))?;

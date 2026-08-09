@@ -1,5 +1,5 @@
-// LSP workspace symbols: fuzzy search across all top-level declarations in the
-// open workspace.
+// LSP workspace symbols: fuzzy search across all top-level declarations in the open
+// workspace.
 
 import std.json;
 

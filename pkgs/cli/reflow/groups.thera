@@ -3,25 +3,25 @@
 //
 // The default is decided by bracket kind alone: `(` and `[` are `Fit` (join when
 // the content fits), `{` is `AlwaysSplit` (a statement block, `match` body, or
-// `impl`/`enum`/`interface`/`struct` declaration body stays expanded however
-// short it is — collapsing `match x { Some(v) => 1, None => 2 }` onto one line is
-// legal and almost never wanted).
+// `impl`/`enum`/`interface`/`struct` declaration body stays expanded however short
+// it is — collapsing `match x { Some(v) => 1, None => 2 }` onto one line is legal
+// and almost never wanted).
 //
 // That leaves exactly one exception: a **struct literal** (`Point { x: 1, y: 2 }`)
 // is a `{` that *should* join. It cannot be recognised from tokens — `impl Foo {`,
 // `struct Foo {`, and `Point {` all read as "identifier, then brace" — so this
 // module walks the AST and reports the offset of each struct literal's `{`.
 //
-// Note the AST is used only to *classify an offset*, never to render: the
-// formatter still emits the original tokens (see reflow.thera), so the parser's
-// `if let` / `let … else` / `else if` desugaring is irrelevant here.
+// Note the AST is used only to *classify an offset*, never to render: the formatter
+// still emits the original tokens (see reflow.thera), so the parser's `if let` /
+// `let … else` / `else if` desugaring is irrelevant here.
 
 import '../ast/ast' as _;
 import '../source' as _; // SourceSpan
 import '../lexer' as _; // Token, TokenKind
 
-// The source offsets of every struct-literal `{` in `p`, ascending. Any `{` not
-// in this list is `AlwaysSplit`.
+// The source offsets of every struct-literal `{` in `p`, ascending. Any `{` not in
+// this list is `AlwaysSplit`.
 pub fn fit_brace_offsets(_ p: Program, _ tokens: List<Token>) -> List<Int> {
     let spans: List<SourceSpan> = [];
     for d in p.decls {
@@ -36,8 +36,8 @@ pub fn fit_brace_offsets(_ p: Program, _ tokens: List<Token>) -> List<Int> {
     return out.sorted_by((a, b) => a < b);
 }
 
-// The offset of the first `{` inside `span` — a struct literal's span starts at
-// its type name, so its brace is the first one within it.
+// The offset of the first `{` inside `span` — a struct literal's span starts at its
+// type name, so its brace is the first one within it.
 fn first_brace_in(_ tokens: List<Token>, _ span: SourceSpan) -> Option<Int> {
     let stop = span.offset + span.length;
     for t in tokens {
@@ -51,8 +51,8 @@ fn first_brace_in(_ tokens: List<Token>, _ span: SourceSpan) -> Option<Int> {
 
 // --- the walk ---
 //
-// Mirrors `lint.thera`'s traversal: every node kind is visited, and the only
-// thing collected is a struct literal's span.
+// Mirrors `lint.thera`'s traversal: every node kind is visited, and the only thing
+// collected is a struct literal's span.
 
 fn walk_decl(_ d: Decl, _ out: List<SourceSpan>) -> Void {
     match d {

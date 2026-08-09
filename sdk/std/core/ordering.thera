@@ -1,7 +1,7 @@
 //! std.core — total ordering: the `Ordering` enum and the `Ord` interface.
 //!
-//! `Ord` is the comparison counterpart to `Eq`: where `Eq` answers "equal?",
-//! `Ord` answers "which comes first?" via `compare`, returning an `Ordering`. The
+//! `Ord` is the comparison counterpart to `Eq`: where `Eq` answers "equal?", `Ord`
+//! answers "which comes first?" via `compare`, returning an `Ordering`. The
 //! primitives implement it (in their own files, beside their `Display` impl); a
 //! user type implements it to be sortable / comparable through `std.sort`. The
 //! comparison operators (`< <= > >=`) stay Int/Double-only for now — use
@@ -37,8 +37,8 @@ impl Ordering {
         return match self { Less => false, _ => true };
     }
 
-    /// The reverse ordering (`Less` <-> `Greater`); `Equal` is unchanged. Handy
-    /// for a descending sort: `xs.sort((a, b) => a.compare(b).reverse().is_lt())`.
+    /// The reverse ordering (`Less` <-> `Greater`); `Equal` is unchanged. Handy for
+    /// a descending sort: `xs.sort((a, b) => a.compare(b).reverse().is_lt())`.
     pub fn reverse(self) -> Ordering {
         return match self {
             Less => Ordering.Greater,
@@ -59,8 +59,8 @@ impl Debug for Ordering {
 }
 
 /// An ordering's display form *is* its developer form — the structural `Debug`
-/// rendering is canonical (there is no prettier user-facing shape; the
-/// Python `str`-delegates-to-`repr` convention for containers).
+/// rendering is canonical (there is no prettier user-facing shape; the Python
+/// `str`-delegates-to-`repr` convention for containers).
 impl Display for Ordering {
     fn to_string(self) -> String {
         return self.debug();

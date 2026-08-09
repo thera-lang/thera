@@ -84,8 +84,8 @@ fn test_list_dir() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// `read_dir` reports each entry's kind from the directory read itself — the
-/// point being that a walk needn't `metadata` every entry to tell a file from a
+/// `read_dir` reports each entry's kind from the directory read itself — the point
+/// being that a walk needn't `metadata` every entry to tell a file from a
 /// subdirectory.
 @test
 fn test_read_dir_reports_kinds() -> Result<Void, Error> {
@@ -157,8 +157,8 @@ fn test_metadata_file() -> Result<Void, Error> {
     let md = fs.metadata(file)?;
     testing.assert_eq(actual: md.size, expected: 5)?;
     testing.assert_eq(actual: md.kind, expected: FileKind.File)?;
-    // A freshly-written file reports a last-modified time (a `DateTime`, not a
-    // raw millis Int). It should be a plausible, positive instant.
+    // A freshly-written file reports a last-modified time (a `DateTime`, not a raw
+    // millis Int). It should be a plausible, positive instant.
     match md.modified {
         Some(dt) => { testing.assert(dt.unix_millis() > 0, message: 'modified time is set')?; },
         None => { testing.assert(false, message: 'expected a modified time')?; },

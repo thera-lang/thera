@@ -1,8 +1,8 @@
-// Refactoring transforms — turn a detected lint site into a source edit, and
-// apply a batch. The strategy is AST-guided **source-slice reassembly**: the kept
+// Refactoring transforms — turn a detected lint site into a source edit, and apply
+// a batch. The strategy is AST-guided **source-slice reassembly**: the kept
 // sub-expressions (scrutinee, pattern, body) are sliced verbatim from the source
-// via their spans, only the connective scaffolding is generated, and the result
-// is run through the formatter to fix indentation (see docs/roadmap.md → Tools —
+// via their spans, only the connective scaffolding is generated, and the result is
+// run through the formatter to fix indentation (see docs/roadmap.md → Tools —
 // refactorings). No full AST pretty-printer is needed — the kept regions carry
 // arbitrary code and comments that slicing preserves as-is.
 //
@@ -24,8 +24,8 @@ import '../fmt';
 // pattern, scrutinee, and body come verbatim from the source (spans carry it); a
 // non-block arm body is wrapped in braces since `if let` requires a block. The
 // replacement is formatted as a fragment at the match's own indentation, so the
-// edit is **localized** — only the rewritten span changes, the rest of the file
-// is untouched (no whole-file reformat).
+// edit is **localized** — only the rewritten span changes, the rest of the file is
+// untouched (no whole-file reformat).
 pub fn if_let_edit(_ site: lint.IfLetMatch) -> edit.TextEdit {
     let pat = pattern_span(site.keep_pattern).text();
     let subj = expr_span(site.subject).text();
@@ -38,9 +38,9 @@ pub fn if_let_edit(_ site: lint.IfLetMatch) -> edit.TextEdit {
 fn if_let_body_text(_ body: Expr) -> String {
     return match body {
         Block(_, _) => expr_span(body).text(),
-        // A bare *diverging* body must be a statement in the block (`{ return x; }`);
-        // a `return`/`throw` can't be a block's tail expression. A value body can
-        // (`{ f(x) }`).
+        // A bare *diverging* body must be a statement in the block
+        // (`{ return x; }`); a `return`/`throw` can't be a block's tail expression.
+        // A value body can (`{ f(x) }`).
         Return(_, _) => '{ ${expr_span(body).text()}; }',
         Throw(_, _) => '{ ${expr_span(body).text()}; }',
         _ => '{ ${expr_span(body).text()} }',
@@ -214,15 +214,15 @@ pub fn parse_fix_sites(_ source: String) -> List<FixSite> {
 }
 
 // Apply every available rewrite to `source` and return the rewritten text. Each
-// edit is self-formatted (see `if_let_edit`), so the result is a **minimal**
-// change — only the rewritten spans differ, everything else is byte-identical
-// (fmt is the separate, whole-file concern).
+// edit is self-formatted (see `if_let_edit`), so the result is a **minimal** change
+// — only the rewritten spans differ, everything else is byte-identical (fmt is the
+// separate, whole-file concern).
 //
 // Nested convertible matches produce *overlapping* edits (an inner match sits
-// inside the outer's span), which can't be applied together. So each pass applies
-// a non-overlapping batch and repeats: rewriting the outer match leaves the inner
-// one verbatim in the result, where the next pass converts it. This converges —
-// every pass turns a `Source` match into an `IfLet`, which never re-fires.
+// inside the outer's span), which can't be applied together. So each pass applies a
+// non-overlapping batch and repeats: rewriting the outer match leaves the inner one
+// verbatim in the result, where the next pass converts it. This converges — every
+// pass turns a `Source` match into an `IfLet`, which never re-fires.
 pub fn fix_source(_ source: String, only: List<String> = []) -> String {
     let mut cur = source;
     let mut guard = 0;
@@ -313,9 +313,9 @@ fn fs_block(_ b: Block, _ out: List<FixSite>) -> Void {
         fs_stmt(s, out);
     }
     if let Some(e) = b.tail {
-        // A block-tail match may take the `if let` rewrite too: an else-less
-        // `if` is legal as a block tail, and the rewrite desugars to the very
-        // same match, so it is semantics-preserving wherever it parses.
+        // A block-tail match may take the `if let` rewrite too: an else-less `if`
+        // is legal as a block tail, and the rewrite desugars to the very same
+        // match, so it is semantics-preserving wherever it parses.
         if let Match(m) = e {
             fs_if_let(m, out);
         }
@@ -323,11 +323,11 @@ fn fs_block(_ b: Block, _ out: List<FixSite>) -> Void {
     }
 }
 
-// Offer the `if let` rewrite for a match in a position where an else-less
-// `if` parses: a statement or a block tail. `fs_match` — reached from every
-// other expression position (an arm body, an initializer, an argument) —
-// offers only the value-preserving rules; see there. The rules partition, so
-// the follow-on `fs_expr` walk never adds a second site for the same match.
+// Offer the `if let` rewrite for a match in a position where an else-less `if`
+// parses: a statement or a block tail. `fs_match` — reached from every other
+// expression position (an arm body, an initializer, an argument) — offers only the
+// value-preserving rules; see there. The rules partition, so the follow-on
+// `fs_expr` walk never adds a second site for the same match.
 fn fs_if_let(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
     if let Some(site) = lint.match_if_let(m) {
         out.push(FixSite {
@@ -357,8 +357,8 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
         Return(_, v) => { fs_opt_expr(v, out); },
         Throw(_, e) => { fs_expr(e, out); },
         Expr(_, e) => {
-            // A match that *is* the statement may take the `if let` rewrite
-            // (see `fs_if_let`).
+            // A match that *is* the statement may take the `if let` rewrite (see
+            // `fs_if_let`).
             if let Match(m) = e {
                 fs_if_let(m, out);
             }
@@ -386,14 +386,14 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
     }
 }
 
-// The applicable *value-position* rewrite for a `match` (at most one — the
-// rules partition), or nothing. `?`, `unwrap_or`, and `map` produce
-// expressions, so they apply wherever the match sits. The `if let` rewrite
-// applies only where an else-less `if` parses — a statement or a block tail —
-// and is offered by `fs_if_let` from those positions (a regression once
-// rewrote a match *arm body* into an else-less `if let`, which does not parse
-// in value position). `let … else` is handled at the `let` (it needs the
-// binding), so a diverging-arm match here matches no rule.
+// The applicable *value-position* rewrite for a `match` (at most one — the rules
+// partition), or nothing. `?`, `unwrap_or`, and `map` produce expressions, so they
+// apply wherever the match sits. The `if let` rewrite applies only where an
+// else-less `if` parses — a statement or a block tail — and is offered by
+// `fs_if_let` from those positions (a regression once rewrote a match *arm body*
+// into an else-less `if let`, which does not parse in value position). `let … else`
+// is handled at the `let` (it needs the binding), so a diverging-arm match here
+// matches no rule.
 fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
     if let Some(site) = lint.match_question(m) {
         out.push(FixSite {

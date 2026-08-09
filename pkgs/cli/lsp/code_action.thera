@@ -1,12 +1,12 @@
 // LSP `textDocument/codeAction`: offers the idiomatic-rewrite refactorings (the
-// same ones `thera lint`/`thera lint --fix` surface) as editor code actions, driving the
-// shared transform machinery in `fix` (`match → if let`/`unwrap_or`/`map`/
-// `let … else`).
+// same ones `thera lint`/`thera lint --fix` surface) as editor code actions,
+// driving the shared transform machinery in `fix`
+// (`match → if let`/`unwrap_or`/`map`/ `let … else`).
 //
-// An action is offered when the request range (the cursor, or a selection)
-// overlaps a rewrite site; its `WorkspaceEdit` is the localized, self-formatted
-// replacement, so applying it changes only that span — the editor never reformats
-// the rest of the document.
+// An action is offered when the request range (the cursor, or a selection) overlaps
+// a rewrite site; its `WorkspaceEdit` is the localized, self-formatted replacement,
+// so applying it changes only that span — the editor never reformats the rest of
+// the document.
 //
 // The request's `context.only` filters by kind: when present, an action is offered
 // only if its kind matches a requested entry — so a client asking for `quickfix`
@@ -22,8 +22,8 @@ import std.json;
 const REWRITE_KIND: String = 'refactor.rewrite';
 
 // The `CodeAction[]` for `range` in an already-parsed `program`/`text`. `uri` keys
-// the returned workspace edits; `context` is the request's `CodeActionContext`
-// (its `only` narrows the kinds). Purely syntactic — no import closure needed.
+// the returned workspace edits; `context` is the request's `CodeActionContext` (its
+// `only` narrows the kinds). Purely syntactic — no import closure needed.
 pub fn handle_code_action(
     _ uri: String,
     _ program: Program,

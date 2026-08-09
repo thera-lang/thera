@@ -49,8 +49,8 @@ impl Args {
 
     /// A boolean flag: true if `name` is present, else `value`.
     ///
-    /// TODO: support negation — `--no-<name>` should yield false — so a flag can
-    /// be explicitly disabled, not just defaulted.
+    /// TODO: support negation — `--no-<name>` should yield false — so a flag can be
+    /// explicitly disabled, not just defaulted.
     pub fn flag(self, _ name: String, default value: Bool) -> Bool {
         if self.has(name) {
             return true;

@@ -1,9 +1,9 @@
-// Tests for completion (completion.thera): the behavioral `complete_at`
-// oracle over broken, mid-keystroke source — the consumer the parser-recovery
-// contract promised (docs/frontend.md §Parser error recovery — Testing).
-// Each fixture is *deliberately* mid-edit (a dangling `obj.`, a half-typed
-// name); the hermetic check walks the recovered tree, so committed-type
-// records exist for the receiver despite the parse error.
+// Tests for completion (completion.thera): the behavioral `complete_at` oracle over
+// broken, mid-keystroke source — the consumer the parser-recovery contract promised
+// (docs/frontend.md §Parser error recovery — Testing). Each fixture is
+// *deliberately* mid-edit (a dangling `obj.`, a half-typed name); the hermetic
+// check walks the recovered tree, so committed-type records exist for the receiver
+// despite the parse error.
 
 import std.testing;
 
@@ -79,9 +79,9 @@ const VALUE_SRC: String = 'struct S { let count: Int; }\n'
     + '    return 0;\n'
     + '}\n';
 
-// A dangling `s.` on a local value: the receiver's committed type (from the
-// check of the recovered tree) lists the instance surface — fields and `self`
-// methods, not statics.
+// A dangling `s.` on a local value: the receiver's committed type (from the check
+// of the recovered tree) lists the instance surface — fields and `self` methods,
+// not statics.
 @test
 fn test_member_completion_on_local_value_receiver() -> Result<Void, Error> {
     let ls = labels(VALUE_SRC, at(VALUE_SRC, '    s.\n', 6));
@@ -111,8 +111,8 @@ const ENUM_SRC: String = 'enum Color { Red, Green(Int) }\n'
     + '    return 0;\n'
     + '}\n';
 
-// A bare type receiver (`Color.`) completes the static surface: variants and
-// static methods, not instance methods.
+// A bare type receiver (`Color.`) completes the static surface: variants and static
+// methods, not instance methods.
 @test
 fn test_member_completion_on_type_receiver() -> Result<Void, Error> {
     let ls = labels(ENUM_SRC, at(ENUM_SRC, '    Color.\n', 10));
@@ -177,9 +177,9 @@ fn test_scope_completion_offers_self_in_method() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A computed receiver (`S.make().`): the recovery hole's zero-width member
-// span anchors the `Field` node at the cursor, and the call's committed type
-// lists the instance surface.
+// A computed receiver (`S.make().`): the recovery hole's zero-width member span
+// anchors the `Field` node at the cursor, and the call's committed type lists the
+// instance surface.
 @test
 fn test_member_completion_on_computed_receiver() -> Result<Void, Error> {
     let src = VALUE_SRC.replace('    s.\n', '    S.make().\n');
@@ -190,9 +190,9 @@ fn test_member_completion_on_computed_receiver() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Completion inside a broken match arm: Stage 2b recovery keeps the arm block
-// and the match tree, so the receiver's record survives and completes — the
-// case that drove the expression-block recovery work.
+// Completion inside a broken match arm: Stage 2b recovery keeps the arm block and
+// the match tree, so the receiver's record survives and completes — the case that
+// drove the expression-block recovery work.
 @test
 fn test_member_completion_inside_broken_match_arm() -> Result<Void, Error> {
     let src = 'struct S { let count: Int; }\n'
@@ -213,8 +213,8 @@ fn test_member_completion_inside_broken_match_arm() -> Result<Void, Error> {
 
 // --- primitive receivers (the core-declaration bridge) ---
 
-// A stand-in core for `String` (see resolve_test's prim_ctx): methods on a
-// bodyless native type, attributed through the primary's bare surface.
+// A stand-in core for `String` (see resolve_test's prim_ctx): methods on a bodyless
+// native type, attributed through the primary's bare surface.
 fn prim_ctx(_ src: String) -> ResolveCtx {
     let core = testkit.parse_at('pub native type String\n'
         + 'impl String {\n'
@@ -235,8 +235,8 @@ fn prim_ctx(_ src: String) -> ResolveCtx {
     };
 }
 
-// A dangling `s.` on an inferred String local completes the core String
-// surface — the committed `Primitive(Str)` looks through to its declaration.
+// A dangling `s.` on an inferred String local completes the core String surface —
+// the committed `Primitive(Str)` looks through to its declaration.
 @test
 fn test_member_completion_on_string_local() -> Result<Void, Error> {
     let src = 'fn f() -> Int {\n'
@@ -251,9 +251,9 @@ fn test_member_completion_on_string_local() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A string *literal* receiver (`'abc'.`) is a computed receiver: the recovery
-// hole anchors the Field node at the cursor and the literal's committed type
-// completes the same surface.
+// A string *literal* receiver (`'abc'.`) is a computed receiver: the recovery hole
+// anchors the Field node at the cursor and the literal's committed type completes
+// the same surface.
 @test
 fn test_member_completion_on_string_literal() -> Result<Void, Error> {
     let src = 'fn f() -> Int {\n'
@@ -268,9 +268,9 @@ fn test_member_completion_on_string_literal() -> Result<Void, Error> {
 
 // --- cross-file surfaces (namespace / qualified type / bare surface) ---
 
-// A one-import closure with hand-rolled loader maps (the resolve_test
-// pattern): `util` binds lib_a's public surface, and bare `width` rides the
-// primary's bare surface.
+// A one-import closure with hand-rolled loader maps (the resolve_test pattern):
+// `util` binds lib_a's public surface, and bare `width` rides the primary's bare
+// surface.
 fn cross_ctx(_ src: String) -> ResolveCtx {
     let a = testkit.parse_at('pub fn helper(_ n: Int) -> Int { return n; }\n'
         + 'pub const width: Int = 4;\n'
@@ -315,8 +315,8 @@ fn test_member_completion_on_namespace() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// `ns.Type.` lists the type's static surface, owner-correct through the
-// namespace's origin map.
+// `ns.Type.` lists the type's static surface, owner-correct through the namespace's
+// origin map.
 @test
 fn test_member_completion_on_qualified_type() -> Result<Void, Error> {
     let src = NS_SRC.replace('    util.\n', '    util.Mode.\n');

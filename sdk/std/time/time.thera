@@ -14,15 +14,14 @@
 //!     want to test deterministically. `time.now_millis()` is the ambient
 //!     convenience form of `time.system_clock().now_millis()` — same effect.
 //!
-//! Most code should take neither: a function that formats a timestamp should
-//! take the `Int`/`DateTime`, not a clock. The capability is for the
-//! orchestrating middle layer. For a deterministic clock in tests, see
-//! `testing.fixed_clock`.
+//! Most code should take neither: a function that formats a timestamp should take
+//! the `Int`/`DateTime`, not a clock. The capability is for the orchestrating
+//! middle layer. For a deterministic clock in tests, see `testing.fixed_clock`.
 
 import std.char;
 
-/// The single ambient time effect: Unix time in milliseconds, from the system
-/// wall clock.
+/// The single ambient time effect: Unix time in milliseconds, from the system wall
+/// clock.
 ///
 /// ```thera
 /// let started = time.now_millis();

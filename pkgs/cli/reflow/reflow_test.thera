@@ -1,7 +1,7 @@
-// Tests for the line-breaking pass. These work on the *break-offset* level
-// rather than on rendered text — the rendered shapes are pinned end to end in
-// `fmt_test.thera`, so these pin the decisions behind them: which group is
-// chosen, and when nothing should happen at all.
+// Tests for the line-breaking pass. These work on the *break-offset* level rather
+// than on rendered text — the rendered shapes are pinned end to end in
+// `fmt_test.thera`, so these pin the decisions behind them: which group is chosen,
+// and when nothing should happen at all.
 
 import std.testing;
 
@@ -63,26 +63,25 @@ fn offsets_are_ascending_and_unique() -> Result<Void, Error> {
 
 @test
 fn skips_a_break_that_already_exists() -> Result<Void, Error> {
-    // The call is already fully split *and* carries its trailing comma, so
-    // there is nothing left to add — this is what makes the reflow loop
-    // terminate.
+    // The call is already fully split *and* carries its trailing comma, so there is
+    // nothing left to add — this is what makes the reflow loop terminate.
     let src = 'fn f() {\n    g(\n        alpha,\n        beta,\n    );\n}\n';
     return testing.assert_eq(actual: breaks_for(src, 10).len(), expected: 0);
 }
 
 @test
 fn adds_the_trailing_comma_an_already_split_list_lacks() -> Result<Void, Error> {
-    // Split by hand without a trailing comma: one edit, the comma alone — no
-    // new line break, since the layout is already right.
+    // Split by hand without a trailing comma: one edit, the comma alone — no new
+    // line break, since the layout is already right.
     let src = 'fn f() {\n    g(\n        alpha,\n        beta\n    );\n}\n';
     return testing.assert_eq(actual: breaks_for(src, 100).len(), expected: 1);
 }
 
 @test
 fn skips_a_group_that_cannot_shorten_the_line() -> Result<Void, Error> {
-    // The call's only break on the over-width line is the one before its closer,
-    // so splitting it would leave the line all but as long — and one level
-    // further indented. Nothing else on the line can break, so nothing does.
+    // The call's only break on the over-width line is the one before its closer, so
+    // splitting it would leave the line all but as long — and one level further
+    // indented. Nothing else on the line can break, so nothing does.
     let src = 'fn f() {\n    g(\n        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa + b);\n}\n';
     return testing.assert_eq(actual: breaks_for(src, 20).len(), expected: 0);
 }
@@ -91,16 +90,16 @@ fn skips_a_group_that_cannot_shorten_the_line() -> Result<Void, Error> {
 fn never_breaks_inside_a_generic_argument_list() -> Result<Void, Error> {
     // The comma in `Map<String, …>` sits in no bracket of its own — `<`/`>` are
     // ordinary operator tokens — so it would otherwise read as a separator of the
-    // enclosing block, and `let m: Map<String,⏎List<Int>> = [:];` would look like
-    // a legal split.
+    // enclosing block, and `let m: Map<String,⏎List<Int>> = [:];` would look like a
+    // legal split.
     let src = 'fn f() {\n    let m: Map<String, LongTypeNameeeeeeeeeee> = [:];\n}\n';
     return testing.assert_eq(actual: breaks_for(src, 30).len(), expected: 0);
 }
 
 @test
 fn ignores_source_that_does_not_lex() -> Result<Void, Error> {
-    // An unterminated string: no tokens to trust, so no breaks are proposed and
-    // the caller keeps the original text.
+    // An unterminated string: no tokens to trust, so no breaks are proposed and the
+    // caller keeps the original text.
     let src = 'fn f() {\n    let s = \'unterminated;\n}\n';
     return testing.assert_eq(actual: breaks_for(src, 10).len(), expected: 0);
 }

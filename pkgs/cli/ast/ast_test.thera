@@ -1,15 +1,15 @@
 // Smoke tests for the AST data model: that the mutually-recursive enums/structs
-// construct, and that the derived structural Eq/Debug compare a whole tree —
-// the property the parser port relies on to diff its output (`assert_eq` over a
-// deep Program). Real parser-output assertions arrive with the parser.
+// construct, and that the derived structural Eq/Debug compare a whole tree — the
+// property the parser port relies on to diff its output (`assert_eq` over a deep
+// Program). Real parser-output assertions arrive with the parser.
 
 import std.testing;
 
 import '../source' as _;
 import 'ast' as _;
 
-// A throwaway span for hand-built nodes (structural equality over a tree built
-// with the same span makes spans drop out of the comparison).
+// A throwaway span for hand-built nodes (structural equality over a tree built with
+// the same span makes spans drop out of the comparison).
 fn sp() -> SourceSpan {
     return SourceSpan { source: '', file: '', offset: 0, length: 0, line: 1, column: 1 };
 }

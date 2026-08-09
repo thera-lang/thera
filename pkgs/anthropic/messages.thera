@@ -24,9 +24,10 @@ pub struct ThinkingBlock {
     let signature: String;
 }
 
-/// A `tool_use` block. `input` stays a `Json`: its shape is the *tool's* own schema,
-/// which the API does not model — the mapping table's "unmodeled → `Json`" row, and
-/// the honest answer rather than a `Map<String, String>` that would be wrong.
+/// A `tool_use` block. `input` stays a `Json`: its shape is the *tool's* own
+/// schema, which the API does not model — the mapping table's "unmodeled → `Json`"
+/// row, and the honest answer rather than a `Map<String, String>` that would be
+/// wrong.
 pub struct ToolUseBlock {
     let id: String;
     let name: String;

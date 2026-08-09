@@ -1,8 +1,8 @@
-// Tests for go-to-type-definition (type_definition.thera): the *type* of the
-// value at the cursor resolves to that type's declaration. Mirrors
-// resolve_test's hermetic harness — a single parsed file, the committed-type
-// record populated straight from the hermetic checker — asserting the target
-// offset each case lands on.
+// Tests for go-to-type-definition (type_definition.thera): the *type* of the value
+// at the cursor resolves to that type's declaration. Mirrors resolve_test's
+// hermetic harness — a single parsed file, the committed-type record populated
+// straight from the hermetic checker — asserting the target offset each case lands
+// on.
 
 import std.testing;
 
@@ -13,8 +13,8 @@ import '../checker/checker';
 import 'resolve' as _;
 import 'type_definition';
 
-// A resolution context with the primary's committed-type record populated the
-// way `analyze_at` does (straight from the hermetic checker).
+// A resolution context with the primary's committed-type record populated the way
+// `analyze_at` does (straight from the hermetic checker).
 fn typed_ctx(_ program: Program) -> ResolveCtx {
     let nss: Map<String, Map<String, LibraryNamespace>> = [:];
     let bare: Map<String, Map<String, String>> = [:];
@@ -28,8 +28,8 @@ fn typed_ctx(_ program: Program) -> ResolveCtx {
     };
 }
 
-// The type-definition target offset resolved at `use_offset`, or -1 when
-// nothing navigable.
+// The type-definition target offset resolved at `use_offset`, or -1 when nothing
+// navigable.
 fn target_offset(_ src: String, _ use_offset: Int) -> Int {
     let program = testkit.parse_at(src, 't.thera');
     return type_definition.type_target_offset(typed_ctx(program), src, use_offset)
@@ -69,8 +69,8 @@ fn test_inferred_local_at_its_let_name() -> Result<Void, Error> {
 
 @test
 fn test_annotated_param_at_its_declaration() -> Result<Void, Error> {
-    // The `pt` of `_ pt: Point` — no use-site record at a parameter's own
-    // name, so the written annotation's named head answers.
+    // The `pt` of `_ pt: Point` — no use-site record at a parameter's own name, so
+    // the written annotation's named head answers.
     testing.assert_eq(
         actual: target_offset(SRC, at(SRC, '_ pt: Point', 2)),
         expected: point_decl(),

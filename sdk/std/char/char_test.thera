@@ -1,8 +1,8 @@
 //! Tests for std.char.
 //!
-//! Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
-//! today (`thera check`). A sibling `_test.thera` with white-box access to its
-//! library — constants and functions are referenced unqualified.
+//! Written ahead of the `@test` runner (see docs/roadmap.md); they type-check today
+//! (`thera check`). A sibling `_test.thera` with white-box access to its library —
+//! constants and functions are referenced unqualified.
 
 import std.testing;
 

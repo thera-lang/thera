@@ -1,5 +1,5 @@
-// Demonstrates ADT-style enums: zero-arg and payload variants, pattern
-// matching, and the built-in .name() method.
+// Demonstrates ADT-style enums: zero-arg and payload variants, pattern matching,
+// and the built-in .name() method.
 
 enum Direction {
     North,

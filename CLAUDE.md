@@ -121,6 +121,11 @@ there at runtime)
   It reformats whole files, so it may tidy lines you didn't touch: **leave those
   changes in.** Don't revert them, and never reflow markdown by hand or with an
   ad-hoc script — the one time that was tried it destroyed a table.
+- **Comment prose is formatted by `thera fmt`**, same bargain: write a paragraph
+  as one long line or however it falls out, and let the formatter wrap it (84
+  columns). Don't hand-wrap or align comment text. Structure inside a comment —
+  fences, lists, indented lines — is left as you write it, so that is where to
+  put anything whose line breaks matter.
 - Perform work in new branches (no commits to main).
 - Each PR should be focused on a single task, feature, or arc of work.
 - Work items live in the GitHub issue tracker; label issues and PRs per

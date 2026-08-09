@@ -63,8 +63,8 @@ fn test_surrogate_pair() -> Result<Void, Error> {
 
 @test
 fn test_lone_surrogates_rejected() -> Result<Void, Error> {
-    // A lone surrogate is not a scalar value; reject it (don't crash on an
-    // invalid code point), rather than emit U+FFFD.
+    // A lone surrogate is not a scalar value; reject it (don't crash on an invalid
+    // code point), rather than emit U+FFFD.
     testing.assert_err(parse('"\\uDEAD"'))?;       // lone low surrogate
     testing.assert_err(parse('"\\uD800"'))?;       // lone high surrogate (no low)
     testing.assert_err(parse('"\\uD800x"'))?;      // high surrogate, no low follows

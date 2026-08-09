@@ -1,17 +1,17 @@
-// A file's *importer-visible surface signature*: its source text with function
-// and method **body interiors** elided. Importers type-check against a file's
+// A file's *importer-visible surface signature*: its source text with function and
+// method **body interiors** elided. Importers type-check against a file's
 // declarations and their types — names, signatures, field/variant/const types —
 // never against a function body, so a body-only edit cannot change any importer's
 // diagnostics. Eliding exactly the fn/method bodies (and nothing else — a `const`
 // or top-level `let` initializer stays, since a const inlines into its importers)
-// yields a string that differs across an edit iff a cross-file-relevant part of
-// the file changed. The LSP compares it before/after an edit to decide whether a
+// yields a string that differs across an edit iff a cross-file-relevant part of the
+// file changed. The LSP compares it before/after an edit to decide whether a
 // workspace re-pull is warranted (server.flush) — a body edit only touches the
 // edited file's own diagnostics, which the client re-pulls per document.
 //
-// Conservative by construction: it elides *less* than the true public surface
-// (it keeps private decls, comments, and formatting outside bodies), so it can
-// only over-report a change (a needless nudge), never miss one (a stale importer).
+// Conservative by construction: it elides *less* than the true public surface (it
+// keeps private decls, comments, and formatting outside bodies), so it can only
+// over-report a change (a needless nudge), never miss one (a stale importer).
 
 import '../ast/ast' as _; // Program, Decl, FnDecl, Block
 

@@ -1,10 +1,10 @@
 //! Conformance tests over the classic JSON.org json_checker suite
-//! (https://www.json.org/JSON_checker/). Each .json file is embedded verbatim
-//! as a string literal: the three pass* inputs must parse, the fail* inputs
-//! must be rejected.
+//! (https://www.json.org/JSON_checker/). Each .json file is embedded verbatim as a
+//! string literal: the three pass* inputs must parse, the fail* inputs must be
+//! rejected.
 //!
-//! The original suite targets RFC 4627; two of its fail cases are valid under
-//! the current JSON spec (RFC 8259) and are accepted here by design — see
+//! The original suite targets RFC 4627; two of its fail cases are valid under the
+//! current JSON spec (RFC 8259) and are accepted here by design — see
 //! test_fail1_bare_string and test_fail18_deep_nesting.
 
 import std.testing;
@@ -85,7 +85,7 @@ fn test_pass2() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// {\n    "JSON Test Pattern pass3": {\n        "The outermost value...
+/// {\n "JSON Test Pattern pass3": {\n "The outermost value...
 @test
 fn test_pass3() -> Result<Void, Error> {
     testing.assert_ok(
@@ -99,9 +99,9 @@ fn test_pass3() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// "A JSON payload should be an object or array, not a string."
-/// Deviation: json_checker (RFC 4627) requires an object/array at the top
-/// level; RFC 8259 allows any value, so a bare string parses cleanly here.
+/// "A JSON payload should be an object or array, not a string." Deviation:
+/// json_checker (RFC 4627) requires an object/array at the top level; RFC 8259
+/// allows any value, so a bare string parses cleanly here.
 @test
 fn test_fail1_bare_string_accepted() -> Result<Void, Error> {
     testing.assert_ok(json.parse('"A JSON payload should be an object or array, not a string."'))?;
@@ -220,9 +220,9 @@ fn test_fail17() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// [[[[[[[[[[[[[[[[[[[["Too deep"]]]]]]]]]]]]]]]]]]]]
-/// Deviation: json_checker caps nesting at 19 levels; that is an
-/// implementation limit, not a JSON rule, so this 20-deep input parses.
+/// [[[[[[[[[[[[[[[[[[[["Too deep"]]]]]]]]]]]]]]]]]]]] Deviation: json_checker caps
+/// nesting at 19 levels; that is an implementation limit, not a JSON rule, so this
+/// 20-deep input parses.
 @test
 fn test_fail18_deep_nesting_accepted() -> Result<Void, Error> {
     testing.assert_ok(json.parse('[[[[[[[[[[[[[[[[[[[["Too deep"]]]]]]]]]]]]]]]]]]]]'))?;

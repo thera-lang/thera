@@ -1,9 +1,9 @@
 // Tests for the Thera lexer, with token streams derived from the Dart lexer's
 // behavior (the oracle this port transcribes). Each test pins token kinds and,
-// where it matters, lexemes / spans / error messages for a representative slice
-// of the grammar: keywords, identifiers, every punctuation and operator, the
-// number forms, strings with escapes and interpolation capture, comment and
-// whitespace skipping, line/column tracking, and the error paths.
+// where it matters, lexemes / spans / error messages for a representative slice of
+// the grammar: keywords, identifiers, every punctuation and operator, the number
+// forms, strings with escapes and interpolation capture, comment and whitespace
+// skipping, line/column tracking, and the error paths.
 
 import std.testing;
 
@@ -37,8 +37,8 @@ fn test_every_keyword_lexes_as_its_kind() -> Result<Void, Error> {
     testing.assert_eq(actual: kinds('break'), expected: [TokenKind.KwBreak, TokenKind.Eof])?;
     testing.assert_eq(actual: kinds('breaks'), expected: [TokenKind.Identifier, TokenKind.Eof])?;
     testing.assert_eq(actual: kinds('continue'), expected: [TokenKind.KwContinue, TokenKind.Eof])?;
-    // `type` is a *contextual* keyword — not reserved, lexes as an identifier
-    // (only `native type` gives it meaning, by lexeme, in the parser).
+    // `type` is a *contextual* keyword — not reserved, lexes as an identifier (only
+    // `native type` gives it meaning, by lexeme, in the parser).
     testing.assert_eq(actual: kinds('type'), expected: [TokenKind.Identifier, TokenKind.Eof])?;
     return Result.Ok(void);
 }
@@ -107,8 +107,8 @@ fn test_string_basic_both_quotes() -> Result<Void, Error> {
 
 @test
 fn test_string_escapes() -> Result<Void, Error> {
-    // \n \t \' decode to their characters in the captured value. (A literal `\`
-    // or `$` is re-escaped in the value so the splitter can tell it from a real
+    // \n \t \' decode to their characters in the captured value. (A literal `\` or
+    // `$` is re-escaped in the value so the splitter can tell it from a real
     // `${…}`; that round-trip is checked in the parser tests, where the decoded
     // text part is observable.)
     let toks = tokenize("'a\\nb\\t\\''").tokens;
@@ -125,11 +125,11 @@ fn test_string_escapes() -> Result<Void, Error> {
 
 @test
 fn test_raw_string() -> Result<Void, Error> {
-    // In `r'…'` a backslash is just a backslash — no escape decoding at all, so
-    // a regex or a Windows path survives verbatim, trailing backslash included.
-    // As with an ordinary literal, the captured value re-escapes a `\` or `$`
-    // for the splitter (so `\d` reads back as `\\d` here); the decoded text is
-    // observable in the parser tests and pinned end-to-end in tests/lang.
+    // In `r'…'` a backslash is just a backslash — no escape decoding at all, so a
+    // regex or a Windows path survives verbatim, trailing backslash included. As
+    // with an ordinary literal, the captured value re-escapes a `\` or `$` for the
+    // splitter (so `\d` reads back as `\\d` here); the decoded text is observable
+    // in the parser tests and pinned end-to-end in tests/lang.
     testing.assert_eq(actual: tokenize("r'\\d+'").tokens[0].lexeme(), expected: "\\\\d+")?;
     testing.assert_eq(actual: tokenize("r'a\\'").tokens[0].lexeme(), expected: "a\\\\")?;
     testing.assert_eq(actual: tokenize("r'\\n'").tokens[0].lexeme(), expected: "\\\\n")?;
@@ -155,9 +155,9 @@ fn block(_ lines: List<String>) -> String {
 
 @test
 fn test_text_block_strips_the_common_margin() -> Result<Void, Error> {
-    // The margin is the least-indented non-blank line and the closing
-    // delimiter's line; indentation beyond it is content, and the closer on its
-    // own line supplies the final newline.
+    // The margin is the least-indented non-blank line and the closing delimiter's
+    // line; indentation beyond it is content, and the closer on its own line
+    // supplies the final newline.
     let src = block(["'''", '    one', '      two', '', '    three', "    '''"]);
     testing.assert_eq(
         actual: tokenize(src).tokens[0].lexeme(),
@@ -174,8 +174,8 @@ fn test_text_block_strips_the_common_margin() -> Result<Void, Error> {
 
 @test
 fn test_text_block_trailing_whitespace_and_closer() -> Result<Void, Error> {
-    // Incidental trailing whitespace goes; an escaped space survives, since
-    // escapes are decoded after the whitespace is measured.
+    // Incidental trailing whitespace goes; an escaped space survives, since escapes
+    // are decoded after the whitespace is measured.
     let src = block(["'''", '    ab   ', '    c\\x20', "    '''"]);
     testing.assert_eq(actual: tokenize(src).tokens[0].lexeme(), expected: 'ab\nc \n')?;
     // The closer on a content line ends the value there — no final newline.
@@ -191,8 +191,8 @@ fn test_text_block_trailing_whitespace_and_closer() -> Result<Void, Error> {
 
 @test
 fn test_text_block_keeps_escapes_and_interpolation() -> Result<Void, Error> {
-    // A text block is an ordinary string in every respect but whitespace: a
-    // lone quote is content, and `${…}` is captured for the parser as usual.
+    // A text block is an ordinary string in every respect but whitespace: a lone
+    // quote is content, and `${…}` is captured for the parser as usual.
     let src = block(["'''", "    it's \${x} \\t.", "    '''"]);
     let toks = tokenize(src).tokens;
     testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
@@ -285,8 +285,8 @@ fn test_interpolation_captured_verbatim() -> Result<Void, Error> {
 
 @test
 fn test_interpolation_nested_string_brace_not_closing() -> Result<Void, Error> {
-    // A `}` inside a nested string within `${...}` must not close the
-    // interpolation early. Source under test: '${"x}"}'
+    // A `}` inside a nested string within `${...}` must not close the interpolation
+    // early. Source under test: '${"x}"}'
     let toks = tokenize("'\${\"x}\"}'").tokens;
     testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
     testing.assert_eq(actual: toks[0].lexeme(), expected: "\${\"x}\"}")?;
@@ -305,8 +305,8 @@ fn test_comments_and_whitespace_skipped() -> Result<Void, Error> {
 
 @test
 fn test_comments_captured_on_side_channel() -> Result<Void, Error> {
-    // Comments stay out of the token stream but are captured, in source order,
-    // with their verbatim text (no trailing newline).
+    // Comments stay out of the token stream but are captured, in source order, with
+    // their verbatim text (no trailing newline).
     let res = tokenize('fn  // a comment\n  x // trailing');
     testing.assert_eq(actual: res.comments.len(), expected: 2)?;
     testing.assert_eq(actual: res.comments[0].span.text(), expected: '// a comment')?;
@@ -316,8 +316,8 @@ fn test_comments_captured_on_side_channel() -> Result<Void, Error> {
 
 @test
 fn test_comment_span_excludes_cr() -> Result<Void, Error> {
-    // On a CRLF file the `\r` before the newline is line-ending, not comment
-    // text — the span ends before it (fmt re-emits comment spans verbatim).
+    // On a CRLF file the `\r` before the newline is line-ending, not comment text —
+    // the span ends before it (fmt re-emits comment spans verbatim).
     let res = tokenize('// a comment\r\nx');
     testing.assert_eq(actual: res.comments.len(), expected: 1)?;
     testing.assert_eq(actual: res.comments[0].span.text(), expected: '// a comment')?;

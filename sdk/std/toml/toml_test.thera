@@ -5,8 +5,8 @@ import std.testing;
 
 import 'toml' as _;
 
-// A single-quote character, for building TOML literal-string inputs without
-// leaning on escape support in Thera's own string literals.
+// A single-quote character, for building TOML literal-string inputs without leaning
+// on escape support in Thera's own string literals.
 let sq: String = String.from_chars([39]);
 
 fn len_of(_ items: Option<List<Toml>>) -> Int {
@@ -354,8 +354,7 @@ fn test_datetime_kinds() -> Result<Void, Error> {
 
 @test
 fn test_datetime_normalization() -> Result<Void, Error> {
-    // Lowercase t/z and the space delimiter normalize; components stay as
-    // written.
+    // Lowercase t/z and the space delimiter normalize; components stay as written.
     let doc = parse('a = 1979-05-27t07:32:00z\nb = 1979-05-27 07:32:00Z\n')?;
     testing.assert_eq(actual: datetime_of(doc.get('a')).text, expected: '1979-05-27T07:32:00Z')?;
     testing.assert_eq(actual: datetime_of(doc.get('b')).text, expected: '1979-05-27T07:32:00Z')?;
@@ -422,8 +421,8 @@ fn test_table_headers() -> Result<Void, Error> {
 
 @test
 fn test_super_table_after_subtable() -> Result<Void, Error> {
-    // [x.y.z.w] creates x, x.y, x.y.z implicitly; defining [x] later is legal
-    // — once.
+    // [x.y.z.w] creates x, x.y, x.y.z implicitly; defining [x] later is legal —
+    // once.
     let doc = parse('[x.y.z.w]\na = 1\n[x]\nb = 2\n')?;
     testing.assert_eq(actual: doc.get_int('x.y.z.w.a'), expected: Option.Some(1))?;
     testing.assert_eq(actual: doc.get_int('x.b'), expected: Option.Some(2))?;
@@ -458,8 +457,8 @@ fn test_array_of_tables() -> Result<Void, Error> {
 
 @test
 fn test_nested_arrays_of_tables() -> Result<Void, Error> {
-    // The spec's fruit example: sub-tables and nested arrays attach to the
-    // most recent element of the enclosing array.
+    // The spec's fruit example: sub-tables and nested arrays attach to the most
+    // recent element of the enclosing array.
     let doc = parse(
         '[[fruit]]\nname = "apple"\n\n[fruit.physical]\ncolor = "red"\n\n[[fruit.variety]]\nname = "red delicious"\n\n[[fruit.variety]]\nname = "granny smith"\n\n[[fruit]]\nname = "banana"\n\n[[fruit.variety]]\nname = "plantain"\n'
     )?;
@@ -477,8 +476,8 @@ fn test_nested_arrays_of_tables() -> Result<Void, Error> {
         actual: banana.and_then((v) => v.get_array('variety')).map((l) => l.len()),
         expected: Option.Some(1),
     )?;
-    // Each [[fruit]] element gets its own sub-namespace: defining
-    // [fruit.physical] again under the second element is legal.
+    // Each [[fruit]] element gets its own sub-namespace: defining [fruit.physical]
+    // again under the second element is legal.
     let two = parse('[[f]]\n[f.p]\nx = 1\n[[f]]\n[f.p]\nx = 2\n')?;
     testing.assert_eq(
         actual: two.get('f').and_then((v) => v.at(1)).and_then((v) => v.get_int('p.x')),
@@ -684,9 +683,9 @@ fn test_cursor_optional_reads() -> Result<Void, Error> {
 
 // --- the forcing function: decode a realistic api.toml into typed structs ---
 //
-// The manifest shape is api-access.md § The manifest: spec URL + content-hash
-// pin, the selected operations, auth (which the spec cannot state), the beta
-// lane, and per-operation overrides each carrying its why.
+// The manifest shape is api-access.md § The manifest: spec URL + content-hash pin,
+// the selected operations, auth (which the spec cannot state), the beta lane, and
+// per-operation overrides each carrying its why.
 
 struct ApiAuth {
     let header: String;

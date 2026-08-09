@@ -5,8 +5,8 @@ import std.io;
 
 import 'jsonrpc' as _;
 
-// An in-memory `Reader` that hands out `data` in `max`-sized chunks, so the
-// read loop can be driven without a real stream (empty read = EOF).
+// An in-memory `Reader` that hands out `data` in `max`-sized chunks, so the read
+// loop can be driven without a real stream (empty read = EOF).
 struct FakeReader { let data: Bytes; let mut pos: Int; }
 impl io.Reader for FakeReader {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
@@ -73,10 +73,10 @@ fn test_frame_prefixes_byte_length() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A header block that can never frame a body (unparseable, negative, or
-// missing Content-Length) is dropped and the next message still gets through
-// — previously it wedged the stream forever, buffering input without ever
-// yielding a message (LS9).
+// A header block that can never frame a body (unparseable, negative, or missing
+// Content-Length) is dropped and the next message still gets through — previously
+// it wedged the stream forever, buffering input without ever yielding a message
+// (LS9).
 @test
 fn test_malformed_content_length_recovers() -> Result<Void, Error> {
     let input = 'Content-Length: abc\r\n\r\n${frame('{"a":1}')}';

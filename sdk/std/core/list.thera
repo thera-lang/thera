@@ -15,27 +15,27 @@
 //! let names = users.map(u => u.name);
 //! ```
 //!
-//! `sort` takes an explicit comparator (`less`); a no-argument `sort()` keyed on
-//! a built-in `Ord` interface waits on that interface landing.
+//! `sort` takes an explicit comparator (`less`); a no-argument `sort()` keyed on a
+//! built-in `Ord` interface waits on that interface landing.
 
-/// The built-in growable sequence type — an opaque, runtime-represented value
-/// (no struct layout); a list literal (`[a, b, c]`) constructs one.
+/// The built-in growable sequence type — an opaque, runtime-represented value (no
+/// struct layout); a list literal (`[a, b, c]`) constructs one.
 pub native type List<T>
 
 impl List<T> {
-    // Indexing — `xs[i]` and `xs[i] = v` — is built-in operator syntax (lowered
-    // by the compiler, not a method, so it has no declaration here). The read
+    // Indexing — `xs[i]` and `xs[i] = v` — is built-in operator syntax (lowered by
+    // the compiler, not a method, so it has no declaration here). The read
     //
     //   fn [](self, _ i: Int) -> T          // traps if `i` is out of range
     //
-    // returns the element at `i`, **trapping** on an out-of-range index — use
-    // `get` below for the checked `Option<T>` form. The write
+    // returns the element at `i`, **trapping** on an out-of-range index — use `get`
+    // below for the checked `Option<T>` form. The write
     //
     //   fn []=(self, _ i: Int, _ v: T)      // traps if `i` is out of range
     //
     // replaces `xs[i]` in place; it cannot extend the list (use `push`), so an
-    // out-of-range index traps. (Indexing isn't an overloadable interface yet;
-    // this documents the contract the compiler implements for `List`.)
+    // out-of-range index traps. (Indexing isn't an overloadable interface yet; this
+    // documents the contract the compiler implements for `List`.)
 
     /// Number of elements.
     @extern('list_len')
@@ -54,8 +54,8 @@ impl List<T> {
     @extern('list_push')
     pub native fn push(self, _ item: T) -> Void
 
-    /// Remove and return the last element, in place — `None` if the list is
-    /// empty. The mutating companion of `last()`.
+    /// Remove and return the last element, in place — `None` if the list is empty.
+    /// The mutating companion of `last()`.
     @extern('list_pop')
     pub native fn pop(self) -> Option<T>
 
@@ -115,8 +115,8 @@ impl List<T> {
         }
     }
 
-    /// A new list with the elements in reverse order (this list is unchanged;
-    /// the in-place form is [reverse]).
+    /// A new list with the elements in reverse order (this list is unchanged; the
+    /// in-place form is [reverse]).
     pub fn reversed(self) -> List<T> {
         let result = [];
         let mut i = self.len() - 1;
@@ -127,9 +127,9 @@ impl List<T> {
         return result;
     }
 
-    /// Sort the elements **in place** by `less` (like `push`/`pop`, a mutation
-    /// of this list; the returns-new form is [sorted_by]). `less(a, b)` is true
-    /// when `a` should come before `b`; stable, O(n log n).
+    /// Sort the elements **in place** by `less` (like `push`/`pop`, a mutation of
+    /// this list; the returns-new form is [sorted_by]). `less(a, b)` is true when
+    /// `a` should come before `b`; stable, O(n log n).
     ///
     /// ```thera
     /// names.sort((a, b) => a < b);          // ascending
@@ -147,8 +147,8 @@ impl List<T> {
 
     /// A new list with the elements ordered by `less` — `less(a, b)` is true when
     /// `a` should come before `b` (this list is unchanged; the in-place form is
-    /// [sort]). The sort is **stable** (equal elements keep their input order)
-    /// and runs in O(n log n) via a bottom-up merge.
+    /// [sort]). The sort is **stable** (equal elements keep their input order) and
+    /// runs in O(n log n) via a bottom-up merge.
     ///
     /// ```thera
     /// let ordered = edits.sorted_by((a, b) => a.start < b.start);
@@ -208,15 +208,15 @@ impl List<T> {
     }
 
     /// A **lazy** `Iterator` over the elements, in order — the opt-in gateway to
-    /// the pull-based `Iterator` protocol (`map`/`filter`/`take`/`enumerate`,
-    /// then `to_list`/`count`).
+    /// the pull-based `Iterator` protocol (`map`/`filter`/`take`/`enumerate`, then
+    /// `to_list`/`count`).
     ///
     /// Prefer the eager `map`/`filter` below for the common case: they return a
-    /// plain `List`, so the result keeps indexing, `len`, re-iteration, and
-    /// further list methods. Reach for `iter()` when a *chain* of transforms
-    /// would otherwise build throwaway intermediate lists, when you want to stop
-    /// early (`take(n)`), or when the data is large enough that fusing the passes
-    /// matters — `iter()` runs the whole chain in one walk with no intermediates:
+    /// plain `List`, so the result keeps indexing, `len`, re-iteration, and further
+    /// list methods. Reach for `iter()` when a *chain* of transforms would
+    /// otherwise build throwaway intermediate lists, when you want to stop early
+    /// (`take(n)`), or when the data is large enough that fusing the passes matters
+    /// — `iter()` runs the whole chain in one walk with no intermediates:
     ///
     /// ```thera
     /// // eager: one intermediate list, then the final list — fine for small input
@@ -226,8 +226,8 @@ impl List<T> {
     /// let b = xs.iter().map((n) => n * n).filter((n) => n > 10).to_list();
     /// ```
     ///
-    /// Note an `Iterator` is single-use (stateful: consumed as it is read), so
-    /// call `iter()` again for a fresh pass rather than reusing the value.
+    /// Note an `Iterator` is single-use (stateful: consumed as it is read), so call
+    /// `iter()` again for a fresh pass rather than reusing the value.
     pub fn iter(self) -> Iterator<T> {
         return ListIter { items: self, pos: 0 };
     }
@@ -267,8 +267,8 @@ impl List<T> {
     }
 
     /// A new list of the elements in the half-open range `[start, end)`. Indices
-    /// are clamped to the list's bounds, so out-of-range or reversed ranges yield
-    /// a shorter or empty list rather than an error.
+    /// are clamped to the list's bounds, so out-of-range or reversed ranges yield a
+    /// shorter or empty list rather than an error.
     ///
     /// ```thera
     /// [10, 20, 30, 40].slice(1, 3)   // [20, 30]
@@ -288,8 +288,8 @@ impl List<T> {
 
 impl Debug for List<T> {
     /// `[a, b, c]` — each element rendered via `Debug`, so nested strings are
-    /// quoted (`["a", "b"]`), matching mainstream collection printing. (Empty
-    /// list: `[]`.)
+    /// quoted (`["a", "b"]`), matching mainstream collection printing. (Empty list:
+    /// `[]`.)
     fn debug(self) -> String {
         let mut s = '[';
         let mut first = true;
@@ -304,9 +304,9 @@ impl Debug for List<T> {
     }
 }
 
-/// A list's display form *is* its developer form — the structural `Debug`
-/// rendering is canonical (there is no prettier user-facing shape; the
-/// Python `str`-delegates-to-`repr` convention for containers).
+/// A list's display form *is* its developer form — the structural `Debug` rendering
+/// is canonical (there is no prettier user-facing shape; the Python
+/// `str`-delegates-to-`repr` convention for containers).
 impl Display for List<T> {
     fn to_string(self) -> String {
         return self.debug();

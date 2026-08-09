@@ -1,21 +1,21 @@
-// The source model — the vocabulary types for talking *about* source text,
-// shared by every phase: `SourceSpan` (a region of a file, the currency of
-// diagnostics, AST node identity, and editor ranges) and the comment side
-// channel (`Comment`/`CommentKind` — comments are source artifacts, not
-// tokens; the lexer captures them here and the token stream never sees them).
+// The source model — the vocabulary types for talking *about* source text, shared
+// by every phase: `SourceSpan` (a region of a file, the currency of diagnostics,
+// AST node identity, and editor ranges) and the comment side channel
+// (`Comment`/`CommentKind` — comments are source artifacts, not tokens; the lexer
+// captures them here and the token stream never sees them).
 //
-// Spans are code-point based (Thera strings index by code point), which
-// matches the Dart toolchain's code-unit spans for ASCII source — the common
-// case for Thera programs.
+// Spans are code-point based (Thera strings index by code point), which matches the
+// Dart toolchain's code-unit spans for ASCII source — the common case for Thera
+// programs.
 
-// A region of source: the originating text plus the code-point offset, length,
-// and the 1-based (line, column) of its start.
+// A region of source: the originating text plus the code-point offset, length, and
+// the 1-based (line, column) of its start.
 pub struct SourceSpan {
     let source: String;
-    // The canonical key of the file this span lies in (LD7/LD17), or `''`
-    // when the producer had no file (a hermetic/text-only tokenize). This is
-    // what attributes a diagnostic to its owning file — never the source
-    // *text* (identical file contents would collide).
+    // The canonical key of the file this span lies in (LD7/LD17), or `''` when the
+    // producer had no file (a hermetic/text-only tokenize). This is what attributes
+    // a diagnostic to its owning file — never the source *text* (identical file
+    // contents would collide).
     let file: String;
     let offset: Int;
     let length: Int;
@@ -29,10 +29,10 @@ impl SourceSpan {
         return self.source.slice(self.offset, self.offset + self.length);
     }
 
-    // A span from the start of `self` to the end of `other` (used to widen a
-    // node's span to enclose its children). An empty-source span is treated as
-    // absent, so covering with one returns the other — mirroring the Dart
-    // `SourceSpan.cover` factory.
+    // A span from the start of `self` to the end of `other` (used to widen a node's
+    // span to enclose its children). An empty-source span is treated as absent, so
+    // covering with one returns the other — mirroring the Dart `SourceSpan.cover`
+    // factory.
     pub fn cover(self, _ other: SourceSpan) -> SourceSpan {
         if self.source == '' {
             return other;
@@ -57,12 +57,12 @@ impl Display for SourceSpan {
     }
 }
 
-// A zero-length span at the start of `anchor` — the span for a *synthesized*
-// node (a desugar's fabricated wildcard pattern, binding reference, or empty
-// block). It keeps the anchor's file/position, so a diagnostic on the node
-// still points somewhere sensible, but it covers no source: offset/range
-// consumers (reference collection, span-keyed records) can skip synthesized
-// nodes by their zero length, which no real token produces (PA6).
+// A zero-length span at the start of `anchor` — the span for a *synthesized* node
+// (a desugar's fabricated wildcard pattern, binding reference, or empty block). It
+// keeps the anchor's file/position, so a diagnostic on the node still points
+// somewhere sensible, but it covers no source: offset/range consumers (reference
+// collection, span-keyed records) can skip synthesized nodes by their zero length,
+// which no real token produces (PA6).
 pub fn synthetic_span(_ anchor: SourceSpan) -> SourceSpan {
     return SourceSpan {
         source: anchor.source,
@@ -74,10 +74,10 @@ pub fn synthetic_span(_ anchor: SourceSpan) -> SourceSpan {
     };
 }
 
-// A zero-width span just *past* `anchor` — the hole a missing token leaves
-// (where the completion cursor sits, right after what was typed). The
-// line/column arithmetic is exact for the single-line tokens the lexer
-// produces (a string's escapes keep raw newlines out of source tokens).
+// A zero-width span just *past* `anchor` — the hole a missing token leaves (where
+// the completion cursor sits, right after what was typed). The line/column
+// arithmetic is exact for the single-line tokens the lexer produces (a string's
+// escapes keep raw newlines out of source tokens).
 pub fn synthetic_span_after(_ anchor: SourceSpan) -> SourceSpan {
     return SourceSpan {
         source: anchor.source,
@@ -89,10 +89,10 @@ pub fn synthetic_span_after(_ anchor: SourceSpan) -> SourceSpan {
     };
 }
 
-// A source comment, captured on a side channel the parser never sees (comments
-// are not tokens, so the compile path stays byte-identical). The formatter and
-// doc tooling re-associate comments with AST nodes by span (gofmt's model). The
-// span covers the `//` through the end of the line, not the trailing newline; its
+// A source comment, captured on a side channel the parser never sees (comments are
+// not tokens, so the compile path stays byte-identical). The formatter and doc
+// tooling re-associate comments with AST nodes by span (gofmt's model). The span
+// covers the `//` through the end of the line, not the trailing newline; its
 // `.text()` is the comment verbatim.
 pub enum CommentKind {
     Line,      // `//` — an ordinary comment, never extracted

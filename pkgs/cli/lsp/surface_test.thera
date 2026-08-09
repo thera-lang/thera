@@ -1,6 +1,6 @@
-// Tests for the public-surface signature: a body-only edit must leave it
-// unchanged (no importer can observe the body), while a signature or a
-// surface-level (`const` value, field type) change must move it.
+// Tests for the public-surface signature: a body-only edit must leave it unchanged
+// (no importer can observe the body), while a signature or a surface-level (`const`
+// value, field type) change must move it.
 
 import std.testing;
 

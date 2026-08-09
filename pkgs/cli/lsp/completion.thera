@@ -1,16 +1,14 @@
 // LSP completion (`textDocument/completion`) — the mid-keystroke feature the
 // parser's error recovery exists for. The cursor is classified over the token
 // stream (a member completion after a `.`, else a bare-name completion), then
-// candidates are enumerated from the same owner-correct surfaces hover
-// resolves against (`resolve.thera`): a receiver's committed type, a
-// namespace's public surface, the enclosing function's bindings, the file's
-// declarations, and its bare surface. `complete_at` is the behavioral oracle
-// (docs/frontend.md §Parser error recovery — Testing); `handle_completion`
-// renders its items as LSP JSON.
+// candidates are enumerated from the same owner-correct surfaces hover resolves
+// against (`resolve.thera`): a receiver's committed type, a namespace's public
+// surface, the enclosing function's bindings, the file's declarations, and its bare
+// surface. `complete_at` is the behavioral oracle (docs/frontend.md §Parser error
+// recovery — Testing); `handle_completion` renders its items as LSP JSON.
 //
-// Known limitation: a cursor inside a comment or a non-interpolated string is
-// not detected (the token stream carries no trivia) and falls back to
-// bare-name items.
+// Known limitation: a cursor inside a comment or a non-interpolated string is not
+// detected (the token stream carries no trivia) and falls back to bare-name items.
 
 import std.json as _;
 
@@ -20,8 +18,8 @@ import '../lexer' as _;  // Token, TokenKind
 import '../source' as _;  // SourceSpan
 import 'resolve';
 
-// A completion candidate: its label, LSP `CompletionItemKind`, and a
-// hover-style signature/type detail.
+// A completion candidate: its label, LSP `CompletionItemKind`, and a hover-style
+// signature/type detail.
 pub struct CompletionItem {
     let label: String;
     let kind: Int;
@@ -41,9 +39,9 @@ const KIND_ENUM_MEMBER: Int = 20;
 const KIND_CONSTANT: Int = 21;
 
 // The completion items at `offset` in `text`, deduped by label (the highest-
-// priority source wins — locals shadow declarations shadow the bare surface)
-// and filtered by the partial identifier under the cursor. Deterministic:
-// items ride in source/derivation order, no client-specific ranking.
+// priority source wins — locals shadow declarations shadow the bare surface) and
+// filtered by the partial identifier under the cursor. Deterministic: items ride in
+// source/derivation order, no client-specific ranking.
 pub fn complete_at(
     _ ctx: resolve.ResolveCtx,
     _ text: String,
@@ -78,17 +76,17 @@ pub fn handle_completion(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: In
 
 // --- cursor classification ---
 
-// Where the cursor sits: after the `.` at token index `dot` (a member
-// completion), else a bare-name position; `prefix` is the typed part of the
-// identifier being completed ('' right after the dot / at a fresh name).
+// Where the cursor sits: after the `.` at token index `dot` (a member completion),
+// else a bare-name position; `prefix` is the typed part of the identifier being
+// completed ('' right after the dot / at a fresh name).
 struct CursorCtx {
     let dot: Option<Int>;
     let prefix: String;
 }
 
 fn classify(_ toks: List<Token>, _ text: String, _ offset: Int) -> CursorCtx {
-    // Inside (or at the end of) an identifier: its text up to the cursor is
-    // the prefix, and an immediately preceding `.` makes it a member.
+    // Inside (or at the end of) an identifier: its text up to the cursor is the
+    // prefix, and an immediately preceding `.` makes it a member.
     for p in toks.enumerate() {
         let s = p.value.span;
         if p.value.kind == TokenKind.Identifier
@@ -100,8 +98,8 @@ fn classify(_ toks: List<Token>, _ text: String, _ offset: Int) -> CursorCtx {
             return CursorCtx { dot: Option.None, prefix: prefix };
         }
     }
-    // No identifier at the cursor: the nearest token ending at or before it —
-    // a `.` there is the trigger-character shape (`obj.`), empty prefix.
+    // No identifier at the cursor: the nearest token ending at or before it — a `.`
+    // there is the trigger-character shape (`obj.`), empty prefix.
     let mut last = -1;
     for p in toks.enumerate() {
         let s = p.value.span;
@@ -134,8 +132,8 @@ fn member_items(
             None => [],
         },
         Named(recv, recv_span) => named_receiver_entries(ctx, recv, recv_span),
-        // `ns.Type.` — the type's static surface, owner-correct; a head that
-        // names no namespace is a value chain, resolved on the committed type.
+        // `ns.Type.` — the type's static surface, owner-correct; a head that names
+        // no namespace is a value chain, resolved on the committed type.
         Qualified(ns, tname) => match resolve.namespace_surface(ctx, ns) {
             Some(surface) => match surface.origin.get(tname) {
                 Some(owner) => resolve.type_members(ctx, owner, tname, instance: false),
@@ -152,9 +150,9 @@ fn member_items(
     });
 }
 
-// A plain named receiver, in `named_receiver_member`'s order: an import
-// namespace (`fs.`), a value binding on its committed type (`xs.`), else a
-// bare type name's static surface (`Color.`).
+// A plain named receiver, in `named_receiver_member`'s order: an import namespace
+// (`fs.`), a value binding on its committed type (`xs.`), else a bare type name's
+// static surface (`Color.`).
 fn named_receiver_entries(
     _ ctx: resolve.ResolveCtx,
     _ recv: String,
@@ -182,10 +180,10 @@ fn typed_entries(_ ctx: resolve.ResolveCtx, _ ty: element.Type) -> List<resolve.
     };
 }
 
-// A computed receiver (`f().`, `a.b.`): the AST locates the receiver
-// expression — the recovery hole's zero-width member span anchors exactly at
-// the cursor, so the mid-keystroke `f().` finds its `Field` node — and its
-// committed type carries the members.
+// A computed receiver (`f().`, `a.b.`): the AST locates the receiver expression —
+// the recovery hole's zero-width member span anchors exactly at the cursor, so the
+// mid-keystroke `f().` finds its `Field` node — and its committed type carries the
+// members.
 fn computed_entries(_ ctx: resolve.ResolveCtx, _ offset: Int) -> List<resolve.MemberEntry> {
     return match resolve.member_receiver_span(ctx.program, offset) {
         Some(rs) => match resolve.recorded_type_at(ctx, rs) {
@@ -198,10 +196,10 @@ fn computed_entries(_ ctx: resolve.ResolveCtx, _ offset: Int) -> List<resolve.Me
 
 // --- bare-name (scope) completion ---
 
-// In priority order: the enclosing function's bindings (declared at or before
-// the cursor, nearest declaration winning per name), `self` when a method
-// encloses, the file's own declarations, its bare surface (prelude / `as _`
-// imports), and its bound import namespaces.
+// In priority order: the enclosing function's bindings (declared at or before the
+// cursor, nearest declaration winning per name), `self` when a method encloses, the
+// file's own declarations, its bare surface (prelude / `as _` imports), and its
+// bound import namespaces.
 fn scope_items(_ ctx: resolve.ResolveCtx, _ offset: Int) -> List<CompletionItem> {
     let out: List<CompletionItem> = [];
     if let Some(fd) = resolve.enclosing_fn_at(ctx.program, offset) {
@@ -248,8 +246,8 @@ fn scope_items(_ ctx: resolve.ResolveCtx, _ offset: Int) -> List<CompletionItem>
     return out;
 }
 
-// The bindings in scope at `offset`, one per name: only those declared at or
-// before the cursor, the nearest declaration winning (the shadowing rule
+// The bindings in scope at `offset`, one per name: only those declared at or before
+// the cursor, the nearest declaration winning (the shadowing rule
 // `local_binding_at` applies to a single name).
 fn nearest_bindings(_ fd: FnDecl, _ offset: Int) -> List<resolve.BindingSite> {
     let best: Map<String, resolve.BindingSite> = [:];
