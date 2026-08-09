@@ -94,7 +94,46 @@ fn preserves_raw_string_content() -> Result<Void, Error> {
 
 @test
 fn collapses_blank_runs_and_trailing() -> Result<Void, Error> {
-    return check('fn f() {\n\n\n\nx();\n}\n\n\n', 'fn f() {\n\n    x();\n}\n');
+    return check('fn f() {\nx();\n\n\n\ny();\n}\n\n\n', 'fn f() {\n    x();\n\n    y();\n}\n');
+}
+
+@test
+fn drops_blanks_at_a_block_boundary() -> Result<Void, Error> {
+    // Vertical space directly after `{` or before `}` separates code from its own
+    // delimiter, not one piece of code from another, so it carries nothing — and
+    // leaving it was the one way the same code kept two stable layouts.
+    return check('fn f() {\n\nx();\n\n}\n', 'fn f() {\n    x();\n}\n');
+}
+
+@test
+fn drops_boundary_blanks_but_keeps_separating_ones() -> Result<Void, Error> {
+    // The blank between the two methods is real separation and survives; the ones
+    // hugging each `{`/`}` do not.
+    return check(
+        'impl Foo {\n\nfn a(self) -> Int {\n\nreturn 1;\n\n}\n\nfn b(self) -> Int {\nreturn 2;\n}\n\n}\n',
+        'impl Foo {\n    fn a(self) -> Int {\n        return 1;\n    }\n\n    fn b(self) -> Int {\n        return 2;\n    }\n}\n',
+    );
+}
+
+@test
+fn drops_boundary_blanks_for_paren_and_bracket_groups() -> Result<Void, Error> {
+    // The rule is about bracket groups, not braces specifically — a split call or
+    // list gets the same treatment.
+    return check(
+        'fn f() {\ng(\n\na,\nb,\n\n);\nlet xs = [\n\n1,\n\n];\n}\n',
+        'fn f() {\n    g(\n        a,\n        b,\n    );\n    let xs = [\n        1,\n    ];\n}\n',
+    );
+}
+
+@test
+fn keeps_a_blank_before_a_comment_that_precedes_a_closer() -> Result<Void, Error> {
+    // The boundary test reads the token stream, so a comment line — which has no
+    // tokens — is content like any other: the blank separating it from the code
+    // above stays, and only a blank directly against the `}` goes.
+    return check(
+        'fn f() {\nx();\n\n// trailing note\n\n}\n',
+        'fn f() {\n    x();\n\n    // trailing note\n}\n',
+    );
 }
 
 @test

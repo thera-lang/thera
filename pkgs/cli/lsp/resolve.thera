@@ -1150,7 +1150,6 @@ fn member_receiver_in_stmt(_ st: Stmt, _ offset: Int) -> Option<SourceSpan> {
             if let Some(s) = member_receiver_in_expr(x.condition, offset) { return Option.Some(s); }
             if let Some(s) = member_receiver_in_block(x.then_block, offset) {
                 return Option.Some(s);
-
             }
             match x.else_block {
                 Some(eb) => member_receiver_in_block(eb, offset),
@@ -1209,7 +1208,6 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
             if let Some(s) = member_receiver_in_expr(x.condition, offset) { return Option.Some(s); }
             if let Some(s) = member_receiver_in_block(x.then_block, offset) {
                 return Option.Some(s);
-
             }
             match x.else_block {
                 Some(eb) => member_receiver_in_block(eb, offset),
@@ -1221,7 +1219,6 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
             for arm in x.arms {
                 if let Some(s) = member_receiver_in_expr(arm.body, offset) {
                     return Option.Some(s);
-
                 }
             }
             Option.None
@@ -1244,7 +1241,6 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
                 if let Some(s) = member_receiver_in_expr(en.key, offset) { return Option.Some(s); }
                 if let Some(s) = member_receiver_in_expr(en.value, offset) {
                     return Option.Some(s);
-
                 }
             }
             Option.None
@@ -1892,7 +1888,6 @@ fn enclosing_type_param(_ program: Program, _ name: String, _ offset: Int) -> Op
                         if span_covers(m.span, offset) {
                             if let Some(tp) = type_param_of(m.type_params, name) {
                                 return Option.Some(tp);
-
                             }
                         }
                     }
@@ -1905,13 +1900,11 @@ fn enclosing_type_param(_ program: Program, _ name: String, _ offset: Int) -> Op
                         if span_covers(m.span, offset) {
                             if let Some(tp) = type_param_of(m.type_params, name) {
                                 return Option.Some(tp);
-
                             }
                         }
                     }
                     if let Some(tp) = type_param_of(it.type_params, name) {
                         return Option.Some(tp);
-
                     }
                 }
             },

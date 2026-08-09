@@ -798,27 +798,21 @@ fn collect_names(_ p: Program, _ primary: Bool, _ names: Map<String, List<NameSi
         match decl {
             Fn(x) => {
                 add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'function'));
-
             },
             Type(x) => {
                 add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'type'));
-
             },
             Enum(x) => {
                 add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'type'));
-
             },
             Interface(x) => {
                 add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'type'));
-
             },
             Const(x) => {
                 add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'constant'));
-
             },
             Let(x) => {
                 add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'global'));
-
             },
             Import(x) => {
                 // An import introduces its namespace into the file's name space
@@ -1347,7 +1341,6 @@ fn check_fn_sig(
     }
     if let Some(ref) = fn_decl.return_type {
         check_type_ref(errors, ref, library, current_file, type_params);
-
     }
 }
 
@@ -1430,7 +1423,6 @@ fn check_interface_decl(
         match fs.resolve_type_def(element.bound_id(fs, s)) {
             None => {
                 add_error(errors, 'unknown super-interface: ${bound_text(s)}', s.span);
-
             },
             Some(super_def) => {
                 if super_def.kind != TypeDefKind.Interface {
@@ -1836,7 +1828,6 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
         Let(x) => {
             if let Some(ref) = x.type_ann {
                 check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params);
-
             }
             let annotated = x.type_ann.map(
                 (ref) => resolve_type_ref_in(
@@ -1854,7 +1845,6 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
             if x.name == '_' {
                 if let Some(a) = annotated {
                     expect_type(errors, actual, a, 'binding \'_\'', x.span, ctx.library);
-
                 }
                 return;
             }
@@ -1867,7 +1857,6 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
             muts[x.name] = x.is_mut;
             if let Some(a) = annotated {
                 expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library);
-
             }
             // The refined type supersedes the value's pre-refinement record
             // (`List<Unknown>` → `List<Int>`) — a post-commit block re-walk then
@@ -1883,7 +1872,6 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
                     check_expr(cc, v, ctx.return_type);
                     if let Some(rt) = ctx.return_type {
                         check_return(errors, v, rt, span, scope, ctx);
-
                     }
                 },
                 None => { check_bare_return(cc, span); },
@@ -2284,7 +2272,6 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                             'indexing on String is not supported (use `.chars()` or `.slice(start, end)`)',
                             span,
                         );
-
                     },
                     _ => {
                         add_error(
@@ -2292,7 +2279,6 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                             'indexing on ${type_to_string(recv)} is not supported',
                             span,
                         );
-
                     },
                 },
                 Interface(id, _) => {
@@ -2306,7 +2292,6 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                 },
                 Function(_, _) => {
                     add_error(errors, 'indexing on ${type_to_string(recv)} is not supported', span);
-
                 },
                 _ => void, // Unknown / type parameter / Never: lenient
             }
@@ -2497,7 +2482,6 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                     check_expr(cc, v, ctx.return_type);
                     if let Some(rt) = ctx.return_type {
                         check_return(errors, v, rt, span, scope, ctx);
-
                     }
                 },
                 None => { check_bare_return(cc, span); },
@@ -4069,12 +4053,10 @@ fn check_qualified_receiver(
     match namespace_of_access(object, scope, ctx) {
         Some(ns) => {
             check_member_visible(errors, ns, member, span, ctx.library, ctx.current_file);
-
         },
         None => {
             if let Field(_, inner, name) = object {
                 check_qualified_receiver(errors, inner, name.name, name.span, scope, ctx);
-
             }
         },
     }

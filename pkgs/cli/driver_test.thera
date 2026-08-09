@@ -96,7 +96,6 @@ fn test_imported_file_check_errors_surface() -> Result<Void, Error> {
     testing.assert(outcome.diagnostics.len() > 0, message: 'compile is blocked')?;
     if let Some(_) = outcome.bytes {
         testing.assert(false, message: 'no bytes for a broken closure')?;
-
     }
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }

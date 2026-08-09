@@ -905,7 +905,6 @@ fn infer_call(
     match callee {
         Ident(_, name) => {
             return infer_call_ident(name, arg_types, x.type_args, expected, scope, ctx);
-
         },
         Field(_, obj, field) => {
             return infer_call_field(
@@ -918,7 +917,6 @@ fn infer_call(
                 scope,
                 ctx,
             );
-
         },
         _ => void,
     }
@@ -946,7 +944,6 @@ fn infer_call_ident(
     }
     if let Some(fn_el) = ctx_scope(ctx).resolve_function(name) {
         return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx);
-
     }
     return Type.Unknown;
 }
@@ -1102,7 +1099,6 @@ pub fn infer_callee_kind(
         // so it lowers like an ordinary instance method.
         if let Some(_) = find_default_method(element, field, ctx) {
             return CalleeKind.InstanceMethod;
-
         }
     }
 
@@ -1260,7 +1256,6 @@ fn callee_params(
                         None => {
                             if let Function(ps, _) = field_type(recv, field, ctx) {
                                 return Option.Some(plain_params(ps));
-
                             }
                         },
                         Some(_) => void,
@@ -1926,7 +1921,6 @@ pub fn resolve_static_receiver(
         if is_namespace(nsname, scope, ctx) {
             if let Some(fn_el) = ctx_scope(ctx).resolve_qualified_function(nsname, field) {
                 return Option.Some(StaticReceiver.NamespaceFn(fn_el));
-
             }
         };
     }

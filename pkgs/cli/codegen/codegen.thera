@@ -275,7 +275,6 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                                 method,
                                 file,
                             );
-
                         }
                     }
                     if let Some(_) = x.interface_name {
@@ -707,7 +706,6 @@ impl FnCompiler {
     fn emit_global(self, _ owner: String, _ name: String) -> Void {
         if let Some(slot) = self.scope.global_in_file(owner, name) {
             self.emit(Instr.GlobalGet(slot));
-
         }
     }
 
@@ -912,7 +910,6 @@ impl FnCompiler {
                     match self.type_of(object) {
                         Some(t) => {
                             self.error('indexed assignment on ${t} is not supported', span);
-
                         },
                         None => { self.error('indexed assignment on unknown type', span); },
                     }
@@ -973,7 +970,6 @@ impl FnCompiler {
                                 'cannot iterate ${t} (only ranges, lists, and Iterators are supported)',
                                 expr_span(iterable),
                             );
-
                         },
                         None => { self.error('cannot iterate this value', expr_span(iterable)); },
                     }
@@ -1163,14 +1159,12 @@ impl FnCompiler {
             Lambda(x) => { self.lambda_expr(x, expected); },
             Range(span, _, _) => {
                 self.error('a range is only valid as a for-loop iterable', span);
-
             },
             Loc(span) => { self.emit_source_loc(span); },
             // Unreachable after a clean `check` (recovery holes are rejected there);
             // a defensive trap in case codegen ever runs on an unchecked tree.
             Error(span) => {
                 self.error('internal: unresolved parse error reached codegen', span);
-
             },
         }
     }
@@ -1795,7 +1789,6 @@ impl FnCompiler {
         if let Some(symbol) = self.native_display_symbol(name_of_type(t)) {
             self.emit(Instr.CallNative(symbol, 1));
             return;
-
         }
         if self.dispatches_via(t, 'to_string') {
             self.emit(Instr.CallVirtual('to_string', 1));
@@ -1866,7 +1859,6 @@ impl FnCompiler {
                                 'missing field `${field_name}` in ${x.type_name} literal',
                                 x.span,
                             );
-
                         },
                     }
                 }
@@ -1930,7 +1922,6 @@ impl FnCompiler {
         if let Some(id) = self.type_id_of(object) {
             if let Some(info) = self.scope.resolve_struct(id.owner, id.name) {
                 return Option.Some(info);
-
             }
         }
         self.error('field access on non-struct value', span);
@@ -3134,7 +3125,6 @@ fn visit_global_init(
     for dep in global_init_deps(g, scope) {
         if let Some(dg) = by_key.get(dep) {
             visit_global_init(dg, scope, by_key, state, ordered, errors);
-
         }
     }
     state[key] = 2;

@@ -773,7 +773,6 @@ impl Loader {
             if let Import(x) = decl {
                 if let Some(child) = root.imports.get(x.path) {
                     result[namespace_of(x)] = self.surface_of(child);
-
                 }
             }
         }
@@ -838,7 +837,6 @@ pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNames
         if let Import(x) = decl {
             if let Some(child) = root.imports.get(x.path) {
                 result[namespace_of(x)] = public_surface_of(child);
-
             }
         }
     }
@@ -887,7 +885,6 @@ fn collect_surface(
             if x.is_pub {
                 if let Some(child) = source.imports.get(x.path) {
                     collect_surface(child, names, collisions, origin, visited);
-
                 }
             }
         }
