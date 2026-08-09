@@ -1,9 +1,9 @@
 //! std.core — the Set type.
 //!
 //! `Set<T>` is a collection of unique values. It is implemented in Thera over
-//! `Map<T, Bool>`: membership is a present key (the Bool value is unused but
-//! keeps the backing a plain map). Iteration order is insertion order, matching
-//! the backing map.
+//! `Map<T, Bool>`: membership is a present key (the Bool value is unused but keeps
+//! the backing a plain map). Iteration order is insertion order, matching the
+//! backing map.
 pub struct Set<T> {
     let items: Map<T, Bool>;
 }
@@ -65,8 +65,8 @@ impl Set<T> {
 }
 
 impl Debug for Set<T> {
-    /// `(a, b, c)` — elements rendered via `Debug`, in insertion order. (Empty
-    /// set: `()`.)
+    /// `(a, b, c)` — elements rendered via `Debug`, in insertion order. (Empty set:
+    /// `()`.)
     fn debug(self) -> String {
         let mut s = '(';
         let mut first = true;
@@ -81,9 +81,9 @@ impl Debug for Set<T> {
     }
 }
 
-/// A set's display form *is* its developer form — the structural `Debug`
-/// rendering is canonical (there is no prettier user-facing shape; the
-/// Python `str`-delegates-to-`repr` convention for containers).
+/// A set's display form *is* its developer form — the structural `Debug` rendering
+/// is canonical (there is no prettier user-facing shape; the Python
+/// `str`-delegates-to-`repr` convention for containers).
 impl Display for Set<T> {
     fn to_string(self) -> String {
         return self.debug();

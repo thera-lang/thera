@@ -1,9 +1,9 @@
 // Tests for the loader's namespace layer (the public-surface / barrel logic),
-// exercised on hand-built `LibrarySource`s so they need no file system, plus
-// the canonical-identity contract (`canonical_path`), which uses a real
-// fixture tree under the temp dir. The rest of the file-resolution +
-// import-closure walk is covered end-to-end by the driver (the Thera CLI emits
-// byte-identical `.thera-bc` for a std-using program).
+// exercised on hand-built `LibrarySource`s so they need no file system, plus the
+// canonical-identity contract (`canonical_path`), which uses a real fixture tree
+// under the temp dir. The rest of the file-resolution + import-closure walk is
+// covered end-to-end by the driver (the Thera CLI emits byte-identical `.thera-bc`
+// for a std-using program).
 
 import std.testing;
 import std.fs;
@@ -71,8 +71,8 @@ fn test_canonical_path_absolutizes_and_normalizes() -> Result<Void, Error> {
         Err(e) => { return Result.Err(error('no current dir: ${e.message()}')); },
     };
     testing.assert_eq(actual: canonical_path('x/./y.thera'), expected: cwd + '/x/y.thera')?;
-    // display_path is the inverse for paths under the current directory —
-    // and leaves everything else canonical.
+    // display_path is the inverse for paths under the current directory — and
+    // leaves everything else canonical.
     testing.assert_eq(actual: display_path(canonical_path('x.thera')), expected: 'x.thera')?;
     testing.assert_eq(
         actual: display_path('/somewhere/else.thera'),
@@ -81,12 +81,12 @@ fn test_canonical_path_absolutizes_and_normalizes() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The loader keys the closure on canonical identity, so the same root reached
-// under different spellings — absolute, `./root.thera`, bare `root.thera` — loads
-// one identical closure, an import cycle back to the root reuses the in-memory
-// root (no duplicate unit), and a bare filename's imports resolve against the
-// invocation directory (the old `dirname('root.thera') == ''` sent them to the
-// filesystem root).
+// The loader keys the closure on canonical identity, so the same root reached under
+// different spellings — absolute, `./root.thera`, bare `root.thera` — loads one
+// identical closure, an import cycle back to the root reuses the in-memory root (no
+// duplicate unit), and a bare filename's imports resolve against the invocation
+// directory (the old `dirname('root.thera') == ''` sent them to the filesystem
+// root).
 @test
 fn test_canonical_identity_across_root_spellings() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_canonical_test');
@@ -104,8 +104,8 @@ fn test_canonical_identity_across_root_spellings() -> Result<Void, Error> {
     // Absolute spelling, from wherever the suite runs.
     check_root_closure(load_root(dir + '/root.thera')?)?;
 
-    // Relative spellings, from inside the fixture directory. Collect results
-    // before restoring the cwd so a failure can't leave it switched.
+    // Relative spellings, from inside the fixture directory. Collect results before
+    // restoring the cwd so a failure can't leave it switched.
     let saved = match env.current_dir() {
         Ok(d) => d,
         Err(e) => { return Result.Err(error('no current dir: ${e.message()}')); },
@@ -146,11 +146,11 @@ fn load_root(_ path: String) -> Result<LoadedImports, Error> {
     };
 }
 
-// The fixture closure, loaded under any root spelling: exactly one imported
-// program (the child — the cycle back to the root must hit the cache, not load
-// a duplicate root unit), both files' namespaces resolved, and — the two files
-// being distinct libraries — the cycle diagnosed on both participating imports
-// (loading still links best-effort; the error gates).
+// The fixture closure, loaded under any root spelling: exactly one imported program
+// (the child — the cycle back to the root must hit the cache, not load a duplicate
+// root unit), both files' namespaces resolved, and — the two files being distinct
+// libraries — the cycle diagnosed on both participating imports (loading still
+// links best-effort; the error gates).
 fn check_root_closure(_ loaded: LoadedImports) -> Result<Void, Error> {
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
     for d in loaded.diagnostics {
@@ -210,9 +210,9 @@ fn fs_ok(_ r: Result<Void, fs.FsError>, _ what: String) -> Result<Void, Error> {
 }
 
 // A broken import is a located diagnostic at the import decl, attributed to the
-// importer — a resolve failure ("no such module") and a read failure (an
-// unreadable file) each surface their root cause instead of degrading to a
-// downstream "undefined name" (or, for an unused import, passing silently).
+// importer — a resolve failure ("no such module") and a read failure (an unreadable
+// file) each surface their root cause instead of degrading to a downstream
+// "undefined name" (or, for an unused import, passing silently).
 @test
 fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_broken_import_test');
@@ -262,11 +262,11 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Surface collisions are the exposing file's error (one name space per scope,
-// at the import/export surface): a barrel whose `pub import` re-exposes a name
-// it already exposes from another file, and two `as _` imports exposing the
-// same unqualified name, are each diagnosed at the offending import decl.
-// Same-origin re-exposure (a diamond) is not a collision.
+// Surface collisions are the exposing file's error (one name space per scope, at
+// the import/export surface): a barrel whose `pub import` re-exposes a name it
+// already exposes from another file, and two `as _` imports exposing the same
+// unqualified name, are each diagnosed at the offending import decl. Same-origin
+// re-exposure (a diamond) is not a collision.
 @test
 fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_surface_collision_test');
@@ -334,8 +334,8 @@ fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A `std.*` import that can't resolve says why: no SDK at all vs a module the
-// SDK doesn't have.
+// A `std.*` import that can't resolve says why: no SDK at all vs a module the SDK
+// doesn't have.
 @test
 fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_std_import_test');
@@ -375,8 +375,8 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
 
 // A file living *inside* an SDK's std tree resolves its `std.*` imports from that
 // same tree — even when the configured SDK root is elsewhere (or None). This is
-// what keeps the LSP from loading a second copy of the core types when it edits
-// the repo's own sdk/std against a different installed SDK.
+// what keeps the LSP from loading a second copy of the core types when it edits the
+// repo's own sdk/std against a different installed SDK.
 @test
 fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_perfile_sdk_test');
@@ -430,12 +430,11 @@ fn test_pub_import_reexports_through_barrel() -> Result<Void, Error> {
 
 @test
 fn test_pub_import_diamond_is_not_a_collision() -> Result<Void, Error> {
-    // A diamond of re-exports reaching one declaring file: the barrel
-    // pub-imports `left` and `right`, which both pub-import `deep`. `deep`'s
-    // names must appear once with no collision — the shared-visited walk sees
-    // the deep file once. (Pins the semantics the loader's per-call surface
-    // memo must preserve: naively merging per-child surfaces would flag a
-    // false collision here.)
+    // A diamond of re-exports reaching one declaring file: the barrel pub-imports
+    // `left` and `right`, which both pub-import `deep`. `deep`'s names must appear
+    // once with no collision — the shared-visited walk sees the deep file once.
+    // (Pins the semantics the loader's per-call surface memo must preserve: naively
+    // merging per-child surfaces would flag a false collision here.)
     let deep = LibrarySource {
         program: prog_of('pub fn shared() { }', 'deep.thera'),
         imports: [:],
@@ -466,9 +465,9 @@ fn test_pub_import_diamond_is_not_a_collision() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A shared surface cache: the second load fills its tables from the cache
-// (proven by mutating the cached entry between calls), and collision
-// diagnostics replay identically on a hit.
+// A shared surface cache: the second load fills its tables from the cache (proven
+// by mutating the cached entry between calls), and collision diagnostics replay
+// identically on a hit.
 @test
 fn test_surface_cache_round_trip() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_surface_cache_test');
@@ -493,8 +492,8 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
     testing.assert(cache.has(main_key), message: 'main surface cached')?;
     testing.assert(cache.has(canonical_path(dir + '/util.thera')), message: 'util surface cached')?;
 
-    // Prove the hit path: plant a marker in main's cached bare surface and
-    // check the second load reflects it.
+    // Prove the hit path: plant a marker in main's cached bare surface and check
+    // the second load reflects it.
     if let Some(entry) = cache.get(main_key) {
         entry.bare_surface['__marker'] = 'planted';
     }
@@ -512,8 +511,8 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Surface-collision diagnostics replay from the cache: a load with a warm
-// cache reports the same collision the cold load did.
+// Surface-collision diagnostics replay from the cache: a load with a warm cache
+// reports the same collision the cold load did.
 @test
 fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_collision_replay_test');
@@ -548,12 +547,12 @@ fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The library-level acyclicity rule (language.md § Import resolution), at its
-// three boundaries: sibling files inside a directory library may cycle freely;
-// two directory libraries may not (every participating import is diagnosed,
-// with the cycle path at library granularity in the message); and a cycle
-// closed only through a `foo_test.thera` is no cycle — test files are
-// consumers of the libraries they import, not members.
+// The library-level acyclicity rule (language.md § Import resolution), at its three
+// boundaries: sibling files inside a directory library may cycle freely; two
+// directory libraries may not (every participating import is diagnosed, with the
+// cycle path at library granularity in the message); and a cycle closed only
+// through a `foo_test.thera` is no cycle — test files are consumers of the
+// libraries they import, not members.
 @test
 fn test_cycle_within_directory_library_is_legal() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_sibling_cycle_test');
@@ -653,11 +652,10 @@ fn test_cycle_through_test_file_is_ignored() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Deep-import enforcement (language.md § Import resolution): a non-barrel
-// file inside a directory library is importable only from that directory —
-// outsiders go through the barrel, reached equivalently by directory path or
-// barrel-file path. Sibling imports (including the white-box `foo_test`
-// convention) are untouched.
+// Deep-import enforcement (language.md § Import resolution): a non-barrel file
+// inside a directory library is importable only from that directory — outsiders go
+// through the barrel, reached equivalently by directory path or barrel-file path.
+// Sibling imports (including the white-box `foo_test` convention) are untouched.
 @test
 fn test_deep_import_is_diagnosed() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/thera_loader_deep_import_test');

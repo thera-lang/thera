@@ -1,19 +1,27 @@
 // The `thera fmt` command.
 //
-// A canonical formatter: the layout is a function of the token stream, so the
-// same code always looks the same however it was typed. [format_source] is the
-// whole of it, in two halves.
+// A canonical formatter: the layout is a function of the token stream, so the same
+// code always looks the same however it was typed. [format_source] is the whole of
+// it, in two halves — plus a third pass over the text the token stream does not
+// carry.
 //
 // **Line breaking** (`reflow/`) decides where the breaks go: a group over the
 // margin is split, one that fits is joined, and a comma list is laid out
 // all-or-nothing. This half owns line breaks, and is the only part that edits a
-// token rather than whitespace (the trailing comma a split list gains and a
-// joined one loses).
+// token rather than whitespace (the trailing comma a split list gains and a joined
+// one loses).
 //
-// **Line layout** ([format_lines]) owns everything within and between lines,
-// and is what the breaking half drives — it runs on the source before, and
-// again after every round of edits, so a break offset never has to reason about
-// indentation. It is also useful alone, and the rest of this file is it.
+// **Line layout** ([format_lines]) owns everything within and between lines, and is
+// what the breaking half drives — it runs on the source before, and again after
+// every round of edits, so a break offset never has to reason about indentation. It
+// is also useful alone, and the rest of this file is it.
+//
+// **Comment prose** (`prose/`) is the third pass, and the one thing here that is
+// not about code: it refills comment paragraphs to their own, narrower margin (84
+// columns of line, which is 80 of prose behind a top-level `///`). It runs last,
+// after the two halves below have settled, because a comment's prose budget depends
+// on the indentation they decide. Comments are not in the token stream, so it
+// carries its own guard rather than the token-equality one.
 //
 // It preserves every line break it is given and normalizes the vertical layout —
 // re-indents each line, collapses runs of blank lines to one, drops a blank line
@@ -25,20 +33,20 @@
 // `[` indents its content one past the *visual* column of the line the bracket
 // opened on — so a method-chain argument (`.sub(x)\n    .a()\n    .b()`) hangs
 // under its opener. On top of that a *continuation* line — one leading with `.`/an
-// operator/`->`, or following a line ending with a binary operator — gets one
-// extra level, except inside `(`/`[` where the bracket already provides the hang.
+// operator/`->`, or following a line ending with a binary operator — gets one extra
+// level, except inside `(`/`[` where the bracket already provides the hang.
 // Multi-line string literals are emitted verbatim so their contents are untouched.
 //
 // Intra-line spacing (`fn  foo( a:Int )` → `fn foo(a: Int)`) is normalized as a
 // first pass (`space_intra_line`, Stage A) before the indentation pass (Stage B).
-// It rewrites only the whitespace *between* adjacent same-line tokens — driven
-// from the token stream, never rebuilding line content — so comments (line-only
-// in Thera, hence never between two same-line tokens) and every lexeme are left
-// untouched. The one role token adjacency can't classify — `List<Int>` vs
-// `a < b` — comes from the parser's generic-delimiter side channel; unary vs
-// binary `-` is decided locally. A round-trip token check guards every result,
-// so spacing can never change the token stream (and never break a compile). The
-// formatter's philosophy (no config, bounded scope) is in docs/architecture.md.
+// It rewrites only the whitespace *between* adjacent same-line tokens — driven from
+// the token stream, never rebuilding line content — so comments (line-only in
+// Thera, hence never between two same-line tokens) and every lexeme are left
+// untouched. The one role token adjacency can't classify — `List<Int>` vs `a < b` —
+// comes from the parser's generic-delimiter side channel; unary vs binary `-` is
+// decided locally. A round-trip token check guards every result, so spacing can
+// never change the token stream (and never break a compile). The formatter's
+// philosophy (no config, bounded scope) is in docs/architecture.md.
 
 import std.fs;
 import std.char;
@@ -48,13 +56,14 @@ import 'source' as _; // SourceSpan
 import 'parser/parser';
 import 'edit/edit';
 import 'reflow';
+import 'prose';
 
 const INDENT: String = '    ';
 
 // How many split rounds [format_source] will run. Each round splits at most one
 // group per over-width line, so a deeply nested line needs several; the cap is a
-// backstop against an input that somehow never settles (the loop's own exit is
-// "no over-width line has a splittable group left").
+// backstop against an input that somehow never settles (the loop's own exit is "no
+// over-width line has a splittable group left").
 const MAX_REFLOW_ROUNDS: Int = 12;
 
 // Format a single file in place. Returns `true` if the file was modified.
@@ -75,50 +84,55 @@ pub fn check_file(_ path: String) -> Result<Bool, Error> {
     return Result.Ok(formatted_text(source, path) != source);
 }
 
-// The formatted form of `source`, reporting a guard rejection against `path`.
-// The single place both entry points go through, so `format_file` and
-// `check_file` can never disagree about what "formatted" is.
+// The formatted form of `source`, reporting a guard rejection against `path`. The
+// single place both entry points go through, so `format_file` and `check_file` can
+// never disagree about what "formatted" is.
 fn formatted_text(_ source: String, _ path: String) -> String {
     let outcome = format_outcome(source, reflow.DEFAULT_WIDTH);
     if outcome.fell_back {
         eprintln('thera fmt: ${path}: line breaking skipped (result was not token-identical)');
     }
+    if outcome.prose_fell_back {
+        eprintln('thera fmt: ${path}: comment reflow skipped (prose was not preserved)');
+    }
     return outcome.text;
 }
 
-// The canonical format: groups joined onto one line where they fit and split
-// where they don't, so layout follows the token stream rather than how the code
-// was typed.
+// The canonical format: groups joined onto one line where they fit and split where
+// they don't, so layout follows the token stream rather than how the code was typed
+// — and then comment prose refilled to its own margin, so it follows the words.
 //
 // Each round joins what fits, then splits what is still over `width`, then
-// re-lays-out the lines; it settles when a round changes nothing. Joining only
-// ever yields lines within the margin, so the two passes cannot trade a line back
-// and forth. A line with no splittable group on it — one long string literal, a
-// long trailing comment — is left over-width.
+// re-lays-out the lines; it settles when a round changes nothing. Joining only ever
+// yields lines within the margin, so the two passes cannot trade a line back and
+// forth. A line with no splittable group on it — one long string literal, a long
+// trailing comment — is left over-width.
 //
-// Guarded: unless the result is the same code as the input (token-identical
-// modulo an inert trailing comma) and still parses, the [format_lines] output is
-// returned instead.
+// Guarded: unless the result is the same code as the input (token-identical modulo
+// an inert trailing comma) and still parses, the [format_lines] output is returned
+// instead.
 pub fn format_source(_ source: String) -> String {
     return format_outcome(source, reflow.DEFAULT_WIDTH).text;
 }
 
-// The canonical format at a margin other than [reflow.DEFAULT_WIDTH]. `thera
-// fmt` has no width option — the formatter is not configurable by design (see
-// docs/architecture.md) — so this is for tests, which pin shapes at small widths
-// to keep their fixtures readable, and for the width study in docs/roadmap.md.
+// The canonical format at a margin other than [reflow.DEFAULT_WIDTH]. `thera fmt`
+// has no width option — the formatter is not configurable by design (see
+// docs/architecture.md) — so this is for tests, which pin shapes at small widths to
+// keep their fixtures readable, and for the width study in docs/roadmap.md.
 pub fn format_source_at(_ source: String, _ width: Int) -> String {
     return format_outcome(source, width).text;
 }
 
-// The formatted text, plus whether the guard rejected the line breaking and fell
-// back to line layout alone. The flag matters because a rejection is **silent**
-// by construction — the output is simply un-broken, which looks exactly like
-// "nothing needed doing", so a bug in that pass hides as a no-op. Callers
-// surface it instead.
+// The formatted text, plus whether either guard rejected its pass and fell back.
+// The flags matter because a rejection is **silent** by construction — the output
+// is simply un-broken, or un-rewrapped, which looks exactly like "nothing needed
+// doing", so a bug in either pass hides as a no-op. Callers surface them instead.
+// The two are independent: line breaking is guarded by token equality, comment
+// prose by its own invariants (comments are not tokens).
 pub struct FormatOutcome {
     let text: String;
     let fell_back: Bool;
+    let prose_fell_back: Bool;
 }
 
 pub fn format_outcome(_ source: String, _ width: Int) -> FormatOutcome {
@@ -126,9 +140,9 @@ pub fn format_outcome(_ source: String, _ width: Int) -> FormatOutcome {
     let mut cur = base;
     let mut round = 0;
     while round < MAX_REFLOW_ROUNDS {
-        // Join first, then split: joining can only produce lines within the
-        // margin, so the split pass never immediately undoes it, and the two
-        // cannot trade a line back and forth.
+        // Join first, then split: joining can only produce lines within the margin,
+        // so the split pass never immediately undoes it, and the two cannot trade a
+        // line back and forth.
         let joined = apply_joins(cur, width);
         let edits = reflow.break_edits(joined, width);
         let next = if edits.len() == 0 {
@@ -143,12 +157,23 @@ pub fn format_outcome(_ source: String, _ width: Int) -> FormatOutcome {
             round = round + 1;
         }
     }
-    let text = reflow_guarded(source, cur, base);
-    return FormatOutcome { text: text, fell_back: cur != base && text != cur };
+    let code = reflow_guarded(source, cur, base);
+    // Comment prose last, and outside the loop. A comment's prose budget is a
+    // function of its indentation, which the passes above have just settled; the
+    // reverse dependency does not exist, since a comment-only line carries no
+    // tokens, so changing how many lines a run occupies can move no indent and no
+    // group boundary. One pass here is therefore stable, and the whole of
+    // `format_source` stays idempotent.
+    let prosed = prose.reflow_prose(code, prose.DEFAULT_WIDTH);
+    return FormatOutcome {
+        text: prosed.text,
+        fell_back: cur != base && code != cur,
+        prose_fell_back: prosed.fell_back,
+    };
 }
 
-// Collapse the interior line breaks of every group `reflow` says should be
-// joined, then re-format so the result is re-indented and its intra-line spacing
+// Collapse the interior line breaks of every group `reflow` says should be joined,
+// then re-format so the result is re-indented and its intra-line spacing
 // re-normalized (joining leaves a single space where a newline was, which the
 // spacing pass then tightens — `g(\n a\n)` becomes `g( a )` and then `g(a)`).
 fn apply_joins(_ text: String, _ width: Int) -> String {
@@ -170,11 +195,11 @@ fn apply_joins(_ text: String, _ width: Int) -> String {
         // `g(a, b,)` would otherwise become `g(a, b, )`. Safe because the grammar
         // makes the comma optional in every list.
         //
-        // "Directly before a closer", not "last in the joined span" — a span is
-        // the *outermost* group that fits ([join_spans] drops the ones it
-        // contains), so its own closer is only the last of several. A nested
-        // group's comma is just as much a trailing comma once the join puts it on
-        // one line, and testing only against the span's end left it stranded:
+        // "Directly before a closer", not "last in the joined span" — a span is the
+        // *outermost* group that fits ([join_spans] drops the ones it contains), so
+        // its own closer is only the last of several. A nested group's comma is
+        // just as much a trailing comma once the join puts it on one line, and
+        // testing only against the span's end left it stranded:
         // `push(Comment {⏎ …,⏎ span: span,⏎ });` joined to `…, span: span, });`.
         if inside && chars[i] == COMMA && closer_follows(chars, i + 1, spans[si].end) {
             i = i + 1;
@@ -209,9 +234,9 @@ fn is_layout_space(_ c: Int) -> Bool {
 }
 
 // Whether the first non-whitespace character in `[from, to]` closes a bracket —
-// i.e. the comma just before `from` is a trailing comma, whichever group it
-// belongs to. Bounded by `to` (the joined span's own closer) so the scan cannot
-// run past the region being collapsed.
+// i.e. the comma just before `from` is a trailing comma, whichever group it belongs
+// to. Bounded by `to` (the joined span's own closer) so the scan cannot run past
+// the region being collapsed.
 fn closer_follows(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
     let mut i = from;
     while i <= to && i < chars.len() {
@@ -229,8 +254,8 @@ const RPAREN: Int = 41;
 const RBRACKET: Int = 93;
 const RBRACE: Int = 125;
 
-// Apply each edit's text at its offset (ascending). Offsets index code points,
-// as token spans do.
+// Apply each edit's text at its offset (ascending). Offsets index code points, as
+// token spans do.
 fn apply_break_edits(_ text: String, _ edits: List<reflow.BreakEdit>) -> String {
     let parts: List<String> = [];
     let mut prev = 0;
@@ -250,9 +275,9 @@ fn apply_break_edits(_ text: String, _ edits: List<reflow.BreakEdit>) -> String 
 // `fallback`.
 //
 // "The same code" is exact token equality **modulo a trailing comma before a
-// closer**, which reflow adds when it splits a list and deletes when it joins
-// one. The grammar declares that comma optional in every comma-separated list,
-// so dropping it from both streams before comparing keeps the check exact while
+// closer**, which reflow adds when it splits a list and deletes when it joins one.
+// The grammar declares that comma optional in every comma-separated list, so
+// dropping it from both streams before comparing keeps the check exact while
 // letting the one intended token edit through. Nothing else may differ.
 fn reflow_guarded(_ original: String, _ candidate: String, _ fallback: String) -> String {
     let before = tokenize(original);
@@ -272,8 +297,8 @@ fn reflow_guarded(_ original: String, _ candidate: String, _ fallback: String) -
 }
 
 // `tokens` without any `,` that immediately precedes a closing bracket. Such a
-// comma is syntactically optional everywhere Thera allows one (docs/grammar.md),
-// so it carries no meaning and reflow is allowed to add or remove it.
+// comma is syntactically optional everywhere Thera allows one (docs/grammar.md), so
+// it carries no meaning and reflow is allowed to add or remove it.
 fn without_inert_commas(_ tokens: List<Token>) -> List<Token> {
     let out: List<Token> = [];
     let mut i = 0;
@@ -297,10 +322,10 @@ fn is_closing(_ k: TokenKind) -> Bool {
     };
 }
 
-// Lay out `source` a line at a time, preserving every line break in it — the
-// half of the formatter that owns everything within and between lines. The
-// breaking half drives it (see the file header); it is also what a caller wants
-// when the input is a fragment rather than a whole file. Idempotent.
+// Lay out `source` a line at a time, preserving every line break in it — the half
+// of the formatter that owns everything within and between lines. The breaking half
+// drives it (see the file header); it is also what a caller wants when the input is
+// a fragment rather than a whole file. Idempotent.
 pub fn format_lines(_ source: String) -> String {
     // Stage A (intra-line spacing) then Stage B (indentation). A is a no-op on
     // source that doesn't parse (e.g. a fix fragment), so B still runs.
@@ -315,17 +340,16 @@ pub fn format_lines(_ source: String) -> String {
 
 // Format `text` as a standalone fragment and re-indent it to sit at `indent` (a
 // leading-whitespace prefix). Line layout only: a fragment frequently does not
-// parse on its own, which is exactly what the breaking half needs, and a code
-// fix should be a localized edit rather than a reflow of the construct it
-// replaces. The next `thera fmt` canonicalizes it along with the file.
+// parse on its own, which is exactly what the breaking half needs, and a code fix
+// should be a localized edit rather than a reflow of the construct it replaces. The
+// next `thera fmt` canonicalizes it along with the file.
 //
-// The fragment is laid out at base level (internal indentation derived from
-// bracket depth), then every line *after the first*
-// is prefixed with `indent`; the first line inherits the surrounding indentation
-// already present at the splice point (a code fix replaces a construct mid-line,
-// e.g. starting at its `match` keyword). Blank lines are left un-prefixed. Lets a
-// code fix produce a localized, well-formatted replacement without reformatting
-// the rest of the file.
+// The fragment is laid out at base level (internal indentation derived from bracket
+// depth), then every line *after the first* is prefixed with `indent`; the first
+// line inherits the surrounding indentation already present at the splice point (a
+// code fix replaces a construct mid-line, e.g. starting at its `match` keyword).
+// Blank lines are left un-prefixed. Lets a code fix produce a localized,
+// well-formatted replacement without reformatting the rest of the file.
 pub fn format_fragment(_ text: String, _ indent: String) -> String {
     let out: List<String> = [];
     let mut first = true;
@@ -345,12 +369,12 @@ pub fn format_fragment(_ text: String, _ indent: String) -> String {
 // --- Stage A: intra-line spacing ---
 
 // Normalize horizontal spacing between adjacent tokens on the same line by
-// rewriting only the whitespace *gaps* between them (never rebuilding line
-// content, so comments and lexemes are untouched). Driven from the token stream,
-// with the parser's generic-delimiter side channel as the sole role oracle.
-// Returns `source` unchanged if it doesn't lex/parse cleanly (a fix fragment, or
-// a syntactically-invalid file), or if the rewrite fails the round-trip token
-// check — so it can never change the token stream, and never break a compile.
+// rewriting only the whitespace *gaps* between them (never rebuilding line content,
+// so comments and lexemes are untouched). Driven from the token stream, with the
+// parser's generic-delimiter side channel as the sole role oracle. Returns `source`
+// unchanged if it doesn't lex/parse cleanly (a fix fragment, or a
+// syntactically-invalid file), or if the rewrite fails the round-trip token check —
+// so it can never change the token stream, and never break a compile.
 fn space_intra_line(_ source: String) -> String {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
@@ -377,16 +401,16 @@ fn space_intra_line(_ source: String) -> String {
         let b = toks[i + 1];
         let a_end = a.span.offset + a.span.length;
         let b_start = b.span.offset;
-        // Only touch a same-line, whitespace-only gap. A gap holding a newline
-        // (the author's line break, or a line comment that ended the line) is
-        // left to Stage B; a comment can never sit between two same-line tokens.
+        // Only touch a same-line, whitespace-only gap. A gap holding a newline (the
+        // author's line break, or a line comment that ended the line) is left to
+        // Stage B; a comment can never sit between two same-line tokens.
         // `b_start == a_end` is an adjacent pair (empty gap) — still a candidate,
         // since a missing space may need inserting (`Point{` → `Point {`).
         if b_start >= a_end && gap_is_spacing(chars, a_end, b_start) {
             let want_space = space_between(a, b, prefix_unary[i], member_kw[i], delims) == 1;
             // Whether the gap already is the wanted spacing: a single space when
-            // one is wanted, an empty gap when none is. Anything else (a tab, a
-            // run of spaces, or a missing space) needs an edit.
+            // one is wanted, an empty gap when none is. Anything else (a tab, a run
+            // of spaces, or a missing space) needs an edit.
             let matches = if want_space {
                 b_start - a_end == 1 && chars[a_end] == char.SPACE
             } else {
@@ -403,13 +427,13 @@ fn space_intra_line(_ source: String) -> String {
     }
     let result = edit.apply_edits(source, edits);
     let relexed = tokenize(result);
-    // Round-trip guard: the rewrite must leave the token stream unchanged (kinds
-    // + lexemes) *and* the source still parseable. The parse check catches
+    // Round-trip guard: the rewrite must leave the token stream unchanged (kinds +
+    // lexemes) *and* the source still parseable. The parse check catches
     // offset-only changes the lexer can't see — the parser recognizes shift
     // operators (`>>`) by token adjacency, so a stray space would break the parse
-    // without changing any token. On any failure, keep the original untouched.
-    // The two `chars` lists let `same_tokens` read each token's text by index
-    // rather than re-slicing the source per token.
+    // without changing any token. On any failure, keep the original untouched. The
+    // two `chars` lists let `same_tokens` read each token's text by index rather
+    // than re-slicing the source per token.
     if !same_tokens(lex.tokens, chars, relexed.tokens, result.chars()) {
         return source;
     }
@@ -448,8 +472,8 @@ fn gap_is_spacing(_ chars: List<Int>, _ start: Int, _ end: Int) -> Bool {
 
 // For each token, whether it is a keyword used as a *member name* — a keyword
 // immediately after a `.` (`p.in`, `x.match(y)`; the parser's
-// `expect_member_name`). Such a token is an ordinary name: it ends a value, so
-// a following `(`/`[` opens a call/index and a following `-` is binary.
+// `expect_member_name`). Such a token is an ordinary name: it ends a value, so a
+// following `(`/`[` opens a call/index and a following `-` is binary.
 fn compute_member_kw(_ toks: List<Token>) -> List<Bool> {
     let out: List<Bool> = [];
     let mut i = 0;
@@ -460,9 +484,9 @@ fn compute_member_kw(_ toks: List<Token>) -> List<Bool> {
     return out;
 }
 
-// For each token, whether it is a prefix-unary operator. `!`/`~` always are;
-// `-` is unary iff the previous token doesn't end a value (so `-x`, `= -1`,
-// `[-1]`, `return -1` are unary, but `a - b`, `xs[i] - 1` are binary).
+// For each token, whether it is a prefix-unary operator. `!`/`~` always are; `-` is
+// unary iff the previous token doesn't end a value (so `-x`, `= -1`, `[-1]`,
+// `return -1` are unary, but `a - b`, `xs[i] - 1` are binary).
 fn compute_prefix_unary(
     _ toks: List<Token>,
     _ member_kw: List<Bool>,
@@ -487,8 +511,8 @@ fn compute_prefix_unary(
 
 // The canonical spacing (0 or 1) for the gap between adjacent tokens `a` and `b`.
 // Zero when `a` binds tightly to what follows or `b` binds tightly to what
-// precedes; one otherwise (the fusion-safe default — two word-ish tokens are
-// never tight, and the round-trip check backs it up).
+// precedes; one otherwise (the fusion-safe default — two word-ish tokens are never
+// tight, and the round-trip check backs it up).
 fn space_between(
     _ a: Token,
     _ b: Token,
@@ -502,10 +526,10 @@ fn space_between(
         return 0;
     }
     // Two adjacent angle brackets must stay tight: `<<`/`>>`/`>>>` are shift
-    // operators the *parser* recognizes by token adjacency (not a lexer token),
-    // and `>>` also closes nested generics (`List<List<Int>>`). Separating them
-    // would silently change the parse — and the lexer-level round-trip check
-    // below can't see it (the token kinds/lexemes are unchanged, only offsets).
+    // operators the *parser* recognizes by token adjacency (not a lexer token), and
+    // `>>` also closes nested generics (`List<List<Int>>`). Separating them would
+    // silently change the parse — and the lexer-level round-trip check below can't
+    // see it (the token kinds/lexemes are unchanged, only offsets).
     if is_angle(a.kind) && is_angle(b.kind) {
         return 0;
     }
@@ -538,8 +562,8 @@ fn no_space_after(_ a: Token, _ a_prefix_unary: Bool, _ delims: parser.GenericDe
 
 // `b` binds tightly to the preceding token (no space before it): a closer, a
 // separator/terminator (`,` `;` `:`), a `.`/`..`, a postfix `?`, a generic angle
-// bracket, or a `(`/`[` that opens a call/index (prev token ends a value —
-// which a keyword member name, `x.match(y)`, also does).
+// bracket, or a `(`/`[` that opens a call/index (prev token ends a value — which a
+// keyword member name, `x.match(y)`, also does).
 fn no_space_before(
     _ a: Token,
     _ b: Token,
@@ -563,8 +587,8 @@ fn no_space_before(
     };
 }
 
-// An angle-bracket token (`<` or `>`) — a generic delimiter, a comparison, or
-// part of a shift operator.
+// An angle-bracket token (`<` or `>`) — a generic delimiter, a comparison, or part
+// of a shift operator.
 fn is_angle(_ k: TokenKind) -> Bool {
     return k == TokenKind.Lt || k == TokenKind.Gt;
 }
@@ -650,11 +674,11 @@ struct LineInfo {
     let starts_close: List<Bool>;
 }
 
-// Walk the tokens, grouped by line, maintaining a stack of *anchors* — one per
-// open bracket — to compute each line's indent. A bracket's anchor is the level
-// its closer aligns to; its content is one level past. A `{` anchors at the
-// statement base; a `(`/`[` at the line's visual column. Both drop when a closer
-// closes a bracket opened on a previous line.
+// Walk the tokens, grouped by line, maintaining a stack of *anchors* — one per open
+// bracket — to compute each line's indent. A bracket's anchor is the level its
+// closer aligns to; its content is one level past. A `{` anchors at the statement
+// base; a `(`/`[` at the line's visual column. Both drop when a closer closes a
+// bracket opened on a previous line.
 fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
     let toks_by_line: List<List<Token>> = [];
     let verbatim: List<Bool> = filled_bool(n, false);
@@ -681,13 +705,13 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
                         tok.span.offset + tok.span.length,
                     );
                     if nl > 0 {
-                        // A text block's value is set by its content lines and
-                        // its closing delimiter, never by the column its `'''`
-                        // opens at — and only whitespace may follow that `'''`.
-                        // So its opening line reindents like any other code,
-                        // which is the point of a form meant to sit indented.
-                        // An ordinary multi-line string carries value from the
-                        // opening line, so that line stays put.
+                        // A text block's value is set by its content lines and its
+                        // closing delimiter, never by the column its `'''` opens at
+                        // — and only whitespace may follow that `'''`. So its
+                        // opening line reindents like any other code, which is the
+                        // point of a form meant to sit indented. An ordinary
+                        // multi-line string carries value from the opening line, so
+                        // that line stays put.
                         let mut k = if is_text_block(chars, tok.span.offset) { 1 } else { 0 };
                         while k <= nl {
                             let m = idx + k;
@@ -723,12 +747,12 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
         let row = toks_by_line[li];
         // Leading closers pop back to their openers; the line aligns to the
         // **innermost** one's anchor — that closer is the line's first character,
-        // so the line belongs where its own group's closer belongs, and any
-        // further closers just trail on it (`…\n        ));`). They usually share
-        // an anchor and the choice is moot; it only shows when the brackets were
-        // opened on different lines, as `a.foo(b.new('x')\n    .bar(\n …\n    ));`
-        // does — there, aligning to the outermost `(` would dedent the line past
-        // the `.bar(` it closes.
+        // so the line belongs where its own group's closer belongs, and any further
+        // closers just trail on it (`…\n        ));`). They usually share an anchor
+        // and the choice is moot; it only shows when the brackets were opened on
+        // different lines, as `a.foo(b.new('x')\n    .bar(\n …\n    ));` does —
+        // there, aligning to the outermost `(` would dedent the line past the
+        // `.bar(` it closes.
         let mut j = 0;
         let mut aligned = -1;
         while j < row.len() && is_closer(row[j].kind) {
@@ -819,16 +843,16 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
     };
 }
 
-// Re-emit each line at its computed indent, collapsing blank runs and dropping
-// the blanks that carry no separation, with a single final newline.
+// Re-emit each line at its computed indent, collapsing blank runs and dropping the
+// blanks that carry no separation, with a single final newline.
 //
-// A blank is *held back* rather than emitted where it is found, so the decision
-// can see the content on both sides of it. Holding a run back and flushing at
-// most one line is also what collapses the run. A held blank is dropped when it
-// leads the file, trails it, or sits on a bracket-group boundary — directly
-// after an opener or before a closer. Vertical space there separates code from
-// its own delimiter rather than one piece of code from another, so `{⏎⏎ x;⏎⏎ }`
-// and `{⏎ x;⏎ }` are the same code and get the same layout.
+// A blank is *held back* rather than emitted where it is found, so the decision can
+// see the content on both sides of it. Holding a run back and flushing at most one
+// line is also what collapses the run. A held blank is dropped when it leads the
+// file, trails it, or sits on a bracket-group boundary — directly after an opener
+// or before a closer. Vertical space there separates code from its own delimiter
+// rather than one piece of code from another, so `{⏎⏎ x;⏎⏎ }` and `{⏎ x;⏎ }` are
+// the same code and get the same layout.
 fn emit(_ lines: List<String>, _ info: LineInfo) -> String {
     let out: List<String> = [];
     let mut pending_blank = false;
@@ -868,8 +892,8 @@ fn emit(_ lines: List<String>, _ info: LineInfo) -> String {
         i = i + 1;
     }
 
-    // A trailing blank never gets flushed, so this only reaches a blank line at
-    // the end of a multi-line string — the one blank `out` can end with.
+    // A trailing blank never gets flushed, so this only reaches a blank line at the
+    // end of a multi-line string — the one blank `out` can end with.
     while out.len() > 0 && out[out.len() - 1] == '' {
         out.pop();
     }
@@ -910,9 +934,9 @@ fn is_hang_bracket(_ k: TokenKind) -> Bool {
 }
 
 // A line whose first token continues the previous line: a method-chain `.`, a
-// wrapped return type `->`, or a binary operator the author put at the line
-// start. Kept deliberately narrow — `-`/`*` are excluded (unary, or a leading
-// `-1` collection element).
+// wrapped return type `->`, or a binary operator the author put at the line start.
+// Kept deliberately narrow — `-`/`*` are excluded (unary, or a leading `-1`
+// collection element).
 fn is_cont_lead(_ k: TokenKind) -> Bool {
     return match k {
         Dot => true,
@@ -926,9 +950,9 @@ fn is_cont_lead(_ k: TokenKind) -> Bool {
     };
 }
 
-// A line that *ends* with one of these carries onto the next line (a wrapped
-// binary expression, an assignment or arrow whose value is on the next line). A
-// trailing `,`/`;`/opener is excluded — those are handled by bracket depth.
+// A line that *ends* with one of these carries onto the next line (a wrapped binary
+// expression, an assignment or arrow whose value is on the next line). A trailing
+// `,`/`;`/opener is excluded — those are handled by bracket depth.
 fn is_cont_prev(_ k: TokenKind) -> Bool {
     return match k {
         Plus => true,
@@ -962,8 +986,8 @@ fn pop_kind(_ kinds: List<TokenKind>) -> Void {
     kinds.pop();
 }
 
-// Whether the string literal at `offset` is a text block — three of the same
-// quote. (A raw string's span opens on its `r`, so it never reads as one.)
+// Whether the string literal at `offset` is a text block — three of the same quote.
+// (A raw string's span opens on its `r`, so it never reads as one.)
 fn is_text_block(_ chars: List<Int>, _ offset: Int) -> Bool {
     if offset + 2 >= chars.len() {
         return false;

@@ -1,8 +1,8 @@
 // The lexer — the Thera mirror of the Dart toolchain's lexer.dart. Turns source
-// text into a token stream, accumulating errors and continuing rather than
-// stopping at the first one. A faithful transcription; the notable shape change
-// is that Thera has no `break`, so the `break`-driven loops are rewritten to exit
-// on a condition (string scanning) or fall through their loop guard.
+// text into a token stream, accumulating errors and continuing rather than stopping
+// at the first one. A faithful transcription; the notable shape change is that
+// Thera has no `break`, so the `break`-driven loops are rewritten to exit on a
+// condition (string scanning) or fall through their loop guard.
 //
 // The cursor runs over the source's code points (`source.chars()`); spans are
 // code-point based, matching the Dart code-unit spans for ASCII source.
@@ -30,11 +30,10 @@ impl LexResult {
 
 // One physical line of a text block, split where the dedent applies. `ws` is the
 // line's raw leading whitespace — measured on *source* characters, so a leading
-// `\t` escape is content rather than indentation — and `text` is the decoded
-// rest. `keep` is `text`'s length as of the last significant character, so the
-// incidental trailing whitespace after it can be dropped without also dropping a
-// deliberate `\x20`. `keep == 0` marks a blank line: it sets no margin and emits
-// nothing.
+// `\t` escape is content rather than indentation — and `text` is the decoded rest.
+// `keep` is `text`'s length as of the last significant character, so the incidental
+// trailing whitespace after it can be dropped without also dropping a deliberate
+// `\x20`. `keep == 0` marks a blank line: it sets no margin and emits nothing.
 struct TextLine {
     let ws: List<Int>;
     let text: List<Int>;
@@ -42,8 +41,8 @@ struct TextLine {
 }
 
 // A cursor over the source's code points, accumulating tokens and errors. The
-// `ts_*` fields hold the start of the token currently being scanned, so `emit`
-// and `error` can form its span without threading the start through every call.
+// `ts_*` fields hold the start of the token currently being scanned, so `emit` and
+// `error` can form its span without threading the start through every call.
 struct Lexer {
     let source: String;
     let file: String; // canonical key stamped onto every span ('' = text-only)
@@ -59,9 +58,9 @@ struct Lexer {
     let mut ts_col: Int;
 }
 
-// Tokenize `source` into a `LexResult` (tokens end with `Eof`).
-// `file` is the canonical key of the file `source` came from (stamped onto
-// every span for diagnostic attribution — LD7); `''` for text-only input.
+// Tokenize `source` into a `LexResult` (tokens end with `Eof`). `file` is the
+// canonical key of the file `source` came from (stamped onto every span for
+// diagnostic attribution — LD7); `''` for text-only input.
 pub fn tokenize(_ source: String, file: String = '') -> LexResult {
     let lx = Lexer {
         source: source,
@@ -172,8 +171,8 @@ impl Lexer {
         };
     }
 
-    // The source text a span covers, read from the already-materialized `chars`
-    // by index. `SourceSpan.text()` would re-slice the whole source (each call is
+    // The source text a span covers, read from the already-materialized `chars` by
+    // index. `SourceSpan.text()` would re-slice the whole source (each call is
     // O(source length)); reusing `self.chars` keeps per-token extraction O(span
     // length), so lexing stays linear over a large file.
     fn span_text(self, _ span: SourceSpan) -> String {
@@ -197,8 +196,8 @@ impl Lexer {
         self.error_at(message, self.ts_offset, self.ts_line, self.ts_col);
     }
 
-    // Record an error at an explicit start position (used for escapes, which
-    // start partway through a string token).
+    // Record an error at an explicit start position (used for escapes, which start
+    // partway through a string token).
     fn error_at(self, _ message: String, _ o: Int, _ l: Int, _ c: Int) -> Void {
         self.errors.push(diagnostic.at(message, self.span_from(o, l, c)));
     }
@@ -230,9 +229,9 @@ impl Lexer {
         while !self.at_end() && self.ch() != char.LF {
             self.advance();
         }
-        // On a CRLF file the `\r` before the newline is line-ending, not
-        // comment text — exclude it from the span (fmt re-emits comment spans
-        // verbatim, and a trailing `\r` would survive a rewrite).
+        // On a CRLF file the `\r` before the newline is line-ending, not comment
+        // text — exclude it from the span (fmt re-emits comment spans verbatim, and
+        // a trailing `\r` would survive a rewrite).
         let mut end = self.pos;
         if end > start && self.chars[end - 1] == char.CR {
             end = end - 1;
@@ -368,13 +367,13 @@ impl Lexer {
                 self.scan_string(c);
             }
         } else if c == LOWER_R && (self.ch() == char.SQUOTE || self.ch() == char.DQUOTE) {
-            // `r` immediately against a quote opens a raw string. This can't
-            // shadow an identifier: no Thera syntax juxtaposes a name and a
-            // string literal, so `r'…'` was never anything else.
+            // `r` immediately against a quote opens a raw string. This can't shadow
+            // an identifier: no Thera syntax juxtaposes a name and a string
+            // literal, so `r'…'` was never anything else.
             let q = self.ch();
             if self.peek() == q && self.peek2() == q {
-                // `r'''…'''` is a plausible thing to reach for, and lexing it as
-                // an empty raw string plus whatever follows would cascade into
+                // `r'''…'''` is a plausible thing to reach for, and lexing it as an
+                // empty raw string plus whatever follows would cascade into
                 // nonsense. Name the gap instead.
                 self.error('a raw text block is not supported; use a text block or r\'…\'');
             }
@@ -423,14 +422,14 @@ impl Lexer {
 
     // A text block — `'''…'''` or `"""…"""`, the three opening quotes already
     // consumed. Escapes and `${…}` work exactly as in an ordinary string; what a
-    // text block adds is that the indentation used to keep the source readable
-    // is not part of the value.
+    // text block adds is that the indentation used to keep the source readable is
+    // not part of the value.
     //
     // The margin stripped from every line is the smallest indentation across the
-    // non-blank content lines *and* the closing delimiter's own line, so lining
-    // the closing `'''` up where the left edge belongs is how you say where it
-    // is. Trailing whitespace goes per line (see `TextLine.keep`), which keeps
-    // the value independent of characters nobody can see — `\x20` forces one.
+    // non-blank content lines *and* the closing delimiter's own line, so lining the
+    // closing `'''` up where the left edge belongs is how you say where it is.
+    // Trailing whitespace goes per line (see `TextLine.keep`), which keeps the
+    // value independent of characters nobody can see — `\x20` forces one.
     //
     // The closing delimiter on its own line contributes the final newline; on a
     // content line it ends the value there.
@@ -458,8 +457,8 @@ impl Lexer {
                 self.advance();
                 self.advance();
                 closed = true;
-                // Nothing significant on this line means the delimiter has the
-                // line to itself: it sets a margin and adds the final newline.
+                // Nothing significant on this line means the delimiter has the line
+                // to itself: it sets a margin and adds the final newline.
                 own_line = cur.keep == 0;
                 if !own_line {
                     lines.push(cur);
@@ -549,15 +548,15 @@ impl Lexer {
     // A raw string — `r'…'` or `r"…"`, the opening quote already consumed.
     // Everything up to the closing quote is content: no escapes, and no `${…}`
     // interpolation. Raw is the one place with no escape hatch, so if `${` still
-    // opened an interpolation a literal `${` would be unwritable here — exactly
-    // the shell-variable patterns raw strings exist to hold. To carry the
-    // delimiter itself, switch quote styles (`r"it's"`); use an ordinary string
-    // for content with both.
+    // opened an interpolation a literal `${` would be unwritable here — exactly the
+    // shell-variable patterns raw strings exist to hold. To carry the delimiter
+    // itself, switch quote styles (`r"it's"`); use an ordinary string for content
+    // with both.
     //
-    // The content still goes through `push_literal`, which re-escapes `\` and
-    // `$`. That leaves the token in the same shape as an ordinary literal's, so
-    // the parser's splitter reads the whole thing back as a single text part
-    // and nothing downstream has to know a raw string was involved.
+    // The content still goes through `push_literal`, which re-escapes `\` and `$`.
+    // That leaves the token in the same shape as an ordinary literal's, so the
+    // parser's splitter reads the whole thing back as a single text part and
+    // nothing downstream has to know a raw string was involved.
     fn scan_raw_string(self, _ quote: Int) -> Void {
         let buf: List<Int> = [];
         while !self.at_end() && self.ch() != quote {
@@ -576,9 +575,9 @@ impl Lexer {
         });
     }
 
-    // Capture a `${...}` interpolation verbatim into `buf` so the parser can
-    // split it later. Tracks brace depth, but copies nested string literals
-    // whole so a `}` inside one (e.g. `${ m['}'] }`) doesn't close it early.
+    // Capture a `${...}` interpolation verbatim into `buf` so the parser can split
+    // it later. Tracks brace depth, but copies nested string literals whole so a
+    // `}` inside one (e.g. `${ m['}'] }`) doesn't close it early.
     fn scan_interpolation(self, _ buf: List<Int>, _ interps: List<SourceSpan>) -> Void {
         buf.push(char.DOLLAR);
         self.advance(); // $
@@ -591,8 +590,8 @@ impl Lexer {
         while !self.at_end() && depth > 0 {
             let ic = self.ch();
             if ic == char.SQUOTE || ic == char.DQUOTE {
-                // Copy a nested string literal verbatim, honoring backslash
-                // escapes so an escaped quote doesn't end it prematurely.
+                // Copy a nested string literal verbatim, honoring backslash escapes
+                // so an escaped quote doesn't end it prematurely.
                 buf.push(ic);
                 self.advance();
                 while !self.at_end() && self.ch() != ic {
@@ -638,12 +637,12 @@ impl Lexer {
     // Decode one escape into `buf`. The backslash is already consumed; `ch()` is
     // the escape character. `(o, l, c)` is the backslash position, for errors.
     //
-    // Decoded characters go through `push_literal`, which re-escapes a literal
-    // `\` or `$` (as `\\` / `\$`) in the captured value. This keeps an escaped
-    // `\${` distinguishable from a real `${…}` interpolation (which is captured
-    // raw): the value's only *bare* `${` are interpolations, and the parser's
-    // splitter decodes `\\`/`\$` back to their characters. Without this, `\$`
-    // de-escapes to a bare `$` that the splitter mistakes for interpolation.
+    // Decoded characters go through `push_literal`, which re-escapes a literal `\`
+    // or `$` (as `\\` / `\$`) in the captured value. This keeps an escaped `\${`
+    // distinguishable from a real `${…}` interpolation (which is captured raw): the
+    // value's only *bare* `${` are interpolations, and the parser's splitter
+    // decodes `\\`/`\$` back to their characters. Without this, `\$` de-escapes to
+    // a bare `$` that the splitter mistakes for interpolation.
     fn scan_string_escape(self, _ buf: List<Int>, _ o: Int, _ l: Int, _ c: Int)
         -> Void {
         let e = self.ch();
@@ -826,9 +825,9 @@ const LOWER_V: Int = 118;
 const LOWER_X: Int = 120;
 
 // Append a decoded text code point to a string-literal buffer, re-escaping a
-// literal `\` or `$` as `\\` / `\$`. This keeps the captured value's only bare
-// `${` sequences the real interpolations; the parser's splitter decodes the
-// escapes back. (Interpolation content is captured raw, not through here.)
+// literal `\` or `$` as `\\` / `\$`. This keeps the captured value's only bare `${`
+// sequences the real interpolations; the parser's splitter decodes the escapes
+// back. (Interpolation content is captured raw, not through here.)
 fn push_literal(_ buf: List<Int>, _ cp: Int) -> Void {
     if cp == char.BACKSLASH || cp == char.DOLLAR {
         buf.push(char.BACKSLASH);

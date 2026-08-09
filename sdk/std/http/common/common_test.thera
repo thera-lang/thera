@@ -90,9 +90,9 @@ fn reads_two_pipelined_requests_from_one_buffer() -> Result<Void, Error> {
 
 // --- redaction ---
 
-/// A credential must not reach a log, and `'${req}'` is the shortest path to one. The
-/// structural `Debug` derive printed `authorization` in full; this is the assertion that
-/// it no longer can.
+/// A credential must not reach a log, and `'${req}'` is the shortest path to one.
+/// The structural `Debug` derive printed `authorization` in full; this is the
+/// assertion that it no longer can.
 @test
 fn debug_redacts_a_credential_header() -> Result<Void, Error> {
     let req = Request {
@@ -109,8 +109,8 @@ fn debug_redacts_a_credential_header() -> Result<Void, Error> {
     return testing.assert(shown.contains('/user'), message: 'lost the url');
 }
 
-/// The header name is matched case-insensitively, because a caller-built request has not
-/// been through the client's normalization yet.
+/// The header name is matched case-insensitively, because a caller-built request
+/// has not been through the client's normalization yet.
 @test
 fn debug_redaction_ignores_header_case() -> Result<Void, Error> {
     let req = Request {
@@ -138,9 +138,9 @@ fn debug_redacts_a_response_cookie() -> Result<Void, Error> {
     return testing.assert(shown.contains('text/plain'), message: 'lost a safe header');
 }
 
-/// **Redaction is display-only.** `Eq` stays structural, so two requests differing only
-/// in their credential are still unequal — a redaction that changed comparison would
-/// silently break every test that checks a header's real value.
+/// **Redaction is display-only.** `Eq` stays structural, so two requests differing
+/// only in their credential are still unequal — a redaction that changed comparison
+/// would silently break every test that checks a header's real value.
 @test
 fn redaction_does_not_affect_equality() -> Result<Void, Error> {
     let one = Request {
@@ -163,7 +163,8 @@ fn redaction_does_not_affect_equality() -> Result<Void, Error> {
     );
 }
 
-/// The helper on its own, since a caller logging its own headers wants the same list.
+/// The helper on its own, since a caller logging its own headers wants the same
+/// list.
 @test
 fn redact_headers_replaces_only_the_sensitive_ones() -> Result<Void, Error> {
     let safe = redact_headers([
@@ -192,8 +193,8 @@ fn reads_a_response() -> Result<Void, Error> {
     return testing.assert_eq(r.body.to_string()?, 'nop');
 }
 
-/// A response with no framing headers is delimited by the close — HTTP/1.0 style.
-/// A request in the same shape has *no* body (the client isn't going to close), so
+/// A response with no framing headers is delimited by the close — HTTP/1.0 style. A
+/// request in the same shape has *no* body (the client isn't going to close), so
 /// the two directions genuinely differ here.
 @test
 fn a_response_without_framing_reads_to_eof() -> Result<Void, Error> {
@@ -300,9 +301,9 @@ impl io.Reader for SlowReader {
 }
 
 /// The point of the whole exercise: `stream_response` returns with the head parsed
-/// and the body still on the common. The buffered path over the same bytes drains the
-/// source, which is the contrast that makes this a regression test rather than a
-/// tautology — nothing else here would notice a "drain, then hand it over".
+/// and the body still on the common. The buffered path over the same bytes drains
+/// the source, which is the contrast that makes this a regression test rather than
+/// a tautology — nothing else here would notice a "drain, then hand it over".
 @test
 fn streaming_a_response_leaves_the_body_on_the_wire() -> Result<Void, Error> {
     let raw = 'HTTP/1.1 200 OK\r\nContent-Length: 64\r\n\r\n' + 'x'.repeat(64);
@@ -444,8 +445,8 @@ fn repeated_headers_are_comma_joined() -> Result<Void, Error> {
     return testing.assert_eq(r.headers['accept'], 'text/html, application/json');
 }
 
-/// set-cookie is the carve-out: its own syntax contains commas (in `Expires`), so
-/// a comma-join would be ambiguous. Newline-joined instead, and splittable.
+/// set-cookie is the carve-out: its own syntax contains commas (in `Expires`), so a
+/// comma-join would be ambiguous. Newline-joined instead, and splittable.
 @test
 fn repeated_set_cookie_is_newline_joined() -> Result<Void, Error> {
     let raw = 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n'
@@ -490,9 +491,9 @@ fn writes_a_response_with_its_reason_phrase() -> Result<Void, Error> {
     return testing.assert_eq(out.into_string()?, expected);
 }
 
-/// The codec owns framing: a caller-set content-length that disagrees with the
-/// body is a request-smuggling primitive, not a preference, so it is replaced
-/// rather than trusted.
+/// The codec owns framing: a caller-set content-length that disagrees with the body
+/// is a request-smuggling primitive, not a preference, so it is replaced rather
+/// than trusted.
 @test
 fn a_caller_set_content_length_is_overridden() -> Result<Void, Error> {
     let out = io.StringWriter.new();
@@ -524,8 +525,8 @@ fn set_cookie_is_unfolded_into_one_line_each() -> Result<Void, Error> {
 
 // --- round trip ---
 
-/// What is written parses back identically — the property that keeps the two
-/// halves honest as either changes.
+/// What is written parses back identically — the property that keeps the two halves
+/// honest as either changes.
 @test
 fn a_request_round_trips() -> Result<Void, Error> {
     let out = io.StringWriter.new();
@@ -599,8 +600,8 @@ fn a_space_before_the_colon_is_rejected() -> Result<Void, Error> {
     );
 }
 
-/// Obsolete line folding is deprecated and a smuggling vector — reject rather
-/// than guess at the intent.
+/// Obsolete line folding is deprecated and a smuggling vector — reject rather than
+/// guess at the intent.
 @test
 fn obsolete_line_folding_is_rejected() -> Result<Void, Error> {
     return testing.assert(

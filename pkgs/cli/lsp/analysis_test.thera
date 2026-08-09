@@ -1,6 +1,6 @@
-// Tests for the analysis session — specifically the open-buffer overlay
-// contract: an *imported* file that is open in the editor is analyzed as the
-// user sees it (unsaved edits included), not as last saved to disk.
+// Tests for the analysis session — specifically the open-buffer overlay contract:
+// an *imported* file that is open in the editor is analyzed as the user sees it
+// (unsaved edits included), not as last saved to disk.
 
 import std.testing;
 import std.fs;
@@ -11,8 +11,8 @@ import 'paths';
 import '../loader';
 
 // `a.thera` imports `b.thera` and calls `b.helper()`. On disk, `b` exports
-// `helper`; the open (unsaved) buffer for `b` removes it. Analyzing `a` must
-// see the buffer — an "not a public member" diagnostic — not the disk content.
+// `helper`; the open (unsaved) buffer for `b` removes it. Analyzing `a` must see
+// the buffer — an "not a public member" diagnostic — not the disk content.
 @test
 fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_overlay_test');
@@ -37,8 +37,8 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
     let clean = analysis.diagnostics(a_uri, a_text);
     testing.assert_eq(actual: clean.as_array().map((xs) => xs.len()).unwrap_or(-1), expected: 0)?;
 
-    // Open `b` with an unsaved edit that removes `helper`: `a`'s analysis must
-    // see the buffer, not the stale disk content.
+    // Open `b` with an unsaved edit that removes `helper`: `a`'s analysis must see
+    // the buffer, not the stale disk content.
     analysis.set_document(b_uri, 'pub fn renamed() -> Int { return 1; }\n', Option.None);
     let stale = analysis.diagnostics(a_uri, a_text);
     testing.assert(
@@ -60,8 +60,8 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
 
 // References span the whole project: with workspace roots announced, a use in a
 // *closed* on-disk file is found, not just the open documents. `a.thera` declares
-// `foo`; `b.thera` (never opened) calls it. A references request on the
-// declaration returns both occurrences.
+// `foo`; `b.thera` (never opened) calls it. A references request on the declaration
+// returns both occurrences.
 @test
 fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_xref_test');
@@ -171,8 +171,8 @@ fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
 }
 
 // The SDK is read-only to rename: renaming a symbol declared under `sdk/std`
-// (reached by `import std.*`) is refused with a null result rather than a
-// partial edit that rewrites callers but not the trusted library declaration.
+// (reached by `import std.*`) is refused with a null result rather than a partial
+// edit that rewrites callers but not the trusted library declaration.
 @test
 fn test_rename_of_an_sdk_symbol_is_refused() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_sdk_rename_test');
@@ -224,8 +224,8 @@ fn test_rename_collision_is_flagged() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// An edit to an open dependency marks its open importers dirty (LD14 batch A):
-// the server's next flush re-publishes `a`'s diagnostics after a `b` edit.
+// An edit to an open dependency marks its open importers dirty (LD14 batch A): the
+// server's next flush re-publishes `a`'s diagnostics after a `b` edit.
 @test
 fn test_dependency_edit_marks_importer_dirty() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_dirty_cone_test');

@@ -1,5 +1,5 @@
-// Tests for the parser. Expressions are checked by rendering the parsed tree
-// with `describe_expr` (the canonical span-free form, matching Dart's
+// Tests for the parser. Expressions are checked by rendering the parsed tree with
+// `describe_expr` (the canonical span-free form, matching Dart's
 // `Expr.describe()`); declarations and error recovery are checked structurally.
 
 import std.testing;
@@ -42,8 +42,8 @@ fn decl_has(_ r: ParseResult, _ name: String) -> Bool {
 // Parse every token-prefix of `src` (each re-terminated with the EOF token),
 // returning the count. The point is that each parse *returns*: a non-advancing
 // recovery loop would hang (or a stray index would trap) instead — exactly the
-// mid-edit input the LSP feeds the parser on every keystroke. In-process, so a
-// few hundred prefixes cost microseconds.
+// mid-edit input the LSP feeds the parser on every keystroke. In-process, so a few
+// hundred prefixes cost microseconds.
 fn parse_all_prefixes(_ src: String) -> Int {
     let toks = tokenize(src).tokens;
     let eof = toks[toks.len() - 1]; // tokenize always ends with an EOF token
@@ -206,9 +206,9 @@ fn test_bracket_map_literals() -> Result<Void, Error> {
 
 @test
 fn test_brace_map_rejected_with_hint() -> Result<Void, Error> {
-    // The removed brace-map form gets the migration hint, for both the
-    // literal-key shape (the old commit heuristic, now the detector) and a
-    // non-literal key (caught at the `:` after an expression statement).
+    // The removed brace-map form gets the migration hint, for both the literal-key
+    // shape (the old commit heuristic, now the detector) and a non-literal key
+    // (caught at the `:` after an expression statement).
     let lit = parse_src("fn f() -> Void { let m = {'a': 1}; }");
     testing.assert(lit.has_errors(), message: 'literal-key brace map is rejected')?;
     testing.assert(
@@ -303,8 +303,8 @@ fn test_escaped_dollar_is_literal() -> Result<Void, Error> {
 
 @test
 fn test_unterminated_interpolation_does_not_crash() -> Result<Void, Error> {
-    // A malformed `'${'` (no closing brace) must not overrun the splitter — it
-    // used to crash the Dart parser with a RangeError. Here it parses to a string.
+    // A malformed `'${'` (no closing brace) must not overrun the splitter — it used
+    // to crash the Dart parser with a RangeError. Here it parses to a string.
     let e = parse_expression(tokenize(String.from_chars([39, 36, 123, 39])).tokens);
     testing.assert(match e {
         Str(_, _) => true,
@@ -445,9 +445,9 @@ fn test_parse_impl_bounded_inherent_param() -> Result<Void, Error> {
 
 @test
 fn test_parse_qualified_bounds_and_supers() -> Result<Void, Error> {
-    // A bound or super-interface may be namespace-qualified (`ns.Name`), like
-    // the interface of an `impl ns.I for T` — the three positions resolve the
-    // same way, so they parse the same way.
+    // A bound or super-interface may be namespace-qualified (`ns.Name`), like the
+    // interface of an `impl ns.I for T` — the three positions resolve the same way,
+    // so they parse the same way.
     let src = 'import std.io;\n'
         + 'fn f<S: io.Reader + io.Writer>(_ s: S) -> Int { return 1; }\n'
         + 'struct Box<T: io.Reader> { let v: T; }\n'
@@ -482,8 +482,8 @@ fn test_parse_qualified_bounds_and_supers() -> Result<Void, Error> {
 
 @test
 fn test_error_recovery_skips_to_next_decl() -> Result<Void, Error> {
-    // The first declaration is malformed (no function name); the parser records
-    // an error, resyncs to the next `fn`, and parses the good one.
+    // The first declaration is malformed (no function name); the parser records an
+    // error, resyncs to the next `fn`, and parses the good one.
     let r = parse_src('fn { } fn good() -> Int { return 1; }');
     testing.assert(r.has_errors(), message: 'expected a parse error')?;
     testing.assert_eq(actual: r.program.decls.len(), expected: 1)?;
@@ -493,12 +493,12 @@ fn test_error_recovery_skips_to_next_decl() -> Result<Void, Error> {
 
 @test
 fn test_recovery_terminates_on_unfinished_let() -> Result<Void, Error> {
-    // Regression: a `let` with no `=` before a `return`/`throw` once looped
-    // forever — in recovery the cursor is frozen, and `parse_primary` for
-    // `return`/`throw` recursed into `parse_expr` with no progress. Each parse
-    // must terminate (this test would otherwise hang), record an error, and
-    // recover to the next declaration. Covers normal `let`, the uppercase
-    // `let … else` head, and `throw`.
+    // Regression: a `let` with no `=` before a `return`/`throw` once looped forever
+    // — in recovery the cursor is frozen, and `parse_primary` for `return`/`throw`
+    // recursed into `parse_expr` with no progress. Each parse must terminate (this
+    // test would otherwise hang), record an error, and recover to the next
+    // declaration. Covers normal `let`, the uppercase `let … else` head, and
+    // `throw`.
     let r1 = parse_src('fn f() -> Int { let x return 1; } fn good() -> Int { return 2; }');
     testing.assert(r1.has_errors(), message: 'expected a parse error')?;
     testing.assert(decl_has(r1, 'good'), message: 'should recover to the next decl')?;
@@ -516,12 +516,12 @@ fn test_recovery_terminates_on_unfinished_let() -> Result<Void, Error> {
 @test
 fn test_token_prefixes_terminate() -> Result<Void, Error> {
     // Standing guard against non-advancing recovery loops: every token-prefix of
-    // each snippet must parse to completion. The LSP parses such mid-edit
-    // fragments on every keystroke, so a hang here is a hang there. Snippets
-    // exercise the constructs whose recovery is easiest to get wrong — a
-    // `return`/`throw` operand, an unfinished `let`, `if let`/`let … else` heads,
-    // `?`, match arms, lambdas, and nested blocks. Add a snippet when adding a
-    // construct. A regression hangs or traps this test rather than returning.
+    // each snippet must parse to completion. The LSP parses such mid-edit fragments
+    // on every keystroke, so a hang here is a hang there. Snippets exercise the
+    // constructs whose recovery is easiest to get wrong — a `return`/`throw`
+    // operand, an unfinished `let`, `if let`/`let … else` heads, `?`, match arms,
+    // lambdas, and nested blocks. Add a snippet when adding a construct. A
+    // regression hangs or traps this test rather than returning.
     let samples: List<String> = [
         'fn f() -> Int { let x return 1; }',
         'fn f() -> Int { let x: Int = g(a, b); return x; }',
@@ -545,9 +545,9 @@ fn test_token_prefixes_terminate() -> Result<Void, Error> {
 fn test_trailing_semicolon_after_block_statement() -> Result<Void, Error> {
     // A `;` trailing a block-form statement (`if`/`for`/`while`/`match`) is a
     // tolerated empty statement in a statement block, matching how match arms /
-    // block expressions already parse it. (Regression: this used to be a hard
-    // error only in statement blocks, which — in an imported file — silently
-    // dropped the file's declarations.)
+    // block expressions already parse it. (Regression: this used to be a hard error
+    // only in statement blocks, which — in an imported file — silently dropped the
+    // file's declarations.)
     let r = parse_src('fn f(_ x: Int) -> Int {\n'
         + '  let mut a = 0;\n'
         + '  for i in 0..x {\n'
@@ -569,8 +569,8 @@ fn test_empty_statements_are_tolerated() -> Result<Void, Error> {
 
 @test
 fn test_binary_precedence_ladder() -> Result<Void, Error> {
-    // One expression spanning the whole table-driven ladder, loosest to tightest:
-    // || < && < | < ^ < & < == < (comparison) < + < *. Asserts the nesting the
+    // One expression spanning the whole table-driven ladder, loosest to tightest: ||
+    // < && < | < ^ < & < == < (comparison) < + < *. Asserts the nesting the
     // `parse_binary` precedence match produces.
     testing.assert_eq(
         actual: expr_str('a || b && c | d ^ e & f == g < h + i * j'),
@@ -601,8 +601,8 @@ fn test_import_alias_and_unqualified() -> Result<Void, Error> {
 
 @test
 fn test_stmt_spans_cover_statement() -> Result<Void, Error> {
-    // A `Stmt.Expr`/`Stmt.Assign` span covers the whole statement through the
-    // `;` (like Let/Return), not just the first token (PA7).
+    // A `Stmt.Expr`/`Stmt.Assign` span covers the whole statement through the `;`
+    // (like Let/Return), not just the first token (PA7).
     let r = parse_src('fn f() { g(1); x = 2 + 3; x += 1; }');
     let texts: List<String> = [];
     if let Fn(fd) = r.program.decls[0] {
@@ -622,8 +622,8 @@ fn test_stmt_spans_cover_statement() -> Result<Void, Error> {
 
 @test
 fn test_describe_reescapes_string_text() -> Result<Void, Error> {
-    // describe strings are one-line diff keys: decoded control characters and
-    // the backslash render back as escapes rather than raw text (PA14).
+    // describe strings are one-line diff keys: decoded control characters and the
+    // backslash render back as escapes rather than raw text (PA14).
     testing.assert_eq(actual: expr_str("'a\\nb'"), expected: "\"a\\nb\"")?;
     testing.assert_eq(actual: expr_str("'a\\tb'"), expected: "\"a\\tb\"")?;
     testing.assert_eq(actual: expr_str("'c\\\\d'"), expected: "\"c\\\\d\"")?;
@@ -632,13 +632,13 @@ fn test_describe_reescapes_string_text() -> Result<Void, Error> {
 
 @test
 fn test_text_block_splits_and_keeps_real_spans() -> Result<Void, Error> {
-    // A text block splits into parts like any other string, dedent already
-    // applied by the lexer.
+    // A text block splits into parts like any other string, dedent already applied
+    // by the lexer.
     let src = ["'''", '    a: \${1 + 2}', '    b', "    '''"].join('\n');
     testing.assert_eq(actual: parts_desc(src), expected: 'T:a: |I:(1 + 2)|T:\nb\n')?;
     // The interpolation's sub-parse is rebased onto its real source region, so a
-    // diagnostic inside `${…}` still points at the file (PA2) — the dedent must
-    // not shift it. `1 +` is incomplete, and the error lands on line 2.
+    // diagnostic inside `${…}` still points at the file (PA2) — the dedent must not
+    // shift it. `1 +` is incomplete, and the error lands on line 2.
     let bad = [
         'fn f() -> Void {',
         "    let s = '''",
@@ -654,9 +654,9 @@ fn test_text_block_splits_and_keeps_real_spans() -> Result<Void, Error> {
 
 @test
 fn test_raw_string_decodes_to_one_text_part() -> Result<Void, Error> {
-    // A raw string reaches the parser in the same shape as an ordinary literal,
-    // so the splitter yields one text part: `r'\d+'` is the two characters `\d`
-    // then `+` (describe re-escapes the backslash, hence `\\d` below).
+    // A raw string reaches the parser in the same shape as an ordinary literal, so
+    // the splitter yields one text part: `r'\d+'` is the two characters `\d` then
+    // `+` (describe re-escapes the backslash, hence `\\d` below).
     testing.assert_eq(actual: expr_str("r'\\d+'"), expected: "\"\\\\d+\"")?;
     // `${…}` in a raw string is literal text, not an interpolation — the whole
     // point of raw having no escape hatch.
@@ -678,9 +678,9 @@ fn test_import_path_interpolation_rejected() -> Result<Void, Error> {
 
 @test
 fn test_impl_param_must_be_bare_name() -> Result<Void, Error> {
-    // In the type-parameter view (`impl Type<…>`, no `for`) each element must
-    // be a bare name — `impl Box<Pair<T>>` used to lower `Pair` as a parameter
-    // and silently drop `<T>` (PA10).
+    // In the type-parameter view (`impl Type<…>`, no `for`) each element must be a
+    // bare name — `impl Box<Pair<T>>` used to lower `Pair` as a parameter and
+    // silently drop `<T>` (PA10).
     let r = parse_src('impl Box<Pair<T>> { fn f(self) -> Int { return 1; } }');
     testing.assert(r.has_errors(), message: 'generic impl param should error')?;
     // The interface-argument view is untouched: nesting is fine before `for`.
@@ -692,9 +692,9 @@ fn test_impl_param_must_be_bare_name() -> Result<Void, Error> {
 @test
 fn test_name_spans_recorded() -> Result<Void, Error> {
     // PA11: the previously missing name spans — field decls/inits, import
-    // path/alias, type-param bounds, interface supers, an impl's interface,
-    // a NamedType's namespace, a call-arg label — are recorded, each pointing
-    // at its exact source token.
+    // path/alias, type-param bounds, interface supers, an impl's interface, a
+    // NamedType's namespace, a call-arg label — are recorded, each pointing at its
+    // exact source token.
     let r = parse_src('import std.fs as f;\n'
         + 'struct P<T: Display> { let mut x: fs.Path; }\n'
         + 'interface I : Display + Debug { fn go(self); }\n'
@@ -750,9 +750,9 @@ fn first_body_stmt(_ src: String) -> Option<Stmt> {
     return Option.None;
 }
 
-// A compound assignment keeps its shape (PA5): the operator rides on the
-// statement and the RHS stays raw — no synthesized Binary aliasing the target
-// node into the value.
+// A compound assignment keeps its shape (PA5): the operator rides on the statement
+// and the RHS stays raw — no synthesized Binary aliasing the target node into the
+// value.
 @test
 fn test_compound_assign_keeps_shape() -> Result<Void, Error> {
     match first_body_stmt('fn f() { let mut x = 1; }') {
@@ -788,8 +788,8 @@ fn test_plain_assign_has_no_op() -> Result<Void, Error> {
 }
 
 // The if-let desugar fabricates a wildcard arm (and, with no `else`, an empty
-// block): both carry zero-length synthetic spans so offset queries skip them,
-// and the block is marked synthetic (PA6).
+// block): both carry zero-length synthetic spans so offset queries skip them, and
+// the block is marked synthetic (PA6).
 @test
 fn test_if_let_desugar_spans_are_synthetic() -> Result<Void, Error> {
     if let Some(s) = first_body_stmt('fn f(_ o: Option<Int>) { if let Some(v) = o { g(v); } }') {
@@ -808,9 +808,9 @@ fn test_if_let_desugar_spans_are_synthetic() -> Result<Void, Error> {
     return Result.Err(error('expected the desugared match'));
 }
 
-// The let-else desugar's success body references the binding through a
-// fabricated Ident: zero-length at the binding, so it never duplicates the
-// pattern's real node (PA6); the wildcard is synthetic too.
+// The let-else desugar's success body references the binding through a fabricated
+// Ident: zero-length at the binding, so it never duplicates the pattern's real node
+// (PA6); the wildcard is synthetic too.
 @test
 fn test_let_else_desugar_spans_are_synthetic() -> Result<Void, Error> {
     if let Some(s) = first_body_stmt(
@@ -830,8 +830,8 @@ fn test_let_else_desugar_spans_are_synthetic() -> Result<Void, Error> {
     return Result.Err(error('expected the desugared let'));
 }
 
-// An `else if` chain's wrapper block is marked synthetic; a source
-// `else { if … }` is not (PA8 — the marker replaces span sniffing).
+// An `else if` chain's wrapper block is marked synthetic; a source `else { if … }`
+// is not (PA8 — the marker replaces span sniffing).
 @test
 fn test_else_if_wrapper_is_synthetic() -> Result<Void, Error> {
     if let Some(s) = first_body_stmt('fn f(_ a: Bool, _ b: Bool) { if a { } else if b { } }') {
@@ -856,9 +856,9 @@ fn test_else_if_wrapper_is_synthetic() -> Result<Void, Error> {
     return Result.Err(error('expected an If stmt'));
 }
 
-// Keywords as member names (docs/language.md §Keywords as member names):
-// field declarations, struct-literal fields, field access, call-site labels,
-// and parameter labels accept any keyword; `type` is not reserved at all.
+// Keywords as member names (docs/language.md §Keywords as member names): field
+// declarations, struct-literal fields, field access, call-site labels, and
+// parameter labels accept any keyword; `type` is not reserved at all.
 @test
 fn test_keywords_as_member_names() -> Result<Void, Error> {
     let r = parse_src('struct P { let in: String; let mut: Bool; let mut match: Int; }\n'
@@ -883,8 +883,8 @@ fn test_keywords_as_member_names() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// `self` stays the receiver when bare; followed by an identifier it is an
-// ordinary parameter label.
+// `self` stays the receiver when bare; followed by an identifier it is an ordinary
+// parameter label.
 @test
 fn test_self_label_vs_receiver() -> Result<Void, Error> {
     let r = parse_src('impl P { fn near(self, self other: P) -> Bool { return true; } }');
@@ -898,8 +898,8 @@ fn test_self_label_vs_receiver() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A keyword may label a parameter but not name it — the single-name form gets
-// the prescriptive two-name error.
+// A keyword may label a parameter but not name it — the single-name form gets the
+// prescriptive two-name error.
 @test
 fn test_keyword_param_name_rejected() -> Result<Void, Error> {
     let r = parse_src('fn f(match: Int) -> Int { return 1; }');
@@ -911,9 +911,9 @@ fn test_keyword_param_name_rejected() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A dangling `x.` must not swallow a statement keyword on the *next* line —
-// the mid-edit recovery hole completion anchors on (keyword members bind only
-// on the dot's own line).
+// A dangling `x.` must not swallow a statement keyword on the *next* line — the
+// mid-edit recovery hole completion anchors on (keyword members bind only on the
+// dot's own line).
 @test
 fn test_dangling_dot_keeps_next_line_keyword() -> Result<Void, Error> {
     let r = parse_src('fn f(_ p: P) -> Int {\n    p.\n    return 0;\n}');

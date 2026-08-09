@@ -28,8 +28,8 @@ pub fn edits_for(_ spans: List<SourceSpan>, _ new_name: String) -> json.Json {
 
 // The pre-flight collision message for renaming `target` to `new_name`, or None
 // when the rename introduces no clash. A clash is a name already bound at the top
-// level of the target's own file — a same-file top-level declaration (any kind:
-// fn / type / enum / interface / const / global), a prelude / `as _` bare-surface
+// level of the target's own file — a same-file top-level declaration (any kind: fn
+// / type / enum / interface / const / global), a prelude / `as _` bare-surface
 // name, or a bound import namespace. These are exactly the "one name space per
 // scope" errors the checker reports on the next publish (checker.thera
 // `check_duplicates` / `check_shadowed_surface`); catching them here lets the LSP
@@ -77,10 +77,10 @@ fn is_file_scope_kind(_ kind: resolve.SymbolKind) -> Bool {
     };
 }
 
-// Whether `name` is a single legal identifier — not empty, not a keyword, no
-// stray characters. The lexer is the oracle: a valid identifier tokenizes to
-// exactly one `Identifier` token covering the whole string (a keyword lexes to
-// its `Kw*` kind, a number/operator to another kind, two words to two tokens).
+// Whether `name` is a single legal identifier — not empty, not a keyword, no stray
+// characters. The lexer is the oracle: a valid identifier tokenizes to exactly one
+// `Identifier` token covering the whole string (a keyword lexes to its `Kw*` kind,
+// a number/operator to another kind, two words to two tokens).
 pub fn is_identifier(_ name: String) -> Bool {
     let toks = tokenize(name).tokens;
     return toks.len() == 2

@@ -1,6 +1,6 @@
-// Tests for the suggestion-diagnostic pass. Each case parses a real snippet (so
-// the span-based source-`match` discriminator is exercised, not bypassed by
-// hand-built spans) and asserts which rules fire.
+// Tests for the suggestion-diagnostic pass. Each case parses a real snippet (so the
+// span-based source-`match` discriminator is exercised, not bypassed by hand-built
+// spans) and asserts which rules fire.
 
 import std.testing;
 
@@ -192,8 +192,8 @@ fn flags_map() -> Result<Void, Error> {
 
 @test
 fn flags_empty_block_arm() -> Result<Void, Error> {
-    // A three-arm match keeps its empty arm (no `if let` rewrite), so the
-    // style rule fires on the `{}`.
+    // A three-arm match keeps its empty arm (no `if let` rewrite), so the style
+    // rule fires on the `{}`.
     let src = 'fn g(_ r: Result<Int, Int>) -> Int {\n'
         + '    match r { Ok(v) => { return v; }, Err(e) => { return e; }, _ => {} }\n'
         + '    return 0;\n}\n';

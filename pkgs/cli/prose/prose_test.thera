@@ -4,8 +4,8 @@
 // cases are about the join — rendering, the guard, and idempotency.
 //
 // Widths here are small but not tiny: a run whose prose budget falls under
-// [MIN_CONTENT] is skipped outright, so a fixture at width 20 would test
-// nothing. `//` at indent 0 needs width 27 before anything happens at all.
+// [MIN_CONTENT] is skipped outright, so a fixture at width 20 would test nothing.
+// `//` at indent 0 needs width 27 before anything happens at all.
 
 import std.testing;
 
@@ -32,8 +32,8 @@ fn refills_a_paragraph_to_the_margin() -> Result<Void, Error> {
 
 @test
 fn the_budget_pays_for_the_indent_and_the_marker() -> Result<Void, Error> {
-    // Same margin as above, but four columns of indent and a three-character
-    // marker come out of the prose: 32 columns of words instead of 37.
+    // Same margin as above, but four columns of indent and a three-character marker
+    // come out of the prose: 32 columns of words instead of 37.
     return check(
         'fn f() {\n    /// alpha beta gamma delta epsilon zeta eta\n}\n',
         'fn f() {\n    /// alpha beta gamma delta epsilon\n    /// zeta eta\n}\n',
@@ -48,8 +48,8 @@ fn paragraphs_stay_separated() -> Result<Void, Error> {
 
 @test
 fn a_separator_line_renders_as_a_bare_marker() -> Result<Void, Error> {
-    // Never `'/// '` — a trailing space would survive to disk and be trimmed by
-    // the *next* run's line layout, so `fmt --check` would never settle.
+    // Never `'/// '` — a trailing space would survive to disk and be trimmed by the
+    // *next* run's line layout, so `fmt --check` would never settle.
     let src = '/// a b c d e f g h i j k l m n o p q r s t u v w x y z\n///\n/// tail\n';
     let out = reflow_prose(src, 30).text;
     testing.assert(out.contains('\n///\n'))?;
@@ -92,8 +92,8 @@ fn a_trailing_comment_is_never_rewrapped() -> Result<Void, Error> {
 
 @test
 fn an_unbalanced_span_leaves_its_block_alone() -> Result<Void, Error> {
-    // The scanner cannot tell where the span was meant to end, so the paragraph
-    // is copied rather than guessed at.
+    // The scanner cannot tell where the span was meant to end, so the paragraph is
+    // copied rather than guessed at.
     return check(
         '// an odd ` backtick here and more words that go on\n',
         '// an odd ` backtick here and more words that go on\n',
@@ -103,8 +103,8 @@ fn an_unbalanced_span_leaves_its_block_alone() -> Result<Void, Error> {
 
 @test
 fn a_wrap_never_manufactures_a_list_item() -> Result<Void, Error> {
-    // `- built-ins` at line start would re-read as a bullet, and the next run
-    // would refuse to rejoin it. The `-` stays put, over-width.
+    // `- built-ins` at line start would re-read as a bullet, and the next run would
+    // refuse to rejoin it. The `-` stays put, over-width.
     let out = reflow_prose('// same-file names plus these - built-ins go here\n', 30).text;
     testing.assert(!out.contains('\n// - '))?;
     return testing.assert_eq(actual: reflow_prose(out, 30).text, expected: out);
@@ -131,8 +131,8 @@ fn a_deeply_indented_run_is_left_alone() -> Result<Void, Error> {
 
 @test
 fn code_and_strings_are_untouched() -> Result<Void, Error> {
-    // The pass edits comment spans and nothing else; a `//` inside a string is
-    // not a comment.
+    // The pass edits comment spans and nothing else; a `//` inside a string is not
+    // a comment.
     let src = 'fn f() -> String {\n    return \'not // a comment at all here ok\';\n}\n';
     return check(src, src, 30);
 }

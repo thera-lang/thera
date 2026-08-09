@@ -38,9 +38,9 @@ pub enum Type {
     Unknown,
     // The bottom type — the type of a diverging expression (`throw`, `return`).
     // Assignable *to* every type (a path that never yields a value can stand in
-    // anywhere) and assignable *from* nothing but itself. Inference-only: it has
-    // no surface syntax, so it never reaches a target (annotation/param) slot —
-    // which is what keeps the from-nothing rule from causing false rejections.
+    // anywhere) and assignable *from* nothing but itself. Inference-only: it has no
+    // surface syntax, so it never reaches a target (annotation/param) slot — which
+    // is what keeps the from-nothing rule from causing false rejections.
     Never,
 }
 
@@ -114,18 +114,18 @@ pub fn primitive_type(_ name: String) -> Option<Type> {
     return Option.None;
 }
 
-// A `Map` key for a `TypeId` (a real owner key never contains `#`). For tables
-// that pair interface identity with data (`interface_args`, codegen's method
-// tables) — lookups always hold the `TypeId`, so the key never needs decoding.
+// A `Map` key for a `TypeId` (a real owner key never contains `#`). For tables that
+// pair interface identity with data (`interface_args`, codegen's method tables) —
+// lookups always hold the `TypeId`, so the key never needs decoding.
 pub fn id_key(_ id: TypeId) -> String {
     return id.owner + '#' + id.name;
 }
 
-// The type definition `id` names, looked up owner-correctly in the per-file
-// tables — never the flat last-wins registry. The `<builtin>` sentinel (the
-// hermetic floor's owner) falls through to the flat registry, mirroring
-// `FileScope.resolve_type_def`; None when the owner is unknown (`''`) or the
-// owner file doesn't declare the name.
+// The type definition `id` names, looked up owner-correctly in the per-file tables
+// — never the flat last-wins registry. The `<builtin>` sentinel (the hermetic
+// floor's owner) falls through to the flat registry, mirroring
+// `FileScope.resolve_type_def`; None when the owner is unknown (`''`) or the owner
+// file doesn't declare the name.
 pub fn def_by_id(_ lib: LibraryElement, _ id: TypeId) -> Option<TypeDefElement> {
     if id.owner == BUILTIN_OWNER {
         return lib.type_defs.get(id.name);
@@ -151,9 +151,8 @@ pub fn id_list_has(_ xs: List<TypeId>, _ id: TypeId) -> Bool {
 // Deliberately lenient so the checker never reports a *false* mismatch: an
 // `Unknown` or a `TypeParameter` on either side is always compatible. Otherwise
 // types must match structurally — same element and assignable arguments — with
-// interface and super-interface subtyping resolved by element *identity*
-// (`TypeId` → `def_by_id`), so two libraries' same-named interfaces stay
-// distinct.
+// interface and super-interface subtyping resolved by element *identity* (`TypeId`
+// → `def_by_id`), so two libraries' same-named interfaces stay distinct.
 pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> Bool {
     match source {
         Unknown => {
@@ -189,8 +188,8 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
     // A concrete type is assignable to an interface it implements, and a
     // sub-interface value where one of its (transitively closed) supers is
     // expected. Conformance and super entries are `TypeId`s, so this matches the
-    // *interface the impl's file resolved*, never a same-named one elsewhere.
-    // See docs/language.md.
+    // *interface the impl's file resolved*, never a same-named one elsewhere. See
+    // docs/language.md.
     if let Interface(tid, targs) = target {
         if is_interface_id(lib, tid) {
             if let Interface(sid, _) = source {
@@ -218,9 +217,9 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
     //
     // The read-only built-ins (`Result`/`Option`/`Iterator`) are **covariant** in
     // their args — `Result<CliError…>` widens to `Result<Error…>`, the idiom the
-    // error model relies on — because their type parameter is never writable.
-    // Every mutable container (`List`/`Map`/`Set`) and every user-defined generic
-    // is **invariant**: a `List<Cat>` is not a `List<Animal>`, so a `Dog` can't be
+    // error model relies on — because their type parameter is never writable. Every
+    // mutable container (`List`/`Map`/`Set`) and every user-defined generic is
+    // **invariant**: a `List<Cat>` is not a `List<Animal>`, so a `Dog` can't be
     // written through a widened alias and read back as a `Cat`. See
     // docs/language.md § Variance.
     match source {
@@ -279,13 +278,13 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
     }
 }
 
-// Whether an `impl` of interface `tid` on `sdef` satisfies a target that pins
-// the interface's type arguments (`Iterator<String>`). The conformance records
-// the args it was declared with (`impl Iterator<Int> for T` -> [Int], keyed by
-// `id_key`); each target arg must be satisfied by the corresponding recorded
-// arg. A generic impl records a `TypeParameter`, which stays lenient (its real
-// argument is bound elsewhere), and a bare-interface target (no args) or an
-// interface with no type parameters imposes no constraint.
+// Whether an `impl` of interface `tid` on `sdef` satisfies a target that pins the
+// interface's type arguments (`Iterator<String>`). The conformance records the args
+// it was declared with (`impl Iterator<Int> for T` -> [Int], keyed by `id_key`);
+// each target arg must be satisfied by the corresponding recorded arg. A generic
+// impl records a `TypeParameter`, which stays lenient (its real argument is bound
+// elsewhere), and a bare-interface target (no args) or an interface with no type
+// parameters imposes no constraint.
 fn conformance_args_match(
     _ sdef: TypeDefElement,
     _ tid: TypeId,
@@ -311,12 +310,12 @@ fn conformance_args_match(
 }
 
 // Whether the type constructor `id` is **covariant** in its type arguments: a
-// read-only built-in whose parameter is never written, so widening it can't
-// smuggle a wrong value back through an alias. Exactly `Result`, `Option`, and
-// `Iterator` (identity-checked, so a same-named user type doesn't qualify).
-// Everything else — mutable containers and user generics — is invariant. Variance
-// inference (deriving this from a user type's own methods) is a possible future
-// step; for now the safe default is invariant. See docs/language.md § Variance.
+// read-only built-in whose parameter is never written, so widening it can't smuggle
+// a wrong value back through an alias. Exactly `Result`, `Option`, and `Iterator`
+// (identity-checked, so a same-named user type doesn't qualify). Everything else —
+// mutable containers and user generics — is invariant. Variance inference (deriving
+// this from a user type's own methods) is a possible future step; for now the safe
+// default is invariant. See docs/language.md § Variance.
 fn is_covariant_constructor(_ lib: LibraryElement, _ id: TypeId) -> Bool {
     return is_core_id(lib, id, 'Result')
         || is_core_id(lib, id, 'Option')
@@ -351,9 +350,9 @@ pub fn substitute(_ ty: Type, _ bindings: Map<String, Type>) -> Type {
     };
 }
 
-// Best-effort unification: when `param` is (or contains) a type parameter,
-// record what `actual` binds it to in `bindings` (mutated in place). Recovers
-// generic type arguments from call/constructor argument types.
+// Best-effort unification: when `param` is (or contains) a type parameter, record
+// what `actual` binds it to in `bindings` (mutated in place). Recovers generic type
+// arguments from call/constructor argument types.
 pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Void {
     match param {
         TypeParameter(name) => {
@@ -366,9 +365,9 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
             }
         },
         Interface(pid, pargs) => {
-            // Bind type arguments only when the *identities* match (EL14 —
-            // mirrors is_assignable): unify(List<T>, Set<Int>) must not bind
-            // T = Int just because the arities agree.
+            // Bind type arguments only when the *identities* match (EL14 — mirrors
+            // is_assignable): unify(List<T>, Set<Int>) must not bind T = Int just
+            // because the arities agree.
             if let Interface(aid, aargs) = actual {
                 if aid == pid && aargs.len() == pargs.len() {
                     for p in pargs.enumerate() {

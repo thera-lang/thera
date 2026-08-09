@@ -1,32 +1,31 @@
-// A deliberate allocation workload — a forcing function for the garbage
-// collector. It repeatedly shuffles a sentence's words into a fresh permutation
-// string and throws it away, keeping only the most recent one live, until it
-// has churned roughly BUDGET_MB megabytes of strings and lists.
+// A deliberate allocation workload — a forcing function for the garbage collector.
+// It repeatedly shuffles a sentence's words into a fresh permutation string and
+// throws it away, keeping only the most recent one live, until it has churned
+// roughly BUDGET_MB megabytes of strings and lists.
 //
-// Almost everything allocated here is immediately garbage: each iteration
-// produces a new shuffled `List<String>` and a new joined `String`, and the
-// next iteration drops them. The live set stays tiny (one phrase). Run it and
-// watch the process's resident memory:
+// Almost everything allocated here is immediately garbage: each iteration produces
+// a new shuffled `List<String>` and a new joined `String`, and the next iteration
+// drops them. The live set stays tiny (one phrase). Run it and watch the process's
+// resident memory:
 //
 //   bin/thera.sh run bench/gc_stress.thera
 //
 // The runtime now has a precise mark-sweep collector, so this churn runs with a
 // flat, tiny live set: the heap fills to its collection threshold, sweeps the
-// garbage, and repeats. Measure the *bare runtime's* resident memory in
-// isolation:
+// garbage, and repeats. Measure the *bare runtime's* resident memory in isolation:
 //
 //   bin/thera.sh emit bench/gc_stress.thera /tmp/gc.thera-bc
 //   /usr/bin/time -l runtime/target/release/thera-rt /tmp/gc.thera-bc
 //
 // With BUDGET_MB = 16 this peaks at a few MB resident (bounded by the GC's byte
-// budget, not the workload) — versus the ~500 MB the earlier no-collect heap
-// leaked (~16 MB of logical churn amplified ~30x, all retained). That whole gap
-// is what the collector now reclaims.
+// budget, not the workload) — versus the ~500 MB the earlier no-collect heap leaked
+// (~16 MB of logical churn amplified ~30x, all retained). That whole gap is what
+// the collector now reclaims.
 
 import std.random;
 
-// Estimated bytes of garbage to produce before stopping. Bump it to stress
-// harder (the user suggested 4–16 MB).
+// Estimated bytes of garbage to produce before stopping. Bump it to stress harder
+// (the user suggested 4–16 MB).
 const BUDGET_MB: Int = 16;
 
 fn main() -> Result<Int, Error> {

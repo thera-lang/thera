@@ -1,13 +1,13 @@
 // The in-memory bytecode instruction model — the Thera mirror of the runtime's
 // `Instr` enum (runtime/src/instr.rs) and the Dart toolchain's bytecode/instr.dart.
-// The front-end emits a list of these per function; `encode_module` serializes
-// them to the `.thera-bc` wire format.
+// The front-end emits a list of these per function; `encode_module` serializes them
+// to the `.thera-bc` wire format.
 //
 // Jump targets are absolute instruction indices (as in the runtime's in-memory
 // form), serialized as uvarints.
 
-// One-byte opcode tags. These must match `runtime/src/codec.rs` `mod op`
-// exactly — the byte values are the wire contract between the toolchains.
+// One-byte opcode tags. These must match `runtime/src/codec.rs` `mod op` exactly —
+// the byte values are the wire contract between the toolchains.
 pub enum Op {
     ConstInt,
     ConstDouble,
@@ -148,9 +148,9 @@ impl Op {
 }
 
 // A single instruction. Operand-less opcodes (arithmetic, comparison, stack,
-// `return`, …) are carried by `Simple`; the rest are their own variants with
-// their operands. `CallNative`/`CallVirtual`/`ConstStr` carry their string
-// directly (interned into the constant pool at encode time).
+// `return`, …) are carried by `Simple`; the rest are their own variants with their
+// operands. `CallNative`/`CallVirtual`/`ConstStr` carry their string directly
+// (interned into the constant pool at encode time).
 pub enum Instr {
     // An opcode with no operands.
     Simple(Op),

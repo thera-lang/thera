@@ -1,7 +1,7 @@
-// Tests for the typing engine: build an element model from a small program,
-// then infer the type of a parsed expression in a constructed scope. Exercises
-// literals, collections, identifier/const lookup, enum construction (incl.
-// generic recovery), struct literals, field access, and method dispatch.
+// Tests for the typing engine: build an element model from a small program, then
+// infer the type of a parsed expression in a constructed scope. Exercises literals,
+// collections, identifier/const lookup, enum construction (incl. generic recovery),
+// struct literals, field access, and method dispatch.
 
 import std.testing;
 
@@ -199,15 +199,15 @@ fn test_block_tail_sees_let_bindings() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// ---- forward-flow inference ----
-// An empty literal / `None` binding is underdetermined at its initializer; these
-// assert the element type is recovered from the binding's first pinning use later
-// in the block (a push, an indexed assignment, or a reassignment).
+// ---- forward-flow inference ---- An empty literal / `None` binding is
+// underdetermined at its initializer; these assert the element type is recovered
+// from the binding's first pinning use later in the block (a push, an indexed
+// assignment, or a reassignment).
 
 @test
 fn test_forward_flow_empty_list_pinned_by_push() -> Result<Void, Error> {
-    // `let xs = []` then `xs.push(5)` makes `xs` a `List<Int>`, so the tail
-    // `xs[0]` is `Int` (rather than the `Unknown` an empty literal alone gives).
+    // `let xs = []` then `xs.push(5)` makes `xs` a `List<Int>`, so the tail `xs[0]`
+    // is `Int` (rather than the `Unknown` an empty literal alone gives).
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('{ let xs = []; xs.push(5); xs[0] }', empty_scope(), ctx),
@@ -291,8 +291,8 @@ fn type_of_expecting(_ src: String, _ ctx: InferCtx, _ expected: Type) -> Type {
 @test
 fn test_enum_construction_recovers_param_from_expected() -> Result<Void, Error> {
     // `Res.Ok(0)` fixes `T` from the payload; `E` (the un-constructed `Err`'s
-    // parameter, which the payload can't determine) is recovered from the
-    // expected type — the `Result.Ok(x)` -> `Result<T, Unknown>` precision gap.
+    // parameter, which the payload can't determine) is recovered from the expected
+    // type — the `Result.Ok(x)` -> `Result<T, Unknown>` precision gap.
     let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
     let expected = mk_iface(
         ctx,
@@ -305,9 +305,9 @@ fn test_enum_construction_recovers_param_from_expected() -> Result<Void, Error> 
 
 @test
 fn test_enum_construction_payload_wins_over_expected() -> Result<Void, Error> {
-    // The payload is authoritative for the parameter it determines: `Res.Ok(0)`
-    // is `Res<Int, _>` even if the expected `T` disagrees (the mismatch is a
-    // separate diagnostic); only the un-determined `E` comes from the expected.
+    // The payload is authoritative for the parameter it determines: `Res.Ok(0)` is
+    // `Res<Int, _>` even if the expected `T` disagrees (the mismatch is a separate
+    // diagnostic); only the un-determined `E` comes from the expected.
     let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
     let expected = mk_iface(
         ctx,
@@ -342,8 +342,9 @@ fn test_enum_construction_without_expected_leaves_param_unknown() -> Result<Void
 @test
 fn test_forward_flow_pins_through_if_block() -> Result<Void, Error> {
     // A reassignment inside an `if` still pins the binding's type (it holds that
-    // type when the branch runs) — the parser's `let mut type_ann = Option.None;
-    // if … { type_ann = Option.Some(…) }` shape that was the last `Unknown` hole.
+    // type when the branch runs) — the parser's
+    // `let mut type_ann = Option.None; if … { type_ann = Option.Some(…) }` shape
+    // that was the last `Unknown` hole.
     let ctx = new_ctx(lib_of('enum Opt<T> { Some(T), Nope }'));
     testing.assert_eq(
         actual: type_of(
@@ -372,8 +373,8 @@ fn test_forward_flow_pins_through_for_loop_push() -> Result<Void, Error> {
 
 @test
 fn test_memo_hit_wins_regardless_of_expected() -> Result<Void, Error> {
-    // A committed record answers for its node no matter what the caller
-    // expects — the committed value was computed with the correct expectation.
+    // A committed record answers for its node no matter what the caller expects —
+    // the committed value was computed with the correct expectation.
     let expr = parse_expression(tokenize('1 + 2').tokens);
     let types: Map<Int, Type> = [:];
     types[span_key(expr_span(expr))] = Type.Primitive(Primitive.Str);
@@ -391,8 +392,8 @@ fn test_memo_hit_wins_regardless_of_expected() -> Result<Void, Error> {
 
 @test
 fn test_empty_memo_leaves_inference_untouched() -> Result<Void, Error> {
-    // The codegen-safety pin: a default ctx has an empty record, inference
-    // derives normally and never writes to it.
+    // The codegen-safety pin: a default ctx has an empty record, inference derives
+    // normally and never writes to it.
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
         actual: type_of('1 + 2', empty_scope(), ctx),

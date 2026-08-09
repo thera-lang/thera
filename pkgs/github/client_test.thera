@@ -1,14 +1,14 @@
 // Tests for the client and the error model.
 //
-// Every request goes to *our own server* on a loopback port in the same process — the
-// pattern `sdk/std/http/client_test.thera` established, and the reason `Client` has an
-// overridable `base_url`. So these are not unit tests of a request builder: the bytes
-// go over a socket, GitHub's answers are the ones it really sends, and the assertions
-// are about what a caller gets back.
+// Every request goes to *our own server* on a loopback port in the same process —
+// the pattern `sdk/std/http/client_test.thera` established, and the reason `Client`
+// has an overridable `base_url`. So these are not unit tests of a request builder:
+// the bytes go over a socket, GitHub's answers are the ones it really sends, and
+// the assertions are about what a caller gets back.
 //
-// What it cannot prove is that we have GitHub's contract right — a fake GitHub agrees
-// with whatever misreading it was written from. The bodies below are therefore copied
-// from GitHub's documented error shapes rather than invented.
+// What it cannot prove is that we have GitHub's contract right — a fake GitHub
+// agrees with whatever misreading it was written from. The bodies below are
+// therefore copied from GitHub's documented error shapes rather than invented.
 
 import std.fiber;
 import std.http;
@@ -94,8 +94,8 @@ fn failure<T>(_ outcome: Result<T, GitHubError>) -> Result<GitHubError, Error> {
     };
 }
 
-/// Which `GitHubError` variant this is — the coarse classification a caller branches
-/// on, and the thing most of these tests are really asserting.
+/// Which `GitHubError` variant this is — the coarse classification a caller
+/// branches on, and the thing most of these tests are really asserting.
 fn kind(_ e: GitHubError) -> String {
     return match e {
         Transport(_) => 'transport',
@@ -118,8 +118,8 @@ fn a_request_carries_the_api_headers() -> Result<Void, Error> {
     return testing.assert_eq(actual: seen.headers['user-agent'], expected: 'thera-github/0.1');
 }
 
-/// No token, no `authorization` — not an empty one, which GitHub reads as a malformed
-/// credential and answers 401 rather than serving the public read.
+/// No token, no `authorization` — not an empty one, which GitHub reads as a
+/// malformed credential and answers 401 rather than serving the public read.
 @test
 fn an_unauthenticated_client_sends_no_authorization() -> Result<Void, Error> {
     let anon = serving(echo)?;
@@ -128,8 +128,8 @@ fn an_unauthenticated_client_sends_no_authorization() -> Result<Void, Error> {
     return testing.assert_eq(actual: seen.headers.has('authorization'), expected: false);
 }
 
-/// A body sets `content-type`; no body does not — a `content-type` on a GET is noise,
-/// and some proxies treat it as a reason to buffer.
+/// A body sets `content-type`; no body does not — a `content-type` on a GET is
+/// noise, and some proxies treat it as a reason to buffer.
 @test
 fn a_json_body_declares_its_content_type() -> Result<Void, Error> {
     let client = serving(echo)?;
@@ -151,8 +151,8 @@ fn a_get_sends_no_content_type() -> Result<Void, Error> {
     return testing.assert_eq(actual: seen.headers.has('content-type'), expected: false);
 }
 
-/// The query string is percent-encoded per RFC 3986 and ordered by the call, so a URL
-/// can be compared as text.
+/// The query string is percent-encoded per RFC 3986 and ordered by the call, so a
+/// URL can be compared as text.
 @test
 fn the_query_string_is_percent_encoded() -> Result<Void, Error> {
     let client = Client.new();
@@ -184,8 +184,9 @@ fn a_404_becomes_a_status_error_carrying_the_servers_message() -> Result<Void, E
     return testing.assert_eq(actual: e.message(), expected: 'HTTP 404: Not Found');
 }
 
-/// A 422's `message` is always `Validation Failed`, so the `errors` array is the only
-/// part that says what was wrong — and it has to survive into the rendered message.
+/// A 422's `message` is always `Validation Failed`, so the `errors` array is the
+/// only part that says what was wrong — and it has to survive into the rendered
+/// message.
 @test
 fn a_422_reports_which_fields_were_rejected() -> Result<Void, Error> {
     let client = serving(answering(422, '{"message":"Validation Failed","errors":[' +
@@ -224,8 +225,8 @@ fn a_403_with_no_quota_left_is_a_rate_limit() -> Result<Void, Error> {
     );
 }
 
-/// The secondary limit: 429 and `retry-after`, which wins over the reset time because
-/// it is the wait the server actually asked for.
+/// The secondary limit: 429 and `retry-after`, which wins over the reset time
+/// because it is the wait the server actually asked for.
 @test
 fn a_429_with_retry_after_is_a_rate_limit() -> Result<Void, Error> {
     let client = serving(answering(
@@ -282,8 +283,8 @@ fn an_empty_error_body_falls_back_to_the_reason_phrase() -> Result<Void, Error> 
 
 // --- what comes back: the body we could not read ---
 
-/// A 200 whose body is not JSON — a proxy's interstitial, most often. Distinct from a
-/// refusal, because the fix is different.
+/// A 200 whose body is not JSON — a proxy's interstitial, most often. Distinct from
+/// a refusal, because the fix is different.
 @test
 fn a_successful_response_that_is_not_json_is_a_body_error() -> Result<Void, Error> {
     let client = serving(answering(200, '<html>hello</html>'))?;
@@ -295,8 +296,8 @@ fn a_successful_response_that_is_not_json_is_a_body_error() -> Result<Void, Erro
     );
 }
 
-/// A field the types require and the document lacks. The message names the path, which
-/// is the whole point of decoding through `json.Cursor`.
+/// A field the types require and the document lacks. The message names the path,
+/// which is the whole point of decoding through `json.Cursor`.
 @test
 fn a_missing_field_is_a_body_error_that_names_the_path() -> Result<Void, Error> {
     let client = serving(answering(200, '{"method":"GET","url":"/user","headers":{}}'))?;
@@ -308,11 +309,12 @@ fn a_missing_field_is_a_body_error_that_names_the_path() -> Result<Void, Error> 
 // --- what comes back: nothing ---
 
 /// A connection that cannot be made is a `Transport`, carrying `std.http`'s error
-/// unchanged — the variant that says the request never happened, so re-sending it is
-/// not a duplicate.
+/// unchanged — the variant that says the request never happened, so re-sending it
+/// is not a duplicate.
 @test
 fn a_refused_connection_is_a_transport_error() -> Result<Void, Error> {
-    // Bind and immediately drop the listener, so the port is one nothing is serving.
+    // Bind and immediately drop the listener, so the port is one nothing is
+    // serving.
     let listener = net.listen('127.0.0.1:0')?;
     let addr = listener.local_addr()?;
     listener.close()?;
@@ -323,15 +325,17 @@ fn a_refused_connection_is_a_transport_error() -> Result<Void, Error> {
 
 // --- construction ---
 
-/// A `Client` holds a live credential, and `'${gh}'` is the shortest thing anyone writes
-/// while debugging. The structural `Debug` derive printed the token in full; this asserts
-/// it no longer can, and that "am I authenticated?" is still answerable.
+/// A `Client` holds a live credential, and `'${gh}'` is the shortest thing anyone
+/// writes while debugging. The structural `Debug` derive printed the token in full;
+/// this asserts it no longer can, and that "am I authenticated?" is still
+/// answerable.
 @test
 fn debug_redacts_the_token() -> Result<Void, Error> {
     let shown = Client.new(token: Option.Some('ghp_supersecret')).debug();
     testing.assert(!shown.contains('ghp_supersecret'), message: 'the token leaked: ' + shown)?;
     testing.assert(shown.contains('Some(<redacted>)'), message: 'expected a redaction: ' + shown)?;
-    // Presence still shows, and an anonymous client is distinguishable from a redacted one.
+    // Presence still shows, and an anonymous client is distinguishable from a
+    // redacted one.
     return testing.assert(
         Client.new().debug().contains('token: None'),
         message: 'expected an anonymous client to say so',
@@ -343,9 +347,10 @@ struct DebugLog {
     let mut text: String;
 }
 
-/// The credential does not leak through the request that carries it either — the header
-/// is redacted by `std.http`'s own `Debug`, which is where every client benefits. Asserted
-/// on the request the *server* saw, so it is the real outbound one.
+/// The credential does not leak through the request that carries it either — the
+/// header is redacted by `std.http`'s own `Debug`, which is where every client
+/// benefits. Asserted on the request the *server* saw, so it is the real outbound
+/// one.
 @test
 fn a_sent_requests_authorization_header_is_not_printable() -> Result<Void, Error> {
     let log = DebugLog { text: '' };

@@ -1,32 +1,31 @@
 //! std.path — path string manipulation utilities.
 //!
-//! Import as: import std.path
-//! Usage:     path.join('src', 'main.thera')
+//! Import as: `import std.path`; usage: `path.join('src', 'main.thera')`.
 //!
 //! No filesystem operations are performed by any function here — every function
 //! operates on strings. Paths are slash-based (POSIX-style, like Go's `path`
-//! package): '/' is always the separator, so manipulation is deterministic on
-//! every platform.
+//! package): '/' is always the separator, so manipulation is deterministic on every
+//! platform.
 //!
 //! The OS boundary is explicit, not implicit: [separator] is the host path
 //! separator (computed once at load — a module initializer, since it can't be a
-//! compile-time `const`), and [to_native]/[from_native] translate between the
-//! slash form and the host form for display or interop. Full OS-native path
-//! *parsing* (Windows drive letters, UNC) is intentionally out of scope — keep
-//! application logic in slash form and convert only at the boundary.
+//! compile-time `const`), and [to_native]/[from_native] translate between the slash
+//! form and the host form for display or interop. Full OS-native path *parsing*
+//! (Windows drive letters, UNC) is intentionally out of scope — keep application
+//! logic in slash form and convert only at the boundary.
 
 import std.env;
 
-/// The host platform's path separator: '/' on POSIX, '\' on Windows. Computed
-/// once at load from the running OS (a module initializer — it can't be a
-/// compile-time `const`). Most code should stay in slash form and only reach for
-/// this (via [to_native]/[from_native]) at a display or interop boundary.
+/// The host platform's path separator: '/' on POSIX, '\' on Windows. Computed once
+/// at load from the running OS (a module initializer — it can't be a compile-time
+/// `const`). Most code should stay in slash form and only reach for this (via
+/// [to_native]/[from_native]) at a display or interop boundary.
 pub let separator: String = if env.os() == 'windows' { '\\' } else { '/' };
 
-/// Render a slash-form path in the host-native form: every '/' becomes
-/// [separator]. On POSIX this is the identity. For display or handing a path to
-/// an external, separator-sensitive tool — the filesystem natives accept '/' on
-/// every platform, so this is not needed to open files.
+/// Render a slash-form path in the host-native form: every '/' becomes [separator].
+/// On POSIX this is the identity. For display or handing a path to an external,
+/// separator-sensitive tool — the filesystem natives accept '/' on every platform,
+/// so this is not needed to open files.
 ///
 /// ```thera
 /// path.to_native('src/main.thera')  // 'src/main.thera' (POSIX) | 'src\main.thera' (Windows)
@@ -47,9 +46,9 @@ pub fn from_native(_ p: String) -> String {
     return p.split(separator).join('/');
 }
 
-/// Split a path into its components on '/'. A leading '/' is preserved as a
-/// leading empty component (the root marker); interior and trailing empty
-/// components (from '//' or a trailing '/') are dropped.
+/// Split a path into its components on '/'. A leading '/' is preserved as a leading
+/// empty component (the root marker); interior and trailing empty components (from
+/// '//' or a trailing '/') are dropped.
 ///
 /// ```thera
 /// path.components('src/main.thera')  // ['src', 'main.thera']
@@ -69,8 +68,8 @@ pub fn components(_ path: String) -> List<String> {
     return result;
 }
 
-/// Join two path components, inserting a separator as needed. An absolute
-/// `part` (one beginning with '/') replaces `base` entirely.
+/// Join two path components, inserting a separator as needed. An absolute `part`
+/// (one beginning with '/') replaces `base` entirely.
 ///
 /// ```thera
 /// path.join('src', 'main.thera')   // 'src/main.thera'
@@ -111,8 +110,8 @@ pub fn join_all(_ segments: List<String>) -> String {
     return result;
 }
 
-/// Return the directory portion of a path (all components except the last).
-/// Returns '.' for paths with no directory component, and '/' for a root child.
+/// Return the directory portion of a path (all components except the last). Returns
+/// '.' for paths with no directory component, and '/' for a root child.
 ///
 /// ```thera
 /// path.dirname('src/main.thera')  // 'src'
@@ -142,8 +141,8 @@ pub fn dirname(_ path: String) -> String {
     return prefix.join('/');
 }
 
-/// Return the final component of a path (with extension). Returns '/' for the
-/// root path.
+/// Return the final component of a path (with extension). Returns '/' for the root
+/// path.
 ///
 /// ```thera
 /// path.basename('src/main.thera')  // 'main.thera'
@@ -207,9 +206,9 @@ pub fn stem(_ path: String) -> String {
     return keep.join('.');
 }
 
-/// Return a copy of the path with its extension replaced by `ext`. A leading dot
-/// on `ext` is optional; an empty `ext` removes the extension. The directory
-/// portion is preserved.
+/// Return a copy of the path with its extension replaced by `ext`. A leading dot on
+/// `ext` is optional; an empty `ext` removes the extension. The directory portion
+/// is preserved.
 ///
 /// ```thera
 /// path.with_extension('src/main.thera', 'md')   // 'src/main.md'
@@ -240,11 +239,11 @@ pub fn is_absolute(_ path: String) -> Bool {
 }
 
 /// Lexically clean a path: collapse repeated `/`, drop `.`, and resolve each `..`
-/// against the preceding component — **purely on the string**, so symlinks are
-/// not followed and the filesystem is never consulted. A leading `/` is
-/// preserved; a `..` at the root of an absolute path is dropped (you cannot climb
-/// above `/`), while a leading `..` in a relative path is kept. A path that
-/// reduces to nothing (including the empty path) normalizes to `.`.
+/// against the preceding component — **purely on the string**, so symlinks are not
+/// followed and the filesystem is never consulted. A leading `/` is preserved; a
+/// `..` at the root of an absolute path is dropped (you cannot climb above `/`),
+/// while a leading `..` in a relative path is kept. A path that reduces to nothing
+/// (including the empty path) normalizes to `.`.
 ///
 /// ```thera
 /// path.normalize('a/./b/../c')   // 'a/c'
@@ -262,7 +261,8 @@ pub fn normalize(_ path: String) -> String {
         let part = parts[i];
         i = i + 1;
         if part.is_empty() || part == '.' {
-            // Root marker or current-dir element — drop (the root is re-added below).
+            // Root marker or current-dir element — drop (the root is re-added
+            // below).
         } else if part == '..' {
             if stack.len() > 0 && stack[stack.len() - 1] != '..' {
                 // Cancel the preceding real component.
@@ -339,8 +339,8 @@ pub fn relative(from base: String, to target: String) -> Result<String, Error> {
     return Result.Ok(out.join('/'));
 }
 
-/// A normalized path's components without the absolute-root marker, and with a
-/// lone `.` treated as no components — the form [relative] diffs.
+/// A normalized path's components without the absolute-root marker, and with a lone
+/// `.` treated as no components — the form [relative] diffs.
 fn path_parts(_ p: String) -> List<String> {
     if p == '.' {
         return [];

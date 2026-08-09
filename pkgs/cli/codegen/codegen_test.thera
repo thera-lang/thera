@@ -1,9 +1,9 @@
 // Tests for the bytecode emitter, diffed byte-for-byte against the Dart oracle.
 //
-// Each golden is the output of the Dart `compileProgram(program, imports: [])`
-// + `encodeModule` for the same source (core-free, so the two compilers compile
-// exactly the same units). A match means the Thera front-end lowers the program
-// to byte-identical `.thera-bc` — the end-to-end self-hosting check.
+// Each golden is the output of the Dart `compileProgram(program, imports: [])` +
+// `encodeModule` for the same source (core-free, so the two compilers compile
+// exactly the same units). A match means the Thera front-end lowers the program to
+// byte-identical `.thera-bc` — the end-to-end self-hosting check.
 
 import std.testing;
 
@@ -25,17 +25,17 @@ fn errors_of(_ src: String) -> Int {
 
 // --- instruction-level lowering inspection ---
 //
-// These tests assert *which* instruction a construct lowers to (rather than
-// pinning the whole byte stream against a golden), so a regression in a specific
-// lowering — e.g. a call-resolution branch picking the wrong opcode — fails here
-// with a located, readable assertion instead of only as a fixpoint/example break.
+// These tests assert *which* instruction a construct lowers to (rather than pinning
+// the whole byte stream against a golden), so a regression in a specific lowering —
+// e.g. a call-resolution branch picking the wrong opcode — fails here with a
+// located, readable assertion instead of only as a fixpoint/example break.
 
 fn module_of(_ src: String) -> Module {
     return compile_program(testkit.parse(src), [], [:], [:]).module;
 }
 
-// The instruction stream of the unit named `fn_name` (a free function's bare
-// name, a method's `Type.method`), or empty if there's no such unit.
+// The instruction stream of the unit named `fn_name` (a free function's bare name,
+// a method's `Type.method`), or empty if there's no such unit.
 fn code_of(_ src: String, _ fn_name: String) -> List<Instr> {
     for f in module_of(src).functions {
         if f.name == fn_name {
@@ -86,9 +86,9 @@ fn count_tag(_ code: List<Instr>, _ tag: String) -> Int {
     return n;
 }
 
-// The argument count of the first `Call` (a method's `self` counts as an
-// argument), or -1 if there is none — distinguishes an instance call from a
-// static one of the same shape.
+// The argument count of the first `Call` (a method's `self` counts as an argument),
+// or -1 if there is none — distinguishes an instance call from a static one of the
+// same shape.
 fn first_call_argc(_ code: List<Instr>) -> Int {
     for i in code {
         if let Call(_, argc) = i { return argc; }
@@ -192,8 +192,8 @@ fn test_if_else_and_double_byte_identical() -> Result<Void, Error> {
 
 @test
 fn test_list_and_for_loop_byte_identical() -> Result<Void, Error> {
-    // A `for x in list` index loop (the `list_len`/`list.get` lowering) and a
-    // list literal — exercising the native-symbol pool and `list.new`.
+    // A `for x in list` index loop (the `list_len`/`list.get` lowering) and a list
+    // literal — exercising the native-symbol pool and `list.new`.
     let src = 'fn sum_list(_ xs: List<Int>) -> Int {\n'
         + '    let mut total = 0;\n'
         + '    for v in xs {\n'
@@ -339,10 +339,10 @@ fn test_match_dispatch_byte_identical() -> Result<Void, Error> {
 
 @test
 fn test_method_calls_nondispatch_byte_identical() -> Result<Void, Error> {
-    // Non-dispatch method calls: an enum payload constructor (`Shape.Circle(r)`),
-    // a payload-free constructor (`Shape.Point`), `s.name()` (the tag→name
-    // chain), and an instance `native fn` (`s.sides()` → the receiver pushed as
-    // the native's first argument).
+    // Non-dispatch method calls: an enum payload constructor (`Shape.Circle(r)`), a
+    // payload-free constructor (`Shape.Point`), `s.name()` (the tag→name chain),
+    // and an instance `native fn` (`s.sides()` → the receiver pushed as the
+    // native's first argument).
     let src = 'enum Shape { Circle(Int), Square(Int), Point }\n'
         + 'fn make_circle(_ r: Int) -> Shape { return Shape.Circle(r); }\n'
         + 'fn make_point() -> Shape { return Shape.Point; }\n'
@@ -404,11 +404,11 @@ fn test_method_calls_dispatch_byte_identical() -> Result<Void, Error> {
 
 @test
 fn test_lambdas_byte_identical() -> Result<Void, Error> {
-    // Plain lambdas: a non-capturing lambda passed to a higher-order function
-    // (its un-annotated `v` typed bidirectionally from the param signature),
-    // a capturing lambda returned as a closure (`(x) => x + n` captures `n`),
-    // and calling a closure held in a local (`add5(10)` → call.indirect). Each
-    // lambda lifts to a `__lambda_N` unit whose body types via the param stash.
+    // Plain lambdas: a non-capturing lambda passed to a higher-order function (its
+    // un-annotated `v` typed bidirectionally from the param signature), a capturing
+    // lambda returned as a closure (`(x) => x + n` captures `n`), and calling a
+    // closure held in a local (`add5(10)` → call.indirect). Each lambda lifts to a
+    // `__lambda_N` unit whose body types via the param stash.
     let src = 'fn apply(_ f: (Int) -> Int, _ x: Int) -> Int { return f(x); }\n'
         + 'fn double_it(_ n: Int) -> Int { return apply((v) => v * 2, n); }\n'
         + 'fn adder(_ n: Int) -> (Int) -> Int { return (x) => x + n; }\n'
@@ -483,13 +483,13 @@ fn test_lowering_enum_name_hoists_one_tag() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// A declared `name` method wins over the built-in tag reader, so the call lowers to
-/// an ordinary method call and *not* to the tag→name hoist.
+/// A declared `name` method wins over the built-in tag reader, so the call lowers
+/// to an ordinary method call and *not* to the tag→name hoist.
 ///
-/// The regression this pins was silent: `method_lookup` already preferred the declared
-/// method, but `classify_callee` and the return-type inference checked the builtin
-/// first, so `impl Tag { fn name(…) }` type-checked and then compiled into the builtin
-/// — a check-clean program whose method body never ran.
+/// The regression this pins was silent: `method_lookup` already preferred the
+/// declared method, but `classify_callee` and the return-type inference checked the
+/// builtin first, so `impl Tag { fn name(…) }` type-checked and then compiled into
+/// the builtin — a check-clean program whose method body never ran.
 @test
 fn test_lowering_declared_enum_name_beats_the_builtin() -> Result<Void, Error> {
     let src = 'enum Tag { Name(String), Count(Int) }\n'
@@ -651,8 +651,8 @@ fn test_module_let_emits_init_thunk_and_global_count() -> Result<Void, Error> {
 
 @test
 fn test_module_let_initializer_cycle_is_an_error() -> Result<Void, Error> {
-    // A.init references B and B.init references A — a dependency cycle, reported
-    // as a located codegen error (cf. the cyclic-`const` guard).
+    // A.init references B and B.init references A — a dependency cycle, reported as
+    // a located codegen error (cf. the cyclic-`const` guard).
     let src = 'let A: Int = B + 1;\n'
         + 'let B: Int = A + 1;\n'
         + 'fn main() -> Int { return 0; }';
@@ -686,8 +686,8 @@ fn test_module_let_rejects_effectful_native() -> Result<Void, Error> {
 fn test_string_literal_lowers_to_one_variadic_concat() -> Result<Void, Error> {
     // A k-piece literal is one `str_concat` over all k pieces, not a fold of
     // pairwise calls. `str_concat` allocates a fresh String per call, so folding
-    // recopies the growing prefix at every step.
-    // (Core-free, like the other cases here, so no String methods.)
+    // recopies the growing prefix at every step. (Core-free, like the other cases
+    // here, so no String methods.)
     let src = "fn main() -> String {\n"
         + "    let a = 'x';\n"
         + "    return '\${a}/\${a}/\${a}';\n"
@@ -704,10 +704,10 @@ fn test_string_literal_lowers_to_one_variadic_concat() -> Result<Void, Error> {
 
 @test
 fn test_huge_string_literal_chunks_at_the_argc_limit() -> Result<Void, Error> {
-    // `argc` is a byte on the wire, so a literal with more pieces than that
-    // folds in chunks rather than silently wrapping to a bogus count. The
-    // running result is already on the stack, so it is the next chunk's first
-    // argument: 300 pieces → 255, then 1 + the remaining 45.
+    // `argc` is a byte on the wire, so a literal with more pieces than that folds
+    // in chunks rather than silently wrapping to a bogus count. The running result
+    // is already on the stack, so it is the next chunk's first argument: 300 pieces
+    // → 255, then 1 + the remaining 45.
     let pieces: List<String> = [];
     let mut i = 0;
     while i < 150 {

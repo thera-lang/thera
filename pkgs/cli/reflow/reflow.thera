@@ -1,37 +1,36 @@
-//! Line breaking for `thera fmt` — the half of the formatter that decides where
-//! the breaks go, driven by `fmt.thera`'s `format_source`.
+//! Line breaking for `thera fmt` — the half of the formatter that decides where the
+//! breaks go, driven by `fmt.thera`'s `format_source`.
 //!
 //! The unit of breaking is a **bracket group**: a matched `(`/`[`/`{` pair. Its
 //! break points are the positions a newline may be inserted — after the opener,
-//! after each top-level `,`/`;`, and before the closer — chosen
-//! **all-or-nothing**, so a split list puts one element per line rather than
-//! packing as many as fit (packing makes one added element rewrap its
-//! neighbours, which is the diff churn this work exists to remove). The one
-//! exception is a `[…]` of plain scalars, which is filled to the margin.
+//! after each top-level `,`/`;`, and before the closer — chosen **all-or-nothing**,
+//! so a split list puts one element per line rather than packing as many as fit
+//! (packing makes one added element rewrap its neighbours, which is the diff churn
+//! this work exists to remove). The one exception is a `[…]` of plain scalars,
+//! which is filled to the margin.
 //!
 //! Two directions. **Splitting** relieves a line over the margin, choosing
 //! **outermost-first** — the widest group covering the line — so that a split
 //! reveals structure rather than burying it. Only among the groups whose split
 //! would *pay for itself*, though: one that would leave the line over the margin
-//! anyway has relieved nothing, and taking it merely indents the line further.
-//! That is what makes a call hug a multi-line argument instead of prying itself
-//! apart around it. **Joining** ([join_spans]) collapses a multi-line group that
-//! would fit, so layout follows the token stream rather than how the code was
-//! typed — held back where the group holds a line comment or a multi-line
-//! string.
+//! anyway has relieved nothing, and taking it merely indents the line further. That
+//! is what makes a call hug a multi-line argument instead of prying itself apart
+//! around it. **Joining** ([join_spans]) collapses a multi-line group that would
+//! fit, so layout follows the token stream rather than how the code was typed —
+//! held back where the group holds a line comment or a multi-line string.
 //!
-//! Nearly **token-only**: the parser desugars `if let` / `let … else` /
-//! `else if` into `match` (docs/roadmap.md → Compiler & front-end), so a
-//! syntax-driven formatter would have to reverse that, while tokens carry what
-//! the user actually wrote. The AST is consulted for exactly two things, both
-//! *classification* rather than rendering — whether a `{` opens a struct literal
-//! (see groups.thera) and which `<`/`>` are generic delimiters. A break can only
-//! land at a bracket or separator, so it can never split a string literal or
-//! separate the adjacent `>` `>` the parser reads as a shift operator.
+//! Nearly **token-only**: the parser desugars `if let` / `let … else` / `else if`
+//! into `match` (docs/roadmap.md → Compiler & front-end), so a syntax-driven
+//! formatter would have to reverse that, while tokens carry what the user actually
+//! wrote. The AST is consulted for exactly two things, both *classification* rather
+//! than rendering — whether a `{` opens a struct literal (see groups.thera) and
+//! which `<`/`>` are generic delimiters. A break can only land at a bracket or
+//! separator, so it can never split a string literal or separate the adjacent `>`
+//! `>` the parser reads as a shift operator.
 //!
-//! A comma list gains a trailing comma when it splits and loses one when it
-//! joins — the single place the formatter edits tokens rather than whitespace,
-//! and safe because the grammar makes that comma optional everywhere.
+//! A comma list gains a trailing comma when it splits and loses one when it joins —
+//! the single place the formatter edits tokens rather than whitespace, and safe
+//! because the grammar makes that comma optional everywhere.
 import std.char;
 
 import '../lexer' as _; // tokenize, Token, TokenKind
@@ -53,21 +52,21 @@ struct Pair {
     // cannot delete it, and joining would yield `[a, b, ]`, so a trailing comma
     // reads as "keep this split" — the same meaning Prettier and Dart give it.
     let trailing_comma: Bool;
-    // Whether the group holds at least one top-level `,` — i.e. it is a comma
-    // list rather than a grouping paren or a statement block. Only such a group
-    // may be given a trailing comma when it splits: `(a + b,)` is a parse error.
+    // Whether the group holds at least one top-level `,` — i.e. it is a comma list
+    // rather than a grouping paren or a statement block. Only such a group may be
+    // given a trailing comma when it splits: `(a + b,)` is a parse error.
     let has_comma: Bool;
     let breaks: List<Int>; // newline-insertion offsets, ascending
 }
 
 // Text to insert at an offset: `'\n'` for a plain break, `',\n'` for a break that
-// also closes a comma list, or `','` alone to give an already-split comma list
-// the trailing comma it lacks.
+// also closes a comma list, or `','` alone to give an already-split comma list the
+// trailing comma it lacks.
 //
-// The comma is what makes adding an element later a one-line diff instead of
-// two, and it is safe to add only where a top-level `,` already exists — a
-// grouping paren rejects it (`(a + b,)` is a parse error), and a statement block
-// is `;`-separated.
+// The comma is what makes adding an element later a one-line diff instead of two,
+// and it is safe to add only where a top-level `,` already exists — a grouping
+// paren rejects it (`(a + b,)` is a parse error), and a statement block is
+// `;`-separated.
 pub struct BreakEdit {
     let offset: Int;
     let text: String;
@@ -79,19 +78,19 @@ pub struct FlatSpan {
     let end: Int; // offset of the closing bracket
 }
 
-// The groups that should be joined onto one line: multi-line groups in `Fit`
-// mode whose content fits within `width`. Disjoint and ascending — an outer
-// group that joins subsumes its children, so only the outermost is returned.
+// The groups that should be joined onto one line: multi-line groups in `Fit` mode
+// whose content fits within `width`. Disjoint and ascending — an outer group that
+// joins subsumes its children, so only the outermost is returned.
 //
 // Empty when the source doesn't lex or parse: the join decision needs the AST to
-// tell a struct literal's `{` from a block's (see groups.thera), and without it
-// the safe answer is to change nothing.
+// tell a struct literal's `{` from a block's (see groups.thera), and without it the
+// safe answer is to change nothing.
 //
-// A group is held back — left split however well it would fit — when it contains
-// a line comment (joining would swallow the code after it) or a multi-line string
-// literal (whose newlines are content, not layout). A trailing comma is no longer
-// a blocker: the join deletes it, since `g(a, b, )` is not an acceptable result
-// and the grammar makes the comma optional in every list.
+// A group is held back — left split however well it would fit — when it contains a
+// line comment (joining would swallow the code after it) or a multi-line string
+// literal (whose newlines are content, not layout). A trailing comma is no longer a
+// blocker: the join deletes it, since `g(a, b, )` is not an acceptable result and
+// the grammar makes the comma optional in every list.
 pub fn join_spans(_ source: String, _ width: Int) -> List<FlatSpan> {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
@@ -132,9 +131,9 @@ pub fn join_spans(_ source: String, _ width: Int) -> List<FlatSpan> {
     return out;
 }
 
-// `(` and `[` join when they fit; `{` does not, unless it opens a struct
-// literal. A statement block, `match` body, or declaration body stays expanded
-// however short it is.
+// `(` and `[` join when they fit; `{` does not, unless it opens a struct literal. A
+// statement block, `match` body, or declaration body stays expanded however short
+// it is.
 fn is_fit(_ p: Pair, _ fit_braces: List<Int>) -> Bool {
     return match p.kind {
         LParen => true,
@@ -170,9 +169,9 @@ fn spans_multiline_string(_ tokens: List<Token>, _ chars: List<Int>, _ p: Pair) 
     return false;
 }
 
-// The width of `[from, to)` once its interior line breaks collapse to single
-// spaces — i.e. the width of the line joining would produce. Leading indentation
-// counts; it survives the join.
+// The width of `[from, to)` once its interior line breaks collapse to single spaces
+// — i.e. the width of the line joining would produce. Leading indentation counts;
+// it survives the join.
 fn flat_width(_ chars: List<Int>, _ from: Int, _ to: Int) -> Int {
     let mut w = 0;
     let mut pending_space = false;
@@ -222,14 +221,14 @@ fn line_end_at(_ starts: List<Int>, _ chars: List<Int>, _ line: Int) -> Int {
     return starts.get(line + 1).unwrap_or(chars.len() + 1) - 1;
 }
 
-// The offsets in `source` at which inserting a newline would relieve an
-// over-width line, ascending. Empty when nothing can be improved — a line with
-// no splittable group on it (one long string literal, a long trailing comment)
-// is left alone, as is a source that doesn't lex.
+// The offsets in `source` at which inserting a newline would relieve an over-width
+// line, ascending. Empty when nothing can be improved — a line with no splittable
+// group on it (one long string literal, a long trailing comment) is left alone, as
+// is a source that doesn't lex.
 //
 // One round: each over-width line contributes at most one group. The caller
-// re-formats and calls again until this returns empty, so a line needing two
-// levels of splitting gets them on successive rounds.
+// re-formats and calls again until this returns empty, so a line needing two levels
+// of splitting gets them on successive rounds.
 pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
@@ -262,26 +261,26 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
     // All-or-nothing was already how a group splits when the margin selects it;
     // stating it as an invariant is what makes the split form a function of the
     // tokens rather than of how the code arrived. Without it a hand-wrapped
-    // `add_error(errors,⏎ '…',⏎ span);` whose message is too long to ever fit
-    // keeps that shape forever, while the same call with a shorter message comes
-    // out one argument per line — layout depending on how long an argument
-    // happens to be, which is author-dependent layout in another guise.
+    // `add_error(errors,⏎ '…',⏎ span);` whose message is too long to ever fit keeps
+    // that shape forever, while the same call with a shorter message comes out one
+    // argument per line — layout depending on how long an argument happens to be,
+    // which is author-dependent layout in another guise.
     //
     // It applies to a comma list and to a `{` group. The two other comma-less
     // groups — a grouping `(a + b)`, a one-element `[a]` — are `Fit`, so a
-    // half-broken one that fits is joined flat before it can get here and one
-    // that doesn't is a width problem; a `{` group is the only one nothing joins
-    // (see groups.thera), so it is the only one that can sit half-broken
-    // forever. That is what makes `{⏎ return x; }` and `{ return x;⏎}` settle on
-    // the fully-split form rather than each being its own fixpoint. A block flat
-    // on one line takes none of its breaks, so it stays flat — the one-line
-    // block is still available, it just cannot be half of one.
+    // half-broken one that fits is joined flat before it can get here and one that
+    // doesn't is a width problem; a `{` group is the only one nothing joins (see
+    // groups.thera), so it is the only one that can sit half-broken forever. That
+    // is what makes `{⏎ return x; }` and `{ return x;⏎}` settle on the fully-split
+    // form rather than each being its own fixpoint. A block flat on one line takes
+    // none of its breaks, so it stays flat — the one-line block is still available,
+    // it just cannot be half of one.
     //
-    // "Some of its *own* breaks taken", not "spans several lines": a group is
-    // also multi-line when an element is, and there none of its own breaks are
-    // taken. That distinction is what lets a call hug a multi-line argument —
-    // `.subcommand(cli.Command.new('test')⏎ .about(…))` and `f(a, g(⏎ x,⏎ ))`
-    // leave every break of the outer group untaken, and both stay as written.
+    // "Some of its *own* breaks taken", not "spans several lines": a group is also
+    // multi-line when an element is, and there none of its own breaks are taken.
+    // That distinction is what lets a call hug a multi-line argument —
+    // `.subcommand(cli.Command.new('test')⏎ .about(…))` and `f(a, g(⏎ x,⏎ ))` leave
+    // every break of the outer group untaken, and both stay as written.
     //
     // Two exemptions. A group holding a line comment is left exactly as it is: a
     // break inserted before the comment would swallow the code after it. And a
@@ -304,16 +303,16 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
             out.push(e);
         }
     }
-    // A partially-broken group's later break points lie on lines below the one
-    // that selected it, so two over-width lines can contribute interleaved
-    // offsets. The caller inserts left to right, so normalize here.
+    // A partially-broken group's later break points lie on lines below the one that
+    // selected it, so two over-width lines can contribute interleaved offsets. The
+    // caller inserts left to right, so normalize here.
     return sorted_unique(out);
 }
 
-// Ascending, duplicates removed.
-// Ascending, with edits at the same offset **merged** rather than one dropped.
-// A trailing comma and the closer's own line break routinely coincide — `gamma)`
-// has no space between them — and the result must be `,\n`, not one or the other.
+// Ascending, duplicates removed. Ascending, with edits at the same offset
+// **merged** rather than one dropped. A trailing comma and the closer's own line
+// break routinely coincide — `gamma)` has no space between them — and the result
+// must be `,\n`, not one or the other.
 fn sorted_unique(_ xs: List<BreakEdit>) -> List<BreakEdit> {
     let out: List<BreakEdit> = [];
     for x in xs.sorted_by((a, b) => a.offset < b.offset) {
@@ -339,9 +338,9 @@ fn merge_text(_ a: String, _ b: String) -> String {
     return t;
 }
 
-// Match every bracket in the token stream, recording each pair's break points.
-// An unbalanced stream (which a clean lex shouldn't produce) yields the pairs
-// matched so far rather than failing.
+// Match every bracket in the token stream, recording each pair's break points. An
+// unbalanced stream (which a clean lex shouldn't produce) yields the pairs matched
+// so far rather than failing.
 fn bracket_pairs(_ tokens: List<Token>, _ delims: parser.GenericDelims) -> List<Pair> {
     let out: List<Pair> = [];
     // Parallel stacks: the open token, and the break offsets accumulated for it.
@@ -385,14 +384,14 @@ fn bracket_pairs(_ tokens: List<Token>, _ delims: parser.GenericDelims) -> List<
                 }
             }
         } else if t.kind == TokenKind.Comma || t.kind == TokenKind.Semi {
-            // A separator breaks the group it sits *directly* in, so it is
-            // recorded against the innermost open bracket only — and only when
-            // it is outside any generic argument list. `Map<String, Site>` has
-            // no bracket of its own here (`<`/`>` are ordinary operator tokens),
-            // so its comma would otherwise be read as the enclosing block's:
-            // enough to mark the block a comma list and earn it a stray `,`, and
-            // enough to make `let names: Map<String,⏎List<NameSite>> = [:];` a
-            // legal-looking split.
+            // A separator breaks the group it sits *directly* in, so it is recorded
+            // against the innermost open bracket only — and only when it is outside
+            // any generic argument list. `Map<String, Site>` has no bracket of its
+            // own here (`<`/`>` are ordinary operator tokens), so its comma would
+            // otherwise be read as the enclosing block's: enough to mark the block
+            // a comma list and earn it a stray `,`, and enough to make
+            // `let names: Map<String,⏎List<NameSite>> = [:];` a legal-looking
+            // split.
             if open_breaks.len() > 0 && angle == 0 {
                 open_breaks[open_breaks.len() - 1].push(t.span.offset + 1);
                 if t.kind == TokenKind.Comma {
@@ -409,15 +408,14 @@ fn bracket_pairs(_ tokens: List<Token>, _ delims: parser.GenericDelims) -> List<
 // string literal fixes their content: every line one touches is emitted verbatim
 // (see fmt.thera's `LineInfo.verbatim`), so its interior and closing lines are
 // untouchable. Its *opening* line can still shed the code before the quote — the
-// break leaves the literal starting at column 0 — so that line counts as fixed
-// only when the literal's own first line already exceeds the margin.
+// break leaves the literal starting at column 0 — so that line counts as fixed only
+// when the literal's own first line already exceeds the margin.
 //
-// Excluding these matters more than the line count suggests. An unrelievable
-// line is covered by *every* enclosing group, so the outermost one is picked and
-// split each round, and the line stays over-width regardless: a `.details('…')`
-// argument spanning twenty lines used to pry apart the entire builder chain
-// around it, one group per round, without ever shortening the line it was
-// chasing.
+// Excluding these matters more than the line count suggests. An unrelievable line
+// is covered by *every* enclosing group, so the outermost one is picked and split
+// each round, and the line stays over-width regardless: a `.details('…')` argument
+// spanning twenty lines used to pry apart the entire builder chain around it, one
+// group per round, without ever shortening the line it was chasing.
 fn verbatim_lines(_ tokens: List<Token>, _ chars: List<Int>, _ width: Int) -> Set<Int> {
     let out: Set<Int> = Set.new();
     for t in tokens {
@@ -458,16 +456,15 @@ fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
 }
 
 // The breaks to take for an over-width `line`, whose text is `chars[from..to)`:
-// those of the widest group covering it that is contained in no other candidate
-// — outermost first, so the split reveals structure rather than burying it, and
-// widest because that is the split most likely to bring the line under the
-// margin.
+// those of the widest group covering it that is contained in no other candidate —
+// outermost first, so the split reveals structure rather than burying it, and
+// widest because that is the split most likely to bring the line under the margin.
 //
-// A group already broken across lines is still a candidate: its opening line can
-// be over-width because only *some* of its elements were split off (a parameter
-// list with two params on line one and the third below). Taking all of its
-// remaining break points is what makes splitting all-or-nothing rather than
-// leaving a half-packed list.
+// A group already broken across lines is still a candidate: its opening line can be
+// over-width because only *some* of its elements were split off (a parameter list
+// with two params on line one and the third below). Taking all of its remaining
+// break points is what makes splitting all-or-nothing rather than leaving a
+// half-packed list.
 //
 // Empty when the line holds no usable group — one long string literal, a long
 // trailing comment, or only groups already fully broken. Those lines are left
@@ -482,11 +479,11 @@ fn group_breaks_for_line(
 ) -> List<BreakEdit> {
     let on_line: List<Pair> = [];
     for p in pairs {
-        // Any group covering the line is a candidate, not just one opening on
-        // it: an over-width line is often a *continuation* of a group broken
-        // further up (the tail of a split argument list), whose remaining
-        // separators are the breaks that relieve it. `close > open + 1` skips an
-        // empty pair — breaking `f()` adds a line without shortening anything.
+        // Any group covering the line is a candidate, not just one opening on it:
+        // an over-width line is often a *continuation* of a group broken further up
+        // (the tail of a split argument list), whose remaining separators are the
+        // breaks that relieve it. `close > open + 1` skips an empty pair — breaking
+        // `f()` adds a line without shortening anything.
         if p.open_line <= line && p.close_line >= line && p.close > p.open + 1 {
             on_line.push(p);
         }
@@ -497,24 +494,23 @@ fn group_breaks_for_line(
     // left behind is the width the line actually ends up with — and a group whose
     // head is still over the margin has relieved nothing.
     //
-    // Preferring the groups that clear the margin is what makes a call hug its
-    // last argument instead of prying itself apart around it. In a builder chain
-    // an over-width `.positional('target', help: '…')` is covered both by its own
+    // Preferring the groups that clear the margin is what makes a call hug its last
+    // argument instead of prying itself apart around it. In a builder chain an
+    // over-width `.positional('target', help: '…')` is covered both by its own
     // parentheses and by the enclosing `.subcommand(…)`, whose only break on that
     // line is the one before its closer — splitting it sheds a `)` and nothing
     // else, while `.positional` breaks where it counts. Preferring the latter
     // leaves the chain's shape intact.
     //
     // When no group can clear the margin the line is irreducible — a long
-    // single-line string literal is the usual reason — and nothing is split for
-    // it. That costs no canonicity: a comma list that is already broken is
-    // completed by the all-or-nothing pass in [break_edits] regardless of width,
-    // so what is declined here is only the *pointless* split of a group that
-    // cannot help.
+    // single-line string literal is the usual reason — and nothing is split for it.
+    // That costs no canonicity: a comma list that is already broken is completed by
+    // the all-or-nothing pass in [break_edits] regardless of width, so what is
+    // declined here is only the *pointless* split of a group that cannot help.
     let usable: List<Pair> = [];
     for p in on_line {
-        // The group still splits all-or-nothing once chosen — every remaining
-        // break is taken, not just the ones on this line.
+        // The group still splits all-or-nothing once chosen — every remaining break
+        // is taken, not just the ones on this line.
         let breaks = usable_breaks(p, chars);
         let head = head_width(breaks, from, to);
         if head >= 0 && head <= width {
@@ -539,21 +535,21 @@ fn group_breaks_for_line(
             continue;
         }
         if p.close - p.open > best_width {
-            // Classify against the group's **own** break points, not the ones
-            // left to take. `p.breaks` here holds only the untaken ones, and on a
-            // list that is already filled those skip every row boundary — so the
-            // segment between two of them spans a newline, which reads as "not a
-            // scalar element" and abandons the fill. Re-filling a byte fixture at
-            // a narrower margin then put all 90 elements on their own lines.
+            // Classify against the group's **own** break points, not the ones left
+            // to take. `p.breaks` here holds only the untaken ones, and on a list
+            // that is already filled those skip every row boundary — so the segment
+            // between two of them spans a newline, which reads as "not a scalar
+            // element" and abandons the fill. Re-filling a byte fixture at a
+            // narrower margin then put all 90 elements on their own lines.
             let orig = original_of(p, on_line);
             let scalar = is_scalar_list(orig, chars);
             // A scalar list is packed only while it is still flat. Re-packing one
             // that is already in rows would mean *deleting* its row breaks and
-            // laying them out again, and this pass can only insert — adding rows
-            // on top of the existing ones just shreds it. So a packed list keeps
-            // the packing it has, and its rows stay as wide as the margin they
-            // were packed to. That only shows if the margin changes, and a
-            // mis-packed row reads far better than one element per line.
+            // laying them out again, and this pass can only insert — adding rows on
+            // top of the existing ones just shreds it. So a packed list keeps the
+            // packing it has, and its rows stay as wide as the margin they were
+            // packed to. That only shows if the margin changes, and a mis-packed
+            // row reads far better than one element per line.
             if scalar && p.breaks.len() != orig.breaks.len() {
                 continue;
             }
@@ -591,9 +587,9 @@ fn to_edits(_ p: Pair, _ offsets: List<Int>, _ chars: List<Int>) -> List<BreakEd
     return out;
 }
 
-// Whether this is a `[…]` of plain scalars — every element a single bare token,
-// no call, no nested collection, no operator. Such a list is packed rather than
-// split one-per-line: a byte fixture of 90 numbers does not want 90 lines.
+// Whether this is a `[…]` of plain scalars — every element a single bare token, no
+// call, no nested collection, no operator. Such a list is packed rather than split
+// one-per-line: a byte fixture of 90 numbers does not want 90 lines.
 fn is_scalar_list(_ p: Pair, _ chars: List<Int>) -> Bool {
     if p.kind != TokenKind.LBracket || p.breaks.len() < 4 {
         return false; // not a list, or too short for packing to matter
@@ -608,14 +604,14 @@ fn is_scalar_list(_ p: Pair, _ chars: List<Int>) -> Bool {
     return true;
 }
 
-// An element is scalar when its text is one unbroken run — no bracket (so no
-// call or nested literal) and no interior space (so no operator or `key: value`).
+// An element is scalar when its text is one unbroken run — no bracket (so no call
+// or nested literal) and no interior space (so no operator or `key: value`).
 //
 // A blank segment passes. The only way to get one is a trailing comma, whose
 // segment runs from the comma to the closer with nothing in between, and that is
 // punctuation rather than an element — rejecting it would make every scalar list
-// that had already been given its trailing comma look non-scalar, which is to
-// say every one the reflow pass has already touched.
+// that had already been given its trailing comma look non-scalar, which is to say
+// every one the reflow pass has already touched.
 fn is_scalar_element(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
     let mut seen = false;
     let mut i = from;
@@ -694,10 +690,10 @@ const LBRACE: Int = 123;
 const COMMA: Int = 44;
 const COLON: Int = 58;
 
-// The width the line spanning `[from, to)` would keep if it were cut at the
-// first of `breaks` falling on it — everything past that break moves down, so
-// this is what the line is left with. `-1` when no break falls on the line, i.e.
-// the group has nothing to offer it.
+// The width the line spanning `[from, to)` would keep if it were cut at the first
+// of `breaks` falling on it — everything past that break moves down, so this is
+// what the line is left with. `-1` when no break falls on the line, i.e. the group
+// has nothing to offer it.
 fn head_width(_ breaks: List<Int>, _ from: Int, _ to: Int) -> Int {
     for o in breaks {
         if o >= from && o <= to {
@@ -707,8 +703,8 @@ fn head_width(_ breaks: List<Int>, _ from: Int, _ to: Int) -> Int {
     return -1;
 }
 
-// A group's break points minus the ones already taken — inserting a newline
-// where the author (or an earlier round) already put one would open a blank line.
+// A group's break points minus the ones already taken — inserting a newline where
+// the author (or an earlier round) already put one would open a blank line.
 fn usable_breaks(_ p: Pair, _ chars: List<Int>) -> List<Int> {
     let out: List<Int> = [];
     for b in p.breaks {
@@ -720,8 +716,8 @@ fn usable_breaks(_ p: Pair, _ chars: List<Int>) -> List<Int> {
 }
 
 // Whether offset `off` already sits at a line boundary — a newline immediately
-// follows it (`,⏎`, the "after" break points) or immediately precedes it
-// (`⏎    )`, the "before the closer" point), ignoring horizontal whitespace.
+// follows it (`,⏎`, the "after" break points) or immediately precedes it (`⏎    )`,
+// the "before the closer" point), ignoring horizontal whitespace.
 fn at_line_boundary(_ chars: List<Int>, _ off: Int) -> Bool {
     let mut i = off;
     while i < chars.len() {

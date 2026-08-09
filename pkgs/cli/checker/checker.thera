@@ -3,14 +3,14 @@
 //
 // The Dart checker leans on `Expr.resolvedType`, annotated up front by the
 // `Inferrer`. Thera's inference is pure (no annotation), so this checker calls
-// `infer_expr` *on demand* wherever it needs an expression's type — and threads
-// the contextual `expected` type into call arguments, `let` values, `return`
-// values, and lambda bodies, so bidirectional lambda-parameter typing still
-// works without a pre-pass. The per-function context (in-scope generics + their
-// bounds, `self`'s type, the return type) rides in an `InferCtx`, shared with
-// inference. Scopes are `Map<String, Type>` (name present == in scope; the value
-// is the binding's type, `Unknown` when undetermined) — unifying what the Dart
-// checker split between a `TypeRef?` scope and the inferred annotations.
+// `infer_expr` *on demand* wherever it needs an expression's type — and threads the
+// contextual `expected` type into call arguments, `let` values, `return` values,
+// and lambda bodies, so bidirectional lambda-parameter typing still works without a
+// pre-pass. The per-function context (in-scope generics + their bounds, `self`'s
+// type, the return type) rides in an `InferCtx`, shared with inference. Scopes are
+// `Map<String, Type>` (name present == in scope; the value is the binding's type,
+// `Unknown` when undetermined) — unifying what the Dart checker split between a
+// `TypeRef?` scope and the inferred annotations.
 
 import '../ast/ast' as _;
 import '../source' as _; // SourceSpan
@@ -21,10 +21,10 @@ import 'hints'; // corrective hints for guessed-wrong names
 
 pub struct CheckResult {
     let errors: List<diagnostic.Diagnostic>;
-    // The committed-type record built during the walk (CH19), in walk order:
-    // every real expression node of each checked (non-skipped) file, plus `let`
-    // name spans. A later entry for the same span supersedes an earlier one
-    // (the `let` refinement override).
+    // The committed-type record built during the walk (CH19), in walk order: every
+    // real expression node of each checked (non-skipped) file, plus `let` name
+    // spans. A later entry for the same span supersedes an earlier one (the `let`
+    // refinement override).
     let records: List<TypeRecord>;
 }
 
@@ -33,8 +33,8 @@ pub fn has_errors(_ r: CheckResult) -> Bool {
 }
 
 // Type-check `program`. `imports` are pre-registered (their declarations resolve
-// into the element model but are not themselves checked); `namespaces` carries
-// the import-namespace surfaces. Returns the accumulated diagnostics.
+// into the element model but are not themselves checked); `namespaces` carries the
+// import-namespace surfaces. Returns the accumulated diagnostics.
 pub fn check(
     _ program: Program,
     _ imports: List<Program>,
@@ -57,11 +57,11 @@ pub fn check(
 
 // Check the whole closure against one shared element model: the primary program
 // plus every import whose canonical file key is not in `skip` (the caller's
-// already-reported-this-run set and/or trusted files — the SDK). Each checked
-// file gets the primary treatment — same-file duplicate detection plus a full
+// already-reported-this-run set and/or trusted files — the SDK). Each checked file
+// gets the primary treatment — same-file duplicate detection plus a full
 // `check_program` walk — so a check error in an *imported* file surfaces
-// (previously only the primary was checked: an importer of a type-broken
-// library reported nothing and the error shipped to bytecode).
+// (previously only the primary was checked: an importer of a type-broken library
+// reported nothing and the error shipped to bytecode).
 pub fn check_files(
     _ program: Program,
     _ imports: List<Program>,
@@ -72,8 +72,8 @@ pub fn check_files(
 ) -> CheckResult {
     let errors: List<diagnostic.Diagnostic> = [];
     let records: List<TypeRecord> = [];
-    // `prebuilt` is the session's cached-base + layered-primary library (LD14)
-    // — behavior-identical to the full build by the resolver's contract.
+    // `prebuilt` is the session's cached-base + layered-primary library (LD14) —
+    // behavior-identical to the full build by the resolver's contract.
     let library = prebuilt.unwrap_or_else(() =>
         element.build_library(program, imports, file_namespaces, file_bare_surface));
     if !skip.contains(file_key(program.file_path)) {
@@ -85,8 +85,8 @@ pub fn check_files(
     }
     for ip in imports {
         if !skip.contains(file_key(ip.file_path)) {
-            // Same-file duplicates only (`collides` is same-file-only post-T4,
-            // so an empty imports list loses nothing and skips a closure rescan).
+            // Same-file duplicates only (`collides` is same-file-only post-T4, so
+            // an empty imports list loses nothing and skips a closure rescan).
             check_duplicates(errors, ip, []);
             check_reserved_names(errors, ip, library);
             check_shadowed_surface(errors, ip, library);
@@ -103,11 +103,11 @@ fn add_error(_ errors: List<diagnostic.Diagnostic>, _ message: String, _ span: S
 
 // ---- warning suppression (`// ignore: <rule>`) ----
 
-// A warning is suppressed by a `// ignore: <rule>` comment on the diagnostic's
-// own line or the line above (several rules comma-separated). Errors carry no
-// rule and are never suppressable. The filter reads the span's source text
-// directly — spans carry the whole file — so no comment threading through the
-// loader/parser is needed.
+// A warning is suppressed by a `// ignore: <rule>` comment on the diagnostic's own
+// line or the line above (several rules comma-separated). Errors carry no rule and
+// are never suppressable. The filter reads the span's source text directly — spans
+// carry the whole file — so no comment threading through the loader/parser is
+// needed.
 fn filter_suppressed(_ diags: List<diagnostic.Diagnostic>) -> List<diagnostic.Diagnostic> {
     return diags.filter((d) => !is_suppressed(d));
 }
@@ -140,19 +140,17 @@ fn line_ignores(_ line: String, _ rule: String) -> Bool {
 // ---- unused imports (warning: unused-import) ----
 
 // An `import` that is never referenced anywhere in the file is a warning. A
-// namespace import is referenced through its namespace name; an `as _`
-// import is referenced through any name on its public surface (which the
-// loader records under the import's derived namespace — see
-// `check_unused_bare_import`). The use-scan is a syntactic
-// over-approximation in the lenient direction: *any* identifier occurrence
-// of a candidate name — a qualified `fs.read_text(…)`, a bare `Thing`
-// annotation, even a same-named local that shadows it — counts as a use, so
-// the rule can under-report but never false-positive. Exempt: `pub import`
-// (a re-export is itself the use), an import whose file adds methods to a
-// type it does not declare (see `extends_a_foreign_type` — a name scan
-// cannot see that use, so the rule abstains), and — in a
-// `<base>_test.thera` file — the `<base>` import, whose full surface the
-// test runner exposes bare.
+// namespace import is referenced through its namespace name; an `as _` import is
+// referenced through any name on its public surface (which the loader records under
+// the import's derived namespace — see `check_unused_bare_import`). The use-scan is
+// a syntactic over-approximation in the lenient direction: *any* identifier
+// occurrence of a candidate name — a qualified `fs.read_text(…)`, a bare `Thing`
+// annotation, even a same-named local that shadows it — counts as a use, so the
+// rule can under-report but never false-positive. Exempt: `pub import` (a re-export
+// is itself the use), an import whose file adds methods to a type it does not
+// declare (see `extends_a_foreign_type` — a name scan cannot see that use, so the
+// rule abstains), and — in a `<base>_test.thera` file — the `<base>` import, whose
+// full surface the test runner exposes bare.
 fn check_unused_imports(
     _ errors: List<diagnostic.Diagnostic>,
     _ program: Program,
@@ -191,14 +189,13 @@ fn check_unused_imports(
     }
 }
 
-// The `as _` half of `check_unused_imports`: the import is used when any
-// name on its public surface occurs in the file — or the derived namespace
-// itself does (the loader binds the namespace for unqualified imports too,
-// so a qualified `path.join(…)` through an `as _` import works and counts).
-// The loader records every import's surface in `file_namespaces` under that
-// derived namespace, so attribution needs no new plumbing. With no surface
-// recorded (a hermetic check, an import that failed to resolve) the rule
-// stays silent rather than guessing.
+// The `as _` half of `check_unused_imports`: the import is used when any name on
+// its public surface occurs in the file — or the derived namespace itself does (the
+// loader binds the namespace for unqualified imports too, so a qualified
+// `path.join(…)` through an `as _` import works and counts). The loader records
+// every import's surface in `file_namespaces` under that derived namespace, so
+// attribution needs no new plumbing. With no surface recorded (a hermetic check, an
+// import that failed to resolve) the rule stays silent rather than guessing.
 fn check_unused_bare_import(
     _ errors: List<diagnostic.Diagnostic>,
     _ x: ImportDecl,
@@ -217,7 +214,8 @@ fn check_unused_bare_import(
         }
     }
     // A file with nothing public can still be worth importing (see below), and an
-    // empty surface leaves the scan nothing to go on, so stay silent rather than guess.
+    // empty surface leaves the scan nothing to go on, so stay silent rather than
+    // guess.
     if surface.names.is_empty() {
         return;
     }
@@ -234,19 +232,21 @@ fn check_unused_bare_import(
 // Whether the imported file declares an `impl` block for a type it does not itself
 // declare — in which case this rule abstains.
 //
-// An `impl` block may target a foreign type: `impl Client` inside a `pulls.thera` whose
-// only export is `Pulls`. That is how a library adds methods to a type without the
-// declaring file importing back, and it is the seam a code generator wants — one new file
-// per resource, no edit to any existing one. But nothing on such an import's *name*
-// surface gets referenced by a caller writing `client.pulls()`, and dropping the import
-// makes that call unresolvable, so the name scan fires on a load-bearing import.
+// An `impl` block may target a foreign type: `impl Client` inside a `pulls.thera`
+// whose only export is `Pulls`. That is how a library adds methods to a type
+// without the declaring file importing back, and it is the seam a code generator
+// wants — one new file per resource, no edit to any existing one. But nothing on
+// such an import's *name* surface gets referenced by a caller writing
+// `client.pulls()`, and dropping the import makes that call unresolvable, so the
+// name scan fires on a load-bearing import.
 //
-// Usage cannot be the test, because the identifier walk deliberately does not collect
-// selector names (`x.foo` contributes `x`, not `foo`) — and making it collect them would
-// have any `.path` field access silence an unused `import std.path`. So the test is
-// structural: a file that extends a foreign type is not judgeable by names, and abstaining
-// keeps the rule on the under-report side of its contract. Attribution uses what the
-// elements already record — each method's declaring file, each type's owner file.
+// Usage cannot be the test, because the identifier walk deliberately does not
+// collect selector names (`x.foo` contributes `x`, not `foo`) — and making it
+// collect them would have any `.path` field access silence an unused
+// `import std.path`. So the test is structural: a file that extends a foreign type
+// is not judgeable by names, and abstaining keeps the rule on the under-report side
+// of its contract. Attribution uses what the elements already record — each
+// method's declaring file, each type's owner file.
 fn extends_a_foreign_type(_ library: LibraryElement, _ surface: LibraryNamespace) -> Bool {
     let files: Set<String> = Set.new();
     for name in surface.origin.keys() {
@@ -266,8 +266,8 @@ fn extends_a_foreign_type(_ library: LibraryElement, _ surface: LibraryNamespace
     return false;
 }
 
-// `<base>` for a `<base>_test.thera` file path, else None (the loader's
-// test-file rule, mirrored: such a file sees `<base>`'s surface unqualified).
+// `<base>` for a `<base>_test.thera` file path, else None (the loader's test-file
+// rule, mirrored: such a file sees `<base>`'s surface unqualified).
 fn test_base_of(_ file: Option<String>) -> Option<String> {
     let Some(f) = file else { return Option.None; };
     let slashes = f.split('/');
@@ -288,12 +288,12 @@ fn last_dot_segment(_ p: String) -> String {
     return parts[parts.len() - 1];
 }
 
-// --- the identifier-use walk backing `check_unused_imports`: collect every
-// name that could reference an import — expression `Ident`s (a qualified
-// `ns.member` is `Field(Ident(ns), …)`), the namespace qualifier *and* bare
-// name of type references and struct literals (a bare `Thing` may arrive via
-// an `as _` import's surface), interface names (impl targets, supers, generic
-// bounds). Patterns bind rather than reference, so they are skipped. ---
+// --- the identifier-use walk backing `check_unused_imports`: collect every name
+// that could reference an import — expression `Ident`s (a qualified `ns.member` is
+// `Field(Ident(ns), …)`), the namespace qualifier *and* bare name of type
+// references and struct literals (a bare `Thing` may arrive via an `as _` import's
+// surface), interface names (impl targets, supers, generic bounds). Patterns bind
+// rather than reference, so they are skipped. ---
 
 fn used_in_decl(_ decl: Decl, _ used: Set<String>) -> Void {
     match decl {
@@ -518,13 +518,12 @@ struct NameSite {
 // Flag top-level names introduced more than once. **One name space per scope**
 // (language.md, decision 2026-07): every top-level introduction — `fn`,
 // `type`/`enum`/`interface`, `const`, top-level `let`, and the namespace an
-// `import` binds — shares a single per-file name space, so a second
-// introduction of a name collides regardless of kind (`fn max` + `const max`,
-// `fn Config` + `struct Config`, `import std.fs;` + `fn fs`). Only a
-// *same-file* re-introduction collides: cross-file resolution is
-// owner-correct (per-file bare / qualified / `TypeId`), so different files may
-// share a name. Reported against the colliding definition in the file being
-// checked.
+// `import` binds — shares a single per-file name space, so a second introduction of
+// a name collides regardless of kind (`fn max` + `const max`, `fn Config` +
+// `struct Config`, `import std.fs;` + `fn fs`). Only a *same-file* re-introduction
+// collides: cross-file resolution is owner-correct (per-file bare / qualified /
+// `TypeId`), so different files may share a name. Reported against the colliding
+// definition in the file being checked.
 fn check_duplicates(
     _ errors: List<diagnostic.Diagnostic>,
     _ program: Program,
@@ -540,15 +539,15 @@ fn check_duplicates(
 
 // ---- bare-surface shadowing ----
 
-// A top-level declaration may not take a name the file's **bare surface**
-// already provides — a prelude name or one brought in by an `as _` import
-// (EL1's last arm; language.md "one name space per scope": the bare surface
-// injects names into the file's one name space, so re-introducing one is a
-// collision, exactly like a same-file duplicate). Without this, resolution
-// splits by kind — a same-file `fn Config` with an `as _`-imported
-// `struct Config` checked clean but failed at codegen ("unknown struct
-// type"). The declaring file itself is exempt (its own names *are* the
-// surface's origin — a core file doesn't shadow the prelude it defines).
+// A top-level declaration may not take a name the file's **bare surface** already
+// provides — a prelude name or one brought in by an `as _` import (EL1's last arm;
+// language.md "one name space per scope": the bare surface injects names into the
+// file's one name space, so re-introducing one is a collision, exactly like a
+// same-file duplicate). Without this, resolution splits by kind — a same-file
+// `fn Config` with an `as _`-imported `struct Config` checked clean but failed at
+// codegen ("unknown struct type"). The declaring file itself is exempt (its own
+// names *are* the surface's origin — a core file doesn't shadow the prelude it
+// defines).
 fn check_shadowed_surface(
     _ errors: List<diagnostic.Diagnostic>,
     _ program: Program,
@@ -569,10 +568,10 @@ fn check_shadowed_surface(
             Import(x) => {
                 // A namespace binding shadows like a declaration — except the
                 // self-referential barrel case: `pub import 'error';` binds ns
-                // `error` while the bare surface's `error` *is* that library's
-                // own member (`error.error(...)` and `error(...)` reach the
-                // same file). Exempt when the bare name's origin is the
-                // namespace's own member origin.
+                // `error` while the bare surface's `error` *is* that library's own
+                // member (`error.error(...)` and `error(...)` reach the same file).
+                // Exempt when the bare name's origin is the namespace's own member
+                // origin.
                 if let Some(ns) = import_binding(x) {
                     if !self_referential_ns(program, library, ns) {
                         flag_shadow(errors, surface, own, ns, x.span);
@@ -626,9 +625,9 @@ fn flag_shadow(
     }
     if let Some(origin) = surface.get(name) {
         // Exempt the declaring file itself — its own names *are* the surface's
-        // origin. Exact-key equality misses the case where the prelude was
-        // resolved from one SDK (`<install>/std/core/bytes.thera`) but the file
-        // being checked is the same source in another tree
+        // origin. Exact-key equality misses the case where the prelude was resolved
+        // from one SDK (`<install>/std/core/bytes.thera`) but the file being
+        // checked is the same source in another tree
         // (`<repo>/sdk/std/core/bytes.thera`) — the LSP-editing-the-repo case; the
         // same-std-source check (as in [reserved_site]) covers it.
         if origin != own && !same_std_source(origin, own) {
@@ -645,19 +644,19 @@ fn flag_shadow(
 
 // The reserved-name list itself lives in the element layer
 // (`element.is_reserved_type_name`) — the resolver also uses it to pin core
-// identity in the flat registry (EL8). Declaring one of these names in user
-// code would make the reserved meaning ambiguous at every use site, so it is a
-// check error (language.md "Reserved type names"). Values (`fn`/`const`) are not
-// reserved — casing conventions keep them unambiguous.
-// Flag type declarations (struct/enum/interface, native or not) — and type
-// *parameters*, which declare a type name for their scope — that take a
-// reserved core type name. (A `<Result>` type parameter would otherwise pass
-// the `?`/implicit-`Ok` checks by spelling and miscompile.) The core SDK
-// declares the real ones; a declaration is exempt only when *this file is the
-// core owner* of that type — an identity check (`core_owner`), not a path
-// heuristic. The owner file is pinned in the shared registry from the same
-// loader closure that minted `program.file_path`, so every analysis path (check,
-// LSP, test) agrees regardless of how the SDK root or file path was spelled.
+// identity in the flat registry (EL8). Declaring one of these names in user code
+// would make the reserved meaning ambiguous at every use site, so it is a check
+// error (language.md "Reserved type names"). Values (`fn`/`const`) are not reserved
+// — casing conventions keep them unambiguous. Flag type declarations
+// (struct/enum/interface, native or not) — and type *parameters*, which declare a
+// type name for their scope — that take a reserved core type name. (A `<Result>`
+// type parameter would otherwise pass the `?`/implicit-`Ok` checks by spelling and
+// miscompile.) The core SDK declares the real ones; a declaration is exempt only
+// when *this file is the core owner* of that type — an identity check
+// (`core_owner`), not a path heuristic. The owner file is pinned in the shared
+// registry from the same loader closure that minted `program.file_path`, so every
+// analysis path (check, LSP, test) agrees regardless of how the SDK root or file
+// path was spelled.
 fn check_reserved_names(
     _ errors: List<diagnostic.Diagnostic>,
     _ program: Program,
@@ -694,13 +693,13 @@ fn check_reserved_names(
     }
 }
 
-// The declaration's (name, span) when the name is a reserved core type *and*
-// this file is not that type's core owner, else None. The owner is the core
-// library's own declaration (`core_owner` returns the registry-pinned file, or
-// the `<builtin>` floor for a type no file declares — e.g. `Void`); when it
-// matches `this_file`, this *is* the core declaration and is left alone. Type
-// *parameters* named after a reserved type ([reserved_params]) are never exempt
-// — a `<Result>` is illegitimate even in core.
+// The declaration's (name, span) when the name is a reserved core type *and* this
+// file is not that type's core owner, else None. The owner is the core library's
+// own declaration (`core_owner` returns the registry-pinned file, or the
+// `<builtin>` floor for a type no file declares — e.g. `Void`); when it matches
+// `this_file`, this *is* the core declaration and is left alone. Type *parameters*
+// named after a reserved type ([reserved_params]) are never exempt — a `<Result>`
+// is illegitimate even in core.
 fn reserved_site(
     _ name: String,
     _ span: SourceSpan,
@@ -711,12 +710,12 @@ fn reserved_site(
         return Option.None;
     }
     // A reserved name's registry owner is its genuine core declaration (every
-    // reserved type is floor-seeded or declared in std.core — including `Void`,
-    // in `void.thera` — and the flat entry is pinned against a user's
-    // redeclaration). Exempt only when this file *is* that owner — by exact key,
-    // or as the same stdlib source at a different absolute path (the SDK the LSP
-    // loads the prelude from may live elsewhere than the core file being edited;
-    // see [same_std_source]).
+    // reserved type is floor-seeded or declared in std.core — including `Void`, in
+    // `void.thera` — and the flat entry is pinned against a user's redeclaration).
+    // Exempt only when this file *is* that owner — by exact key, or as the same
+    // stdlib source at a different absolute path (the SDK the LSP loads the prelude
+    // from may live elsewhere than the core file being edited; see
+    // [same_std_source]).
     let owner = core_owner(library, name);
     if owner == this_file || same_std_source(owner, this_file) {
         return Option.None;
@@ -724,14 +723,14 @@ fn reserved_site(
     return Option.Some(NamedSpan { name: name, span: span });
 }
 
-// Two file keys denote the same standard-library source when their paths agree
-// from the last `/std/` segment onward. The SDK layout is `<root>/std/<lib>/…`,
-// so the tail past `/std/` is the library-relative identity — stable across
-// where the SDK physically lives. This keeps the core exemption correct when the
-// prelude's owner was resolved from one SDK (`<install>/std/core/map.thera`) but
-// the file being checked is the same source in another tree
-// (`<repo>/sdk/std/core/map.thera`) — the LSP-editing-the-repo case. A path with
-// no `/std/` segment (ordinary user code) never matches.
+// Two file keys denote the same standard-library source when their paths agree from
+// the last `/std/` segment onward. The SDK layout is `<root>/std/<lib>/…`, so the
+// tail past `/std/` is the library-relative identity — stable across where the SDK
+// physically lives. This keeps the core exemption correct when the prelude's owner
+// was resolved from one SDK (`<install>/std/core/map.thera`) but the file being
+// checked is the same source in another tree (`<repo>/sdk/std/core/map.thera`) —
+// the LSP-editing-the-repo case. A path with no `/std/` segment (ordinary user
+// code) never matches.
 fn same_std_source(_ a: String, _ b: String) -> Bool {
     let ta = std_tail(a);
     return ta.is_some() && ta == std_tail(b);
@@ -762,10 +761,10 @@ struct NamedSpan {
     let span: SourceSpan;
 }
 
-// A `const` initializer must be *manifest* — a compile-time constant safe to
-// inline at every use site: literals, arithmetic on them, and references to other
-// consts. Computed initializers (calls, collections, control flow) belong in a
-// top-level `let`, computed once and stored. See docs/language.md.
+// A `const` initializer must be *manifest* — a compile-time constant safe to inline
+// at every use site: literals, arithmetic on them, and references to other consts.
+// Computed initializers (calls, collections, control flow) belong in a top-level
+// `let`, computed once and stored. See docs/language.md.
 fn is_manifest_const(_ e: Expr) -> Bool {
     return match e {
         Int(_, _) => true,
@@ -836,9 +835,9 @@ fn site(
     return NameSite { file: p.file_path, span: span, is_pub: is_pub, primary: primary, kind: kind };
 }
 
-// The namespace an `import` binds in its file — its alias, or the trailing
-// path segment (`std.fs` → `fs`, `util/strings` → `strings`); None for an
-// `as _` import (no binding). Mirrors the loader's `namespace_of`.
+// The namespace an `import` binds in its file — its alias, or the trailing path
+// segment (`std.fs` → `fs`, `util/strings` → `strings`); None for an `as _` import
+// (no binding). Mirrors the loader's `namespace_of`.
 fn import_binding(_ x: ImportDecl) -> Option<String> {
     if x.unqualified {
         return Option.None;
@@ -860,8 +859,8 @@ fn add_name(_ m: Map<String, List<NameSite>>, _ name: String, _ site: NameSite) 
     if let Some(list) = m.get(name) { list.push(site); }
 }
 
-// Report each primary-file introduction that collides with another
-// introduction of the same name (one name space: any kind collides).
+// Report each primary-file introduction that collides with another introduction of
+// the same name (one name space: any kind collides).
 fn report_dups(_ errors: List<diagnostic.Diagnostic>, _ m: Map<String, List<NameSite>>) -> Void {
     for name in m.keys() {
         if let Some(sites) = m.get(name) {
@@ -873,11 +872,11 @@ fn report_dups(_ errors: List<diagnostic.Diagnostic>, _ m: Map<String, List<Name
 }
 
 // Imports are collected before the primary program, so a primary definition that
-// collides with an earlier site (an import, or a prior definition in the same
-// file) is the duplicate — report it, pointing at the earliest definition it
-// shadows. Each collision is reported once, at the offending (later) definition.
-// A same-kind collision keeps the familiar message; a cross-kind one names the
-// earlier introduction's kind.
+// collides with an earlier site (an import, or a prior definition in the same file)
+// is the duplicate — report it, pointing at the earliest definition it shadows.
+// Each collision is reported once, at the offending (later) definition. A same-kind
+// collision keeps the familiar message; a cross-kind one names the earlier
+// introduction's kind.
 fn report_name(
     _ errors: List<diagnostic.Diagnostic>,
     _ name: String,
@@ -909,32 +908,32 @@ fn report_name(
     }
 }
 
-// Whether two sites are the same physical declaration seen twice — the entry
-// file reappears in its own import closure under a different path spelling (a
-// relative CLI path vs. the loader's absolute path), so its decls are collected
-// both as primary and as an import. The span's `source` (the whole file text)
-// plus `offset` identify the declaration independent of how the path was spelled.
+// Whether two sites are the same physical declaration seen twice — the entry file
+// reappears in its own import closure under a different path spelling (a relative
+// CLI path vs. the loader's absolute path), so its decls are collected both as
+// primary and as an import. The span's `source` (the whole file text) plus `offset`
+// identify the declaration independent of how the path was spelled.
 fn same_decl(_ a: NameSite, _ b: NameSite) -> Bool {
     return a.span.offset == b.span.offset && a.span.source == b.span.source;
 }
 
 // Whether two same-named introductions genuinely collide. Resolution is
-// owner-correct — values bare to their declaring file / qualified within the
-// named library (Phase 2e), and types likewise via a `Type`'s owning-library
-// `TypeId` (Phase 1) — so two *different* files may share a top-level name
-// (`std.json.parse` and `std.toml.parse`; two libraries' `Point`), even `pub`.
-// Only a same-file re-introduction, where scope can't tell the two apart,
-// collides — and within a file, kind doesn't matter (one name space per scope).
+// owner-correct — values bare to their declaring file / qualified within the named
+// library (Phase 2e), and types likewise via a `Type`'s owning-library `TypeId`
+// (Phase 1) — so two *different* files may share a top-level name (`std.json.parse`
+// and `std.toml.parse`; two libraries' `Point`), even `pub`. Only a same-file
+// re-introduction, where scope can't tell the two apart, collides — and within a
+// file, kind doesn't matter (one name space per scope).
 fn collides(_ a: NameSite, _ b: NameSite) -> Bool {
     return file_key(a.file) == file_key(b.file);
 }
 
 // ---- member uniqueness ----
 
-// The one-name-space rule covers *top-level* names; this covers the member
-// tier, where a duplicate used to be silently accepted (first- or last-wins):
-// struct fields, enum variants, type parameters, impl/interface method names,
-// and struct-literal fields. Reported at the second (and later) site.
+// The one-name-space rule covers *top-level* names; this covers the member tier,
+// where a duplicate used to be silently accepted (first- or last-wins): struct
+// fields, enum variants, type parameters, impl/interface method names, and
+// struct-literal fields. Reported at the second (and later) site.
 fn check_unique(
     _ errors: List<diagnostic.Diagnostic>,
     _ what: String,
@@ -951,10 +950,10 @@ fn check_unique(
     }
 }
 
-// Parameters collide on either coordinate: the internal name (the body's
-// binding) or the external label (the call site's keyword). One error per
-// parameter — a same-name duplicate (`f(a: Int, a: Int)`, where the label
-// duplicates too) reports once, as the name.
+// Parameters collide on either coordinate: the internal name (the body's binding)
+// or the external label (the call site's keyword). One error per parameter — a
+// same-name duplicate (`f(a: Int, a: Int)`, where the label duplicates too) reports
+// once, as the name.
 fn check_param_uniqueness(_ errors: List<diagnostic.Diagnostic>, _ params: List<Param>) -> Void {
     let names: Set<String> = Set.new();
     let labels: Set<String> = Set.new();
@@ -1039,12 +1038,12 @@ fn check_program(
             },
             Interface(x) => {
                 check_interface_decl(errors, x, library, file);
-                // Check each method through `check_fn` — signatures always, and
-                // a *default method's body* like any other body (previously
-                // never body-checked, so a broken default body surfaced only at
-                // emit or runtime). `self` is the interface itself: an
-                // interface-typed receiver, so sibling methods resolve via the
-                // ordinary interface-dispatch rules.
+                // Check each method through `check_fn` — signatures always, and a
+                // *default method's body* like any other body (previously never
+                // body-checked, so a broken default body surfaced only at emit or
+                // runtime). `self` is the interface itself: an interface-typed
+                // receiver, so sibling methods resolve via the ordinary
+                // interface-dispatch rules.
                 let self_type = Type.Interface(
                     TypeId {
                         owner: file_scope(library, file).resolve_type_owner(x.name, Option.None),
@@ -1155,8 +1154,8 @@ fn check_fn(
 ) -> Void {
     let type_params = union_type_params(outer_type_params, fn_decl.type_params);
     check_fn_sig(errors, fn_decl, library, file, type_params);
-    // Before the body, so a signature-only declaration (a `native fn`, an
-    // interface method) has its defaults checked too.
+    // Before the body, so a signature-only declaration (a `native fn`, an interface
+    // method) has its defaults checked too.
     check_param_defaults(errors, fn_decl, library, self_type, type_params, file, records);
 
     match fn_decl.body {
@@ -1206,12 +1205,12 @@ fn check_fn(
                 },
                 body,
             );
-            // Definite return: a function that declares a value-producing
-            // return type must exit on every path — a path that falls off the
-            // end of the body would silently produce `()` (or trap). Exempt:
-            // `Void` (fall-through is the value), `Result<Void, _>` (the
-            // fall-through is the implicit `Ok(void)` — see `emit_return`),
-            // and undetermined types (their own diagnostics explain them).
+            // Definite return: a function that declares a value-producing return
+            // type must exit on every path — a path that falls off the end of the
+            // body would silently produce `()` (or trap). Exempt: `Void`
+            // (fall-through is the value), `Result<Void, _>` (the fall-through is
+            // the implicit `Ok(void)` — see `emit_return`), and undetermined types
+            // (their own diagnostics explain them).
             if let Some(rt) = return_type {
                 if !may_complete_normally(rt, library) && !block_always_exits(body) {
                     add_error(
@@ -1225,8 +1224,8 @@ fn check_fn(
     }
 }
 
-// A bare `return;` in a value-returning function would silently return `()`
-// (same exemptions as falling off the end — see `may_complete_normally`).
+// A bare `return;` in a value-returning function would silently return `()` (same
+// exemptions as falling off the end — see `may_complete_normally`).
 fn check_bare_return(_ cc: CheckCtx, _ span: SourceSpan) -> Void {
     if let Some(rt) = cc.infer.return_type {
         if !may_complete_normally(rt, cc.infer.library) {
@@ -1239,11 +1238,11 @@ fn check_bare_return(_ cc: CheckCtx, _ span: SourceSpan) -> Void {
     }
 }
 
-// Whether a function declaring return type `rt` may complete normally — fall
-// off the end of its body, or `return;` bare. `Void` functions may by
-// definition; `Result<Void, _>` may because the fall-through wraps as the
-// implicit `Ok(void)`, mirroring the implicit-`Ok` on `return <value>`;
-// `Unknown`/bare type parameters stay lenient.
+// Whether a function declaring return type `rt` may complete normally — fall off
+// the end of its body, or `return;` bare. `Void` functions may by definition;
+// `Result<Void, _>` may because the fall-through wraps as the implicit `Ok(void)`,
+// mirroring the implicit-`Ok` on `return <value>`; `Unknown`/bare type parameters
+// stay lenient.
 fn may_complete_normally(_ rt: Type, _ lib: LibraryElement) -> Bool {
     if is_unit_type(rt) { return true; }
     return match rt {
@@ -1256,13 +1255,12 @@ fn may_complete_normally(_ rt: Type, _ lib: LibraryElement) -> Bool {
 }
 
 // Check each parameter's default value — where it is *written*, in the declaring
-// file's top-level scope: no locals, no other parameters, but this file's
-// imports and consts. That is the scope codegen expands it in at every call site
-// (`emit_default_arg`), so checking it here is what makes `check` and `emit`
-// agree: a default naming something only this file can see is legal everywhere,
-// and one naming nothing at all is an error *here*, once, rather than at each
-// call — or, as before, only from `emit`, leaving check-clean programs that
-// failed to compile.
+// file's top-level scope: no locals, no other parameters, but this file's imports
+// and consts. That is the scope codegen expands it in at every call site
+// (`emit_default_arg`), so checking it here is what makes `check` and `emit` agree:
+// a default naming something only this file can see is legal everywhere, and one
+// naming nothing at all is an error *here*, once, rather than at each call — or, as
+// before, only from `emit`, leaving check-clean programs that failed to compile.
 fn check_param_defaults(
     _ errors: List<diagnostic.Diagnostic>,
     _ fn_decl: FnDecl,
@@ -1345,16 +1343,15 @@ fn check_fn_sig(
 }
 
 // The return type is a boundary: a function that can return a *value* writes it
-// out. Omitting `-> T` is the sanctioned form only for a `Void` function, so a
-// bare `return;` or `return void;` stays legal, but `return <value>;` in a
-// function with no declared return type is a diagnostic (today it would silently
-// default to `Void` and drop the value). See language.md, "Type annotations &
-// inference".
+// out. Omitting `-> T` is the sanctioned form only for a `Void` function, so a bare
+// `return;` or `return void;` stays legal, but `return <value>;` in a function with
+// no declared return type is a diagnostic (today it would silently default to
+// `Void` and drop the value). See language.md, "Type annotations & inference".
 //
 // `cc.infer.return_type` is `None` only when the annotation was omitted — an
 // explicit `-> Void` is `Some(Void)`, and a lambda body carries its own inferred
-// return — so neither an annotated function nor a lambda trips this. Reported
-// once per function via the shared `no_return_reported` box.
+// return — so neither an annotated function nor a lambda trips this. Reported once
+// per function via the shared `no_return_reported` box.
 fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
     if cc.infer.return_type.is_some() { return; }
     if cc.no_return_reported.len() > 0 { return; }
@@ -1375,11 +1372,11 @@ fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
 }
 
 // A module-level `let`/`const` is a boundary — part of the file's surface, read
-// apart from its initializer — so its type is written out. An un-annotated
-// global is a diagnostic even though the resolver can *infer* its type from the
+// apart from its initializer — so its type is written out. An un-annotated global
+// is a diagnostic even though the resolver can *infer* its type from the
 // initializer (pass 4): inference stays under the hood so codegen never sees an
-// `Unknown` global, but the annotation is required at the source. See
-// language.md, "Type annotations & inference".
+// `Unknown` global, but the annotation is required at the source. See language.md,
+// "Type annotations & inference".
 fn check_global_annotation(
     _ errors: List<diagnostic.Diagnostic>,
     _ type_ann: Option<TypeRef>,
@@ -1413,11 +1410,10 @@ fn check_interface_decl(
         decl.methods.map((m) => m.name),
         decl.methods.map((m) => m.name_span),
     );
-    // (Method signatures — and default-method *bodies* — are checked via
-    // `check_fn` from `check_program`, with the interface itself as `self`.)
-    // Supers resolve like any bare type name — the interface this file's scope
-    // sees; a super that exists somewhere in the closure but isn't reachable
-    // here is unknown.
+    // (Method signatures — and default-method *bodies* — are checked via `check_fn`
+    // from `check_program`, with the interface itself as `self`.) Supers resolve
+    // like any bare type name — the interface this file's scope sees; a super that
+    // exists somewhere in the closure but isn't reachable here is unknown.
     let fs = file_scope(library, current_file);
     for s in decl.super_interfaces {
         match fs.resolve_type_def(element.bound_id(fs, s)) {
@@ -1431,8 +1427,8 @@ fn check_interface_decl(
             },
         }
     }
-    // Self-extension by resolved identity, so `interface I : ns.I` where `ns.I`
-    // is this very interface is caught the same as the bare spelling.
+    // Self-extension by resolved identity, so `interface I : ns.I` where `ns.I` is
+    // this very interface is caught the same as the bare spelling.
     let own_id = TypeId { owner: fs.resolve_type_owner(decl.name, Option.None), name: decl.name };
     if id_list_has(decl.super_interfaces.map((s) => element.bound_id(fs, s)), own_id)
         || extends_cycle(own_id, library) {
@@ -1469,9 +1465,9 @@ fn check_conformance(
 ) -> Void {
     let Some(iface_name) = decl.interface_name else { return; };
     let fs = file_scope(library, file);
-    // The conformance is to the interface *this file's scope* sees under the
-    // name — identity, not spelling: a same-named interface elsewhere in the
-    // closure is a different interface, with different obligations.
+    // The conformance is to the interface *this file's scope* sees under the name —
+    // identity, not spelling: a same-named interface elsewhere in the closure is a
+    // different interface, with different obligations.
     let iface_id = TypeId {
         owner: fs.resolve_type_owner(iface_name, decl.interface_namespace),
         name: iface_name,
@@ -1517,9 +1513,9 @@ fn check_conformance(
                 provided.add(m.name);
             }
             // Only the interface's *own* methods are required here; inherited
-            // super-interface methods are satisfied by implementing the super.
-            // A method with a default body is optional — the interface supplies
-            // it — though an `impl` may still override it (checked below).
+            // super-interface methods are satisfied by implementing the super. A
+            // method with a default body is optional — the interface supplies it —
+            // though an `impl` may still override it (checked below).
             for im in iface_def.methods {
                 if str_list_has(iface_def.own_methods, im.name) {
                     if !provided.contains(im.name) {
@@ -1533,8 +1529,8 @@ fn check_conformance(
                             );
                         }
                     } else {
-                        // Provided — possibly an override of a default. Either
-                        // way its signature must match the interface's.
+                        // Provided — possibly an override of a default. Either way
+                        // its signature must match the interface's.
                         if let Some(om) = find_method(owner, im.name) {
                             if !signatures_match(im, om, self_type, impl_type, iface_bindings) {
                                 add_error(
@@ -1634,9 +1630,9 @@ fn copy_muts(_ m: Map<String, Bool>) -> Map<String, Bool> {
 // The context threaded through the expression/statement check walk (CH23): the
 // shared error sink and inference context (ambient for the whole function body),
 // plus the current lexical scope — name → type and name → is-mut. The two scope
-// maps travel together and are copied together on entering a nested block, so
-// they can never desync (the hazard behind the old parallel `scope`/`muts`
-// params). Leaf checks that only read types take `cc.scope`/`cc.infer`/`cc.errors`.
+// maps travel together and are copied together on entering a nested block, so they
+// can never desync (the hazard behind the old parallel `scope`/`muts` params). Leaf
+// checks that only read types take `cc.scope`/`cc.infer`/`cc.errors`.
 struct CheckCtx {
     let errors: List<diagnostic.Diagnostic>;
     let infer: InferCtx;
@@ -1650,17 +1646,17 @@ struct CheckCtx {
     // start pre-filled so a stray `return` there never trips it.
     let no_return_reported: List<Bool>;
     // Whether the statement being checked is inside a loop body — gates the
-    // `break`/`continue`-outside-a-loop diagnostic. Set true when descending
-    // into a `for`/`while` body; a function or lambda boundary resets it to
-    // false (control can't cross a closure), so the four boundary-seeding
-    // `CheckCtx` constructions start it false.
+    // `break`/`continue`-outside-a-loop diagnostic. Set true when descending into a
+    // `for`/`while` body; a function or lambda boundary resets it to false (control
+    // can't cross a closure), so the four boundary-seeding `CheckCtx` constructions
+    // start it false.
     let in_loop: Bool;
 }
 
 impl CheckCtx {
     // A nested block's context: the scope and mutability maps copied together
-    // (block-local bindings don't leak outward), sharing the error sink,
-    // inference context, and the return-diagnostic box.
+    // (block-local bindings don't leak outward), sharing the error sink, inference
+    // context, and the return-diagnostic box.
     fn child(self) -> CheckCtx {
         return CheckCtx {
             errors: self.errors,
@@ -1673,8 +1669,8 @@ impl CheckCtx {
     }
 
     // The same context with a replaced scope (a match arm's or loop variable's
-    // scope): the mutability map is shared — a pattern/loop variable binds a
-    // type, not mutability, and any block body copies both maps anyway.
+    // scope): the mutability map is shared — a pattern/loop variable binds a type,
+    // not mutability, and any block body copies both maps anyway.
     fn with_scope(self, _ scope: Map<String, Type>) -> CheckCtx {
         return CheckCtx {
             errors: self.errors,
@@ -1686,8 +1682,8 @@ impl CheckCtx {
         };
     }
 
-    // The same context marked as inside a loop body — seeds the `in_loop` flag
-    // for a `for`/`while` body so a nested `break`/`continue` is accepted.
+    // The same context marked as inside a loop body — seeds the `in_loop` flag for
+    // a `for`/`while` body so a nested `break`/`continue` is accepted.
     fn entering_loop(self) -> CheckCtx {
         return CheckCtx {
             errors: self.errors,
@@ -1700,19 +1696,19 @@ impl CheckCtx {
     }
 }
 
-// `tail_expected` is the type the context wants the block's tail value to be —
-// an expression-position block/`if` threads its own expected type here (CH7),
-// so a lambda tail can type its parameters bidirectionally.
+// `tail_expected` is the type the context wants the block's tail value to be — an
+// expression-position block/`if` threads its own expected type here (CH7), so a
+// lambda tail can type its parameters bidirectionally.
 fn check_block(_ cc: CheckCtx, _ block: Block, tail_expected: Option<Type> = Option.None) -> Void {
-    // A block's bindings are scoped to it, so copy scope + mutability together —
-    // a `let` inside the block doesn't leak to the enclosing one.
+    // A block's bindings are scoped to it, so copy scope + mutability together — a
+    // `let` inside the block doesn't leak to the enclosing one.
     let inner = cc.child();
     let errors = inner.errors;
     let scope = inner.scope;
     let ctx = inner.infer;
-    // One binding per name per block: a second `let x` in the *same* block is
-    // an error — shadowing is legal only from a nested scope (a block, an arm,
-    // a loop body), where the inner binding visibly ends. `_` binds nothing.
+    // One binding per name per block: a second `let x` in the *same* block is an
+    // error — shadowing is legal only from a nested scope (a block, an arm, a loop
+    // body), where the inner binding visibly ends. `_` binds nothing.
     let declared: Set<String> = Set.new();
     for s in block.stmts {
         if let Let(x) = s {
@@ -1732,10 +1728,10 @@ fn check_block(_ cc: CheckCtx, _ block: Block, tail_expected: Option<Type> = Opt
         check_stmt(inner, p.value, block.stmts, p.index);
     }
     if let Some(tail) = block.tail {
-        // An else-less `if` tail has type Unit (its then-branch runs for
-        // effect). That's only an error when the then-branch actually
-        // produces a value the missing `else` couldn't supply; a
-        // side-effecting `if cond { … }` whose block is Unit is a fine tail.
+        // An else-less `if` tail has type Unit (its then-branch runs for effect).
+        // That's only an error when the then-branch actually produces a value the
+        // missing `else` couldn't supply; a side-effecting `if cond { … }` whose
+        // block is Unit is a fine tail.
         if let If(ix) = tail {
             match ix.else_block {
                 None => {
@@ -1757,16 +1753,15 @@ fn check_block(_ cc: CheckCtx, _ block: Block, tail_expected: Option<Type> = Opt
 }
 
 // warning: unused-variable — a `let` binding never referenced after its
-// declaration. Statement `let`s only: parameters and pattern bindings are
-// out of scope (their names are often fixed by a signature or an arity),
-// and module globals have cross-file consumers. `_` and `_`-prefixed names
-// are the intentional-discard escape. The use-scan reuses the
-// unused-import identifier walk, so *any* later occurrence of the name
-// counts — an assignment target, an occurrence that actually resolves to
-// an inner shadow — lenient: the rule under-reports but never flags a
-// referenced binding. One reverse pass: at each `let`, `used` holds
-// exactly the occurrences after it (uses before it can only refer to an
-// outer binding). Nested blocks run their own pass.
+// declaration. Statement `let`s only: parameters and pattern bindings are out of
+// scope (their names are often fixed by a signature or an arity), and module
+// globals have cross-file consumers. `_` and `_`-prefixed names are the
+// intentional-discard escape. The use-scan reuses the unused-import identifier
+// walk, so *any* later occurrence of the name counts — an assignment target, an
+// occurrence that actually resolves to an inner shadow — lenient: the rule
+// under-reports but never flags a referenced binding. One reverse pass: at each
+// `let`, `used` holds exactly the occurrences after it (uses before it can only
+// refer to an outer binding). Nested blocks run their own pass.
 fn check_unused_variables(_ errors: List<diagnostic.Diagnostic>, _ block: Block) -> Void {
     let used: Set<String> = Set.new();
     if let Some(t) = block.tail { used_in_expr(t, used); }
@@ -1786,12 +1781,12 @@ fn check_unused_variables(_ errors: List<diagnostic.Diagnostic>, _ block: Block)
     }
 }
 
-// warning: unreachable-code — code after a statement that always transfers
-// control (`return`/`throw`, a `break`/`continue`, an `if` whose branches all
-// exit, a break-less `while true`) never runs. One warning per block, on the
-// first dead statement (or the dead tail expression); nested blocks report
-// their own. Reuses `stmt_always_exits`, so it inherits its lenient
-// direction: a statement that only *might* exit never triggers this.
+// warning: unreachable-code — code after a statement that always transfers control
+// (`return`/`throw`, a `break`/`continue`, an `if` whose branches all exit, a
+// break-less `while true`) never runs. One warning per block, on the first dead
+// statement (or the dead tail expression); nested blocks report their own. Reuses
+// `stmt_always_exits`, so it inherits its lenient direction: a statement that only
+// *might* exit never triggers this.
 fn check_unreachable_code(_ errors: List<diagnostic.Diagnostic>, _ block: Block) -> Void {
     for p in block.stmts.enumerate() {
         let ends = stmt_always_exits(p.value) || match p.value {
@@ -1840,8 +1835,8 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
             check_expr(cc, x.value, annotated);
             let actual = infer_expr(x.value, scope, ctx, annotated);
             // `let _ = …` evaluates and discards: no binding, no forward-flow
-            // refinement, no name record — the annotation (if any) is still
-            // checked against the value.
+            // refinement, no name record — the annotation (if any) is still checked
+            // against the value.
             if x.name == '_' {
                 if let Some(a) = annotated {
                     expect_type(errors, actual, a, 'binding \'_\'', x.span, ctx.library);
@@ -1901,10 +1896,10 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
                     }
                 },
                 Field(_, obj, field) => {
-                    // Assigning a struct field requires the field to be `mut`
-                    // (only the last field of a chain — `a.b.c = …` mutates the
-                    // object `a.b` points at). An index target mutates a
-                    // collection, not a field, so it is not checked here.
+                    // Assigning a struct field requires the field to be `mut` (only
+                    // the last field of a chain — `a.b.c = …` mutates the object
+                    // `a.b` points at). An index target mutates a collection, not a
+                    // field, so it is not checked here.
                     let recv = infer_expr(obj, scope, ctx, Option.None);
                     if struct_field_immutable(recv, field.name, ctx) {
                         add_error(
@@ -1916,8 +1911,8 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
                 },
                 _ => void,
             }
-            // The assignment target's type is the expected type for the value, so
-            // a generic constructor on the RHS (`s = Set.new()`, `m[k] = Set.new()`,
+            // The assignment target's type is the expected type for the value, so a
+            // generic constructor on the RHS (`s = Set.new()`, `m[k] = Set.new()`,
             // `obj.field = ...`) takes its type parameters from the target rather
             // than being flagged as uninferable. `infer_expr` of an lvalue yields
             // exactly that type — a local's, a list element's / map value's, or a
@@ -1950,8 +1945,8 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
         },
         For(x) => {
             // A range iterable is checked here (bounds only) rather than via
-            // `check_expr`, whose `Range` arm rejects a range outside a
-            // for-loop head — this *is* the one valid position.
+            // `check_expr`, whose `Range` arm rejects a range outside a for-loop
+            // head — this *is* the one valid position.
             match x.iterable {
                 Range(_, start, end) => { check_range_bounds(cc, start, end); },
                 _ => {
@@ -2003,10 +1998,10 @@ fn check_expr(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> Void {
     record_type(expr, cc.scope, cc.infer, expected);
 }
 
-// Record `expr`'s committed type, first-write-wins. The walk visits each real
-// node exactly once with the correct expected type, so a second write can only
-// come from a transient re-synthesis (the compound-assign Binary) — the first
-// value stands. Synthesized desugar nodes (zero-length spans, PA6) are skipped.
+// Record `expr`'s committed type, first-write-wins. The walk visits each real node
+// exactly once with the correct expected type, so a second write can only come from
+// a transient re-synthesis (the compound-assign Binary) — the first value stands.
+// Synthesized desugar nodes (zero-length spans, PA6) are skipped.
 fn record_type(
     _ expr: Expr,
     _ scope: Map<String, Type>,
@@ -2028,10 +2023,10 @@ fn record_type(
     }
 }
 
-// A deliberate post-commit update: the `let` arm overwrites its value's record
-// with the forward-flow-refined binding type, and stamps the binding's name
-// span (a declaration site, never an expression span) for type-at queries. The
-// sink keeps both entries; the later one supersedes.
+// A deliberate post-commit update: the `let` arm overwrites its value's record with
+// the forward-flow-refined binding type, and stamps the binding's name span (a
+// declaration site, never an expression span) for type-at queries. The sink keeps
+// both entries; the later one supersedes.
 fn set_record(_ span: SourceSpan, _ t: Type, _ ctx: InferCtx) -> Void {
     if span.length == 0 { return; }
     ctx.types[span_key(span)] = t;
@@ -2044,19 +2039,19 @@ fn set_record(_ span: SourceSpan, _ t: Type, _ ctx: InferCtx) -> Void {
 }
 
 // `muts` is the enclosing statement context's mutability map, threaded through
-// every sub-expression so an assignment inside an expression-position block or
-// `if` is immutability-checked like any other (CH18: these used to get a fresh
-// empty map, so `let y = if c { x = 5; 1 } else { 2 }` escaped the check).
-// Callers with no statement context (initializers, lambda bodies — a function
-// boundary with its own tracking) omit it; untracked names stay lenient.
+// every sub-expression so an assignment inside an expression-position block or `if`
+// is immutability-checked like any other (CH18: these used to get a fresh empty
+// map, so `let y = if c { x = 5; 1 } else { 2 }` escaped the check). Callers with
+// no statement context (initializers, lambda bodies — a function boundary with its
+// own tracking) omit it; untracked names stay lenient.
 fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> Void {
     let errors = cc.errors;
     let scope = cc.scope;
     let ctx = cc.infer;
     match expr {
         Ident(span, name) => {
-            // A bare name that isn't legal in this file is either qualifiable via an
-            // import (a "qualify as `ns.name`" hint) or genuinely undefined.
+            // A bare name that isn't legal in this file is either qualifiable via
+            // an import (a "qualify as `ns.name`" hint) or genuinely undefined.
             if !is_defined_name(name, scope, ctx) {
                 match qualifying_namespace(name, ctx.library, ctx.current_file) {
                     Some(ns) => add_error(
@@ -2081,10 +2076,10 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             check_recv_type_args(errors, x, ctx);
             // Infer each argument ONCE, with its expected type, and hand the
             // resulting types to every downstream validator — argument typing,
-            // bound checking, and inferability all see the *same* types the
-            // call was checked with (CH19: previously each re-inferred, up to
-            // five walks per argument, and check_bounds inferred with no
-            // expected type — different types than were checked).
+            // bound checking, and inferability all see the *same* types the call
+            // was checked with (CH19: previously each re-inferred, up to five walks
+            // per argument, and check_bounds inferred with no expected type —
+            // different types than were checked).
             let expected_params = expected_arg_types(x.callee, x.args, scope, ctx);
             let arg_types: List<Type> = [];
             for p in x.args.enumerate() {
@@ -2123,8 +2118,8 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                             // Explicit type arguments need a generic *function*
                             // callee — a local value can't be generic. The
                             // `a < b > (c)` comparison misparse commits to this
-                            // call shape (PA3): make it a located error rather
-                            // than a silent trap at runtime.
+                            // call shape (PA3): make it a located error rather than
+                            // a silent trap at runtime.
                             if x.type_args.len() > 0 && scope.has(name) {
                                 add_error(
                                     errors,
@@ -2154,12 +2149,12 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                 },
                 Field(_, recv, fid) => {
                     let field = fid.name;
-                    // A namespace function (`ns.fn`) or static method (`Type.m`)
-                    // is a free-function-style call: validate its arguments and
+                    // A namespace function (`ns.fn`) or static method (`Type.m`) is
+                    // a free-function-style call: validate its arguments and
                     // diagnose an unpinnable return-only type parameter, like a
-                    // bare call. Otherwise it's a value-receiver method.
-                    // First, the qualified-access surface check: a `ns.fn` (or the
-                    // `ns.Type` of a `ns.Type.method()`) must name a public member.
+                    // bare call. Otherwise it's a value-receiver method. First, the
+                    // qualified-access surface check: a `ns.fn` (or the `ns.Type`
+                    // of a `ns.Type.method()`) must name a public member.
                     check_qualified_receiver(errors, recv, field, fid.span, scope, ctx);
                     match resolve_ns_or_static_call(recv, field, scope, ctx) {
                         Some(target) => {
@@ -2185,8 +2180,8 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                         None => {
                             let recv_type = infer_expr(recv, scope, ctx, Option.None);
                             match lookup_method(recv_type, field, x.args.len(), ctx) {
-                                // Resolved — validate its arguments (arity,
-                                // labels, types) against the signature.
+                                // Resolved — validate its arguments (arity, labels,
+                                // types) against the signature.
                                 Method(res) => check_call_args(
                                     errors,
                                     res.method,
@@ -2217,7 +2212,8 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             let field = fid.name;
             check_expr(cc, object, Option.None);
             match namespace_of_access(object, scope, ctx) {
-                // A qualified `ns.member`: the member must be in ns's public surface.
+                // A qualified `ns.member`: the member must be in ns's public
+                // surface.
                 Some(ns) => {
                     check_member_visible(
                         errors,
@@ -2228,9 +2224,10 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                         ctx.current_file,
                     );
                 },
-                // An ordinary receiver: flag a field its (known) struct type doesn't
-                // declare. Conservative: only a definitive miss on a resolved struct
-                // value is an error (`Enum.Variant` etc. have a non-struct recv).
+                // An ordinary receiver: flag a field its (known) struct type
+                // doesn't declare. Conservative: only a definitive miss on a
+                // resolved struct value is an error (`Enum.Variant` etc. have a
+                // non-struct recv).
                 None => {
                     let recv = infer_expr(object, scope, ctx, Option.None);
                     if struct_field_missing(recv, field, ctx) {
@@ -2240,10 +2237,10 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                             fid.span,
                         );
                     } else {
-                        // A bare field access on a primitive value (`5.x`, `true.y`):
-                        // primitives have methods, not fields. A method call like
-                        // `5.to_double()` is a `Call` (handled above), not this
-                        // bare-Field case, so it is unaffected.
+                        // A bare field access on a primitive value (`5.x`,
+                        // `true.y`): primitives have methods, not fields. A method
+                        // call like `5.to_double()` is a `Call` (handled above),
+                        // not this bare-Field case, so it is unaffected.
                         if let Primitive(_) = recv {
                             add_error(
                                 errors,
@@ -2259,10 +2256,10 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             check_expr(cc, object, Option.None);
             check_expr(cc, index, Option.None);
             // Only `List` and `Map` are indexable (this covers `a[i] = v`
-            // assignment targets too — the target routes through here). A
-            // String is UTF-8 and not integer-indexable (it could split a
-            // multi-byte character) and keeps its tailored hint; anything else
-            // was an emit-only error. Lenient on an undetermined receiver.
+            // assignment targets too — the target routes through here). A String is
+            // UTF-8 and not integer-indexable (it could split a multi-byte
+            // character) and keeps its tailored hint; anything else was an
+            // emit-only error. Lenient on an undetermined receiver.
             let recv = infer_expr(object, scope, ctx, Option.None);
             match recv {
                 Primitive(p) => match p {
@@ -2311,10 +2308,10 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
         },
         Range(span, start, end) => {
             check_range_bounds(cc, start, end);
-            // A range is not a value — the only valid position is a for-loop
-            // head, which checks its bounds directly (above) and never routes
-            // here. Reaching this arm means the range is somewhere else (a
-            // `let`, an argument, …): a check error, not an emit-only one.
+            // A range is not a value — the only valid position is a for-loop head,
+            // which checks its bounds directly (above) and never routes here.
+            // Reaching this arm means the range is somewhere else (a `let`, an
+            // argument, …): a check error, not an emit-only one.
             add_error(errors, 'a range is only valid as a for-loop iterable', span);
         },
         ListLit(_, items) => {
@@ -2324,8 +2321,8 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             // A list literal is homogeneous: every element must be assignable to
             // the element type. That type is the context's expected `List<E>` when
             // there is one (so a `List<Display>` holds mixed impls), else the first
-            // element's inferred type. Without this, `[1, 'two']` infers `List<Int>`
-            // and the bad tail traps at runtime.
+            // element's inferred type. Without this, `[1, 'two']` infers
+            // `List<Int>` and the bad tail traps at runtime.
             if items.len() > 0 {
                 let elem = expected_type_arg(expected, 'List', 0)
                     .unwrap_or_else(() => infer_expr(items[0], scope, ctx, Option.None));
@@ -2340,8 +2337,9 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                 check_expr(cc, entry.key, Option.None);
                 check_expr(cc, entry.value, Option.None);
             }
-            // Homogeneous keys and values, against the expected `Map<K, V>` when the
-            // context supplies one, else the first entry's inferred key/value types.
+            // Homogeneous keys and values, against the expected `Map<K, V>` when
+            // the context supplies one, else the first entry's inferred key/value
+            // types.
             if entries.len() > 0 {
                 let kref = expected_type_arg(expected, 'Map', 0)
                     .unwrap_or_else(() => infer_expr(entries[0].key, scope, ctx, Option.None));
@@ -2359,7 +2357,8 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             // The constructed type must be reachable: a bare literal names a type
             // the file can see, a qualified `ns.Point { … }` names a public member
             // of `ns`. Gate it like any other named type so an unreachable/un-
-            // imported type isn't silently resolved against the closure's flat table.
+            // imported type isn't silently resolved against the closure's flat
+            // table.
             check_named_type(
                 errors,
                 x.type_name,
@@ -2396,9 +2395,9 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                         }
                         check_expr(cc, fi.value, element.fields.get(fi.name));
                     }
-                    // Every declared field must be provided — a `check`
-                    // diagnostic, not (only) a codegen failure, so the
-                    // analyzer/LSP sees it too. Same message as codegen's.
+                    // Every declared field must be provided — a `check` diagnostic,
+                    // not (only) a codegen failure, so the analyzer/LSP sees it
+                    // too. Same message as codegen's.
                     for fname in element.fields.keys() {
                         if !given.contains(fname) {
                             add_error(
@@ -2433,10 +2432,10 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
         Str(_, parts) => {
             for part in parts {
                 if let Interp(_, e) = part {
-                    // Total rendering: interpolation works for any value —
-                    // its `Display` if it has one, else the auto-derived
-                    // `Debug` (which every type carries). So no Display
-                    // requirement here; just check the interpolated expression.
+                    // Total rendering: interpolation works for any value — its
+                    // `Display` if it has one, else the auto-derived `Debug` (which
+                    // every type carries). So no Display requirement here; just
+                    // check the interpolated expression.
                     check_expr(cc, e, Option.None);
                 }
             }
@@ -2459,8 +2458,8 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             if let Some(eb) = x.else_block {
                 check_block(cc, eb, tail_expected: expected);
                 // An `if` in expression position is a value: its branches must
-                // agree, exactly like match arms (a value-less branch — Unit, or
-                // a bare return/throw — is exempt). Previously never unified:
+                // agree, exactly like match arms (a value-less branch — Unit, or a
+                // bare return/throw — is exempt). Previously never unified:
                 // `let x = if c { 1 } else { 'a' }` checked clean and `x` held a
                 // String on the else path.
                 let then_type = infer_block(x.then_block, scope, ctx, expected);
@@ -2533,8 +2532,8 @@ fn check_lambda(_ cc: CheckCtx, _ x: LambdaExpr, _ expected: Option<Type>) -> Vo
         lambda_scope[p.name] = pt;
     }
     // A `return` inside the lambda returns from the lambda, so check the body
-    // against the lambda's own return type (inferred from the body) rather than
-    // the enclosing function's. A lambda-vs-expected-signature mismatch is caught
+    // against the lambda's own return type (inferred from the body) rather than the
+    // enclosing function's. A lambda-vs-expected-signature mismatch is caught
     // separately at the call site.
     let lambda_return = lambda_body_type(
         x.body,
@@ -2544,9 +2543,9 @@ fn check_lambda(_ cc: CheckCtx, _ x: LambdaExpr, _ expected: Option<Type>) -> Vo
     );
     let body_ctx = with_return_type(ctx, lambda_return);
     // A lambda is a function boundary: its body has its own scope and fresh
-    // mutability tracking, and the lambda's inferred return context.
-    // A lambda body carries its own inferred return type (`body_ctx` above), so
-    // the missing-return diagnostic never applies here; a fresh box keeps it
+    // mutability tracking, and the lambda's inferred return context. A lambda body
+    // carries its own inferred return type (`body_ctx` above), so the
+    // missing-return diagnostic never applies here; a fresh box keeps it
     // independent of the enclosing function's.
     let body_cc = CheckCtx {
         errors: errors,
@@ -2575,8 +2574,8 @@ fn check_match(_ cc: CheckCtx, _ x: MatchExpr, _ expected: Option<Type>) -> Void
     let arm_types: List<Type> = [];
     for arm in x.arms {
         validate_pattern(errors, arm.pattern, subject_type, Set.new(), ctx);
-        // The arm's pattern bindings extend a fresh scope; mutability tracking
-        // is shared (a pattern binds a type, not mutability — CH18).
+        // The arm's pattern bindings extend a fresh scope; mutability tracking is
+        // shared (a pattern binds a type, not mutability — CH18).
         let arm_cc = cc.with_scope(copy_scope(scope));
         bind_match_pattern(arm.pattern, subject_type, arm_cc.scope, ctx);
         check_expr(arm_cc, arm.body, expected);
@@ -2589,15 +2588,14 @@ fn check_match(_ cc: CheckCtx, _ x: MatchExpr, _ expected: Option<Type>) -> Void
     check_unreachable_arms(errors, x, subject_type, ctx);
 }
 
-// A value-producing match must produce the value from *every* path. The
-// `unify_arm` exemption for value-less arms covers two very different things:
-// a *diverging* arm (`return`/`throw` — exits the function, genuinely fine)
-// and a plain `Void` arm (`=> void`, `=> {}` — which **does** flow its unit
-// value out, and traps only at the use site, e.g. `map.len: expected map`).
-// Once the reference type shows the match produces a value (an annotated
-// context, or any value-producing arm), flag each non-diverging `Void` arm.
-// Source matches only: a desugared statement `if let` fabricates a Unit
-// wildcard arm by design (its value is discarded).
+// A value-producing match must produce the value from *every* path. The `unify_arm`
+// exemption for value-less arms covers two very different things: a *diverging* arm
+// (`return`/`throw` — exits the function, genuinely fine) and a plain `Void` arm
+// (`=> void`, `=> {}` — which **does** flow its unit value out, and traps only at
+// the use site, e.g. `map.len: expected map`). Once the reference type shows the
+// match produces a value (an annotated context, or any value-producing arm), flag
+// each non-diverging `Void` arm. Source matches only: a desugared statement
+// `if let` fabricates a Unit wildcard arm by design (its value is discarded).
 fn check_void_arms(
     _ errors: List<diagnostic.Diagnostic>,
     _ x: MatchExpr,
@@ -2613,8 +2611,8 @@ fn check_void_arms(
     if !produces_value(reference) {
         return;
     }
-    // A bare, unbound type parameter demands nothing yet — it can still bind
-    // to `Unit` (e.g. a match as the body of a lambda passed to a generic
+    // A bare, unbound type parameter demands nothing yet — it can still bind to
+    // `Unit` (e.g. a match as the body of a lambda passed to a generic
     // `fiber.spawn(() -> T)`), so it is lenient here, like `Unknown`.
     if let TypeParameter(_) = reference {
         return;
@@ -2641,11 +2639,11 @@ fn is_unit_type(_ t: Type) -> Bool {
 }
 
 // Whether an expression is guaranteed to exit the enclosing function —
-// `return`/`throw` directly, a block that ends in one, or an `if`/`match` all
-// of whose paths do. Conservative in the safe-to-flag direction: a body that
-// only *sometimes* exits flows its value out on the other paths, so it does
-// not count as exiting. (A tail-less block infers `Unit` whether or not it
-// exits — `{ return v; }` — so `check_void_arms` needs this syntactic view.)
+// `return`/`throw` directly, a block that ends in one, or an `if`/`match` all of
+// whose paths do. Conservative in the safe-to-flag direction: a body that only
+// *sometimes* exits flows its value out on the other paths, so it does not count as
+// exiting. (A tail-less block infers `Unit` whether or not it exits —
+// `{ return v; }` — so `check_void_arms` needs this syntactic view.)
 fn expr_always_exits(_ e: Expr) -> Bool {
     return match e {
         Return(_, _) => true,
@@ -2686,10 +2684,10 @@ fn stmt_always_exits(_ s: Stmt) -> Bool {
             Some(eb) => block_always_exits(ix.then_block) && block_always_exits(eb),
             None => false,
         },
-        // `while true { … }` completes normally only through a `break` at its
-        // own level. The break scan over-approximates in the lenient direction:
-        // a `break` buried somewhere it doesn't look (a `let` initializer
-        // block) makes the loop count as completing, never the reverse.
+        // `while true { … }` completes normally only through a `break` at its own
+        // level. The break scan over-approximates in the lenient direction: a
+        // `break` buried somewhere it doesn't look (a `let` initializer block)
+        // makes the loop count as completing, never the reverse.
         While(wx) => match wx.condition {
             Bool(_, b) => b && !block_has_break(wx.body),
             _ => false,
@@ -2698,9 +2696,9 @@ fn stmt_always_exits(_ s: Stmt) -> Bool {
     };
 }
 
-// Whether a block contains a `break` belonging to the *enclosing* loop — a
-// `break` inside a nested `while`/`for` exits that loop, so those bodies are
-// not descended into.
+// Whether a block contains a `break` belonging to the *enclosing* loop — a `break`
+// inside a nested `while`/`for` exits that loop, so those bodies are not descended
+// into.
 fn block_has_break(_ b: Block) -> Bool {
     for s in b.stmts {
         if stmt_has_break(s) {
@@ -2737,18 +2735,18 @@ fn expr_has_break(_ e: Expr) -> Bool {
     };
 }
 
-// A constructor pattern must name a variant of its (known-enum) subject, and
-// bind exactly that variant's field count; its payload sub-patterns are
-// validated against the variant's field types. The checker analogue of
-// codegen's `variant_tag` error, so a typo'd variant (`Rd` — a capitalized
-// bare pattern parses as a zero-arg constructor) is a located `check`
-// diagnostic rather than a codegen-only failure — and a bare `Some` (0 args)
-// or `Two(a)` (too few) is an arity error rather than a silent partial bind
-// or an `enum.get` trap. A literal pattern's type must be able to equal the
-// subject's (CH17: `match n { 'x' => … }` on an Int can never match). An
-// `Ident` is always a binding (uppercase-first parses as `Constructor`);
-// binding the same name twice in one pattern is an error (`bound` accumulates
-// across the arm's whole pattern). Non-enum and unknown subjects stay lenient.
+// A constructor pattern must name a variant of its (known-enum) subject, and bind
+// exactly that variant's field count; its payload sub-patterns are validated
+// against the variant's field types. The checker analogue of codegen's
+// `variant_tag` error, so a typo'd variant (`Rd` — a capitalized bare pattern
+// parses as a zero-arg constructor) is a located `check` diagnostic rather than a
+// codegen-only failure — and a bare `Some` (0 args) or `Two(a)` (too few) is an
+// arity error rather than a silent partial bind or an `enum.get` trap. A literal
+// pattern's type must be able to equal the subject's (CH17: `match n { 'x' => … }`
+// on an Int can never match). An `Ident` is always a binding (uppercase-first
+// parses as `Constructor`); binding the same name twice in one pattern is an error
+// (`bound` accumulates across the arm's whole pattern). Non-enum and unknown
+// subjects stay lenient.
 fn validate_pattern(
     _ errors: List<diagnostic.Diagnostic>,
     _ pattern: Pattern,
@@ -2796,8 +2794,8 @@ fn validate_pattern(
             }
         },
         Literal(span, lit) => {
-            // A literal's type never depends on local bindings, so an empty
-            // scope suffices. Lenient both ways: an unresolved literal type
+            // A literal's type never depends on local bindings, so an empty scope
+            // suffices. Lenient both ways: an unresolved literal type
             // (`Pattern.Literal` can wrap richer exprs) or subject stays quiet.
             let lt = infer_expr(lit, [:], ctx, Option.None);
             if !is_lenient_operand(lt) && !is_lenient_operand(subject)
@@ -2830,14 +2828,14 @@ fn variant_of(_ def: TypeDefElement, _ name: String) -> Option<EnumVariantElemen
 
 // ---- match exhaustiveness ----
 //
-// Codegen *assumes* an exhaustive match — the last arm compiles as the
-// always-taken default — so a non-exhaustive match silently ran its last arm
-// on an uncovered value, or extracted payload fields from the wrong variant
-// and trapped. A match is exhaustive when it has a catch-all arm (`_`, or an
-// identifier that isn't one of the subject's variants and so binds anything);
-// an enum subject may instead cover every variant, and a Bool subject both
-// literals. Any other subject (Int, String, …) can't be enumerated and needs
-// the catch-all. Conservative on Unknown / type-parameter subjects.
+// Codegen *assumes* an exhaustive match — the last arm compiles as the always-taken
+// default — so a non-exhaustive match silently ran its last arm on an uncovered
+// value, or extracted payload fields from the wrong variant and trapped. A match is
+// exhaustive when it has a catch-all arm (`_`, or an identifier that isn't one of
+// the subject's variants and so binds anything); an enum subject may instead cover
+// every variant, and a Bool subject both literals. Any other subject (Int, String,
+// …) can't be enumerated and needs the catch-all. Conservative on Unknown /
+// type-parameter subjects.
 fn check_exhaustive(
     _ errors: List<diagnostic.Diagnostic>,
     _ x: MatchExpr,
@@ -2852,8 +2850,8 @@ fn check_exhaustive(
         match arm.pattern {
             Wildcard(_) => { return; },
             Ident(_, name) => {
-                // A bare variant name covers that variant; any other identifier
-                // is a binding and matches everything (codegen's rule).
+                // A bare variant name covers that variant; any other identifier is
+                // a binding and matches everything (codegen's rule).
                 if variants.contains(name) {
                     covered.add(name);
                 } else {
@@ -2899,16 +2897,15 @@ fn check_exhaustive(
     );
 }
 
-// warning: unreachable-arm — an arm no value can reach: any arm after a
-// catch-all (`_`, or a binding — and full coverage counts: every enum
-// variant matched, or `true` and `false` on a Bool subject), a variant
-// already fully matched by an earlier arm (a bare name, or a constructor
-// whose sub-patterns all bind — sub-position identifiers always bind,
-// codegen's rule), or a literal repeated from an earlier arm. A *refutable*
-// constructor arm (`Some(1)`) claims nothing, so later arms for its variant
-// stay reachable — the rule under-reports but never flags a live arm.
-// Source matches only: `if let` / `let … else` fabricate their own
-// wildcard arm by design.
+// warning: unreachable-arm — an arm no value can reach: any arm after a catch-all
+// (`_`, or a binding — and full coverage counts: every enum variant matched, or
+// `true` and `false` on a Bool subject), a variant already fully matched by an
+// earlier arm (a bare name, or a constructor whose sub-patterns all bind —
+// sub-position identifiers always bind, codegen's rule), or a literal repeated from
+// an earlier arm. A *refutable* constructor arm (`Some(1)`) claims nothing, so
+// later arms for its variant stay reachable — the rule under-reports but never
+// flags a live arm. Source matches only: `if let` / `let … else` fabricate their
+// own wildcard arm by design.
 fn check_unreachable_arms(
     _ errors: List<diagnostic.Diagnostic>,
     _ x: MatchExpr,
@@ -2984,8 +2981,8 @@ fn check_unreachable_arms(
 }
 
 // Whether a *sub-position* pattern matches unconditionally. An identifier in
-// sub-position always binds (never a variant test — `emit_pattern`'s rule),
-// so only literals and constructors are refutable.
+// sub-position always binds (never a variant test — `emit_pattern`'s rule), so only
+// literals and constructors are refutable.
 fn pattern_is_irrefutable(_ p: Pattern) -> Bool {
     return match p {
         Wildcard(_) => true,
@@ -2994,9 +2991,9 @@ fn pattern_is_irrefutable(_ p: Pattern) -> Bool {
     };
 }
 
-// A dedup key for a literal pattern's value, or None when the literal can't
-// be keyed statically (an interpolated string). Kind-prefixed so values of
-// different types never collide.
+// A dedup key for a literal pattern's value, or None when the literal can't be
+// keyed statically (an interpolated string). Kind-prefixed so values of different
+// types never collide.
 fn literal_key(_ e: Expr) -> Option<String> {
     return match e {
         Int(_, v) => Option.Some('i:${v}'),
@@ -3030,12 +3027,12 @@ fn enum_variant_names(_ subject: Type, _ ctx: InferCtx) -> List<String> {
     return [];
 }
 
-// Fold one arm's type into the running match type, flagging an incompatibility.
-// A value-less arm (`Unit` block, or `Unknown` from a bare `return`/`throw`) is
-// exempt and leaves the reference unchanged; the first value-producing arm (or
-// the `expected` type) sets the reference every later value arm must match.
-// (`check_void_arms` then splits the exemption: a *non-diverging* `Void` arm in
-// a value-producing match is flagged after the fold.)
+// Fold one arm's type into the running match type, flagging an incompatibility. A
+// value-less arm (`Unit` block, or `Unknown` from a bare `return`/`throw`) is
+// exempt and leaves the reference unchanged; the first value-producing arm (or the
+// `expected` type) sets the reference every later value arm must match.
+// (`check_void_arms` then splits the exemption: a *non-diverging* `Void` arm in a
+// value-producing match is flagged after the fold.)
 fn unify_arm(
     _ errors: List<diagnostic.Diagnostic>,
     _ reference: Type,
@@ -3117,9 +3114,9 @@ fn check_call_args(
     let matched = params_for_args(params, args);
     for ip in args.enumerate() {
         if let Some(p) = matched[ip.index] {
-            // Receiver generics make the parameter concrete (a method's `T`
-            // becomes the receiver's element); for a free function `bindings`
-            // is empty and this is a no-op.
+            // Receiver generics make the parameter concrete (a method's `T` becomes
+            // the receiver's element); for a free function `bindings` is empty and
+            // this is a no-op.
             let pty = substitute(p.ty, bindings);
             let actual = if ip.index < arg_types.len() {
                 arg_types[ip.index]
@@ -3139,13 +3136,13 @@ fn check_call_args(
 }
 
 // Enforce generic-call consistency at a call site: infer each type parameter's
-// binding from the arguments — diagnosing an argument whose binding conflicts
-// with an earlier one (CH10: `f<T>(a: T, b: T)` called as `f(1, 'a')`) — then
-// check each bound binding satisfies every declared interface bound
-// (`fn f<T: Display>(x: T)` rejects `f(5)`). Conflict detection is as lenient
-// as the rest of inference: an `Unknown` or still-generic binding never
-// conflicts, and cross-direction assignability (interface subtyping) counts as
-// agreement — first-binding-wins semantics elsewhere are unchanged.
+// binding from the arguments — diagnosing an argument whose binding conflicts with
+// an earlier one (CH10: `f<T>(a: T, b: T)` called as `f(1, 'a')`) — then check each
+// bound binding satisfies every declared interface bound (`fn f<T: Display>(x: T)`
+// rejects `f(5)`). Conflict detection is as lenient as the rest of inference: an
+// `Unknown` or still-generic binding never conflicts, and cross-direction
+// assignability (interface subtyping) counts as agreement — first-binding-wins
+// semantics elsewhere are unchanged.
 fn check_bounds(
     _ errors: List<diagnostic.Diagnostic>,
     _ fn_el: FunctionElement,
@@ -3163,10 +3160,10 @@ fn check_bounds(
     let bound_at: Map<String, SourceSpan> = [:];
     for ip in args.enumerate() {
         if let Some(p) = matched[ip.index] {
-            // Make receiver generics concrete first, so unification recovers
-            // only the callee's *own* type parameters (those carrying bounds).
-            // The argument types are the ones the call was checked with — not a
-            // fresh expected-free re-inference (the CH19 divergence).
+            // Make receiver generics concrete first, so unification recovers only
+            // the callee's *own* type parameters (those carrying bounds). The
+            // argument types are the ones the call was checked with — not a fresh
+            // expected-free re-inference (the CH19 divergence).
             let actual = if ip.index < arg_types.len() {
                 arg_types[ip.index]
             } else { Type.Unknown };
@@ -3213,9 +3210,9 @@ fn check_bounds(
     }
 }
 
-// Validate the receiver type arguments of a static call (`Set<String>.new()`):
-// each must be a known type, the count must match the receiver type's parameters,
-// and each must satisfy that parameter's bounds.
+// Validate the receiver type arguments of a static call (`Set<String>.new()`): each
+// must be a known type, the count must match the receiver type's parameters, and
+// each must satisfy that parameter's bounds.
 fn check_recv_type_args(
     _ errors: List<diagnostic.Diagnostic>,
     _ x: CallExpr,
@@ -3262,12 +3259,12 @@ fn check_recv_type_args(
 }
 
 // Diagnose a generic call whose type can't be inferred: a callee type parameter
-// that appears in the *return* type but isn't pinned by an explicit type
-// argument, an argument, or the expected type. That `T` only shows up in the
-// result, so without context it stays an undetermined hole — ask for an
-// annotation rather than letting it propagate silently (the analogue of the
-// lambda-parameter "cannot infer" diagnostic). A parameter that appears in a
-// parameter position is bound by its argument and so never reported here.
+// that appears in the *return* type but isn't pinned by an explicit type argument,
+// an argument, or the expected type. That `T` only shows up in the result, so
+// without context it stays an undetermined hole — ask for an annotation rather than
+// letting it propagate silently (the analogue of the lambda-parameter "cannot
+// infer" diagnostic). A parameter that appears in a parameter position is bound by
+// its argument and so never reported here.
 fn check_inferable_type_args(
     _ errors: List<diagnostic.Diagnostic>,
     _ fn_el: FunctionElement,
@@ -3280,11 +3277,10 @@ fn check_inferable_type_args(
     if type_params.len() == 0 {
         return;
     }
-    // `arg_types` is the Call arm's one bidirectional inference of the
-    // arguments (a lambda's parameter types come from the callee's signature,
-    // pinning the type parameters it determines) — reused here rather than
-    // re-derived (CH19).
-    // The parameters not declared by the callee itself are the owner's (a static
+    // `arg_types` is the Call arm's one bidirectional inference of the arguments (a
+    // lambda's parameter types come from the callee's signature, pinning the type
+    // parameters it determines) — reused here rather than re-derived (CH19). The
+    // parameters not declared by the callee itself are the owner's (a static
     // method's `Set<T>`); receiver type args (`Set<String>.new()`) bind those.
     let owner_params: List<String> = [];
     for p in type_params {
@@ -3321,12 +3317,12 @@ fn check_inferable_type_args(
     }
 }
 
-// Enforce a generic type's own parameter bounds (`type Box<T: Display>`) against the
-// type arguments supplied to it — at an annotation (`Box<NoShow>`) or a construction
-// (`Box { … }`, where the arguments are inferred from the fields). Lenient like
-// `satisfies_bound`: an `Unknown` or still-generic (`TypeParameter`) argument is
-// accepted — propagating a bound onto an enclosing function's own type parameter is
-// a separate, not-yet-done step (see roadmap.md).
+// Enforce a generic type's own parameter bounds (`type Box<T: Display>`) against
+// the type arguments supplied to it — at an annotation (`Box<NoShow>`) or a
+// construction (`Box { … }`, where the arguments are inferred from the fields).
+// Lenient like `satisfies_bound`: an `Unknown` or still-generic (`TypeParameter`)
+// argument is accepted — propagating a bound onto an enclosing function's own type
+// parameter is a separate, not-yet-done step (see roadmap.md).
 fn check_type_arg_bounds(
     _ errors: List<diagnostic.Diagnostic>,
     _ def: TypeDefElement,
@@ -3352,10 +3348,10 @@ fn check_type_arg_bounds(
     }
 }
 
-// Whether `t` is a primitive that *declares* `bound` (`impl Doubler for Int`)
-// and was still rejected by `satisfies_bound` — the dispatch limitation, not a
-// missing impl. The bound diagnostics use this to say *why* the declared impl
-// doesn't count, instead of a baffling "does not implement".
+// Whether `t` is a primitive that *declares* `bound` (`impl Doubler for Int`) and
+// was still rejected by `satisfies_bound` — the dispatch limitation, not a missing
+// impl. The bound diagnostics use this to say *why* the declared impl doesn't
+// count, instead of a baffling "does not implement".
 fn primitive_bound_undispatchable(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
     if let Primitive(_) = t {
         let name = type_to_string(t);
@@ -3367,8 +3363,8 @@ fn primitive_bound_undispatchable(_ t: Type, _ bound: TypeId, _ lib: LibraryElem
     return false;
 }
 
-// The refinement appended to a bound-miss diagnostic when the miss is the
-// primitive dispatch limitation (see `primitive_bound_undispatchable`).
+// The refinement appended to a bound-miss diagnostic when the miss is the primitive
+// dispatch limitation (see `primitive_bound_undispatchable`).
 fn bound_miss_note(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> String {
     if primitive_bound_undispatchable(t, bound, lib) {
         return ' — an impl on a primitive type cannot be reached through a bound yet;'
@@ -3381,27 +3377,27 @@ fn bound_miss_note(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> String 
 // Whether `t` satisfies interface `bound` — by *identity*: a conformance to one
 // library's `Shape` never satisfies another's, and the `Eq`/`Debug` intrinsics
 // (every primitive; structs/enums via the structural derive) apply only when the
-// bound *is* the core interface (`is_core_id`) — a user interface that happens
-// to be named `Eq` is an ordinary interface. Lenient for unresolved types so it
-// never reports a false mismatch.
+// bound *is* the core interface (`is_core_id`) — a user interface that happens to
+// be named `Eq` is an ordinary interface. Lenient for unresolved types so it never
+// reports a false mismatch.
 fn satisfies_bound(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
     match t {
         Unknown => { return true; },
         TypeParameter(_) => { return true; },
         Primitive(_) => {
-            // `Eq`/`Debug` are intrinsic to every primitive; `Display`/`Ord`
-            // must be a declared `impl` on the primitive's type def
+            // `Eq`/`Debug` are intrinsic to every primitive; `Display`/`Ord` must
+            // be a declared `impl` on the primitive's type def
             // (`impl Display for Int`, … in std.core; floor-seeded in
             // `builtin_type_defs` for hermetic contexts). The def is the core
-            // registry entry, by identity (CH24: no display-string keying).
-            // Those four core interfaces are the *whole* dispatchable set: a
-            // primitive is an unboxed value with no vtable row, so a bounded
-            // call resolves only through the runtime's built-in fallback
-            // selectors (to_string/debug/eq/compare). Any other interface —
-            // even one with a declared `impl X for Int` — would type-check
-            // its bound and then trap at the `call.virtual`, so it is
-            // rejected here until primitive vtables land (roadmap: Primitive
-            // vtables; `primitive_bound_undispatchable` refines the message).
+            // registry entry, by identity (CH24: no display-string keying). Those
+            // four core interfaces are the *whole* dispatchable set: a primitive is
+            // an unboxed value with no vtable row, so a bounded call resolves only
+            // through the runtime's built-in fallback selectors
+            // (to_string/debug/eq/compare). Any other interface — even one with a
+            // declared `impl X for Int` — would type-check its bound and then trap
+            // at the `call.virtual`, so it is rejected here until primitive vtables
+            // land (roadmap: Primitive vtables; `primitive_bound_undispatchable`
+            // refines the message).
             if is_core_id(lib, bound, 'Eq') || is_core_id(lib, bound, 'Debug') {
                 return true;
             }
@@ -3455,12 +3451,12 @@ fn check_named_type(
 ) -> Void {
     match namespace {
         Some(ns) => {
-            // The qualifier must be a namespace this file imports — checked
-            // here because no other gate sees a type-position qualifier (the
-            // value gates catch a bad qualifier as an undefined name). Without
-            // this, `bogus.T` resolved `T` by bare name to a *different*
-            // identity and surfaced downstream as a baffling same-name
-            // type mismatch (`expected T, found T`).
+            // The qualifier must be a namespace this file imports — checked here
+            // because no other gate sees a type-position qualifier (the value gates
+            // catch a bad qualifier as an undefined name). Without this, `bogus.T`
+            // resolved `T` by bare name to a *different* identity and surfaced
+            // downstream as a baffling same-name type mismatch
+            // (`expected T, found T`).
             match file_scope(library, current_file).namespace_surface(ns) {
                 None => {
                     match qualifying_namespace(name, library, current_file) {
@@ -3514,9 +3510,9 @@ fn check_type_ref(
                 current_file,
                 type_params,
             );
-            // The supplied arguments must satisfy the named type's parameter
-            // bounds — the def and the argument types both resolved through this
-            // file's scope (CH15), not the flat registry.
+            // The supplied arguments must satisfy the named type's parameter bounds
+            // — the def and the argument types both resolved through this file's
+            // scope (CH15), not the flat registry.
             let fs = file_scope(library, current_file);
             let id = TypeId { owner: fs.resolve_type_owner(nt.name, nt.namespace), name: nt.name };
             if let Some(def) = fs.resolve_type_def(id) {
@@ -3539,15 +3535,14 @@ fn check_type_ref(
 }
 
 // A type name is known if it resolves to something concrete and is reachable from
-// the current file — `Self`, a primitive, an in-scope type parameter, or a
-// declared type the file can see. This is the **bare** case (`check_type_ref`
-// handles a qualified `ns.T` separately): a bare type is reachable only if it is a
-// built-in, same-file, or bare-legal (the prelude or an `as _` import). A type
-// that is merely *qualifiable* via an import (used bare) is not known here —
-// `check_type_ref` turns it into a "qualify as `ns.T`" error — and a type owned by
-// a library this file never imported is unknown, even though it sits in the
-// closure's flat table (the type-position mirror of the bare-value gate,
-// `is_defined_name`).
+// the current file — `Self`, a primitive, an in-scope type parameter, or a declared
+// type the file can see. This is the **bare** case (`check_type_ref` handles a
+// qualified `ns.T` separately): a bare type is reachable only if it is a built-in,
+// same-file, or bare-legal (the prelude or an `as _` import). A type that is merely
+// *qualifiable* via an import (used bare) is not known here — `check_type_ref`
+// turns it into a "qualify as `ns.T`" error — and a type owned by a library this
+// file never imported is unknown, even though it sits in the closure's flat table
+// (the type-position mirror of the bare-value gate, `is_defined_name`).
 fn name_known(
     _ name: String,
     _ library: LibraryElement,
@@ -3560,17 +3555,16 @@ fn name_known(
 // ---- type-mismatch diagnostics ----
 
 // Report when `actual` is not assignable to `expected`. `Unknown` is lenient on
-// both sides (so the checker never reports a *false* mismatch); the library
-// backs interface subtyping (conformances resolved by identity).
-// ---- operator typing ----
+// both sides (so the checker never reports a *false* mismatch); the library backs
+// interface subtyping (conformances resolved by identity). ---- operator typing ----
 //
-// Mirrors what codegen can emit (no operator overloading, no Int->Double
-// coercion): arithmetic and ordering on Int×Int or Double×Double, `+` also on
-// String×String, `%` and the bitwise family Int-only, `&&`/`||` on Bool, and
-// `==`/`!=` on operands of one type (every type has structural/`Eq` equality).
-// Conservative on Unknown / type-parameter operands — the deliberate leniency
-// the rest of the checker shares. Previously operands were never checked:
-// `1 + 'a'` and `1 == 'a'` checked clean and trapped at runtime.
+// Mirrors what codegen can emit (no operator overloading, no Int->Double coercion):
+// arithmetic and ordering on Int×Int or Double×Double, `+` also on String×String,
+// `%` and the bitwise family Int-only, `&&`/`||` on Bool, and `==`/`!=` on operands
+// of one type (every type has structural/`Eq` equality). Conservative on Unknown /
+// type-parameter operands — the deliberate leniency the rest of the checker shares.
+// Previously operands were never checked: `1 + 'a'` and `1 == 'a'` checked clean
+// and trapped at runtime.
 
 fn check_binary_op(
     _ errors: List<diagnostic.Diagnostic>,
@@ -3701,8 +3695,8 @@ fn is_lenient_operand(_ t: Type) -> Bool {
     };
 }
 
-// The primitive-name kind an operand offers the arithmetic/ordering/bitwise
-// table, or None for a non-primitive.
+// The primitive-name kind an operand offers the arithmetic/ordering/bitwise table,
+// or None for a non-primitive.
 fn operand_kind(_ t: Type) -> Option<String> {
     return match t {
         Primitive(_) => Option.Some(type_to_string(t)),
@@ -3764,12 +3758,11 @@ fn expect_type(
 }
 
 // Type argument `idx` of an expected `name<...>` type (`List`/`Map`), if the
-// context supplies one — the reference element type a collection literal checks
-// its elements against. `None` when there is no such expectation, so the literal
-// falls back to homogeneity against its first element. Using the expected
-// element type (not the first element) is what lets an annotated `List<Display>`
-// hold different impls while `[1, 'two']` (inferred, or expected `List<Int>`)
-// still fails.
+// context supplies one — the reference element type a collection literal checks its
+// elements against. `None` when there is no such expectation, so the literal falls
+// back to homogeneity against its first element. Using the expected element type
+// (not the first element) is what lets an annotated `List<Display>` hold different
+// impls while `[1, 'two']` (inferred, or expected `List<Int>`) still fails.
 fn expected_type_arg(_ expected: Option<Type>, _ name: String, _ idx: Int) -> Option<Type> {
     return match expected {
         Some(t) => match t {
@@ -3784,9 +3777,8 @@ fn expected_type_arg(_ expected: Option<Type>, _ name: String, _ idx: Int) -> Op
     };
 }
 
-// A range iterates the integers `[start, end)`; both bounds must be `Int`.
-// Without this, `'a'..'z'` slipped through `check` and only misbehaved at
-// runtime.
+// A range iterates the integers `[start, end)`; both bounds must be `Int`. Without
+// this, `'a'..'z'` slipped through `check` and only misbehaved at runtime.
 fn check_range_bounds(_ cc: CheckCtx, _ start: Expr, _ end: Expr) -> Void {
     check_expr(cc, start, Option.None);
     check_expr(cc, end, Option.None);
@@ -3809,10 +3801,10 @@ fn check_range_bounds(_ cc: CheckCtx, _ start: Expr, _ end: Expr) -> Void {
     );
 }
 
-// A `for` iterable (other than a literal range, handled at the loop head) must
-// be a `List` or conform to `Iterator` — the same set codegen lowers, so
-// `for x in 5` is a check error rather than an emit-only one. Lenient on an
-// undetermined type (`satisfies_bound` is lenient on `Unknown`/type params).
+// A `for` iterable (other than a literal range, handled at the loop head) must be a
+// `List` or conform to `Iterator` — the same set codegen lowers, so `for x in 5` is
+// a check error rather than an emit-only one. Lenient on an undetermined type
+// (`satisfies_bound` is lenient on `Unknown`/type params).
 fn check_iterable(
     _ errors: List<diagnostic.Diagnostic>,
     _ iterable: Expr,
@@ -3837,12 +3829,12 @@ fn check_iterable(
 }
 
 // A `Result` in statement position is a dropped error — the errors-as-values
-// analogue of an unchecked exception vanishing (a failed call reads as
-// handled, and nothing ever surfaces). A statement must handle it or discard
-// it explicitly with `let _ = …`. Deliberately `Result`-only: a dropped
-// `Option` is an idiom, not a bug (`xs.pop();`, `m.remove(k);` — mutators
-// returning the removed value as a convenience), matching the corpus and the
-// Rust precedent. See language.md §Error handling.
+// analogue of an unchecked exception vanishing (a failed call reads as handled, and
+// nothing ever surfaces). A statement must handle it or discard it explicitly with
+// `let _ = …`. Deliberately `Result`-only: a dropped `Option` is an idiom, not a
+// bug (`xs.pop();`, `m.remove(k);` — mutators returning the removed value as a
+// convenience), matching the corpus and the Rust precedent. See language.md §Error
+// handling.
 fn check_unused_result(
     _ errors: List<diagnostic.Diagnostic>,
     _ e: Expr,
@@ -3878,8 +3870,8 @@ fn check_condition(
     }
 }
 
-// Check `return value;` against the declared return type. Allows the implicit
-// `Ok` wrap — returning a `T` from a `Result<T, E>` function.
+// Check `return value;` against the declared return type. Allows the implicit `Ok`
+// wrap — returning a `T` from a `Result<T, E>` function.
 fn check_return(
     _ errors: List<diagnostic.Diagnostic>,
     _ value: Expr,
@@ -3906,13 +3898,13 @@ fn check_return(
 }
 
 // Validate `expr?`. `?` propagates a failure (an `Err`/`None`) to the caller, so
-// the operand's enum family must match the enclosing function's return type:
-// an `Option` `?` belongs in an `Option`-returning function, a `Result` `?` in a
-// `Result`-returning one. Cross-family use is rejected with a fix-it (the absence
-// → error conversion is `.ok_or(<error>)?`; the error → absence conversion is
-// `.ok()?`). The happy path otherwise lowers structurally (codegen is tag-based
-// and `Some`/`Ok` share tag 0, `None`/`Err` tag 1). Lenient when a type is
-// undetermined — a separate diagnostic already explains that.
+// the operand's enum family must match the enclosing function's return type: an
+// `Option` `?` belongs in an `Option`-returning function, a `Result` `?` in a
+// `Result`-returning one. Cross-family use is rejected with a fix-it (the absence →
+// error conversion is `.ok_or(<error>)?`; the error → absence conversion is
+// `.ok()?`). The happy path otherwise lowers structurally (codegen is tag-based and
+// `Some`/`Ok` share tag 0, `None`/`Err` tag 1). Lenient when a type is undetermined
+// — a separate diagnostic already explains that.
 fn check_propagate(
     _ errors: List<diagnostic.Diagnostic>,
     _ inner: Expr,
@@ -3962,8 +3954,8 @@ fn check_propagate(
     }
 }
 
-// The enum family of a type for `?` purposes: the *core* `Option` or `Result`
-// (by identity, not spelling — X1), or None for anything else.
+// The enum family of a type for `?` purposes: the *core* `Option` or `Result` (by
+// identity, not spelling — X1), or None for anything else.
 fn enum_family(_ t: Type, _ ctx: InferCtx) -> Option<String> {
     return match t {
         Interface(name, _) => if is_core_id(ctx.library, name, 'Option')
@@ -3999,9 +3991,9 @@ fn is_defined_name(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) 
         || file_scope(ctx.library, ctx.current_file).binds_value(name);
 }
 
-// The first namespace the current file imports that exposes `name`, or None. A
-// bare reference to such a name isn't undefined — it just needs qualifying — so
-// the gates turn this into the "qualify as `ns.name`" diagnostic (the enforcement
+// The first namespace the current file imports that exposes `name`, or None. A bare
+// reference to such a name isn't undefined — it just needs qualifying — so the
+// gates turn this into the "qualify as `ns.name`" diagnostic (the enforcement
 // formerly owned by `qualify_lint`). A name that is also bare-legal never reaches
 // here; the gate accepts it first. Shared by the bare-value gate (`check_expr`'s
 // `Ident`) and the bare-type gate (`check_type_ref`).
@@ -4013,11 +4005,11 @@ fn qualifying_namespace(
     return file_scope(library, current_file).qualifying_namespace(name);
 }
 
-// Reject a qualified `ns.member` (a value `ns.fn`/`ns.CONST` or a type `ns.T`)
-// when `ns` is an imported namespace that does not expose `member` — the
-// `pub`-visibility half of qualified-only (formerly `visibility_lint`). A
-// namespace the file doesn't import is not checked here (it isn't an access
-// against a known surface; bare/undefined cases are handled by the gates).
+// Reject a qualified `ns.member` (a value `ns.fn`/`ns.CONST` or a type `ns.T`) when
+// `ns` is an imported namespace that does not expose `member` — the
+// `pub`-visibility half of qualified-only (formerly `visibility_lint`). A namespace
+// the file doesn't import is not checked here (it isn't an access against a known
+// surface; bare/undefined cases are handled by the gates).
 fn check_member_visible(
     _ errors: List<diagnostic.Diagnostic>,
     _ ns: String,
@@ -4037,11 +4029,11 @@ fn check_member_visible(
     }
 }
 
-// Surface-check a qualified call/receiver chain: for each `ns.member` where `ns`
-// is a namespace — `ns.fn`, or the `ns.Type` inside a `ns.Type.method()` static
-// call — the member must be public. Walks the receiver chain; an ordinary value
-// receiver (`value.method()`) is ignored (member visibility there is the receiver
-// type's concern, not a namespace's).
+// Surface-check a qualified call/receiver chain: for each `ns.member` where `ns` is
+// a namespace — `ns.fn`, or the `ns.Type` inside a `ns.Type.method()` static call —
+// the member must be public. Walks the receiver chain; an ordinary value receiver
+// (`value.method()`) is ignored (member visibility there is the receiver type's
+// concern, not a namespace's).
 fn check_qualified_receiver(
     _ errors: List<diagnostic.Diagnostic>,
     _ object: Expr,
@@ -4080,9 +4072,9 @@ fn namespace_of_access(
 
 // `self`'s type inside an `impl` — the receiver name resolved **owner-correct**
 // against the impl's own file (the checker analogue of codegen's
-// `named_self_type`). The old flat `named_type` lookup stamped the last-wins
-// owner, so when two libraries share the type name, a method body's
-// `self.field` resolved against the *other* library's type.
+// `named_self_type`). The old flat `named_type` lookup stamped the last-wins owner,
+// so when two libraries share the type name, a method body's `self.field` resolved
+// against the *other* library's type.
 fn impl_self_type(_ decl: ImplDecl, _ library: LibraryElement, _ file: Option<String>) -> Type {
     if let Some(p) = primitive_type(decl.type_name) {
         return p;

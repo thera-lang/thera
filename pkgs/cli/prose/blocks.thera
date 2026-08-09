@@ -1,24 +1,29 @@
-//! The block structure of comment prose — what may be rewrapped and what may
-//! not.
+//! The block structure of comment prose — what may be rewrapped and what may not.
 //!
 //! Input is a comment run's **content lines**: the text after the marker and one
 //! space, trailing whitespace already trimmed (see `runs.thera`). Output is a
-//! partition of those lines into [Block]s, in order, losing nothing —
-//! `blocks_of` is total, which is what lets the guard compare block sequences
-//! and conclude something about every line.
+//! partition of those lines into [Block]s, in order, losing nothing — `blocks_of`
+//! is total, which is what lets the guard compare block sequences and conclude
+//! something about every line.
 //!
-//! The markdown recognized here is **exactly the subset doc comments are
-//! specified to use** (language.md § Documentation → Markdown): `-` bullets and
-//! `1.` ordered lists, fenced code blocks (indented code blocks are not a
-//! Thera doc form), and the bold-label paragraphs (`**Example:**`). Anything
-//! else — `#`, `>`, `|`, a `*` or `+` bullet — is plain text, and treating it
-//! as plain text is not a shortcut: it is what makes the pass idempotent. A
-//! wrapped line that happens to start with `#` re-reads as the same prose on
-//! the next run, because nothing here ever read `#` as a construct.
+//! The markdown recognized here is **exactly the subset doc comments are specified
+//! to use** (language.md § Documentation → Markdown): `-` bullets and `1.` ordered
+//! lists, fenced code blocks (indented code blocks are not a Thera doc form), and
+//! the bold-label paragraphs (`**Example:**`). Anything else — `#`, `>`, `|`, a `*`
+//! or `+` bullet — is plain text, and treating it as plain text is not a shortcut:
+//! it is what makes the pass idempotent. A wrapped line that happens to start with
+//! `#` re-reads as the same prose on the next run, because nothing here ever read
+//! `#` as a construct.
 //!
-//! Nothing in this file knows about wrapping, markers, or widths. The fence
-//! state machine is the piece doc-snippet verification needs too, which is why
-//! it lives behind [fence_len] / [blocks_of] rather than inside the wrapper.
+//! Reading narrowly does not license *writing* carelessly, though, so there are two
+//! predicates: [is_block_lead] decides what segments, and [is_wrap_unsafe_lead] —
+//! full CommonMark — decides what the wrapper may put at the start of a line. The
+//! text leaves here for other readers too, and a doc renderer will not share our
+//! subset.
+//!
+//! Nothing in this file knows about wrapping, markers, or widths. The fence state
+//! machine is the piece doc-snippet verification needs too, which is why it lives
+//! behind [fence_len] / [blocks_of] rather than inside the wrapper.
 
 import std.char;
 
@@ -85,9 +90,9 @@ pub fn blocks_of(_ lines: List<String>) -> List<Block> {
             BlockKind.Prose
         };
         // A blank line is always its own block; the other two accumulate. So a
-        // bullet and the indented lines under it become one `Verbatim` block,
-        // which is right — the whole thing is re-emitted untouched, and asking
-        // where one list item ends is a question this pass never needs answered.
+        // bullet and the indented lines under it become one `Verbatim` block, which
+        // is right — the whole thing is re-emitted untouched, and asking where one
+        // list item ends is a question this pass never needs answered.
         let same = cur.len() > 0 && kind == want && want != BlockKind.Blank;
         if !same && cur.len() > 0 {
             out.push(Block { kind: kind, lines: cur });
@@ -98,10 +103,10 @@ pub fn blocks_of(_ lines: List<String>) -> List<Block> {
     }
 
     if cur.len() > 0 {
-        // An unclosed fence takes the rest of the run with it, as CommonMark
-        // says it should. That is also the only self-consistent choice: the
-        // output re-reads as the same unclosed fence, so the block sequence is
-        // stable and the guard passes.
+        // An unclosed fence takes the rest of the run with it, as CommonMark says
+        // it should. That is also the only self-consistent choice: the output
+        // re-reads as the same unclosed fence, so the block sequence is stable and
+        // the guard passes.
         out.push(Block { kind: kind, lines: cur });
     }
     return out;
@@ -122,10 +127,10 @@ pub fn is_block_lead(_ content: String) -> Bool {
     }
     let cps = content.chars();
     if cps[0] == char.SPACE {
-        // Indented. Doc comments have no indented code blocks (language.md says
-        // so — the `///` prefix makes the indent width ambiguous), so what this
-        // catches is a list item's continuation lines, plus any aligned aside in
-        // an ordinary `//` comment. Both want leaving alone.
+        // Indented. Doc comments have no indented code blocks (language.md says so
+        // — the `///` prefix makes the indent width ambiguous), so what this
+        // catches is a list item's continuation lines, plus any aligned aside in an
+        // ordinary `//` comment. Both want leaving alone.
         return true;
     }
     if cps[0] == char.MINUS && (cps.len() == 1 || cps[1] == char.SPACE) {
@@ -134,8 +139,59 @@ pub fn is_block_lead(_ content: String) -> Bool {
     return is_ordered_lead(cps) || is_bold_label(content);
 }
 
-/// The length of the backtick run opening `content` if it is a fence marker
-/// (three or more), else 0.
+/// Whether a *wrapped* line may not begin with `content`.
+///
+/// Broader than [is_block_lead] on purpose: **interpret narrowly, emit
+/// conservatively.** Segmentation reads only the documented subset, which is what
+/// keeps this pass idempotent — but the text it emits is also read by other tools,
+/// and a doc renderer is likely to be a full CommonMark one. So the wrapper
+/// additionally refuses to *create* a line opening with something CommonMark would
+/// call a block: a `*`/`+` bullet, an ATX heading, a block quote, a table row, a
+/// thematic break or setext rule.
+///
+/// Nothing here affects how a run segments, so the idempotency argument in
+/// [blocks_of] is untouched — this only removes break points the wrapper would
+/// otherwise have been free to take.
+pub fn is_wrap_unsafe_lead(_ content: String) -> Bool {
+    if is_block_lead(content) {
+        return true;
+    }
+    if content == '' {
+        return false;
+    }
+    let cps = content.chars();
+    let c = cps[0];
+    if (c == char.STAR || c == char.PLUS) && (cps.len() == 1 || cps[1] == char.SPACE) {
+        return true; // a bullet everywhere but here
+    }
+    if c == char.HASH || c == char.GT || c == char.PIPE {
+        return true; // heading, block quote, table row
+    }
+    return is_rule(cps);
+}
+
+/// Whether `cps` is a run of three or more of one rule character — `---` under a
+/// paragraph is a setext heading, and on its own a thematic break.
+fn is_rule(_ cps: List<Int>) -> Bool {
+    let c = cps[0];
+    if c != char.MINUS && c != char.EQ && c != char.UNDERSCORE && c != char.STAR {
+        return false;
+    }
+    if cps.len() < 3 {
+        return false;
+    }
+    let mut i = 1;
+    while i < cps.len() {
+        if cps[i] != c {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// The length of the backtick run opening `content` if it is a fence marker (three
+/// or more), else 0.
 pub fn fence_len(_ content: String) -> Int {
     let cps = content.chars();
     let mut n = 0;
@@ -145,8 +201,8 @@ pub fn fence_len(_ content: String) -> Int {
     return if n >= 3 { n } else { 0 };
 }
 
-/// Whether `content` closes a fence opened with `open` backticks: a long-enough
-/// run with nothing after it (an info string is only allowed on the opener).
+/// Whether `content` closes a fence opened with `open` backticks: a long-enough run
+/// with nothing after it (an info string is only allowed on the opener).
 fn closes_fence(_ content: String, _ open: Int) -> Bool {
     let n = fence_len(content);
     if n < open {

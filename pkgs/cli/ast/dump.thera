@@ -1,10 +1,9 @@
 // Structural, indented dump of AST declarations, statements, and blocks — the
 // golden oracle for parser-recovery tests (docs/frontend.md §Parser error
-// recovery). Unlike
-// `describe_expr`'s surface-syntax one-liners, this renders the *node structure*
-// at the declaration/statement/block level, so a test can assert what survived
-// recovery: which siblings remain, whether a broken body kept its signature, and
-// where a hole sits.
+// recovery). Unlike `describe_expr`'s surface-syntax one-liners, this renders the
+// *node structure* at the declaration/statement/block level, so a test can assert
+// what survived recovery: which siblings remain, whether a broken body kept its
+// signature, and where a hole sits.
 //
 // Expressions delegate to `describe_expr`, which already makes recovery holes
 // visible: an empty `Field` member renders as a trailing `.` (`user.`), and

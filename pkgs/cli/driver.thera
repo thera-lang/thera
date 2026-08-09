@@ -1,8 +1,8 @@
 // The front-end driver — thin, stateless wrappers over the analysis session
-// (`session.thera`), kept as the historical entry points for one-shot pipeline
-// runs (and the hermetic no-import variants the tests use). Anything that runs
-// the pipeline more than once should construct a `session.Session` instead —
-// the session owns the caches; there is no second pipeline here (LD16).
+// (`session.thera`), kept as the historical entry points for one-shot pipeline runs
+// (and the hermetic no-import variants the tests use). Anything that runs the
+// pipeline more than once should construct a `session.Session` instead — the
+// session owns the caches; there is no second pipeline here (LD16).
 
 import 'lexer/lexer';
 import 'lint/lint';
@@ -12,8 +12,8 @@ import 'session';
 import 'diagnostic'; // Diagnostic — the uniform phase error
 
 // Re-exposed one-shot entry points. `parse_cache`/`checked`/`overlays` are
-// caller-shared exactly as before — the throwaway session wraps the same maps,
-// so a caller threading them across calls keeps its sharing.
+// caller-shared exactly as before — the throwaway session wraps the same maps, so a
+// caller threading them across calls keeps its sharing.
 pub fn check_source_at(
     _ source: String,
     _ path: String,
@@ -70,9 +70,9 @@ pub fn format_diagnostic(_ d: diagnostic.Diagnostic, _ file_path: String) -> Str
 }
 
 // Collect the suggestion diagnostics for `source` — non-idiomatic shapes with a
-// mechanical rewrite (read-only; see `lint/lint`). Purely syntactic, so it needs
-// no import closure: a single-file lex + parse. A file that doesn't lex/parse has
-// no suggestions (the analyzer reports the syntax error, not a rewrite).
+// mechanical rewrite (read-only; see `lint/lint`). Purely syntactic, so it needs no
+// import closure: a single-file lex + parse. A file that doesn't lex/parse has no
+// suggestions (the analyzer reports the syntax error, not a rewrite).
 pub fn lint_source(_ source: String) -> List<lint.Suggestion> {
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {

@@ -1,11 +1,11 @@
-//! std.io — streaming I/O: the Reader/Writer/Closer protocol, the standard
-//! streams, and in-memory helpers.
+//! std.io — streaming I/O: the Reader/Writer/Closer protocol, the standard streams,
+//! and in-memory helpers.
 //!
 //! Import as: import std.io
 //!
-//! Everything streams as `Bytes`. The combinators (`read_all`, `copy`) work
-//! against any `Reader`/`Writer`, so files, pipes, sockets, and in-memory
-//! buffers compose uniformly.
+//! Everything streams as `Bytes`. The combinators (`read_all`, `copy`) work against
+//! any `Reader`/`Writer`, so files, pipes, sockets, and in-memory buffers compose
+//! uniformly.
 //!
 //! ```thera
 //! import std.io;
@@ -58,8 +58,8 @@ pub enum SeekFrom {
 /// A resource with a movable read/write cursor (files; not pipes or the standard
 /// streams).
 pub interface Seek {
-    /// Move the cursor as `to` describes; returns the new absolute offset from
-    /// the start.
+    /// Move the cursor as `to` describes; returns the new absolute offset from the
+    /// start.
     fn seek(self, _ to: SeekFrom) -> Result<Int, Error>;
 }
 
@@ -113,8 +113,8 @@ pub fn write_all(to dst: Writer, _ data: Bytes) -> Result<Void, Error> {
     while sent < end {
         // Offer a bounded window, never the whole remaining tail: a short write
         // advances `sent` by only what the writer took, and re-slicing the full
-        // tail every call makes a large transfer quadratic (each `slice` copies
-        // the remainder). 64 KiB fills a socket send buffer in one syscall.
+        // tail every call makes a large transfer quadratic (each `slice` copies the
+        // remainder). 64 KiB fills a socket send buffer in one syscall.
         let stop = if end - sent > 65536 { sent + 65536 } else { end };
         let n = dst.write(data.slice(sent, stop))?;
         if n <= 0 {
@@ -202,8 +202,8 @@ pub fn stderr() -> Writer {
 
 // --- in-memory ---
 
-/// A Writer that captures everything written, for building a string via the
-/// Writer protocol — and the test double for any code that takes a `Writer`.
+/// A Writer that captures everything written, for building a string via the Writer
+/// protocol — and the test double for any code that takes a `Writer`.
 pub struct StringWriter {
     let builder: BytesBuilder;
 }
@@ -231,8 +231,8 @@ impl Writer for StringWriter {
     }
 }
 
-/// A Reader over an in-memory buffer — the read-side double for any `Reader`,
-/// and a way to run line/stream code over a literal string.
+/// A Reader over an in-memory buffer — the read-side double for any `Reader`, and a
+/// way to run line/stream code over a literal string.
 struct InMemReader {
     let data: Bytes;
     let mut pos: Int;
@@ -291,11 +291,11 @@ fn strip_cr(_ b: Bytes) -> Bytes {
 }
 
 /// A `Reader` adapted into lines. `read_line` is the honest primitive (an I/O or
-/// decode failure surfaces as `Err`); the `Iterator<String>` impl is the
-/// ergonomic form — a `for` loop or an adapter chain (`map`/`filter`/…) drives
-/// it, treating a read error as end-of-stream and stashing it for `error()`.
-/// Lines are split on `\n`; a trailing `\r` (CRLF) is stripped, and a final line
-/// without a newline is still yielded.
+/// decode failure surfaces as `Err`); the `Iterator<String>` impl is the ergonomic
+/// form — a `for` loop or an adapter chain (`map`/`filter`/…) drives it, treating a
+/// read error as end-of-stream and stashing it for `error()`. Lines are split on
+/// `\n`; a trailing `\r` (CRLF) is stripped, and a final line without a newline is
+/// still yielded.
 pub struct BufReader {
     let source: Reader;
     let mut buf: Bytes;      // bytes read from `source` but not yet returned
@@ -318,8 +318,8 @@ impl BufReader {
         };
     }
 
-    /// The next line (without its terminator), `Ok(None)` at end of input, or
-    /// `Err` on an I/O or UTF-8 decode failure.
+    /// The next line (without its terminator), `Ok(None)` at end of input, or `Err`
+    /// on an I/O or UTF-8 decode failure.
     pub fn read_line(self) -> Result<Option<String>, Error> {
         let mut going = true;
         while going {

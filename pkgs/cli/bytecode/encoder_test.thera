@@ -1,9 +1,9 @@
 // Tests for the Thera `.thera-bc` encoder, diffed byte-for-byte against golden
 // arrays. The headline test rebuilds a `double`/`main` module and asserts the
 // encoded bytes exactly — pinning the Thera encoder to the runtime's `codec.rs`
-// (the round-trip oracle). Two smaller hand-derived goldens cover the type
-// table, the dispatch section, and the numeric/bool/negative-immediate opcodes
-// the demo doesn't exercise.
+// (the round-trip oracle). Two smaller hand-derived goldens cover the type table,
+// the dispatch section, and the numeric/bool/negative-immediate opcodes the demo
+// doesn't exercise.
 
 import std.testing;
 
@@ -54,8 +54,8 @@ fn demo_module() -> Module {
 
 @test
 fn test_demo_is_byte_identical_to_runtime() -> Result<Void, Error> {
-    // The v3 wire form: names moved to the Symbols section (7) and a trailing
-    // Entry section (6) points at `main` (index 0, encoded as `index + 1`).
+    // The v3 wire form: names moved to the Symbols section (7) and a trailing Entry
+    // section (6) points at `main` (index 0, encoded as `index + 1`).
     let expected = [
         84, 72, 69, 82, 65, 3, 0, 0, 0,
         // constants: 4 strings
@@ -80,8 +80,8 @@ fn test_demo_is_byte_identical_to_runtime() -> Result<Void, Error> {
 
 @test
 fn test_types_and_dispatch_sections() -> Result<Void, Error> {
-    // A module with a type (Point, 2 fields) and a dispatch row (show -> f).
-    // The pool interns "Point" first (types pass), then "show" (dispatch pass).
+    // A module with a type (Point, 2 fields) and a dispatch row (show -> f). The
+    // pool interns "Point" first (types pass), then "show" (dispatch pass).
     let f = FuncDef {
         name: 'f',
         param_count: 0,

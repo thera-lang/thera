@@ -1,14 +1,14 @@
 // Tests for the response decoders.
 //
-// A decode is a pure function of its input, so these need no socket — the same reason
-// `pkgs/anthropic`'s decode tests came first. The fixtures are trimmed from GitHub's
-// own documented response bodies, keeping every field the types read and every field
-// whose *nullability* is the point.
+// A decode is a pure function of its input, so these need no socket — the same
+// reason `pkgs/anthropic`'s decode tests came first. The fixtures are trimmed from
+// GitHub's own documented response bodies, keeping every field the types read and
+// every field whose *nullability* is the point.
 //
-// The assertions to read closely are the ones about `Option`: three different reasons
-// for a field to be absent (required-and-null, not-required, and a nullable `$ref`) all
-// arrive as `Option.None`, and each one is a case a generator has to get right from a
-// different part of the description.
+// The assertions to read closely are the ones about `Option`: three different
+// reasons for a field to be absent (required-and-null, not-required, and a nullable
+// `$ref`) all arrive as `Option.None`, and each one is a case a generator has to
+// get right from a different part of the description.
 
 import std.json;
 import std.testing;
@@ -55,8 +55,8 @@ const MERGED_PR: String = '''
     }
     ''';
 
-/// An open pull request from a deleted account, with no description, no labels, and no
-/// `draft` key at all — the three flavours of absence in one document.
+/// An open pull request from a deleted account, with no description, no labels, and
+/// no `draft` key at all — the three flavours of absence in one document.
 const OPEN_PR: String = '''
     {
       "number": 77,
@@ -180,8 +180,8 @@ fn a_nested_user_decodes() -> Result<Void, Error> {
     return testing.assert_eq(actual: author.site_admin, expected: false);
 }
 
-/// `format: date-time` becomes a `time.DateTime`, not a string — so it can be compared
-/// and re-emitted, which is the whole reason to model the format at all.
+/// `format: date-time` becomes a `time.DateTime`, not a string — so it can be
+/// compared and re-emitted, which is the whole reason to model the format at all.
 @test
 fn a_date_time_field_becomes_a_datetime() -> Result<Void, Error> {
     let it = pr(MERGED_PR)?;
@@ -192,8 +192,8 @@ fn a_date_time_field_becomes_a_datetime() -> Result<Void, Error> {
     );
 }
 
-/// `merged_at` is the field that distinguishes merged from merely closed, which is why
-/// it earns a method.
+/// `merged_at` is the field that distinguishes merged from merely closed, which is
+/// why it earns a method.
 @test
 fn a_merged_pull_request_says_so() -> Result<Void, Error> {
     testing.assert_eq(actual: pr(MERGED_PR)?.is_merged(), expected: true)?;
@@ -203,8 +203,8 @@ fn a_merged_pull_request_says_so() -> Result<Void, Error> {
 // --- the three flavours of absence ---
 
 /// Required-and-nullable (`body`), a nullable `$ref` (`user`), a nullable date-time
-/// (`merged_at`), and a key that simply is not there (`draft`). One `Option` each, and
-/// four different reasons.
+/// (`merged_at`), and a key that simply is not there (`draft`). One `Option` each,
+/// and four different reasons.
 @test
 fn every_kind_of_absence_decodes_to_none() -> Result<Void, Error> {
     let it = pr(OPEN_PR)?;
@@ -216,15 +216,15 @@ fn every_kind_of_absence_decodes_to_none() -> Result<Void, Error> {
     return testing.assert_eq(actual: it.draft, expected: Option.None);
 }
 
-/// The `draft` a document does supply still arrives — `None` means "not stated", which
-/// is exactly the distinction `Option<Bool>` is preserving.
+/// The `draft` a document does supply still arrives — `None` means "not stated",
+/// which is exactly the distinction `Option<Bool>` is preserving.
 @test
 fn a_present_draft_flag_decodes() -> Result<Void, Error> {
     return testing.assert_eq(actual: pr(MERGED_PR)?.draft, expected: Option.Some(false));
 }
 
-/// A `null` inside an array element, which is a different code path from a `null` field
-/// on the root object.
+/// A `null` inside an array element, which is a different code path from a `null`
+/// field on the root object.
 @test
 fn a_null_label_description_decodes_to_none() -> Result<Void, Error> {
     let labels = pr(MERGED_PR)?.labels;
@@ -237,8 +237,8 @@ fn a_null_label_description_decodes_to_none() -> Result<Void, Error> {
 
 // --- the untagged union ---
 
-/// Both branches of `issue.labels`' untagged `oneOf`, in one array, dispatched on the
-/// JSON kind the description never declared.
+/// Both branches of `issue.labels`' untagged `oneOf`, in one array, dispatched on
+/// the JSON kind the description never declared.
 @test
 fn an_untagged_label_union_decodes_both_branches() -> Result<Void, Error> {
     let labels = issue(ISSUE)?.labels;
@@ -291,8 +291,8 @@ fn an_issue_carrying_a_pull_request_key_is_one() -> Result<Void, Error> {
 
 // --- failures name the field ---
 
-/// The reason `date_time_at` goes through `Cursor.unexpected` rather than returning a
-/// plain `Error`: a malformed timestamp says *which* timestamp.
+/// The reason `date_time_at` goes through `Cursor.unexpected` rather than returning
+/// a plain `Error`: a malformed timestamp says *which* timestamp.
 @test
 fn a_malformed_date_time_names_its_path() -> Result<Void, Error> {
     let broken = '{"number": 1, "title": "t", "state": "open", "body": null, ' +

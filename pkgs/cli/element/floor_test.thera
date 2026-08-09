@@ -2,19 +2,19 @@
 //
 // The hermetic checker/resolver harnesses resolve `List`/`Map`/`Result`/… against
 // the **built-in floor** (`builtin_type_defs`) — bodyless generic type defs under
-// the synthetic `<builtin>` owner — instead of the real `sdk/std/core` sources.
-// The floor is not test-only: the production path registers it too and lets the
-// real `std.core` declarations *shadow* it (resolver.thera, element.thera). That
-// leaves two hand-maintained descriptions of the same types, which can silently
-// disagree — the floor could give `Result` the wrong number of type parameters,
-// and every hermetic test would keep passing against the wrong shape.
+// the synthetic `<builtin>` owner — instead of the real `sdk/std/core` sources. The
+// floor is not test-only: the production path registers it too and lets the real
+// `std.core` declarations *shadow* it (resolver.thera, element.thera). That leaves
+// two hand-maintained descriptions of the same types, which can silently disagree —
+// the floor could give `Result` the wrong number of type parameters, and every
+// hermetic test would keep passing against the wrong shape.
 //
 // This links the *real* `std.core` closure once and asserts, for each floor name,
 // that core declares a type of the same name whose generic arity matches the
-// floor's — and that the linked core def actually shadows the floor (its owner is
-// a real file, not `<builtin>`), so the floor is a faithful stand-in for what the
-// CLI compiles against. It is the single test that pays the cost of the real SDK
-// so the other ~180 hermetic tests don't have to.
+// floor's — and that the linked core def actually shadows the floor (its owner is a
+// real file, not `<builtin>`), so the floor is a faithful stand-in for what the CLI
+// compiles against. It is the single test that pays the cost of the real SDK so the
+// other ~180 hermetic tests don't have to.
 
 import std.testing;
 
@@ -25,14 +25,14 @@ import 'resolver' as _;    // builtin_type_defs, build_library
 import 'scope' as _;       // file_scope
 
 // The real `std.core` type registry, resolved by linking the prelude closure the
-// same way the CLI does: parse a trivial (non-SDK) entry, load its imports —
-// which auto-includes `std.core` — and build the element model over the closure.
+// same way the CLI does: parse a trivial (non-SDK) entry, load its imports — which
+// auto-includes `std.core` — and build the element model over the closure.
 // `resolve_type_def_by_name` then returns the core-owned def (which shadows the
 // floor), or the floor entry if the link somehow didn't happen.
 fn core_scope() -> Result<FileScope, Error> {
-    // The repo's own `sdk/std` is always discoverable from the test runtime; a
-    // None here means the guard can't run, which must fail loudly rather than
-    // pass vacuously.
+    // The repo's own `sdk/std` is always discoverable from the test runtime; a None
+    // here means the guard can't run, which must fail loudly rather than pass
+    // vacuously.
     let root = match find_sdk_root() {
         Some(r) => r,
         None => return Result.Err(
@@ -71,8 +71,8 @@ fn test_floor_generics_match_real_core_arity() -> Result<Void, Error> {
             Some(d) => d,
             None => return Result.Err(error('real std.core lacks ${name}')),
         };
-        // The linked core def must be the real one, not the floor falling through
-        // — proof the prelude closure actually shadowed the floor.
+        // The linked core def must be the real one, not the floor falling through —
+        // proof the prelude closure actually shadowed the floor.
         testing.assert(
             core_def.owner_file != BUILTIN_OWNER,
             message: '${name} resolved to the <builtin> floor, not real std.core (prelude not linked?)',

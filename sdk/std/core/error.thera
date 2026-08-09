@@ -1,14 +1,14 @@
 //! std.core — the standard error interface and a general-purpose error.
 
 /// `Error` is an interface: any value that can describe itself with a
-/// human-readable `message()` is an error. `Result<T, Error>` is the
-/// conventional fallible signature throughout Thera, and the common currency at
-/// boundaries — domain modules define their own error enums (`CliError`, …) and
-/// `impl Error` for them, so callers can `match` on the cause yet still pass the
-/// value where an `Error` is expected.
+/// human-readable `message()` is an error. `Result<T, Error>` is the conventional
+/// fallible signature throughout Thera, and the common currency at boundaries —
+/// domain modules define their own error enums (`CliError`, …) and `impl Error` for
+/// them, so callers can `match` on the cause yet still pass the value where an
+/// `Error` is expected.
 ///
-/// `Error` extends `Display` and `Debug` (interface inheritance): every error
-/// type also renders for users (`'${e}'`, `println(e)`) and for diagnostics
+/// `Error` extends `Display` and `Debug` (interface inheritance): every error type
+/// also renders for users (`'${e}'`, `println(e)`) and for diagnostics
 /// (`assert_ok`/`assert_err`, whose `E: Debug` bound an `Error`-typed value now
 /// satisfies). `Debug` is auto-derived structurally; `Display` is provided by an
 /// explicit `impl Display` on each error type (typically delegating to
@@ -25,10 +25,10 @@ pub interface Error: Display + Debug {
 /// throw error('file not found');
 /// ```
 ///
-/// The concrete carrier (`ErrorMessage`) is an implementation detail you never
-/// name — `error(...)` is the only door. This keeps `std.core` from claiming a
-/// common noun like `Message` in the always-in-scope prelude, where it would
-/// collide with user types.
+/// The concrete carrier (`ErrorMessage`) is an implementation detail you never name
+/// — `error(...)` is the only door. This keeps `std.core` from claiming a common
+/// noun like `Message` in the always-in-scope prelude, where it would collide with
+/// user types.
 pub fn error(_ message: String) -> Error {
     return ErrorMessage { text: message };
 }

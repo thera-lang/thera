@@ -1,7 +1,7 @@
-// JSON-RPC 2.0 transport over a byte stream, with the LSP `Content-Length`
-// framing. This is the Thera stand-in for the Dart `package:lsp_server`
-// `Connection`: it reads length-framed JSON messages from a `Reader` and writes
-// them to a `Writer`, leaving message dispatch to the caller (see server.thera).
+// JSON-RPC 2.0 transport over a byte stream, with the LSP `Content-Length` framing.
+// This is the Thera stand-in for the Dart `package:lsp_server` `Connection`: it
+// reads length-framed JSON messages from a `Reader` and writes them to a `Writer`,
+// leaving message dispatch to the caller (see server.thera).
 //
 // Wire format (LSP base protocol): each message is
 //   Content-Length: <N>\r\n\r\n<N bytes of UTF-8 JSON>
@@ -11,8 +11,8 @@ import std.io;
 import std.json as _;
 
 // An incremental reader: it buffers bytes from a `Reader` and hands back one
-// complete message body (the JSON text) at a time. `pending` holds bytes read
-// past the last returned message (the start of the next one).
+// complete message body (the JSON text) at a time. `pending` holds bytes read past
+// the last returned message (the start of the next one).
 pub struct MsgBuffer {
     let mut pending: Bytes;
 }
@@ -59,19 +59,19 @@ impl MsgBuffer {
     }
 }
 
-// One extraction step's outcome: the message body when a complete one was
-// framed, plus the remaining buffer — after consuming the message **and any
-// malformed header blocks in front of it** (so callers always store `rest`).
+// One extraction step's outcome: the message body when a complete one was framed,
+// plus the remaining buffer — after consuming the message **and any malformed
+// header blocks in front of it** (so callers always store `rest`).
 struct Extraction {
     let body: Option<String>;
     let rest: Bytes;
 }
 
-// Try to peel one complete framed message off the front of `buf`. A complete
-// header block without a usable Content-Length can never frame a body, so it
-// is dropped and scanning continues — returning None forever on it would
-// wedge the stream, buffering input without ever yielding a message (LS9).
-// `body` is None when the header or body hasn't fully arrived yet.
+// Try to peel one complete framed message off the front of `buf`. A complete header
+// block without a usable Content-Length can never frame a body, so it is dropped
+// and scanning continues — returning None forever on it would wedge the stream,
+// buffering input without ever yielding a message (LS9). `body` is None when the
+// header or body hasn't fully arrived yet.
 fn extract_message(_ buf: Bytes) -> Extraction {
     let mut b = buf;
     let mut scanning = true;
@@ -117,9 +117,9 @@ pub fn find_header_end(_ buf: Bytes) -> Option<Int> {
     return Option.None;
 }
 
-// The `Content-Length` value from a header block, or None if absent/malformed
-// (a negative length is malformed — it would frame a reversed body range).
-// The header name is matched case-insensitively, per the base protocol.
+// The `Content-Length` value from a header block, or None if absent/malformed (a
+// negative length is malformed — it would frame a reversed body range). The header
+// name is matched case-insensitively, per the base protocol.
 pub fn parse_content_length(_ header: String) -> Option<Int> {
     for line in header.lines() {
         let parts = line.split(':');

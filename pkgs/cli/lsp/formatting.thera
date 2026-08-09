@@ -1,5 +1,5 @@
-// LSP document formatting: formats a document using the built-in formatter —
-// the same canonical layout `thera fmt` writes, so format-on-save and the CI
+// LSP document formatting: formats a document using the built-in formatter — the
+// same canonical layout `thera fmt` writes, so format-on-save and the CI
 // `fmt --check` gate can never disagree.
 //
 // The LSP `textDocument/formatting` request returns a list of `TextEdit`s. We
@@ -8,9 +8,9 @@
 import '../fmt';
 import std.json;
 
-// The LSP `TextEdit[]` for `text` (the open buffer), replacing the whole
-// document with its formatted version. If formatting makes no changes, returns
-// an empty list.
+// The LSP `TextEdit[]` for `text` (the open buffer), replacing the whole document
+// with its formatted version. If formatting makes no changes, returns an empty
+// list.
 pub fn format_document(_ text: String) -> List<json.Json> {
     let formatted = fmt.format_source(text);
     if formatted == text {

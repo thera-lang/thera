@@ -104,7 +104,8 @@ fn unknown_fields_are_ignored() -> Result<Void, Error> {
 }
 
 /// Field names are case-sensitive, unlike header names — so `Data:` is an unknown
-/// field, not a `data` field, and the record it appears alone in dispatches nothing.
+/// field, not a `data` field, and the record it appears alone in dispatches
+/// nothing.
 @test
 fn field_names_are_case_sensitive() -> Result<Void, Error> {
     return testing.assert_eq(decode('Data: hi\n\n').len(), 0);
@@ -113,7 +114,8 @@ fn field_names_are_case_sensitive() -> Result<Void, Error> {
 // --- dispatch rules ---
 
 /// The blank line is what dispatches, so a record without one is not an event. A
-/// decoder that yielded on end-of-stream instead would hand a client half a payload.
+/// decoder that yielded on end-of-stream instead would hand a client half a
+/// payload.
 @test
 fn an_unterminated_record_is_not_dispatched() -> Result<Void, Error> {
     return testing.assert_eq(decode('event: a\ndata: partial\n').len(), 0);
@@ -146,7 +148,8 @@ fn an_event_name_does_not_carry_forward() -> Result<Void, Error> {
 // --- id and retry (stream state, not record state) ---
 
 /// The last-event-id buffer is not cleared between records, so an id set once rides
-/// along on every event after it. The direction the previous test asserts for names.
+/// along on every event after it. The direction the previous test asserts for
+/// names.
 @test
 fn an_id_carries_forward_to_later_events() -> Result<Void, Error> {
     let events = decode('id: 7\ndata: a\n\ndata: b\n\nid: 8\ndata: c\n\n');
@@ -162,8 +165,8 @@ fn no_id_field_means_no_id() -> Result<Void, Error> {
 }
 
 /// A record of only `retry:` dispatches no event, which is exactly why `retry` is
-/// state on the decoder rather than a field of `Event` — as an event field the value
-/// would have nowhere to go.
+/// state on the decoder rather than a field of `Event` — as an event field the
+/// value would have nowhere to go.
 @test
 fn a_retry_only_record_still_sets_the_delay() -> Result<Void, Error> {
     let d = sse.events(io.from_string('retry: 2500\n\ndata: a\n\n'));
@@ -185,8 +188,9 @@ fn a_non_numeric_retry_is_ignored() -> Result<Void, Error> {
 }
 
 /// An id carrying a NUL is dropped rather than stored: a caller that implements
-/// resumption puts it in a `Last-Event-ID` header, and NUL is the one character that
-/// can reach one (CR and LF terminate a line, so they never appear in a value).
+/// resumption puts it in a `Last-Event-ID` header, and NUL is the one character
+/// that can reach one (CR and LF terminate a line, so they never appear in a
+/// value).
 @test
 fn an_id_containing_nul_is_ignored() -> Result<Void, Error> {
     let nul = String.from_chars([0]);
@@ -198,9 +202,9 @@ fn an_id_containing_nul_is_ignored() -> Result<Void, Error> {
 // --- reading ---
 
 /// `read_event` is the honest primitive: it hands back events one at a time and
-/// reports the end as `Ok(None)` rather than as an error.
-/// The `data` of an event, or a stand-in — so a missing event fails an assertion
-/// with a readable message instead of needing a `match` at every call.
+/// reports the end as `Ok(None)` rather than as an error. The `data` of an event,
+/// or a stand-in — so a missing event fails an assertion with a readable message
+/// instead of needing a `match` at every call.
 fn data_of(_ ev: Option<sse.Event>) -> String {
     return match ev {
         Some(e) => e.data,

@@ -1,8 +1,8 @@
 // Tests for the front-end driver: the source-to-bytecode pipeline as one call.
-// `compile_source` is diffed byte-for-byte against the Dart oracle, confirming
-// the whole Thera front-end lowers a program identically end to end. The
-// `*_source_at` closure-checking tests use a real fixture tree under the temp
-// dir (like loader_test).
+// `compile_source` is diffed byte-for-byte against the Dart oracle, confirming the
+// whole Thera front-end lowers a program identically end to end. The `*_source_at`
+// closure-checking tests use a real fixture tree under the temp dir (like
+// loader_test).
 
 import std.testing;
 import std.fs;
@@ -42,8 +42,8 @@ fn test_check_reports_parse_error_with_location() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A primary with a lex error reports it (first — root cause), alongside any
-// parse errors from the recovered token stream: the session parses the primary
+// A primary with a lex error reports it (first — root cause), alongside any parse
+// errors from the recovered token stream: the session parses the primary
 // best-effort through its parse cache (R1), exactly as imported files behave.
 @test
 fn test_primary_lex_error_reports_lex_first() -> Result<Void, Error> {
@@ -102,9 +102,9 @@ fn test_imported_file_check_errors_surface() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The caller-shared `checked` set: clean files are recorded and skipped on
-// later calls (batch linearity + report-once); files with errors are never
-// marked, so they re-check per importer.
+// The caller-shared `checked` set: clean files are recorded and skipped on later
+// calls (batch linearity + report-once); files with errors are never marked, so
+// they re-check per importer.
 @test
 fn test_checked_set_records_only_clean_files() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_driver_checked_test');
@@ -151,8 +151,8 @@ fn test_checked_set_records_only_clean_files() -> Result<Void, Error> {
 
 @test
 fn test_compile_source_byte_identical() -> Result<Void, Error> {
-    // The full pipeline (tokenize → parse → check → codegen → encode) as one
-    // call, byte-identical to the Dart oracle for the same program.
+    // The full pipeline (tokenize → parse → check → codegen → encode) as one call,
+    // byte-identical to the Dart oracle for the same program.
     let outcome = compile_source('fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
         + 'fn main() -> Int {\n'
         + '    let x = add(2, 3);\n'
@@ -184,10 +184,10 @@ fn test_compile_source_byte_identical() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Two imported files with **identical source text** attribute independently —
-// the exact LD7 failure: attribution used to reverse-map a span's source text
-// to a path, so byte-identical files collided on one entry and an error in
-// either was pinned to whichever registered last. Spans now carry their file.
+// Two imported files with **identical source text** attribute independently — the
+// exact LD7 failure: attribution used to reverse-map a span's source text to a
+// path, so byte-identical files collided on one entry and an error in either was
+// pinned to whichever registered last. Spans now carry their file.
 @test
 fn test_identical_imports_attribute_independently() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_driver_ld7_test');

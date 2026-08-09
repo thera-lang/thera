@@ -14,8 +14,8 @@ import '../loader';
 import '../lexer/lexer';
 import '../parser/parser';
 
-// A one-shot in-memory `Reader`: hands out `data` in `max`-sized chunks, then
-// EOF — so `serve`'s read loop can be driven without a real stream.
+// A one-shot in-memory `Reader`: hands out `data` in `max`-sized chunks, then EOF —
+// so `serve`'s read loop can be driven without a real stream.
 struct BurstReader { let data: Bytes; let mut pos: Int; }
 impl io.Reader for BurstReader {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
@@ -46,10 +46,10 @@ fn count_substr(_ haystack: String, _ needle: String) -> Int {
     return count;
 }
 
-// Drive `serve` over a stream of already-framed messages (a `BurstReader` that
-// then EOFs) and return everything the server wrote. Unlike `handled`/`capture`
-// (which go through the synchronous `handle`), this runs the real async transport:
-// the background workspace worker and the writer fiber, drained on the `exit`/EOF.
+// Drive `serve` over a stream of already-framed messages (a `BurstReader` that then
+// EOFs) and return everything the server wrote. Unlike `handled`/`capture` (which
+// go through the synchronous `handle`), this runs the real async transport: the
+// background workspace worker and the writer fiber, drained on the `exit`/EOF.
 fn served(_ frames: String) -> String {
     let reader = BurstReader { data: frames.bytes(), pos: 0 };
     let out = io.StringWriter.new();
@@ -277,8 +277,8 @@ fn test_initialize_falls_back_to_root_uri() -> Result<Void, Error> {
 
 @test
 fn test_initialize_without_folders_has_no_roots() -> Result<Void, Error> {
-    // A loose single file (no folder) sends neither — references/rename stay
-    // scoped to the open documents.
+    // A loose single file (no folder) sends neither — references/rename stay scoped
+    // to the open documents.
     let server = new_server(Option.None);
     let out = io.StringWriter.new();
     server.handle(out, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
@@ -288,8 +288,9 @@ fn test_initialize_without_folders_has_no_roots() -> Result<Void, Error> {
 
 @test
 fn test_document_pull_reports_errors() -> Result<Void, Error> {
-    // Pull model: didOpen pushes nothing; the client pulls `textDocument/diagnostic`.
-    // The program references an undefined name, flagged even without the prelude.
+    // Pull model: didOpen pushes nothing; the client pulls
+    // `textDocument/diagnostic`. The program references an undefined name, flagged
+    // even without the prelude.
     let server = new_server(Option.None);
     let opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///x.thera","text":"fn f() -> Int { return missing; }"}}}');
@@ -304,8 +305,8 @@ fn test_document_pull_reports_errors() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The value of the first `"resultId":"…"` in a response body (empty if none) —
-// so a test can echo the server's resultId back on a re-pull.
+// The value of the first `"resultId":"…"` in a response body (empty if none) — so a
+// test can echo the server's resultId back on a re-pull.
 fn first_result_id(_ body: String) -> String {
     let key = '"resultId":"';
     return match body.find(key) {
@@ -484,8 +485,8 @@ fn test_completion_on_dangling_self_dot() -> Result<Void, Error> {
 
 @test
 fn test_signature_help_on_unterminated_call() -> Result<Void, Error> {
-    // Mid-keystroke `add(` before the body's `}`: the framed call resolves to
-    // the declaration with parameter 0 active.
+    // Mid-keystroke `add(` before the body's `}`: the framed call resolves to the
+    // declaration with parameter 0 active.
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
@@ -535,8 +536,8 @@ fn test_definition_jumps_to_declaration() -> Result<Void, Error> {
         + '{"textDocument":{"uri":"file:///d.thera",'
         + '"text":"fn helper() -> Int { return 1; }\\nfn main() -> Int { return helper(); }"}}}');
 
-    // Go-to-definition on the `helper` call (line 1, inside the name) lands on
-    // the `helper` declaration up on line 0.
+    // Go-to-definition on the `helper` call (line 1, inside the name) lands on the
+    // `helper` declaration up on line 0.
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":7,"method":"textDocument/definition","params":'
         + '{"textDocument":{"uri":"file:///d.thera"},"position":{"line":1,"character":28}}}');
@@ -614,8 +615,8 @@ fn test_type_definition_on_a_function_is_null() -> Result<Void, Error> {
 fn test_references_are_semantic() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
-    // Two functions, each with a local `x`; `f`'s `x` is used twice, `g`'s once.
-    // A references request on `f`'s `x` must return only `f`'s three occurrences
+    // Two functions, each with a local `x`; `f`'s `x` is used twice, `g`'s once. A
+    // references request on `f`'s `x` must return only `f`'s three occurrences
     // (decl + 2 uses) — NOT `g`'s, which a lexical match would wrongly include.
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///r.thera",'
@@ -649,8 +650,8 @@ fn test_rename_is_semantic() -> Result<Void, Error> {
         + '{"textDocument":{"uri":"file:///r.thera",'
         + '"text":"fn f() -> Int { let x = 1; return x + x; }\\nfn g() -> Int { let x = 9; return x; }"}}}');
 
-    // Rename `f`'s `x` (line 0, character 34) to `y`: its declaration + two uses
-    // = three edits; `g`'s `x` is a different binding and must be untouched.
+    // Rename `f`'s `x` (line 0, character 34) to `y`: its declaration + two uses =
+    // three edits; `g`'s `x` is a different binding and must be untouched.
     let renamed = io.StringWriter.new();
     server.handle(renamed, '{"jsonrpc":"2.0","id":30,"method":"textDocument/rename","params":'
         + '{"textDocument":{"uri":"file:///r.thera"},"position":{"line":0,"character":34},"newName":"y"}}');
@@ -747,8 +748,8 @@ fn test_rename_collision_is_an_error() -> Result<Void, Error> {
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///r.thera",'
         + '"text":"fn foo() -> Int { return 1; }\\nfn bar() -> Int { return 2; }"}}}');
-    // Rename the top-level `foo` (line 0, character 4) onto the existing `bar`:
-    // an error response, not a silent null result, so the editor shows the reason.
+    // Rename the top-level `foo` (line 0, character 4) onto the existing `bar`: an
+    // error response, not a silent null result, so the editor shows the reason.
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":32,"method":"textDocument/rename","params":'
         + '{"textDocument":{"uri":"file:///r.thera"},"position":{"line":0,"character":4},"newName":"bar"}}');
@@ -832,8 +833,8 @@ fn test_workspace_report_echoes_open_version() -> Result<Void, Error> {
 
 @test
 fn test_did_close_removes_document() -> Result<Void, Error> {
-    // After `didClose` the document is forgotten, so a later documentSymbol over
-    // it yields the empty (unknown-document) outline.
+    // After `didClose` the document is forgotten, so a later documentSymbol over it
+    // yields the empty (unknown-document) outline.
     let server = new_server(Option.None);
     let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///g.thera","text":"fn solo() -> Int { return 1; }"}}}');
@@ -937,9 +938,9 @@ fn test_did_change_evicts_the_parse_cache() -> Result<Void, Error> {
 
 @test
 fn test_unknown_request_gets_method_not_found() -> Result<Void, Error> {
-    // An unhandled *request* (has an id) gets a MethodNotFound error, so the
-    // client never hangs waiting (and never mistakes it for a null result);
-    // a notification (no id) is silently dropped.
+    // An unhandled *request* (has an id) gets a MethodNotFound error, so the client
+    // never hangs waiting (and never mistakes it for a null result); a notification
+    // (no id) is silently dropped.
     let out = handled('{"jsonrpc":"2.0","id":11,"method":"textDocument/inlayHint","params":{}}');
     testing.assert(out.contains('"id":11') || out.contains('"id": 11'), message: 'echoes the id')?;
     testing.assert(out.contains('-32601'), message: 'replies with MethodNotFound')?;
@@ -951,8 +952,8 @@ fn test_unknown_request_gets_method_not_found() -> Result<Void, Error> {
 
 @test
 fn test_unparseable_body_gets_parse_error() -> Result<Void, Error> {
-    // A body that isn't JSON gets a ParseError response (id null) rather than
-    // a silent drop.
+    // A body that isn't JSON gets a ParseError response (id null) rather than a
+    // silent drop.
     let out = handled('{oops');
     testing.assert(out.contains('-32700'), message: 'replies with ParseError')?;
     testing.assert(
@@ -964,9 +965,8 @@ fn test_unparseable_body_gets_parse_error() -> Result<Void, Error> {
 
 @test
 fn test_requests_after_shutdown_are_rejected() -> Result<Void, Error> {
-    // Between `shutdown` and `exit` only `exit` is meaningful: further
-    // requests are answered with InvalidRequest, and `exit` still stops the
-    // loop.
+    // Between `shutdown` and `exit` only `exit` is meaningful: further requests are
+    // answered with InvalidRequest, and `exit` still stops the loop.
     let server = new_server(Option.None);
     let _down = capture(server, '{"jsonrpc":"2.0","id":12,"method":"shutdown"}');
     let out = capture(
@@ -1038,8 +1038,8 @@ fn test_serve_backgrounds_the_workspace_scan() -> Result<Void, Error> {
 
 // The scan cache reuses the last result only while the workspace reads back
 // identical, and it is keyed on content — so an edit through *any* route (here an
-// open buffer, which the cache is never told about) simply doesn't match. The
-// cache is what keeps a re-pull cheap; this pins that it can't serve a stale one.
+// open buffer, which the cache is never told about) simply doesn't match. The cache
+// is what keeps a re-pull cheap; this pins that it can't serve a stale one.
 @test
 fn test_workspace_scan_cache_never_serves_a_stale_result() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_scan_cache_test');
@@ -1085,12 +1085,12 @@ fn test_workspace_scan_cache_never_serves_a_stale_result() -> Result<Void, Error
     return Result.Ok(void);
 }
 
-// An unchanged re-pull is answered by the generation fast tier — without even
-// the per-file byte-compare. Pinned by poisoning: the cached diagnostics are
-// replaced with a marker AND the cached contents are made non-matching, so the
-// two tiers disagree — the compare tier would miss (contents differ) and
-// recompute, only the generation tier can serve the marker. An edit must then
-// break the stamp: the re-pull recomputes and the marker is gone.
+// An unchanged re-pull is answered by the generation fast tier — without even the
+// per-file byte-compare. Pinned by poisoning: the cached diagnostics are replaced
+// with a marker AND the cached contents are made non-matching, so the two tiers
+// disagree — the compare tier would miss (contents differ) and recompute, only the
+// generation tier can serve the marker. An edit must then break the stamp: the
+// re-pull recomputes and the marker is gone.
 @test
 fn test_unchanged_repull_takes_the_generation_fast_tier() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_gen_tier_test');
@@ -1128,12 +1128,12 @@ fn test_unchanged_repull_takes_the_generation_fast_tier() -> Result<Void, Error>
     return Result.Ok(void);
 }
 
-// *Un*-excluding a file must report it, even though nothing on disk moved. This
-// is the one case content-keying cannot catch on its own, so it pins why
-// `set_exclude` drops the cache: the file's text is identical, the scanned set is
-// identical (a per-file glob prunes no directory, unlike `<base>/**`), so the
-// fingerprint matches perfectly — but the cached result was computed while this
-// file was skipped as a primary, and reusing it would report the file clean.
+// *Un*-excluding a file must report it, even though nothing on disk moved. This is
+// the one case content-keying cannot catch on its own, so it pins why `set_exclude`
+// drops the cache: the file's text is identical, the scanned set is identical (a
+// per-file glob prunes no directory, unlike `<base>/**`), so the fingerprint
+// matches perfectly — but the cached result was computed while this file was
+// skipped as a primary, and reusing it would report the file clean.
 @test
 fn test_un_excluding_a_file_drops_the_scan_cache() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_exclude_cache_test');
@@ -1164,9 +1164,9 @@ fn test_un_excluding_a_file_drops_the_scan_cache() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A file edited on disk with no buffer open must re-report. Nothing else tells
-// the server: `didChange` speaks only for open documents, so the session would
-// serve the parse it cached the first time it read the file — for the rest of the
+// A file edited on disk with no buffer open must re-report. Nothing else tells the
+// server: `didChange` speaks only for open documents, so the session would serve
+// the parse it cached the first time it read the file — for the rest of the
 // session. That was a real bug (a branch switch left stale squiggles); the watcher
 // notification is what closes it.
 @test
@@ -1316,8 +1316,8 @@ fn test_serve_cancels_the_workspace_scan() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A cancel for some *other* request (already answered inline — the protocol says
-// to ignore it) must not kill the scan: the pull still produces its report.
+// A cancel for some *other* request (already answered inline — the protocol says to
+// ignore it) must not kill the scan: the pull still produces its report.
 @test
 fn test_an_unrelated_cancel_does_not_kill_the_scan() -> Result<Void, Error> {
     let stream = jsonrpc.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
@@ -1477,11 +1477,11 @@ fn test_token_pull_streams_and_holds_the_request_open() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A change streams a delta batch to the open pull: only the files whose
-// diagnostics changed, no `unchanged` chatter — and a body-only edit (which the
-// client re-pulls per document) streams nothing at all. The refresh nudge cannot
-// stand in for this: on it the client re-pulls open documents only, never the
-// workspace, so with the pull held open the stream is closed files' only channel.
+// A change streams a delta batch to the open pull: only the files whose diagnostics
+// changed, no `unchanged` chatter — and a body-only edit (which the client re-pulls
+// per document) streams nothing at all. The refresh nudge cannot stand in for this:
+// on it the client re-pulls open documents only, never the workspace, so with the
+// pull held open the stream is closed files' only channel.
 @test
 fn test_changes_stream_deltas_to_the_open_pull() -> Result<Void, Error> {
     let server = new_server(Option.None);
@@ -1514,8 +1514,8 @@ fn test_changes_stream_deltas_to_the_open_pull() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// An on-disk delete (reported by the watcher) streams a retraction for exactly
-// the deleted file; the untouched file is omitted from the batch entirely.
+// An on-disk delete (reported by the watcher) streams a retraction for exactly the
+// deleted file; the untouched file is omitted from the batch entirely.
 @test
 fn test_watched_delete_streams_a_retraction() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_stream_delete_test');
@@ -1565,9 +1565,9 @@ fn test_cancel_settles_the_open_pull() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A new workspace pull supersedes a held-open one: the old request settles with
-// an empty final result (its streamed reports stand — the spec's shape after
-// partial results), and the new pull is the one held open.
+// A new workspace pull supersedes a held-open one: the old request settles with an
+// empty final result (its streamed reports stand — the spec's shape after partial
+// results), and the new pull is the one held open.
 @test
 fn test_new_pull_settles_the_previous_open_pull() -> Result<Void, Error> {
     let server = new_server(Option.None);
@@ -1583,9 +1583,9 @@ fn test_new_pull_settles_the_previous_open_pull() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Closing a buffer makes the client discard that file's diagnostics along with
-// it, so the workspace stream must re-send them even though they did not change —
-// the eviction in `close_document` is what forces the re-send.
+// Closing a buffer makes the client discard that file's diagnostics along with it,
+// so the workspace stream must re-send them even though they did not change — the
+// eviction in `close_document` is what forces the re-send.
 @test
 fn test_close_restreams_an_unchanged_files_diagnostics() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_stream_close_test');
@@ -1618,8 +1618,8 @@ fn test_close_restreams_an_unchanged_files_diagnostics() -> Result<Void, Error> 
     return Result.Ok(void);
 }
 
-// A shutdown settles the held-open pull (empty final result) — the request must
-// not outlive the session.
+// A shutdown settles the held-open pull (empty final result) — the request must not
+// outlive the session.
 @test
 fn test_shutdown_settles_the_open_pull() -> Result<Void, Error> {
     let server = new_server(Option.None);
@@ -1634,8 +1634,8 @@ fn test_shutdown_settles_the_open_pull() -> Result<Void, Error> {
 }
 
 // A shutdown racing the *initial* scan (all messages in one burst, so the worker
-// never runs before shutdown is dispatched) still settles the pull: superseding
-// the scan makes it answer ServerCancelled before it would ever stream.
+// never runs before shutdown is dispatched) still settles the pull: superseding the
+// scan makes it answer ServerCancelled before it would ever stream.
 @test
 fn test_shutdown_settles_a_pull_whose_scan_never_ran() -> Result<Void, Error> {
     let stream = jsonrpc.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
@@ -1651,8 +1651,8 @@ fn test_shutdown_settles_a_pull_whose_scan_never_ran() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The async path: under `serve`, a token pull's report reaches the wire as
-// progress and the request is still open at exit — no response for its id.
+// The async path: under `serve`, a token pull's report reaches the wire as progress
+// and the request is still open at exit — no response for its id.
 @test
 fn test_serve_holds_the_token_pull_open() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_serve_stream_test');

@@ -1,7 +1,7 @@
-// Tests for the analysis session's cross-request state: the dependency graph
-// and the cascading invalidation it drives (LD14 batch A). The check/compile
-// pipeline itself is covered by driver_test; these cover what happens *between*
-// requests — an edit to a dependency must re-expose its importers to checking.
+// Tests for the analysis session's cross-request state: the dependency graph and
+// the cascading invalidation it drives (LD14 batch A). The check/compile pipeline
+// itself is covered by driver_test; these cover what happens *between* requests —
+// an edit to a dependency must re-expose its importers to checking.
 
 import std.testing;
 import std.fs;
@@ -10,9 +10,9 @@ import 'element';
 import 'loader';
 import 'session' as _;
 
-// A fixture tree under the OS temp dir: `files` are (name, source) pairs
-// written into a fresh `thera_session_<tag>_test` directory. Returns the
-// canonical directory path.
+// A fixture tree under the OS temp dir: `files` are (name, source) pairs written
+// into a fresh `thera_session_<tag>_test` directory. Returns the canonical
+// directory path.
 fn fixture_dir(_ tag: String, _ files: Map<String, String>) -> Result<String, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_session_${tag}_test');
     match fs.remove_dir_all(dir) {
@@ -33,11 +33,11 @@ fn cleanup(_ dir: String) -> Void {
     }
 }
 
-// An edit to a dependency must re-check importers that previously checked
-// clean: `a` imports `b` and `c`; `c` calls `b.helper()`. After `a` checks
-// clean (everything lands in `checked`), an overlay on `b` removing `helper`
-// must surface a diagnostic attributed to `c.thera` on the next check of `a`
-// — before batch A, `c` stayed in `checked` and the breakage was skipped.
+// An edit to a dependency must re-check importers that previously checked clean:
+// `a` imports `b` and `c`; `c` calls `b.helper()`. After `a` checks clean
+// (everything lands in `checked`), an overlay on `b` removing `helper` must surface
+// a diagnostic attributed to `c.thera` on the next check of `a` — before batch A,
+// `c` stayed in `checked` and the breakage was skipped.
 @test
 fn test_dependency_edit_rechecks_importers() -> Result<Void, Error> {
     let dir = fixture_dir('stale', [
@@ -52,8 +52,8 @@ fn test_dependency_edit_rechecks_importers() -> Result<Void, Error> {
     let first = sess.check(a_src, a_path);
     testing.assert_eq(actual: first.len(), expected: 0)?;
 
-    // The edit: `b` loses `helper`. `a`'s own call sites break too, so give
-    // `a` a fresh check — the point is that *c's* breakage also surfaces.
+    // The edit: `b` loses `helper`. `a`'s own call sites break too, so give `a` a
+    // fresh check — the point is that *c's* breakage also surfaces.
     sess.set_overlay('${dir}/b.thera', 'pub fn helper2() -> Int { return 2; }\n');
     let second = sess.check(a_src, a_path);
     let mut c_flagged = false;
@@ -95,9 +95,8 @@ fn test_dependents_of_is_transitive() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A file under the SDK's std root invalidates everything: every file's bare
-// surface implicitly depends on the std.core prelude, and that edge isn't in
-// the graph.
+// A file under the SDK's std root invalidates everything: every file's bare surface
+// implicitly depends on the std.core prelude, and that edge isn't in the graph.
 @test
 fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
     let dir = fixture_dir('sdk', ['main.thera': 'fn main() -> Int { return 1; }\n'])?;
@@ -121,9 +120,9 @@ fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// `is_sdk_file` classifies a path by the SDK's std root: files under it are
-// trusted library sources (read-only to rename), everything else is not. With
-// no SDK, nothing is an SDK file.
+// `is_sdk_file` classifies a path by the SDK's std root: files under it are trusted
+// library sources (read-only to rename), everything else is not. With no SDK,
+// nothing is an SDK file.
 @test
 fn test_is_sdk_file_classifies_by_std_root() -> Result<Void, Error> {
     let dir = fixture_dir('is_sdk', ['main.thera': 'fn main() -> Int { return 1; }\n'])?;
@@ -148,9 +147,9 @@ fn test_is_sdk_file_classifies_by_std_root() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The surface cache serves repeated loads but must not go stale: an overlay
-// edit to a dependency evicts its importers' surfaces, so the next check sees
-// the new surface (here: a renamed export) — LD14 batch B.
+// The surface cache serves repeated loads but must not go stale: an overlay edit to
+// a dependency evicts its importers' surfaces, so the next check sees the new
+// surface (here: a renamed export) — LD14 batch B.
 @test
 fn test_dependency_edit_refreshes_surfaces() -> Result<Void, Error> {
     let dir = fixture_dir('surface', [
@@ -185,9 +184,9 @@ fn test_dependency_edit_refreshes_surfaces() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The white-box grant rides the same eviction: `foo_test.thera` sees
-// `foo.thera`'s private names, and an edit renaming one refreshes the
-// test file's surface (its import edge is in the graph).
+// The white-box grant rides the same eviction: `foo_test.thera` sees `foo.thera`'s
+// private names, and an edit renaming one refreshes the test file's surface (its
+// import edge is in the graph).
 @test
 fn test_whitebox_surface_refreshes_on_dep_edit() -> Result<Void, Error> {
     let dir = fixture_dir('whitebox', [
@@ -215,9 +214,9 @@ fn test_whitebox_surface_refreshes_on_dep_edit() -> Result<Void, Error> {
 
 // --- the library cache (LD14 batch C) ---
 
-// Repeated checks of one primary run against the cached imports-only base;
-// the diagnostics must be identical run over run (the end-to-end frozen-base
-// guard: an accumulating base would change resolution or duplicate methods).
+// Repeated checks of one primary run against the cached imports-only base; the
+// diagnostics must be identical run over run (the end-to-end frozen-base guard: an
+// accumulating base would change resolution or duplicate methods).
 @test
 fn test_repeated_checks_are_stable() -> Result<Void, Error> {
     let dir = fixture_dir('stable', [
@@ -247,8 +246,8 @@ fn test_repeated_checks_are_stable() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A dependency edit evicts the cached base: the next check resolves against
-// the new dependency (its renamed method is required by the impl).
+// A dependency edit evicts the cached base: the next check resolves against the new
+// dependency (its renamed method is required by the impl).
 @test
 fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
     let dir = fixture_dir('libevict', [
@@ -285,8 +284,8 @@ fn render(_ t: Option<element.Type>) -> String {
     };
 }
 
-// `type_at` answers from the stored record: the smallest recorded span
-// containing the offset wins, and offsets outside any expression have no type.
+// `type_at` answers from the stored record: the smallest recorded span containing
+// the offset wins, and offsets outside any expression have no type.
 @test
 fn test_type_at_returns_committed_types() -> Result<Void, Error> {
     let dir = fixture_dir('typeat', [
@@ -298,8 +297,8 @@ fn test_type_at_returns_committed_types() -> Result<Void, Error> {
     let src = fs.read_text(p)?;
     testing.assert_eq(actual: sess.check(src, p).len(), expected: 0)?;
 
-    // At `(`, the smallest containing node is the call `u.num()` (Int), not
-    // the enclosing comparison (Bool); at `<` only the comparison contains it.
+    // At `(`, the smallest containing node is the call `u.num()` (Int), not the
+    // enclosing comparison (Bool); at `<` only the comparison contains it.
     let call_off = src.find('u.num').unwrap_or(0) + 5;
     testing.assert_eq(actual: render(sess.type_at(p, call_off)), expected: 'Int')?;
     let cmp_off = src.find(' < ').unwrap_or(0) + 1;
@@ -312,8 +311,8 @@ fn test_type_at_returns_committed_types() -> Result<Void, Error> {
 
 // A dependency's *surface* edit evicts the cone's records (stale types never
 // answer); a body-only edit keeps them — the digest gate proved they can't be
-// stale. An open overlay repopulates on demand — `type_at` checks it without
-// an explicit `check` call.
+// stale. An open overlay repopulates on demand — `type_at` checks it without an
+// explicit `check` call.
 @test
 fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
     let dir = fixture_dir('typeevict', [
@@ -327,13 +326,13 @@ fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
     let off = src.find('u.num').unwrap_or(0) + 5;
     testing.assert_eq(actual: render(sess.type_at(p, off)), expected: 'Int')?;
 
-    // A body-only edit to the dependency leaves `m`'s records valid — they
-    // still answer (the surface digest gate keeps the cone).
+    // A body-only edit to the dependency leaves `m`'s records valid — they still
+    // answer (the surface digest gate keeps the cone).
     sess.set_overlay('${dir}/u.thera', 'pub fn num() -> Int { return 41; }\n');
     testing.assert_eq(actual: render(sess.type_at(p, off)), expected: 'Int')?;
 
-    // A *surface* edit (a new pub decl) evicts `m`'s records; with no overlay
-    // for `m` there is nothing to answer from (no silent stale answers).
+    // A *surface* edit (a new pub decl) evicts `m`'s records; with no overlay for
+    // `m` there is nothing to answer from (no silent stale answers).
     sess.set_overlay(
         '${dir}/u.thera',
         'pub fn num() -> Int { return 41; }\npub fn extra() -> Int { return 1; }\n',
@@ -350,10 +349,10 @@ fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
 
 // ---- the pipeline over recovered trees (the LSP's mid-edit input) ----
 
-// A primary that fails to parse reports its parse diagnostics *only*: the
-// checker runs over the recovered tree (records, below), but its secondary
-// errors are withheld — a statement recovery dropped (`let y = ;`) would
-// otherwise cascade into `undefined name: y` after the root cause.
+// A primary that fails to parse reports its parse diagnostics *only*: the checker
+// runs over the recovered tree (records, below), but its secondary errors are
+// withheld — a statement recovery dropped (`let y = ;`) would otherwise cascade
+// into `undefined name: y` after the root cause.
 @test
 fn test_broken_primary_reports_parse_errors_without_cascade() -> Result<Void, Error> {
     let dir = fixture_dir('brokenprim', ['m.thera': 'fn main() -> Int { return 1; }\n'])?;
@@ -375,9 +374,9 @@ fn test_broken_primary_reports_parse_errors_without_cascade() -> Result<Void, Er
     return Result.Ok(void);
 }
 
-// The completion shape: a dangling `x.` is a parse error, but the checker
-// still walks the recovered tree, so `type_at` answers with the receiver's
-// type — what member completion resolves against mid-edit.
+// The completion shape: a dangling `x.` is a parse error, but the checker still
+// walks the recovered tree, so `type_at` answers with the receiver's type — what
+// member completion resolves against mid-edit.
 @test
 fn test_type_at_answers_on_broken_source() -> Result<Void, Error> {
     let dir = fixture_dir('brokentypes', [
@@ -393,8 +392,8 @@ fn test_type_at_answers_on_broken_source() -> Result<Void, Error> {
         + '    return x;\n'
         + '}\n';
     sess.set_overlay(p, broken);
-    // One parse diagnostic (the missing member name) — the empty-name hole
-    // itself must not cascade into a bogus member error.
+    // One parse diagnostic (the missing member name) — the empty-name hole itself
+    // must not cascade into a bogus member error.
     testing.assert_eq(actual: sess.check(broken, p).len(), expected: 1)?;
     // The receiver `x` in `x.;` still has a committed type.
     let recv_off = broken.find('    x.;').unwrap_or(0) + 4;
@@ -421,8 +420,8 @@ fn test_type_records_repopulate_for_broken_overlay() -> Result<Void, Error> {
         + '    return x;\n'
         + '}\n';
     sess.set_overlay(p, broken);
-    // No explicit check: `type_at` → `records_for` checks the overlay on
-    // demand, storing records despite the parse error.
+    // No explicit check: `type_at` → `records_for` checks the overlay on demand,
+    // storing records despite the parse error.
     let off = broken.find('u.num').unwrap_or(0) + 5;
     testing.assert_eq(actual: render(sess.type_at(p, off)), expected: 'Int')?;
 
@@ -433,8 +432,8 @@ fn test_type_records_repopulate_for_broken_overlay() -> Result<Void, Error> {
 // --- the surface-digest gate (scale.md item 2) ---
 
 // A body-only edit (surface unchanged) invalidates the edited file, not its
-// importers: after the edit, `c` and `a` stay checked-clean, `b` doesn't —
-// and the next check re-checks only `b`.
+// importers: after the edit, `c` and `a` stay checked-clean, `b` doesn't — and the
+// next check re-checks only `b`.
 @test
 fn test_body_edit_keeps_dependents_checked() -> Result<Void, Error> {
     let dir = fixture_dir('digest_body', [
@@ -474,9 +473,9 @@ fn test_body_edit_keeps_dependents_checked() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The gate compares surfaces, not text: a signature change trips it (the full
-// cone eviction — pinned end to end by `test_dependency_edit_rechecks_importers`),
-// and so does adding a pub decl.
+// The gate compares surfaces, not text: a signature change trips it (the full cone
+// eviction — pinned end to end by `test_dependency_edit_rechecks_importers`), and
+// so does adding a pub decl.
 @test
 fn test_surface_edit_evicts_dependents() -> Result<Void, Error> {
     let dir = fixture_dir('digest_surface', [
@@ -501,9 +500,9 @@ fn test_surface_edit_evicts_dependents() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The white-box sibling sees the target's *private* names, which the surface
-// digest deliberately excludes — so a private-signature edit (surface
-// unchanged) must still re-check `foo_test.thera`.
+// The white-box sibling sees the target's *private* names, which the surface digest
+// deliberately excludes — so a private-signature edit (surface unchanged) must
+// still re-check `foo_test.thera`.
 @test
 fn test_body_edit_still_rechecks_whitebox_sibling() -> Result<Void, Error> {
     let dir = fixture_dir('digest_whitebox', [

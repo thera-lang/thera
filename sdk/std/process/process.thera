@@ -162,8 +162,8 @@ impl Process {
     }
 
     /// Close the child's stdin, signalling end-of-input. Required before reading
-    /// the output of a filter (e.g. `cat`, `grep`), which otherwise blocks
-    /// waiting for more input.
+    /// the output of a filter (e.g. `cat`, `grep`), which otherwise blocks waiting
+    /// for more input.
     pub fn close_stdin(self) -> Result<Void, ProcessError> {
         return match _stdin_close(self.id) {
             Ok(_) => Result.Ok(void),
@@ -208,11 +208,11 @@ pub fn run(
     };
 }
 
-/// Run a command that *inherits* this process's stdin/stdout/stderr, so its
-/// output streams live to the terminal and it can read interactive input.
-/// Returns the child's exit code. Unlike `run`, nothing is captured — use this
-/// to launch a child whose console you want to share (a REPL, a pager, a
-/// subcommand whose output should appear as it happens). Same arguments as `run`.
+/// Run a command that *inherits* this process's stdin/stdout/stderr, so its output
+/// streams live to the terminal and it can read interactive input. Returns the
+/// child's exit code. Unlike `run`, nothing is captured — use this to launch a
+/// child whose console you want to share (a REPL, a pager, a subcommand whose
+/// output should appear as it happens). Same arguments as `run`.
 pub fn exec(
     _ command: String,
     args: List<String> = [],

@@ -6,15 +6,15 @@
 // into a constant pool and referenced by index; `call.native`/`call.virtual`/
 // `const.str` reference their string by pool index. Function names live in the
 // Symbols section (parallel to Functions), matching the runtime's loader. The
-// output must be byte-identical to the runtime's `emit-demo` for the same module
-// — the round-trip contract the toolchains share.
+// output must be byte-identical to the runtime's `emit-demo` for the same module —
+// the round-trip contract the toolchains share.
 
 import 'instr' as _; // emits instructions pervasively
 import 'module';
 
 const MAGIC: String = 'THERA';
-// v3: struct field names in the Types section + an Enums section, for named
-// `Debug` rendering. See docs/bytecode.md and the runtime's `codec.rs`.
+// v3: struct field names in the Types section + an Enums section, for named `Debug`
+// rendering. See docs/bytecode.md and the runtime's `codec.rs`.
 const VERSION: Int = 3;
 
 // Section ids. Unknown ids are skipped on decode via their byte length.
@@ -25,20 +25,20 @@ const SECTION_DISPATCH: Int = 4;
 // The module-global count (a single uvarint); omitted when zero, so global-free
 // modules stay byte-identical to before the feature. See docs/bytecode.md.
 const SECTION_GLOBALS: Int = 5;
-// The entry points: `main` and `<init>` function indices (each as `index + 1`,
-// 0 = absent), so the runtime finds the entry without function names. Omitted
-// when the module has neither.
+// The entry points: `main` and `<init>` function indices (each as `index + 1`, 0 =
+// absent), so the runtime finds the entry without function names. Omitted when the
+// module has neither.
 const SECTION_ENTRY: Int = 6;
-// The function-name table (one name per function, parallel to Functions).
-// Emitted by default, but separable so a future build can strip names.
+// The function-name table (one name per function, parallel to Functions). Emitted
+// by default, but separable so a future build can strip names.
 const SECTION_SYMBOLS: Int = 7;
 // Enum name tables (name + variant names per enum type id), for named `Debug`.
 // Omitted when the module declares no enums.
 const SECTION_ENUMS: Int = 8;
 
-// Collects and deduplicates strings during encoding, preserving first-seen order
-// so the encoded pool matches the runtime's. A linear scan keeps the port free
-// of map-field mutation; the pool is small.
+// Collects and deduplicates strings during encoding, preserving first-seen order so
+// the encoded pool matches the runtime's. A linear scan keeps the port free of
+// map-field mutation; the pool is small.
 struct StringPool {
     let strings: List<String>;      // pool entries, in first-seen (insertion) order
     let index: Map<String, Int>;    // entry -> its pool index, mirroring `strings`
@@ -68,8 +68,8 @@ impl StringPool {
 // Encode a module to the wire format.
 pub fn encode_module(_ m: module.Module) -> Bytes {
     // First pass: intern every string the module references — type names, string
-    // literals, and the names of called natives/selectors — in the same order
-    // the runtime does, so the pools (and therefore the bytes) match exactly.
+    // literals, and the names of called natives/selectors — in the same order the
+    // runtime does, so the pools (and therefore the bytes) match exactly.
     let pool = StringPool { strings: [], index: [:] };
     for t in m.types {
         pool.intern(t.name);
@@ -199,8 +199,8 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
     return w.finish();
 }
 
-// The index of the function named `name`, or -1 if absent. `encode_module` uses
-// it to derive the Entry section's `main`/`<init>` indices (as `index + 1`).
+// The index of the function named `name`, or -1 if absent. `encode_module` uses it
+// to derive the Entry section's `main`/`<init>` indices (as `index + 1`).
 fn find_func(_ fns: List<module.FuncDef>, _ name: String) -> Int {
     for p in fns.enumerate() {
         if p.value.name == name {

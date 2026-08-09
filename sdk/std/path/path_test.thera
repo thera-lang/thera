@@ -32,9 +32,9 @@ fn test_join_all() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// `separator`/`to_native`/`from_native` exercise the module initializer and the
-// OS boundary. Written platform-independently: the round-trip and the
-// separatorless cases hold on POSIX and Windows alike.
+// `separator`/`to_native`/`from_native` exercise the module initializer and the OS
+// boundary. Written platform-independently: the round-trip and the separatorless
+// cases hold on POSIX and Windows alike.
 @test
 fn test_platform_separator() -> Result<Void, Error> {
     testing.assert(separator == '/' || separator == '\\')?;

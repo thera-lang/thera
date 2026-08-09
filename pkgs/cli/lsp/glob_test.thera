@@ -26,8 +26,8 @@ fn test_double_star_matches_across_segments() -> Result<Void, Error> {
 }
 
 /// `prunes_dir` decides whether a whole subtree can be skipped. Its safety
-/// property: it may only say yes when *every* path under the directory matches
-/// the pattern, so pruning drops exactly what filtering would have dropped.
+/// property: it may only say yes when *every* path under the directory matches the
+/// pattern, so pruning drops exactly what filtering would have dropped.
 @test
 fn test_prunes_dir_only_for_whole_subtree_patterns() -> Result<Void, Error> {
     testing.assert(

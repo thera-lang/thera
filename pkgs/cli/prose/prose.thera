@@ -6,26 +6,25 @@
 //! `bin/fmt_docs.sh` already settled for `*.md`.
 //!
 //! The margin is **84 columns of line**, which is 80 columns of prose for a
-//! top-level `///` — the same budget `.prettierrc` gives the markdown files,
-//! once the marker is paid for. Indentation narrows it from there.
+//! top-level `///` — the same budget `.prettierrc` gives the markdown files, once
+//! the marker is paid for. Indentation narrows it from there.
 //!
 //! Three files do the work and none of them know about the others' concerns:
 //! `runs.thera` decides which comments may be rewritten and groups them,
 //! `blocks.thera` decides which of a run's lines are flowable prose, and
-//! `wrap.thera` fills prose to a width. This file joins them, renders, and
-//! guards.
+//! `wrap.thera` fills prose to a width. This file joins them, renders, and guards.
 //!
-//! **Ordering matters and is not negotiable.** A comment's budget is a function
-//! of its indentation, and indentation is decided by `fmt.format_lines` from
-//! bracket depth — so this runs *after* the code passes have settled. The
-//! reverse dependency does not exist: changing how many lines a comment occupies
-//! cannot change any indent (a comment-only line carries no tokens) and cannot
-//! move a comment into or out of a bracket group, so one pass at the end is
-//! stable rather than another round of a loop.
+//! **Ordering matters and is not negotiable.** A comment's budget is a function of
+//! its indentation, and indentation is decided by `fmt.format_lines` from bracket
+//! depth — so this runs *after* the code passes have settled. The reverse
+//! dependency does not exist: changing how many lines a comment occupies cannot
+//! change any indent (a comment-only line carries no tokens) and cannot move a
+//! comment into or out of a bracket group, so one pass at the end is stable rather
+//! than another round of a loop.
 //!
-//! **The guard is not the whitespace-only contract.** Comments are not in the
-//! token stream, so `fmt`'s token-equality check says nothing about them; this
-//! pass carries its own, in [guard_ok] and [same_frame].
+//! **The guard is not the whitespace-only contract.** Comments are not in the token
+//! stream, so `fmt`'s token-equality check says nothing about them; this pass
+//! carries its own, in [guard_ok] and [same_frame].
 
 import 'blocks';
 import 'runs';
@@ -34,19 +33,19 @@ import 'wrap';
 import '../lexer' as _; // tokenize
 import '../edit/edit';
 
-/// The margin comment prose targets — the **whole line**, indentation and
-/// marker included. A top-level `///` therefore gets 80 columns of prose.
+/// The margin comment prose targets — the **whole line**, indentation and marker
+/// included. A top-level `///` therefore gets 80 columns of prose.
 pub const DEFAULT_WIDTH: Int = 84;
 
-/// The narrowest prose budget worth wrapping to. A run indented past this is
-/// left as the author wrote it rather than shredded into a column.
+/// The narrowest prose budget worth wrapping to. A run indented past this is left
+/// as the author wrote it rather than shredded into a column.
 pub const MIN_CONTENT: Int = 24;
 
 /// The rewrapped source, plus whether any run was rejected by the guard.
 ///
-/// The flag matters because a rejection is **silent** by construction — the
-/// output is simply un-rewrapped, which looks exactly like "nothing needed
-/// doing". Callers surface it.
+/// The flag matters because a rejection is **silent** by construction — the output
+/// is simply un-rewrapped, which looks exactly like "nothing needed doing". Callers
+/// surface it.
 pub struct ProseOutcome {
     let text: String;
     let fell_back: Bool;
@@ -85,9 +84,9 @@ pub fn reflow_prose(_ source: String, _ width: Int) -> ProseOutcome {
         return ProseOutcome { text: source, fell_back: fell_back };
     }
     let text = edit.apply_edits(source, edits);
-    // Whole-file backstop: the rewrite must leave the same runs in the same
-    // places. A per-run guard is structurally blind to a render that split or
-    // merged runs, because it only ever sees one run's worth of lines.
+    // Whole-file backstop: the rewrite must leave the same runs in the same places.
+    // A per-run guard is structurally blind to a render that split or merged runs,
+    // because it only ever sees one run's worth of lines.
     if !same_frame(found, text) {
         return ProseOutcome { text: source, fell_back: true };
     }
@@ -95,9 +94,9 @@ pub fn reflow_prose(_ source: String, _ width: Int) -> ProseOutcome {
 }
 
 // The content lines a run's blocks render to: prose refilled, everything else
-// copied. A block whose atoms cannot be scanned (an unbalanced backtick or
-// bracket) is copied too — the caller cannot reason about that text, so it does
-// not touch it.
+// copied. A block whose atoms cannot be scanned (an unbalanced backtick or bracket)
+// is copied too — the caller cannot reason about that text, so it does not touch
+// it.
 fn render(_ bs: List<blocks.Block>, _ avail: Int) -> List<String> {
     let out: List<String> = [];
     for b in bs {
@@ -116,15 +115,15 @@ fn render(_ bs: List<blocks.Block>, _ avail: Int) -> List<String> {
     return out;
 }
 
-// The replacement text for a run: its content lines behind the marker, with
-// every line after the first carrying the run's indent (the first one's is
-// already in the source, before `run.start`).
+// The replacement text for a run: its content lines behind the marker, with every
+// line after the first carrying the run's indent (the first one's is already in the
+// source, before `run.start`).
 fn join_lines(_ r: runs.CommentRun, _ lines: List<String>) -> String {
     let parts: List<String> = [];
     for line in lines {
-        // A bare marker, never `'// '` — a trailing space would survive to disk
-        // and be trimmed by the *next* run's line layout, so `fmt --check` would
-        // never reach a fixpoint.
+        // A bare marker, never `'// '` — a trailing space would survive to disk and
+        // be trimmed by the *next* run's line layout, so `fmt --check` would never
+        // reach a fixpoint.
         parts.push(if line == '' { r.marker } else { '${r.marker} ${line}' });
     }
     return parts.join('\n${r.indent}');
@@ -134,8 +133,8 @@ fn join_lines(_ r: runs.CommentRun, _ lines: List<String>) -> String {
 //
 // Three parts, and the third is the one that earns its keep: re-segmenting the
 // output must produce the same block sequence. That catches a wrap that
-// accidentally manufactured a list item or a fence — the failure the other two
-// are blind to, since the words would be identical either way.
+// accidentally manufactured a list item or a fence — the failure the other two are
+// blind to, since the words would be identical either way.
 fn guard_ok(_ before: List<blocks.Block>, _ rendered: List<String>) -> Bool {
     for line in rendered {
         if line != line.trim_end() {
@@ -154,9 +153,9 @@ fn guard_ok(_ before: List<blocks.Block>, _ rendered: List<String>) -> Bool {
             return false;
         }
         if a.kind == blocks.BlockKind.Prose {
-            // Prose compares by words. Note this deliberately cannot see
-            // spacing *inside* an atom — `wrap.atoms_of` is what protects that,
-            // and it is unit-tested directly for exactly that reason.
+            // Prose compares by words. Note this deliberately cannot see spacing
+            // *inside* an atom — `wrap.atoms_of` is what protects that, and it is
+            // unit-tested directly for exactly that reason.
             if normalize(a.lines) != normalize(b.lines) {
                 return false;
             }

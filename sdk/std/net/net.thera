@@ -1,6 +1,6 @@
-//! std.net — TCP sockets: `listen`/`accept` for servers, `connect` for clients,
-//! and a `TcpStream` (or, over TLS, a `TlsStream`) that is an ordinary
-//! `Reader` + `Writer` + `Closer`.
+//! std.net — TCP sockets: `listen`/`accept` for servers, `connect` for clients, and
+//! a `TcpStream` (or, over TLS, a `TlsStream`) that is an ordinary `Reader` +
+//! `Writer` + `Closer`.
 //!
 //! Import as: import std.net
 //!
@@ -24,19 +24,18 @@
 //!
 //! **Provisional — this surface is expected to change.** It exists to carry
 //! `std.http` (see docs/stdlib.md § `std.http`), and only what the HTTP client and
-//! server need is implemented. Raw sockets are otherwise *not* core
-//! (docs/stdlib.md § "What is intentionally not in core"): they are here to be
-//! built on, not yet to be committed to. Notably absent, and all likely additions
-//! when this is revisited: **UDP**, **deadlines/timeouts** (which want the
-//! scheduler's `select`, docs/roadmap.md), **half-close** (`shutdown`), and socket
-//! options (`nodelay`, `keepalive`). TLS is **client-side only** — there is no
-//! `TlsListener`, so a server terminates TLS upstream. Take a dependency on the
-//! shape of this module only if you are prepared to update it.
+//! server need is implemented. Raw sockets are otherwise *not* core (docs/stdlib.md
+//! § "What is intentionally not in core"): they are here to be built on, not yet to
+//! be committed to. Notably absent, and all likely additions when this is
+//! revisited: **UDP**, **deadlines/timeouts** (which want the scheduler's `select`,
+//! docs/roadmap.md), **half-close** (`shutdown`), and socket options (`nodelay`,
+//! `keepalive`). TLS is **client-side only** — there is no `TlsListener`, so a
+//! server terminates TLS upstream. Take a dependency on the shape of this module
+//! only if you are prepared to update it.
 //!
-//! Concurrency: every call parks the calling fiber rather than blocking the
-//! thread, so blocking-looking code stays concurrent (docs/stdlib.md
-//! § Cross-cutting #5). Unlike `fs.File`, one fiber may read a `TcpStream` while
-//! another writes it.
+//! Concurrency: every call parks the calling fiber rather than blocking the thread,
+//! so blocking-looking code stays concurrent (docs/stdlib.md § Cross-cutting #5).
+//! Unlike `fs.File`, one fiber may read a `TcpStream` while another writes it.
 
 import std.io;
 import std.fiber;
@@ -236,15 +235,15 @@ impl io.Closer for TcpStream {
     }
 }
 
-/// A stream is selectable on **readability**: `fiber.select` returns its index
-/// when a `read` would not block — including at EOF and on a pending error, both of
+/// A stream is selectable on **readability**: `fiber.select` returns its index when
+/// a `read` would not block — including at EOF and on a pending error, both of
 /// which `read` reports rather than waits on.
 ///
 /// A `TcpListener` is deliberately *not* selectable: probing it means `accept`,
 /// which consumes the connection, and `select`'s `is_ready` must not consume (it is
-/// asked speculatively, about sources the caller may never act on). Selecting on
-/// "a connection arrived or quit was signalled" therefore wants an accept loop
-/// feeding a channel.
+/// asked speculatively, about sources the caller may never act on). Selecting on "a
+/// connection arrived or quit was signalled" therefore wants an accept loop feeding
+/// a channel.
 impl fiber.Selectable for TcpStream {
     pub fn is_ready(self) -> Bool {
         return _is_ready(self.handle);
@@ -276,8 +275,8 @@ impl TcpStream {
 // --- TLS ---
 
 /// A TLS client connection: a `Reader` + `Writer` + `Closer` like `TcpStream`, so
-/// anything written against those interfaces (`io.copy`, the HTTP wire codec)
-/// works over it unchanged — that interchangeability is the point.
+/// anything written against those interfaces (`io.copy`, the HTTP wire codec) works
+/// over it unchanged — that interchangeability is the point.
 ///
 /// A `TlsStream` only exists once the handshake has completed, which means the
 /// server's certificate chain **and** its name have been verified against the
@@ -306,8 +305,8 @@ impl TlsStream {
     }
 }
 
-/// `TlsStream.connect`, plus extra trusted roots as PEM — the seam the hermetic
-/// TLS tests connect through, so they can trust a certificate minted at test time
+/// `TlsStream.connect`, plus extra trusted roots as PEM — the seam the hermetic TLS
+/// tests connect through, so they can trust a certificate minted at test time
 /// (docs/http-tls.md §Testing).
 ///
 /// Deliberately **file-private**: white-box visible to `net_test.thera` and to
@@ -338,9 +337,9 @@ fn connect_trusting(
 }
 
 /// Terminate TLS on an **accepted** `stream`, presenting `cert_pem` (leaf first)
-/// with `key_pem`, and drive the handshake. The server half of `connect_trusting`
-/// — together they are the hermetic in-process TLS loop (docs/http-tls.md
-/// §Testing #3): one fiber serves, another connects, and no network is involved.
+/// with `key_pem`, and drive the handshake. The server half of `connect_trusting` —
+/// together they are the hermetic in-process TLS loop (docs/http-tls.md §Testing #3):
+/// one fiber serves, another connects, and no network is involved.
 ///
 /// Ownership works exactly as for `TlsStream.connect`: on success `stream` becomes
 /// the returned `TlsStream`, on failure it is closed.
@@ -349,8 +348,7 @@ fn connect_trusting(
 /// reason: a public server-TLS surface is a stated non-goal (a simple server's TLS
 /// is terminated upstream), so this exists to make the *client* path testable and
 /// nothing else. Note what it does **not** do — a server session verifies nothing
-/// about its peer, so a completed handshake here says only that someone speaks
-/// TLS.
+/// about its peer, so a completed handshake here says only that someone speaks TLS.
 fn accept_tls(
     _ stream: TcpStream,
     cert_pem: String,
@@ -483,8 +481,8 @@ impl io.Closer for TcpListener {
 /// only, `'0.0.0.0:8080'` for every interface). Port **0** asks the OS to pick a
 /// free port — read it back with `local_addr`.
 ///
-/// Takes an address, not a host name: binding is to an interface this host owns,
-/// so there is nothing to resolve. `connect` is the one that takes a host.
+/// Takes an address, not a host name: binding is to an interface this host owns, so
+/// there is nothing to resolve. `connect` is the one that takes a host.
 pub fn listen(_ addr: String) -> Result<TcpListener, NetError> {
     return match _listen(addr) {
         Ok(h) => Result.Ok(TcpListener { handle: h }),
@@ -492,8 +490,8 @@ pub fn listen(_ addr: String) -> Result<TcpListener, NetError> {
     };
 }
 
-/// Resolve `host` and connect to it, trying each address until one answers.
-/// `host` may be a name (`'example.com'`) or a literal IP.
+/// Resolve `host` and connect to it, trying each address until one answers. `host`
+/// may be a name (`'example.com'`) or a literal IP.
 pub fn connect(_ host: String, _ port: Int) -> Result<TcpStream, NetError> {
     let addrs = resolve(host, port)?;
     // `resolve` yields at least one address (it errors otherwise), so `last` is a
@@ -508,8 +506,8 @@ pub fn connect(_ host: String, _ port: Int) -> Result<TcpStream, NetError> {
     return Result.Err(last);
 }
 
-/// Resolve `host`, connect, and wrap the connection in TLS, verifying the
-/// server's certificate against `host`. The `https` half of `connect`.
+/// Resolve `host`, connect, and wrap the connection in TLS, verifying the server's
+/// certificate against `host`. The `https` half of `connect`.
 ///
 /// `host` must be the **name** to verify (`'example.com'`), which is also what is
 /// dialled; a literal IP works only if the certificate is issued for that IP.

@@ -1,37 +1,37 @@
-// LSP signature help (`textDocument/signatureHelp`) — while the cursor sits
-// in a call's argument list (`add(1, `), show the callee's signature with the
-// active parameter highlighted. The enclosing call comes from the AST: the
-// parser frames an unterminated call (the args loop stops at a token that
-// closes an enclosing construct, and the synthesized `)` anchors just past
-// the last real token), and the callee resolves through the same
-// owner-correct machinery hover uses (`callee_fn_site`: free functions,
-// static methods, and instance methods on the receiver's committed type).
+// LSP signature help (`textDocument/signatureHelp`) — while the cursor sits in a
+// call's argument list (`add(1, `), show the callee's signature with the active
+// parameter highlighted. The enclosing call comes from the AST: the parser frames
+// an unterminated call (the args loop stops at a token that closes an enclosing
+// construct, and the synthesized `)` anchors just past the last real token), and
+// the callee resolves through the same owner-correct machinery hover uses
+// (`callee_fn_site`: free functions, static methods, and instance methods on the
+// receiver's committed type).
 
 import std.json as _;
 
 import '../lexer' as _; // Token
 import 'resolve';
 
-// A resolved signature at the cursor: its render, the per-parameter renders
-// (each a substring of `label`, as the protocol's highlighting requires), and
-// the active parameter index.
+// A resolved signature at the cursor: its render, the per-parameter renders (each a
+// substring of `label`, as the protocol's highlighting requires), and the active
+// parameter index.
 pub struct SignatureInfo {
     let label: String;
     let params: List<String>;
     let active_param: Int;
 }
 
-// The signature at `offset`, or None when the cursor is in no call's argument
-// list (or the callee doesn't resolve). `self` is dropped from the parameter
-// list, so an instance call's first argument is parameter 0.
+// The signature at `offset`, or None when the cursor is in no call's argument list
+// (or the callee doesn't resolve). `self` is dropped from the parameter list, so an
+// instance call's first argument is parameter 0.
 pub fn signature_help_at(
     _ ctx: resolve.ResolveCtx,
     _ text: String,
     _ offset: Int,
 ) -> Option<SignatureInfo> {
-    // An unterminated call's span ends at its last real token, so a cursor in
-    // the trailing whitespace (`add(1, `) sits past every AST span — snap it
-    // back onto code before the lookup.
+    // An unterminated call's span ends at its last real token, so a cursor in the
+    // trailing whitespace (`add(1, `) sits past every AST span — snap it back onto
+    // code before the lookup.
     let anchor = snap_to_code(resolve.primary_tokens(ctx, text), offset);
     let call = resolve.enclosing_call_at(ctx.program, anchor)?;
     let site = resolve.callee_fn_site(ctx, call.callee)?;
@@ -41,9 +41,9 @@ pub fn signature_help_at(
             params.push(resolve.describe_param(p));
         }
     }
-    // The active parameter: one past the arguments already written — each
-    // argument whose span ends before the cursor is complete (`add(1, ` → 1).
-    // Clamped so a surplus argument still highlights the last parameter.
+    // The active parameter: one past the arguments already written — each argument
+    // whose span ends before the cursor is complete (`add(1, ` → 1). Clamped so a
+    // surplus argument still highlights the last parameter.
     let mut active = 0;
     for a in call.args {
         if a.span.offset + a.span.length < anchor {
@@ -61,8 +61,7 @@ pub fn signature_help_at(
 }
 
 // The cursor snapped back onto code: in trailing whitespace it anchors at the
-// previous token's end; inside (or at the end of) a token it keeps its own
-// offset.
+// previous token's end; inside (or at the end of) a token it keeps its own offset.
 fn snap_to_code(_ toks: List<Token>, _ offset: Int) -> Int {
     let mut anchor = 0;
     for t in toks {

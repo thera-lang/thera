@@ -1,6 +1,6 @@
-//! Self-tests for std.testing's assertions. Each assertion returns its outcome
-//! as a Result, so we exercise it by inspecting that Result directly (rather than
-//! with `?`, which would propagate a failure out of the test).
+//! Self-tests for std.testing's assertions. Each assertion returns its outcome as a
+//! Result, so we exercise it by inspecting that Result directly (rather than with
+//! `?`, which would propagate a failure out of the test).
 //!
 //! A small `is_ok` helper matches the Result instead of unwrapping it — readable
 //! for the success/failure meta-checks below. (`assert_ok`/`assert_err` now also

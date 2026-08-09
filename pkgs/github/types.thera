@@ -1,15 +1,16 @@
 // The schemas these three operations return, and the decoders that read them.
 //
-// **Every type here is a documented subset.** `pull-request-simple` has 37 properties
-// and `issue` has 40; `head.repo` is a whole `repository`, which is most of why the
-// three-operation closure is 28 schemas. Modeling them completely would be a
-// generator's job and would teach us nothing this file cannot. What is *not* truncated
-// is the set of constructs: every row of docs/api-access.md § Typed JSON's mapping
-// table that Anthropic could not reach is exercised here on a field GitHub really
-// sends.
+// **Every type here is a documented subset.** `pull-request-simple` has 37
+// properties and `issue` has 40; `head.repo` is a whole `repository`, which is most
+// of why the three-operation closure is 28 schemas. Modeling them completely would
+// be a generator's job and would teach us nothing this file cannot. What is *not*
+// truncated is the set of constructs: every row of docs/api-access.md § Typed
+// JSON's mapping table that Anthropic could not reach is exercised here on a field
+// GitHub really sends.
 //
-// Four things the real description does that are worth naming, because each one is a
-// decision a generator has to make and none of them is visible from the mapping table:
+// Four things the real description does that are worth naming, because each one is
+// a decision a generator has to make and none of them is visible from the mapping
+// table:
 //
 //  1. **Nullability hides behind a `$ref`.** OpenAPI 3.0 cannot say "a nullable
 //     `$ref`", so GitHub ships a byte-identical duplicate schema — `nullable-simple-user`
@@ -38,15 +39,16 @@ import std.time;
 /// A `format: date-time` string as a `time.DateTime`.
 ///
 /// The first reader whose failure does not come from `std.json`: `parse_rfc3339`
-/// returns a plain `Error`, and what a caller needs is a `DecodeError` naming the path.
-/// `Cursor.unexpected` is exactly that hole, which is a small vindication of having put
-/// it in the library rather than making each decoder invent its own message.
+/// returns a plain `Error`, and what a caller needs is a `DecodeError` naming the
+/// path. `Cursor.unexpected` is exactly that hole, which is a small vindication of
+/// having put it in the library rather than making each decoder invent its own
+/// message.
 ///
-/// This is also the case that `Option.map` cannot express — the conversion can fail —
-/// so the nested `match` below is what the absence of a `try_map` costs. Note where
-/// that cost lands: **once per format**, in a helper, not once per field. Twelve
-/// thousand `format` occurrences in GitHub's description reduce to a handful of
-/// functions like this one.
+/// This is also the case that `Option.map` cannot express — the conversion can fail
+/// — so the nested `match` below is what the absence of a `try_map` costs. Note
+/// where that cost lands: **once per format**, in a helper, not once per field.
+/// Twelve thousand `format` occurrences in GitHub's description reduce to a handful
+/// of functions like this one.
 pub fn date_time_at(_ at: json.Cursor) -> Result<time.DateTime, json.DecodeError> {
     let text = at.string()?;
     return match time.DateTime.parse_rfc3339(text) {
@@ -97,8 +99,9 @@ pub fn each<T>(
 
 // --- users ---
 
-/// A GitHub account, from `simple-user` — or from `nullable-simple-user`, which is the
-/// same schema with `nullable: true` and is what every `user` field actually points at.
+/// A GitHub account, from `simple-user` — or from `nullable-simple-user`, which is
+/// the same schema with `nullable: true` and is what every `user` field actually
+/// points at.
 pub struct User {
     let login: String;
     let id: Int;
@@ -122,10 +125,10 @@ pub fn user_from_json(_ at: json.Cursor) -> Result<User, json.DecodeError> {
 
 // --- labels ---
 
-/// A label in its object form. `description` is nullable in `components/schemas/label`
-/// and non-nullable in the copy inlined into `pull-request-simple`; `Option` is the
-/// honest reading of the union, and the stricter of two shapes is never the safe one to
-/// assume.
+/// A label in its object form. `description` is nullable in
+/// `components/schemas/label` and non-nullable in the copy inlined into
+/// `pull-request-simple`; `Option` is the honest reading of the union, and the
+/// stricter of two shapes is never the safe one to assume.
 pub struct Label {
     let id: Int;
     let name: String;
@@ -143,16 +146,17 @@ pub fn label_from_json(_ at: json.Cursor) -> Result<Label, json.DecodeError> {
     });
 }
 
-/// A label as an issue reports it: `{"oneOf": [{"type": "string"}, {"type": "object"…}]}`
-/// — an **untagged `oneOf`**, and the mapping-table row nothing on the slate had
-/// exercised until now.
+/// A label as an issue reports it:
+/// `{"oneOf": [{"type": "string"}, {"type": "object"…}]}` — an **untagged
+/// `oneOf`**, and the mapping-table row nothing on the slate had exercised until
+/// now.
 ///
 /// It decodes cleanly, and the reason is worth stating: an untagged union is only
 /// decodable when the branches differ by JSON *kind*, and then `Json.kind()` is the
-/// discriminator the spec failed to declare. That is the general rule a generator can
-/// apply — one variant per branch, dispatch on `kind()`, and refuse to emit anything at
-/// all when two branches share a kind, because at that point the document is genuinely
-/// ambiguous and guessing is worse than failing.
+/// discriminator the spec failed to declare. That is the general rule a generator
+/// can apply — one variant per branch, dispatch on `kind()`, and refuse to emit
+/// anything at all when two branches share a kind, because at that point the
+/// document is genuinely ambiguous and guessing is worse than failing.
 pub enum IssueLabel {
     /// The string form: just the label's name.
     Name(String),
@@ -161,8 +165,9 @@ pub enum IssueLabel {
 }
 
 impl IssueLabel {
-    /// The label's name, whichever form it arrived in — which is what a caller almost
-    /// always wants, and the reason the union is not a leaky abstraction here.
+    /// The label's name, whichever form it arrived in — which is what a caller
+    /// almost always wants, and the reason the union is not a leaky abstraction
+    /// here.
     pub fn name(self) -> String {
         return match self {
             Name(n) => n,
@@ -181,9 +186,10 @@ pub fn issue_label_from_json(_ at: json.Cursor) -> Result<IssueLabel, json.Decod
 
 // --- branch endpoints ---
 
-/// One end of a pull request. The spec's `head`/`base` are inline objects carrying a
-/// whole `repository` and a `nullable-simple-user`; this keeps the three fields that
-/// identify the branch, which is what a client that is not a repository browser needs.
+/// One end of a pull request. The spec's `head`/`base` are inline objects carrying
+/// a whole `repository` and a `nullable-simple-user`; this keeps the three fields
+/// that identify the branch, which is what a client that is not a repository
+/// browser needs.
 pub struct Ref {
     /// `owner:branch` — qualified, so a fork's branch is unambiguous.
     let label: String;
@@ -205,24 +211,25 @@ pub fn ref_from_json(_ at: json.Cursor) -> Result<Ref, json.DecodeError> {
 /// A pull request as the list endpoint returns it (`pull-request-simple`).
 ///
 /// **Not the same type `create` returns.** `pulls/list` answers with
-/// `pull-request-simple` and `pulls/create` with `pull-request` — a wider schema with
-/// the merge state, review counts, and diff statistics. Two types, and no caller can
-/// pass one where the other belongs. That is the spec's decision, not ours, and it is
-/// worth knowing before a generator makes it 1220 times: the reflex to "return the
-/// resource type" is wrong, because operations on one resource return *different*
-/// resource types.
+/// `pull-request-simple` and `pulls/create` with `pull-request` — a wider schema
+/// with the merge state, review counts, and diff statistics. Two types, and no
+/// caller can pass one where the other belongs. That is the spec's decision, not
+/// ours, and it is worth knowing before a generator makes it 1220 times: the reflex
+/// to "return the resource type" is wrong, because operations on one resource
+/// return *different* resource types.
 pub struct PullRequest {
     let number: Int;
     let title: String;
-    /// `'open'` or `'closed'` — declared as a bare `string`, not an `enum`, so there is
-    /// nothing here for a generator to turn into a Thera enum. (Compare Anthropic's
-    /// `stop_reason`, which *is* declared as one.)
+    /// `'open'` or `'closed'` — declared as a bare `string`, not an `enum`, so
+    /// there is nothing here for a generator to turn into a Thera enum. (Compare
+    /// Anthropic's `stop_reason`, which *is* declared as one.)
     let state: String;
     /// Required and nullable: an empty description sends `null`, not `""`.
     let body: Option<String>;
-    /// **Absent** from the schema's `required` list, so `Option<Bool>` — three states
-    /// for a two-state fact, and a caller that wants a `Bool` writes
-    /// `.unwrap_or(false)`. GitHub does send it; the description does not promise to.
+    /// **Absent** from the schema's `required` list, so `Option<Bool>` — three
+    /// states for a two-state fact, and a caller that wants a `Bool` writes
+    /// `.unwrap_or(false)`. GitHub does send it; the description does not promise
+    /// to.
     let draft: Option<Bool>;
     /// Required, and still optional: the field points at `nullable-simple-user`. A
     /// deleted account is how it comes back `null`.
@@ -233,7 +240,8 @@ pub struct PullRequest {
     let created_at: time.DateTime;
     let updated_at: time.DateTime;
     let closed_at: Option<time.DateTime>;
-    /// `Some` only if it was merged — the field that makes `closed_at` insufficient.
+    /// `Some` only if it was merged — the field that makes `closed_at`
+    /// insufficient.
     let merged_at: Option<time.DateTime>;
     let merge_commit_sha: Option<String>;
     let html_url: String;
@@ -287,12 +295,12 @@ pub struct Issue {
     ///
     /// GitHub's issues endpoints return both, and the way to tell them apart is the
     /// **presence of a `pull_request` key** — not a type field, not a status, and
-    /// nothing the description marks as significant (it is just an optional object).
-    /// A generator emits `pull_request: Option<IssuePullRequest>` and is not wrong; it
-    /// simply cannot know that the *only* thing most callers want from that field is
-    /// whether it was there. Filtering pull requests out of an issue list is the single
-    /// most common thing anyone does with this endpoint, and it is invisible from the
-    /// spec — manifest territory, again.
+    /// nothing the description marks as significant (it is just an optional
+    /// object). A generator emits `pull_request: Option<IssuePullRequest>` and is
+    /// not wrong; it simply cannot know that the *only* thing most callers want
+    /// from that field is whether it was there. Filtering pull requests out of an
+    /// issue list is the single most common thing anyone does with this endpoint,
+    /// and it is invisible from the spec — manifest territory, again.
     let is_pull_request: Bool;
 }
 

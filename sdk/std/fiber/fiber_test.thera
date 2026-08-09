@@ -25,8 +25,8 @@ fn test_many_fibers_each_join() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// `yield` cedes the thread, so two fibers interleave — and the cooperative,
-/// FIFO scheduling makes the interleaving deterministic.
+/// `yield` cedes the thread, so two fibers interleave — and the cooperative, FIFO
+/// scheduling makes the interleaving deterministic.
 @test
 fn test_yield_interleaves_deterministically() -> Result<Void, Error> {
     let log: List<String> = [];
@@ -101,10 +101,10 @@ fn test_blocking_read_parks_letting_others_run() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// Running a child process (`process.run`) parks the fiber on the worker pool
-/// until the child exits, so a ready fiber runs while the child is running — and
-/// the runner still gets the captured output. Deterministic: the child's completion
-/// is awaited only once every ready fiber has run, so `quick` finishes first.
+/// Running a child process (`process.run`) parks the fiber on the worker pool until
+/// the child exits, so a ready fiber runs while the child is running — and the
+/// runner still gets the captured output. Deterministic: the child's completion is
+/// awaited only once every ready fiber has run, so `quick` finishes first.
 @test
 fn test_process_run_parks_letting_others_run() -> Result<Void, Error> {
     let log: List<String> = [];
@@ -139,9 +139,9 @@ fn test_pipe_streams_across_fibers_without_deadlock() -> Result<Void, Error> {
     }
     let sent = payload.bytes().len();
 
-    // The writer reports how many bytes it wrote (−1 on any failure), so a
-    // failed pipe write fails the test instead of silently dropping its
-    // `Result` — the unused-`Result` diagnostic caught the original bare calls.
+    // The writer reports how many bytes it wrote (−1 on any failure), so a failed
+    // pipe write fails the test instead of silently dropping its `Result` — the
+    // unused-`Result` diagnostic caught the original bare calls.
     let writer = fiber.spawn(() => {
         let wrote = child.stdin().write(payload.bytes()).unwrap_or(0 - 1);
         if child.close_stdin().is_err() {
@@ -159,8 +159,8 @@ fn test_pipe_streams_across_fibers_without_deadlock() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// A buffered channel preserves FIFO order; a closed channel drains its buffer
-/// then yields `None`.
+/// A buffered channel preserves FIFO order; a closed channel drains its buffer then
+/// yields `None`.
 @test
 fn test_channel_buffer_and_drain() -> Result<Void, Error> {
     let ch: fiber.Channel<Int> = fiber.channel(8);

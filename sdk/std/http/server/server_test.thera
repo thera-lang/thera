@@ -18,11 +18,10 @@ import 'server' as _;
 
 /// Start `handler` on a loopback port and return the `<ip>:<port>` to dial.
 ///
-/// The serve fiber is deliberately never joined: `serve_listener` blocks forever
-/// by design and there is no way to stop it (that needs `select` — see
-/// docs/roadmap.md § Networking punchlist). A test's main fiber returning ends the
-/// run regardless, and each test binds its own `:0` port, so the abandoned fiber
-/// costs nothing.
+/// The serve fiber is deliberately never joined: `serve_listener` blocks forever by
+/// design and there is no way to stop it (that needs `select` — see docs/roadmap.md
+/// § Networking punchlist). A test's main fiber returning ends the run regardless,
+/// and each test binds its own `:0` port, so the abandoned fiber costs nothing.
 fn start(_ handler: (common.Request) -> Result<common.Response, Error>) -> Result<String, Error> {
     let listener = net.listen('127.0.0.1:0')?;
     let addr = listener.local_addr()?;

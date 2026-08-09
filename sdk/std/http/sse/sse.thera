@@ -56,9 +56,9 @@ pub struct Event {
 /// A `text/event-stream` decoder over any `io.Reader`.
 ///
 /// `read_event` is the honest primitive — an I/O or UTF-8 failure surfaces as `Err`
-/// — and the `Iterator<Event>` impl is the ergonomic form, which treats a failure as
-/// end-of-stream and stashes it for `error()`. The same split `io.BufReader` makes,
-/// whose line reading this is built on.
+/// — and the `Iterator<Event>` impl is the ergonomic form, which treats a failure
+/// as end-of-stream and stashes it for `error()`. The same split `io.BufReader`
+/// makes, whose line reading this is built on.
 pub struct Decoder {
     let lines: io.BufReader;
     let mut last_id: Option<String>; // stream state: survives dispatch (see `Event.id`)
@@ -91,11 +91,12 @@ impl Decoder {
 
     /// The next event, or `None` at end of stream.
     ///
-    /// Reads until a record completes, parking the fiber while it waits: an event is
-    /// dispatched by the **blank line** that ends its record, so a half-written
+    /// Reads until a record completes, parking the fiber while it waits: an event
+    /// is dispatched by the **blank line** that ends its record, so a half-written
     /// record is not yet an event and a stream that ends mid-record produces none.
     pub fn read_event(self) -> Result<Option<Event>, Error> {
-        // Per-record buffers. `last_id` and `retry` are deliberately not among them.
+        // Per-record buffers. `last_id` and `retry` are deliberately not among
+        // them.
         let mut name = '';
         let data: List<String> = [];
         let mut has_data = false;
@@ -131,10 +132,11 @@ impl Decoder {
                 data.push(value);
                 has_data = true;
             } else if field == 'id' {
-                // An id containing NUL is ignored rather than stored. Not pedantry: a
-                // caller that implements resumption puts this in a `Last-Event-ID`
-                // header, and NUL is the one character that can reach it (CR and LF
-                // are line terminators, so they cannot occur inside a value at all).
+                // An id containing NUL is ignored rather than stored. Not pedantry:
+                // a caller that implements resumption puts this in a
+                // `Last-Event-ID` header, and NUL is the one character that can
+                // reach it (CR and LF are line terminators, so they cannot occur
+                // inside a value at all).
                 if !has_nul(value) {
                     self.last_id = Option.Some(value);
                 }
@@ -163,9 +165,9 @@ impl Iterator<Event> for Decoder {
 }
 
 /// Decode `src` as an event stream. The result is a `Decoder`, which is an
-/// `Iterator<Event>`: drive it with `for ev in sse.events(src)` or an adapter chain.
-/// Use `Decoder.read_event` (or check `.error()` afterwards) when a mid-stream I/O
-/// failure must be handled rather than treated as the end.
+/// `Iterator<Event>`: drive it with `for ev in sse.events(src)` or an adapter
+/// chain. Use `Decoder.read_event` (or check `.error()` afterwards) when a
+/// mid-stream I/O failure must be handled rather than treated as the end.
 pub fn events(_ src: io.Reader) -> Decoder {
     return Decoder.new(src);
 }
@@ -174,8 +176,8 @@ pub fn events(_ src: io.Reader) -> Decoder {
 //
 // A line is `field: value`. Both halves are taken as they come: field names match
 // exactly (they are case-*sensitive*, unlike header names), and a value is never
-// trimmed beyond the one space the spec strips — `data:  x` really does mean a value
-// of ` x`.
+// trimmed beyond the one space the spec strips — `data:  x` really does mean a
+// value of ` x`.
 
 /// The field name: everything before the first colon, or the whole line when there
 /// is none — a bare `data` line is the `data` field with an empty value.
@@ -199,9 +201,9 @@ fn value_of(_ line: String) -> String {
 }
 
 /// `value` as an integer, but only if it is nothing but ASCII digits. The spec says
-/// a `retry:` that isn't is ignored rather than guessed at, and `to_int` alone would
-/// accept a leading sign — a negative reconnection delay being exactly the sort of
-/// value that becomes a busy loop somewhere downstream.
+/// a `retry:` that isn't is ignored rather than guessed at, and `to_int` alone
+/// would accept a leading sign — a negative reconnection delay being exactly the
+/// sort of value that becomes a busy loop somewhere downstream.
 fn digits_to_int(_ value: String) -> Option<Int> {
     if value.is_empty() {
         return Option.None;

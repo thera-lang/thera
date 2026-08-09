@@ -1,12 +1,11 @@
-// The in-memory bytecode module model — the Thera mirror of the runtime's
-// `Module` (runtime/src/module.rs) and the Dart toolchain's bytecode/module.dart.
-// A module is the unit the front-end emits and the runtime loads from a
-// `.thera-bc` file.
+// The in-memory bytecode module model — the Thera mirror of the runtime's `Module`
+// (runtime/src/module.rs) and the Dart toolchain's bytecode/module.dart. A module
+// is the unit the front-end emits and the runtime loads from a `.thera-bc` file.
 
 import 'instr';
 
-// A struct layout entry in the type table: its name, field count, and field
-// names in declaration order. The names drive named `Debug` rendering
+// A struct layout entry in the type table: its name, field count, and field names
+// in declaration order. The names drive named `Debug` rendering
 // (`Point { x: 1, y: 2 }`); an empty `field_names` renders positionally.
 pub struct TypeDef {
     let name: String;
@@ -40,8 +39,8 @@ pub struct FuncDef {
 pub const ENUM_DISPATCH_BASE: Int = 1 << 31;
 
 // One row of the dynamic-dispatch table: the implementation of interface method
-// `selector` for the concrete type id `type_id` (a type-table index for a
-// struct; `ENUM_DISPATCH_BASE | ty` for an enum) is `functions[func]`.
+// `selector` for the concrete type id `type_id` (a type-table index for a struct;
+// `ENUM_DISPATCH_BASE | ty` for an enum) is `functions[func]`.
 // `call.virtual <selector>` looks the target up by the receiver's type id.
 pub struct DispatchEntry {
     let type_id: Int;

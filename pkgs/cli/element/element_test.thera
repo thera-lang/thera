@@ -11,9 +11,9 @@ fn defs() -> Map<String, TypeDefElement> {
     return m;
 }
 
-// Wrap a by-name def map into a minimal LibraryElement whose defs are all owned
-// by file key 't' (matching the fixture TypeIds) — `is_assignable` resolves
-// identities through the per-file tables.
+// Wrap a by-name def map into a minimal LibraryElement whose defs are all owned by
+// file key 't' (matching the fixture TypeIds) — `is_assignable` resolves identities
+// through the per-file tables.
 fn lib_with(_ m: Map<String, TypeDefElement>) -> LibraryElement {
     let file_type_defs: Map<String, Map<String, TypeDefElement>> = [:];
     file_type_defs['t'] = m;
@@ -71,8 +71,7 @@ fn test_is_assignable_basics() -> Result<Void, Error> {
 fn test_is_assignable_interface_subtyping() -> Result<Void, Error> {
     let m = defs();
     let d = lib_with(m);
-    // Error extends Display (transitive supers stored on the element, by
-    // identity).
+    // Error extends Display (transitive supers stored on the element, by identity).
     m['Error'].super_interfaces.push(TypeId { owner: 't', name: 'Display' });
     // A struct that impls Error.
     m['Boom'] = new_struct('t', 'Boom', []);
@@ -88,10 +87,10 @@ fn test_is_assignable_interface_subtyping() -> Result<Void, Error> {
 
 @test
 fn test_is_assignable_owner_distinct() -> Result<Void, Error> {
-    // Two libraries' same-named generic types are distinct: element identity is
-    // the full TypeId (owner + name), so `a.Box<Int>` is NOT assignable to
-    // `b.Box<Int>` even though the names and args match. An owner-blind compare
-    // would unify them — a soundness hole under lifted type-name uniqueness.
+    // Two libraries' same-named generic types are distinct: element identity is the
+    // full TypeId (owner + name), so `a.Box<Int>` is NOT assignable to `b.Box<Int>`
+    // even though the names and args match. An owner-blind compare would unify them
+    // — a soundness hole under lifted type-name uniqueness.
     let d = lib_with(defs());
     let int_t = Type.Primitive(Primitive.Int);
     let a_box = Type.Interface(TypeId { owner: 'a', name: 'Box' }, [int_t]);

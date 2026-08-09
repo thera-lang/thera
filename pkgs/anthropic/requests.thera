@@ -4,10 +4,10 @@
 // languages answer with a builder or an options struct.
 //
 // Thera has default arguments, so `create`'s direct call is viable — and that is
-// the shape here. What it costs at the call site is recorded in
-// docs/typed-json.md § Findings; the short version is that an `Option<T>` parameter
-// does not accept a bare `T`, so every optional argument a caller *does* pass is
-// spelled `Option.Some(…)`.
+// the shape here. What it costs at the call site is recorded in docs/typed-json.md
+// § Findings; the short version is that an `Option<T>` parameter does not accept a
+// bare `T`, so every optional argument a caller *does* pass is spelled
+// `Option.Some(…)`.
 
 import std.json;
 
@@ -78,10 +78,10 @@ pub fn create(
 
 /// The request as a body to send.
 ///
-/// `omit_nulls` is what keeps this one line per field: an absent optional encodes to
-/// `Json.Null` via `json.opt` and is then dropped, so there is no conditional insert
-/// and no `mut` map — and the function reads as the request's shape, the same way
-/// the decoders read as the response's.
+/// `omit_nulls` is what keeps this one line per field: an absent optional encodes
+/// to `Json.Null` via `json.opt` and is then dropped, so there is no conditional
+/// insert and no `mut` map — and the function reads as the request's shape, the
+/// same way the decoders read as the response's.
 pub fn request_to_json(_ req: Request) -> json.Json {
     return json.obj([
         'model': json.str(req.model),

@@ -9,10 +9,10 @@
 
 import 'source'; // SourceSpan
 
-// How loud a diagnostic is. An `Error` is invalid code and blocks
-// compile/run; a `Warning` is legal-but-probably-a-bug — reported by `thera
-// check` (and the LSP) without gating anything. `Info` is reserved for
-// lint-style suggestions riding the same model later.
+// How loud a diagnostic is. An `Error` is invalid code and blocks compile/run; a
+// `Warning` is legal-but-probably-a-bug — reported by `thera check` (and the LSP)
+// without gating anything. `Info` is reserved for lint-style suggestions riding the
+// same model later.
 pub enum Severity {
     Error,
     Warning,
@@ -26,9 +26,9 @@ pub struct Diagnostic {
     let span: source.SourceSpan;
     let file: Option<String>;
     let severity: Severity;
-    // The kebab-case rule name, for suppressable diagnostics (warnings): the
-    // key a `// ignore: <rule>` comment names. Errors carry None — they are
-    // not suppressable and not configurable.
+    // The kebab-case rule name, for suppressable diagnostics (warnings): the key a
+    // `// ignore: <rule>` comment names. Errors carry None — they are not
+    // suppressable and not configurable.
     let rule: Option<String>;
 }
 
@@ -38,8 +38,8 @@ impl Display for Diagnostic {
     }
 }
 
-// An `Error` diagnostic whose owning file is derived from the span (the span
-// knows its file; a file-less hermetic span yields None).
+// An `Error` diagnostic whose owning file is derived from the span (the span knows
+// its file; a file-less hermetic span yields None).
 pub fn at(_ message: String, _ span: source.SourceSpan) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
     return Diagnostic {
@@ -51,9 +51,9 @@ pub fn at(_ message: String, _ span: source.SourceSpan) -> Diagnostic {
     };
 }
 
-// An `Error` diagnostic attributed to an explicit owning file — used by the
-// loader, which stamps each import-closure error with the file it came from
-// regardless of the span's own key.
+// An `Error` diagnostic attributed to an explicit owning file — used by the loader,
+// which stamps each import-closure error with the file it came from regardless of
+// the span's own key.
 pub fn in_file(_ message: String, _ span: source.SourceSpan, _ file: String) -> Diagnostic {
     return Diagnostic {
         message: message,
@@ -64,8 +64,8 @@ pub fn in_file(_ message: String, _ span: source.SourceSpan, _ file: String) -> 
     };
 }
 
-// A `Warning` diagnostic: a named, suppressable rule (`// ignore: <rule>` on
-// the offending line, or the line above, silences it at that site).
+// A `Warning` diagnostic: a named, suppressable rule (`// ignore: <rule>` on the
+// offending line, or the line above, silences it at that site).
 pub fn warning(_ message: String, _ span: source.SourceSpan, _ rule: String) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
     return Diagnostic {
@@ -77,8 +77,8 @@ pub fn warning(_ message: String, _ span: source.SourceSpan, _ rule: String) -> 
     };
 }
 
-// Whether `d` is an error (the severity that gates compile/run/exit codes) —
-// the filter every gate uses now that warnings share the diagnostics list.
+// Whether `d` is an error (the severity that gates compile/run/exit codes) — the
+// filter every gate uses now that warnings share the diagnostics list.
 pub fn is_error(_ d: Diagnostic) -> Bool {
     return match d.severity {
         Error => true,

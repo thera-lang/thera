@@ -2,17 +2,17 @@
 // toolchain's codegen/codegen.dart. Walks a type-checked AST and emits the
 // runtime's stack-based instructions.
 //
-// The Dart compiler reads `Expr.resolvedType` (annotated up front by the
-// inferrer) for opcode/dispatch selection. Thera's inference is pure, so this
-// compiler calls `infer_expr` on demand against a `type_scope: Map<String, Type>`
-// it maintains in parallel with the local `slots` — every binding records both
-// its slot and its type. The compiler is a mutable struct: its `impl` methods
-// grow `code`/`slots`/… in place (Thera structs are references).
+// The Dart compiler reads `Expr.resolvedType` (annotated up front by the inferrer)
+// for opcode/dispatch selection. Thera's inference is pure, so this compiler calls
+// `infer_expr` on demand against a `type_scope: Map<String, Type>` it maintains in
+// parallel with the local `slots` — every binding records both its slot and its
+// type. The compiler is a mutable struct: its `impl` methods grow `code`/`slots`/…
+// in place (Thera structs are references).
 //
 // Stage 1 covers functions, control flow, primitives, calls (free + native),
-// strings, lists/maps, indexing, fields, and propagation. Struct/enum
-// construction, `match`, method calls, and lambdas are staged follow-ups — they
-// record a `Diagnostic` if reached.
+// strings, lists/maps, indexing, fields, and propagation. Struct/enum construction,
+// `match`, method calls, and lambdas are staged follow-ups — they record a
+// `Diagnostic` if reached.
 
 import '../ast/ast' as _;
 import '../source' as _; // SourceSpan
@@ -56,11 +56,11 @@ pub struct LoopCtx {
 }
 
 // The lexical maps saved at a scope boundary (a block, a match arm, a for loop).
-// Codegen applies the checker's `copy_scope` discipline to its slot and type
-// maps in tandem: entering copies both (inner declarations and pattern bindings
-// stay inner), exiting swaps the saved maps back. Slot *numbers* are never
-// reused — only name visibility restores — so a shadowed outer binding reads its
-// own slot again after the block instead of the inner one's.
+// Codegen applies the checker's `copy_scope` discipline to its slot and type maps
+// in tandem: entering copies both (inner declarations and pattern bindings stay
+// inner), exiting swaps the saved maps back. Slot *numbers* are never reused — only
+// name visibility restores — so a shadowed outer binding reads its own slot again
+// after the block instead of the inner one's.
 struct SavedScope {
     let slots: Map<String, Int>;
     let types: Map<String, Type>;
@@ -68,11 +68,11 @@ struct SavedScope {
 
 // The compiler's full per-position context, saved when compilation crosses into
 // another file's code mid-unit (a const initializer inlined at a use site, a
-// parameter default expanded at a call): the file bare references resolve
-// against, the inference context (whose `current_file` must move in tandem with
-// `file` — this and `enter_file_context` are the one seam that moves them), the
-// lexical maps and type-parameter bounds, which a top-level initializer must not
-// see, and the `#loc` site, which belongs to the code being left behind.
+// parameter default expanded at a call): the file bare references resolve against,
+// the inference context (whose `current_file` must move in tandem with `file` —
+// this and `enter_file_context` are the one seam that moves them), the lexical maps
+// and type-parameter bounds, which a top-level initializer must not see, and the
+// `#loc` site, which belongs to the code being left behind.
 struct FileContext {
     let file: Option<String>;
     let ctx: InferCtx;
@@ -83,10 +83,10 @@ struct FileContext {
 }
 
 // Where an argument value came from — which decides the scope it compiles in.
-// `Caller` is a value the call wrote, compiled here. `Default` is one
-// materialized from the callee's parameter default: that expression is the
-// *declaring* file's code, so its names resolve there (payload: that file, and
-// the call's span for `#loc`).
+// `Caller` is a value the call wrote, compiled here. `Default` is one materialized
+// from the callee's parameter default: that expression is the *declaring* file's
+// code, so its names resolve there (payload: that file, and the call's span for
+// `#loc`).
 enum ArgSite {
     Caller,
     Default(Option<String>, SourceSpan),
@@ -142,11 +142,11 @@ pub fn compile_program(
         i = i + 1;
     }
 
-    // The program-init thunk (module-global initializers; see docs/bytecode.md)
-    // is synthesized after the real units and appended LAST, so it never shifts
-    // the unit -> function-index mapping. Synthesizing it may itself lift lambda
-    // units (an initializer containing a lambda); drain those into the table
-    // before appending the thunk so their `closure.new` indices stay correct.
+    // The program-init thunk (module-global initializers; see docs/bytecode.md) is
+    // synthesized after the real units and appended LAST, so it never shifts the
+    // unit -> function-index mapping. Synthesizing it may itself lift lambda units
+    // (an initializer containing a lambda); drain those into the table before
+    // appending the thunk so their `closure.new` indices stay correct.
     let init_thunk = if scope.global_inits.len() != 0 {
         Option.Some(new_fn_compiler(scope, errors).compile_init_thunk())
     } else {
@@ -163,8 +163,8 @@ pub fn compile_program(
     if let Some(_) = env.get('THERA_INFER_ORACLE') { run_infer_oracle(scope); }
 
     // Dispatch rows that should have resolved but didn't are internal
-    // inconsistencies (an impl method that never registered) — surface them
-    // instead of shipping a module that traps "no method" at runtime (CG10).
+    // inconsistencies (an impl method that never registered) — surface them instead
+    // of shipping a module that traps "no method" at runtime (CG10).
     let dispatch = scope.build_dispatch();
     for row in dispatch.unresolved {
         errors.push(diagnostic.at(
@@ -186,14 +186,14 @@ pub fn compile_program(
 }
 
 // The reserved name of the program-init thunk the runtime runs once before the
-// entry (see docs/bytecode.md). Angle-bracketed so it can't collide with a
-// user identifier. Must match the runtime's `interp::INIT_THUNK`.
+// entry (see docs/bytecode.md). Angle-bracketed so it can't collide with a user
+// identifier. Must match the runtime's `interp::INIT_THUNK`.
 const INIT_THUNK_NAME: String = '<init>';
 
 // The most arguments one `CallNative` can carry: the bytecode writes `argc` as a
 // varint but the runtime reads it back into a byte, so anything past this would
-// silently wrap. A string literal with more pieces than this concatenates in
-// chunks (see `string_expr`).
+// silently wrap. A string literal with more pieces than this concatenates in chunks
+// (see `string_expr`).
 const MAX_CONCAT_ARGC: Int = 255;
 
 // Register one module's declarations into the shared scope.
@@ -213,15 +213,15 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
             Type(x) => { if !x.is_native { scope.add_struct(x, file); } },
             Enum(x) => { scope.add_enum(x, file); },
             Const(x) => { scope.add_const(x, file); },
-            // Module-level `let`: a global slot computed once in the `<init>`
-            // thunk (see docs/bytecode.md).
+            // Module-level `let`: a global slot computed once in the `<init>` thunk
+            // (see docs/bytecode.md).
             Let(x) => { scope.add_global(x, file); },
             Interface(x) => {
                 scope.add_interface(x, file);
-                // A default method (interface method with a body) compiles once
-                // as a shared unit with `self` typed as the interface; each
-                // implementing type that doesn't override it dispatches here
-                // (wired by `wire_default_methods`).
+                // A default method (interface method with a body) compiles once as
+                // a shared unit with `self` typed as the interface; each
+                // implementing type that doesn't override it dispatches here (wired
+                // by `wire_default_methods`).
                 for method in x.methods {
                     if !method.is_native && has_self_param(method.params) && method.body.is_some() {
                         // An interface default keys the method table by the
@@ -237,11 +237,12 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                 }
             },
             Impl(x) => {
-                // The receiver type owner-qualified as this file sees it, so a method
-                // impl'd on a name two libraries share binds to this library's type.
+                // The receiver type owner-qualified as this file sees it, so a
+                // method impl'd on a name two libraries share binds to this
+                // library's type.
                 let owner = scope.owner_of(x.type_name, file);
-                // The conformance records the interface *this file's scope*
-                // sees under the name (owner-qualified key).
+                // The conformance records the interface *this file's scope* sees
+                // under the name (owner-qualified key).
                 if let Some(iface) = x.interface_name {
                     let ifs = file_scope(scope.library, file);
                     scope.add_interface_impl(
@@ -302,22 +303,22 @@ pub struct FnCompiler {
     let mut local_count: Int;
     let mut param_count: Int;
     let mut returns_result: Bool;
-    // The return type is `Result<Void, _>` — a bare `return;` / fall-through
-    // wraps its unit as the implicit `Ok(void)` (see `emit_return`).
+    // The return type is `Result<Void, _>` — a bare `return;` / fall-through wraps
+    // its unit as the implicit `Ok(void)` (see `emit_return`).
     let mut result_void: Bool;
     let labels: List<Option<Int>>;
     let fixups: List<Fixup>;
     // A stack of enclosing loops (innermost last) — the targets a `break`/
-    // `continue` in the loop body jumps to. Empty outside any loop; a lifted
-    // lambda starts fresh, so control never crosses a closure boundary.
+    // `continue` in the loop body jumps to. Empty outside any loop; a lifted lambda
+    // starts fresh, so control never crosses a closure boundary.
     let loops: List<LoopCtx>;
     let mut ctx: InferCtx;
-    // The file this unit was declared in — the scope a bare free-function
-    // reference resolves against (same-file-first).
+    // The file this unit was declared in — the scope a bare free-function reference
+    // resolves against (same-file-first).
     let mut file: Option<String>;
     // The call's span, set while a parameter default is expanded at that call: a
-    // `#loc` reached inside the default reports it instead of its own site. A
-    // span carries its own file, so this is the whole of what `#loc` needs.
+    // `#loc` reached inside the default reports it instead of its own site. A span
+    // carries its own file, so this is the whole of what `#loc` needs.
     let mut loc_span: Option<SourceSpan>;
     let errors: List<diagnostic.Diagnostic>;
 }
@@ -354,9 +355,9 @@ impl FnCompiler {
         for tp in fn_decl.type_params {
             self.type_param_bounds[tp.name] = tp.bounds.map((n) => element.bound_id(bfs, n));
         }
-        // A lifted lambda has no type params of its own, but inherits its
-        // enclosing function's bounds (stashed at lift time) so a bound method on
-        // a `T`-typed param resolves when the lambda is compiled as its own unit.
+        // A lifted lambda has no type params of its own, but inherits its enclosing
+        // function's bounds (stashed at lift time) so a bound method on a `T`-typed
+        // param resolves when the lambda is compiled as its own unit.
         if let Some(b) = self.scope.lambda_bounds.get(index) {
             for k in b.keys() {
                 self.type_param_bounds[k] = b[k];
@@ -366,9 +367,9 @@ impl FnCompiler {
         // Build the inference context for this unit, matching the checker's: the
         // receiver type carries its parameters (`List<T>`, not bare `List`) and
         // those owner parameters join the in-scope type-parameter set, so codegen
-        // and the checker infer every expression in the body to the same type.
-        // (The unit table holds only the receiver's name; its parameters come from
-        // the type definition.) The chosen `self_type` is recorded for the oracle.
+        // and the checker infer every expression in the body to the same type. (The
+        // unit table holds only the receiver's name; its parameters come from the
+        // type definition.) The chosen `self_type` is recorded for the oracle.
         let self_type = self.scope.unit_self_types[index].map(
             (name) => named_self_type(name, self.scope.library, self.scope.unit_files[index])
         );
@@ -401,10 +402,10 @@ impl FnCompiler {
         };
         // `Result<Void, _>` additionally Ok-wraps a *unit* return — a bare
         // `return;` or falling off the end means `Ok(void)`, so the ceremony-free
-        // `fn step() -> Result<Void, Error> { inner()?; }` returns a Result, not
-        // a raw unit. Gated on the success payload being Void: for any other
-        // payload a unit return is a checker error, and wrapping it would forge
-        // an `Ok` with a wrong-typed value.
+        // `fn step() -> Result<Void, Error> { inner()?; }` returns a Result, not a
+        // raw unit. Gated on the success payload being Void: for any other payload
+        // a unit return is a checker error, and wrapping it would forge an `Ok`
+        // with a wrong-typed value.
         self.result_void = self.returns_result && match return_type {
             Some(rt) => match rt {
                 Interface(_, args) => args.len() > 0 && is_unit_ty(args[0]),
@@ -420,13 +421,15 @@ impl FnCompiler {
             type_param_bounds: self.type_param_bounds,
             current_file: self.file,
             // Codegen never records committed types — an empty memo keeps its
-            // inference identical to the pre-CH19 behavior (the fixpoint substrate).
+            // inference identical to the pre-CH19 behavior (the fixpoint
+            // substrate).
             types: [:],
             record_sink: [],
         };
 
         // Boxed cells: capture params arriving boxed, plus this function's own
-        // `mut` locals that some lambda captures — both read/written through a cell.
+        // `mut` locals that some lambda captures — both read/written through a
+        // cell.
         if let Some(bp) = self.scope.boxed_params.get(index) {
             for b in bp.to_list() {
                 self.boxed_locals.add(b);
@@ -462,10 +465,10 @@ impl FnCompiler {
 
         if let Some(body) = fn_decl.body { self.block(body); }
         // Guarantee the stream ends with a return (a Void fall-through returns
-        // Unit; a `Result<Void, _>` fall-through returns the implicit
-        // `Ok(void)`). Needed even when the last instruction is a `Return`, if
-        // a forward jump lands past it (`fn f() { if b { return; } }` — the
-        // false path resumes at end-of-stream, so the epilogue is reachable).
+        // Unit; a `Result<Void, _>` fall-through returns the implicit `Ok(void)`).
+        // Needed even when the last instruction is a `Return`, if a forward jump
+        // lands past it (`fn f() { if b { return; } }` — the false path resumes at
+        // end-of-stream, so the epilogue is reachable).
         if self.code.len() == 0 || !self.ends_in_return() || self.jump_targets_end() {
             self.emit(Instr.Simple(Op.ConstUnit));
             if self.result_void {
@@ -511,8 +514,8 @@ impl FnCompiler {
     }
 
     // Reject time-varying / I/O natives called directly in a module-`let`
-    // initializer (scanning the code emitted since `start`). The result would be
-    // a stale load-time snapshot; see docs/language.md. A lambda *value* in an
+    // initializer (scanning the code emitted since `start`). The result would be a
+    // stale load-time snapshot; see docs/language.md. A lambda *value* in an
     // initializer is fine — its body is a separate unit, not run at load.
     fn reject_effectful_natives(self, _ start: Int, _ span: SourceSpan) -> Void {
         let mut i = start;
@@ -553,9 +556,9 @@ impl FnCompiler {
 
     fn resolve_jumps(self) -> Void {
         for f in self.fixups {
-            // Every label a fixup targets is bound by `bind` before resolution.
-            // An unbound one is a codegen bug — record it (so the module is
-            // discarded) instead of silently emitting a wrong jump-to-0.
+            // Every label a fixup targets is bound by `bind` before resolution. An
+            // unbound one is a codegen bug — record it (so the module is discarded)
+            // instead of silently emitting a wrong jump-to-0.
             let target = match self.labels[f.label] {
                 Some(t) => t,
                 None => {
@@ -605,11 +608,11 @@ impl FnCompiler {
 
     // Enter the top-level compile context of `file` — the scope a declaration
     // belonging to `file` compiles in when reached mid-unit (a const initializer
-    // inlined at a use site, a parameter default expanded at a call): no locals,
-    // no type params, no self. Keeps `self.file` and `ctx.current_file` in
-    // tandem. The `#loc` site is cleared too — crossing into another file's code
-    // means a `#loc` written there is its own site again, unless the caller
-    // re-establishes one (as the default-argument path does).
+    // inlined at a use site, a parameter default expanded at a call): no locals, no
+    // type params, no self. Keeps `self.file` and `ctx.current_file` in tandem. The
+    // `#loc` site is cleared too — crossing into another file's code means a `#loc`
+    // written there is its own site again, unless the caller re-establishes one (as
+    // the default-argument path does).
     fn enter_file_context(self, _ file: Option<String>) -> FileContext {
         let saved = FileContext {
             file: self.file,
@@ -693,8 +696,8 @@ impl FnCompiler {
     // it exactly as it would a lambda.
     //
     // Last in the chain, after locals/consts/globals: a name is only a function
-    // reference if it is nothing else, and one name space per scope means it
-    // cannot be two of them.
+    // reference if it is nothing else, and one name space per scope means it cannot
+    // be two of them.
     fn load_function_value(self, _ name: String, _ span: SourceSpan) -> Void {
         match self.scope.resolve_function(self.file, name) {
             Some(index) => { self.emit(Instr.ClosureNew(index, 0)); },
@@ -709,11 +712,11 @@ impl FnCompiler {
         }
     }
 
-    // Inline the top-level constant `owner`/`name` by compiling its initializer
-    // at the use site. The initializer is `owner`'s code, so it compiles in that
+    // Inline the top-level constant `owner`/`name` by compiling its initializer at
+    // the use site. The initializer is `owner`'s code, so it compiles in that
     // file's top-level context: a consumer local can't be captured, and the
-    // initializer's own references (another const, a namespace) resolve against
-    // its declaring file. Cycle detection keys by owner too, so two libraries'
+    // initializer's own references (another const, a namespace) resolve against its
+    // declaring file. Cycle detection keys by owner too, so two libraries'
     // same-named consts referencing each other aren't a false cycle.
     fn emit_const(self, _ owner: String, _ name: String, _ span: SourceSpan) -> Void {
         let key = type_key(owner, name);
@@ -730,15 +733,15 @@ impl FnCompiler {
         self.consts_in_progress.remove(key);
     }
 
-    // The static type *name* of an expression, for opcode/dispatch selection.
-    // None for Unit and anything without a usable concrete name.
+    // The static type *name* of an expression, for opcode/dispatch selection. None
+    // for Unit and anything without a usable concrete name.
     fn type_of(self, _ e: Expr) -> Option<String> {
         return name_of_type(infer_expr(e, self.type_scope, self.ctx, Option.None));
     }
 
     // The owner-qualified identity of `e`'s inferred type, when it names a
-    // struct/enum — so a field/variant/method lookup keys the codegen type table
-    // by the type's *owner*, not its bare name (Phase 1 T3).
+    // struct/enum — so a field/variant/method lookup keys the codegen type table by
+    // the type's *owner*, not its bare name (Phase 1 T3).
     fn type_id_of(self, _ e: Expr) -> Option<TypeId> {
         return type_id_of_type(infer_expr(e, self.type_scope, self.ctx, Option.None));
     }
@@ -780,7 +783,8 @@ impl FnCompiler {
                     self.emit(Instr.Simple(Op.Pop));
                 } else {
                     // An explicit annotation is the binding's type (matching the
-                    // inference engine); fall back to the initializer's inferred type.
+                    // inference engine); fall back to the initializer's inferred
+                    // type.
                     let ty = annotated.unwrap_or_else(() => refine_binding_type(
                         x.name,
                         infer_expr(x.value, self.type_scope, self.ctx, Option.None),
@@ -799,8 +803,8 @@ impl FnCompiler {
             },
             Assign(span, target, op, rhs) => {
                 // Emit the stored value — for a compound assignment, the
-                // synthesized `target op rhs` (byte-identical to the old
-                // parser desugar, including target re-evaluation).
+                // synthesized `target op rhs` (byte-identical to the old parser
+                // desugar, including target re-evaluation).
                 self.assign(target, assign_value(target, op, rhs), span);
             },
             If(x) => {
@@ -830,8 +834,8 @@ impl FnCompiler {
                 self.bind(start);
                 self.expr(x.condition);
                 self.emit_jump(Jk.IfFalse, end);
-                // `continue` re-tests at the head; `break` exits. The head
-                // already re-evaluates the condition, so `continue` → start.
+                // `continue` re-tests at the head; `break` exits. The head already
+                // re-evaluates the condition, so `continue` → start.
                 self.loops.push(LoopCtx { continue_label: start, break_label: end });
                 self.scoped_block(x.body);
                 self.loops.pop();
@@ -851,8 +855,8 @@ impl FnCompiler {
                 self.emit_throw(value);
             },
             Break(span) => {
-                // Jump to the innermost loop's exit. The checker rejects a
-                // `break` outside a loop, so an empty stack is an internal bug.
+                // Jump to the innermost loop's exit. The checker rejects a `break`
+                // outside a loop, so an empty stack is an internal bug.
                 match self.loops.last() {
                     Some(l) => { self.emit_jump(Jk.Jump, l.break_label); },
                     None => { self.error('internal: `break` outside of a loop', span); },
@@ -993,8 +997,8 @@ impl FnCompiler {
         }
     }
 
-    // Bind a for-loop variable into the type scope (the element type), parallel
-    // to its slot. Reuses inference's element-typing.
+    // Bind a for-loop variable into the type scope (the element type), parallel to
+    // its slot. Reuses inference's element-typing.
     fn bind_loop_var(self, _ var_name: Option<String>, _ iter: Expr) -> Int {
         let iter_type = infer_expr(iter, self.type_scope, self.ctx, Option.None);
         let element = for_element_type(iter, iter_type, self.ctx);
@@ -1111,10 +1115,10 @@ impl FnCompiler {
 
     // --- expressions ---
 
-    // Emit an expression, discarding any contextual `expected` type. Most
-    // positions use this; the few that carry a known expected (a `let` value, a
-    // `return` value, a struct-field value, a call argument) use `expr_expecting`
-    // so a lambda there can type its un-annotated parameters bidirectionally.
+    // Emit an expression, discarding any contextual `expected` type. Most positions
+    // use this; the few that carry a known expected (a `let` value, a `return`
+    // value, a struct-field value, a call argument) use `expr_expecting` so a
+    // lambda there can type its un-annotated parameters bidirectionally.
     fn expr(self, _ e: Expr) -> Void {
         self.expr_expecting(e, Option.None);
     }
@@ -1161,8 +1165,9 @@ impl FnCompiler {
                 self.error('a range is only valid as a for-loop iterable', span);
             },
             Loc(span) => { self.emit_source_loc(span); },
-            // Unreachable after a clean `check` (recovery holes are rejected there);
-            // a defensive trap in case codegen ever runs on an unchecked tree.
+            // Unreachable after a clean `check` (recovery holes are rejected
+            // there); a defensive trap in case codegen ever runs on an unchecked
+            // tree.
             Error(span) => {
                 self.error('internal: unresolved parse error reached codegen', span);
             },
@@ -1171,10 +1176,10 @@ impl FnCompiler {
 
     // Lower the `#loc` metaconstant to a `SourceLoc { file, line, column }` value.
     // A `#loc` written directly reports its own span; one inside a parameter
-    // default expanded at a call reports the *call's* (`loc_span`) — the default
-    // is the callee's code and compiles in the callee's file context, but its
-    // `#loc` still names where the call was written. The span carries the file,
-    // falling back to the unit's for a span with no file (a hermetic parse).
+    // default expanded at a call reports the *call's* (`loc_span`) — the default is
+    // the callee's code and compiles in the callee's file context, but its `#loc`
+    // still names where the call was written. The span carries the file, falling
+    // back to the unit's for a span with no file (a hermetic parse).
     fn emit_source_loc(self, _ span: SourceSpan) -> Void {
         let at = self.loc_span.unwrap_or(span);
         let file = if at.file != '' { at.file } else { self.file.unwrap_or('') };
@@ -1196,10 +1201,10 @@ impl FnCompiler {
     }
 
     // Emit a block in value position: statements for effect, then the tail value
-    // (or Unit when there's no tail). Leaves exactly one value. The tail is part
-    // of the block's scope (it sees the block's bindings), so the scope spans
-    // both; `expected` is the context's type for the tail (CH7 — a lambda tail
-    // types its parameters bidirectionally, mirroring the checker).
+    // (or Unit when there's no tail). Leaves exactly one value. The tail is part of
+    // the block's scope (it sees the block's bindings), so the scope spans both;
+    // `expected` is the context's type for the tail (CH7 — a lambda tail types its
+    // parameters bidirectionally, mirroring the checker).
     fn emit_block_value(self, _ block: Block, _ expected: Option<Type>) -> Void {
         let saved = self.enter_scope();
         self.block(block);
@@ -1231,8 +1236,8 @@ impl FnCompiler {
         self.bind(end);
     }
 
-    // `expr?` — propagate Err/None. The failing tag is 1 for each and the
-    // payload to unwrap is field 0, so one lowering serves Result and Option.
+    // `expr?` — propagate Err/None. The failing tag is 1 for each and the payload
+    // to unwrap is field 0, so one lowering serves Result and Option.
     fn propagate_expr(self, _ inner: Expr) -> Void {
         self.expr(inner);
         self.emit(Instr.Simple(Op.Dup));
@@ -1249,13 +1254,13 @@ impl FnCompiler {
     // --- lambdas / closures ---
 
     // A lambda: lift its body to a synthetic top-level function whose leading
-    // parameters are its captured variables, push the captured values, and build
-    // a closure value `{ func, captures }`. `expected` lets an un-annotated
-    // parameter take its type from the surrounding function type.
+    // parameters are its captured variables, push the captured values, and build a
+    // closure value `{ func, captures }`. `expected` lets an un-annotated parameter
+    // take its type from the surrounding function type.
     fn lambda_expr(self, _ x: LambdaExpr, _ expected: Option<Type>) -> Void {
-        // Free variables that name an enclosing local are the captures;
-        // references to functions/types/namespaces resolve the same way in the
-        // lifted unit and need no capture.
+        // Free variables that name an enclosing local are the captures; references
+        // to functions/types/namespaces resolve the same way in the lifted unit and
+        // need no capture.
         let captures: List<String> = [];
         for name in free_variables(x) {
             if self.slots.has(name) {
@@ -1269,10 +1274,10 @@ impl FnCompiler {
             }
         }
 
-        // The lifted unit's parameter types (captures + lambda params), stashed
-        // so its body can be inferred when compiled as its own unit. The lambda's
-        // own param types come from its full inferred function type (annotation
-        // or the expected function type); captures keep their enclosing types.
+        // The lifted unit's parameter types (captures + lambda params), stashed so
+        // its body can be inferred when compiled as its own unit. The lambda's own
+        // param types come from its full inferred function type (annotation or the
+        // expected function type); captures keep their enclosing types.
         let param_types = match infer_expr(Expr.Lambda(x), self.type_scope, self.ctx, expected) {
             Function(ps, _) => ps,
             _ => [],
@@ -1292,8 +1297,8 @@ impl FnCompiler {
 
         let lifted = lift_lambda(x, captures);
         // The lifted unit resolves bare names in the enclosing unit's file, and
-        // inherits the enclosing function's type-parameter bounds so a bound
-        // method on a `T`-typed param still resolves inside the lambda.
+        // inherits the enclosing function's type-parameter bounds so a bound method
+        // on a `T`-typed param still resolves inside the lambda.
         let index = self.scope.add_lambda(
             lifted,
             boxed_captures,
@@ -1311,11 +1316,11 @@ impl FnCompiler {
 
     // --- match ---
 
-    // `match` on an enum (Result/Option or a user enum): store the subject, then
-    // a tag-check chain. The final arm is the fall-through (matches always, given
+    // `match` on an enum (Result/Option or a user enum): store the subject, then a
+    // tag-check chain. The final arm is the fall-through (matches always, given
     // exhaustiveness). A large enum match dispatches on a hoisted tag (computed
-    // once) via a balanced binary search instead of the linear chain.
-    // `expected` threads into every arm body (the codegen mirror of
+    // once) via a balanced binary search instead of the linear chain. `expected`
+    // threads into every arm body (the codegen mirror of
     // `infer_match`/`check_match` — CH16), so a lambda in a value arm types its
     // parameters bidirectionally when the unit is later compiled.
     fn match_expr(self, _ e: MatchExpr, _ expected: Option<Type>) -> Void {
@@ -1381,8 +1386,8 @@ impl FnCompiler {
             bind_match_pattern(arm.pattern, subject_ty, self.type_scope, self.ctx);
 
             // An irrefutable pattern (or the final arm — arms are exhaustive) is
-            // taken to match: emit its bindings, run the body, and stop (later
-            // arms are unreachable).
+            // taken to match: emit its bindings, run the body, and stop (later arms
+            // are unreachable).
             if is_last || is_irrefutable(arm.pattern) {
                 self.emit_pattern(arm.pattern, subject, subject_ty, Option.None, Option.None);
                 self.arm_body(arm.body, end, false, expected);
@@ -1399,8 +1404,8 @@ impl FnCompiler {
         self.bind(end);
     }
 
-    // Plan a binary-search dispatch over enum `enum_type`, or None when it
-    // doesn't qualify: too few cases, a non-flat / refutable sub-pattern, a
+    // Plan a binary-search dispatch over enum `enum_type`, or None when it doesn't
+    // qualify: too few cases, a non-flat / refutable sub-pattern, a
     // literal/irrefutable mid-arm, or a duplicate or unknown tag. Every non-final
     // arm must be a constructor whose arguments are all irrefutable, so the tag
     // alone decides the arm. The final arm is the catch-all default.
@@ -1509,13 +1514,13 @@ impl FnCompiler {
     }
 
     // Match `pattern` against the value in `value_slot` (whose full type, when
-    // known, is `value_ty`) and bind the variables it introduces. When `fail`
-    // is set, any mismatch jumps there; when None the pattern is taken to
-    // match (only bindings are emitted). `tag_slot`, when set, holds a precomputed
-    // `enum.tag` reused at this level instead of recomputing. Carrying the full
-    // `Type` (not just its id) lets a nested constructor pattern resolve its
-    // payload's *instantiated* type — `Some(Line(k))` on an `Option<Shape>`
-    // recurses with `Shape`, substituting the subject's type arguments (CG7).
+    // known, is `value_ty`) and bind the variables it introduces. When `fail` is
+    // set, any mismatch jumps there; when None the pattern is taken to match (only
+    // bindings are emitted). `tag_slot`, when set, holds a precomputed `enum.tag`
+    // reused at this level instead of recomputing. Carrying the full `Type` (not
+    // just its id) lets a nested constructor pattern resolve its payload's
+    // *instantiated* type — `Some(Line(k))` on an `Option<Shape>` recurses with
+    // `Shape`, substituting the subject's type arguments (CG7).
     fn emit_pattern(
         self,
         _ pattern: Pattern,
@@ -1734,16 +1739,16 @@ impl FnCompiler {
                 self.emit(Instr.ConstStr(''));
                 return;
             }
-            // One variadic `str_concat` over all the pieces, not a fold of
-            // pairwise calls: `str_concat` allocates a fresh String per call, so
-            // folding recopies the growing prefix at every step — a k-piece
-            // literal costs k-1 allocations and O(len × k) copying instead of one
-            // pass. Evaluation order is unchanged (pieces still run left to
-            // right); only the concatenation moves to the end.
+            // One variadic `str_concat` over all the pieces, not a fold of pairwise
+            // calls: `str_concat` allocates a fresh String per call, so folding
+            // recopies the growing prefix at every step — a k-piece literal costs
+            // k-1 allocations and O(len × k) copying instead of one pass.
+            // Evaluation order is unchanged (pieces still run left to right); only
+            // the concatenation moves to the end.
             //
-            // `argc` is a byte on the wire, so a literal with more pieces than
-            // that folds in chunks. The running result is already on the stack
-            // when a chunk starts, so it counts as that chunk's first argument.
+            // `argc` is a byte on the wire, so a literal with more pieces than that
+            // folds in chunks. The running result is already on the stack when a
+            // chunk starts, so it counts as that chunk's first argument.
             self.string_piece(parts[0], span);
             let mut i = 1;
             while i < parts.len() {
@@ -1777,14 +1782,14 @@ impl FnCompiler {
         }
     }
 
-    // Render the value on top of the stack to a `String` via its `Display.to_string`
-    // method: the type's native Display conformance (the primitives'
-    // `impl Display` natives, e.g. `int_to_string` — resolved via
-    // `native_display_symbols`, *not* the bare-name instance table, so an
-    // inherent native named `to_string` outside a Display impl, like
-    // `Bytes.to_string() -> Result<…>`, is never mistaken for rendering), a
-    // virtual dispatch (an interface-typed or bounded-generic value), or a
-    // concrete impl method.
+    // Render the value on top of the stack to a `String` via its
+    // `Display.to_string` method: the type's native Display conformance (the
+    // primitives' `impl Display` natives, e.g. `int_to_string` — resolved via
+    // `native_display_symbols`, *not* the bare-name instance table, so an inherent
+    // native named `to_string` outside a Display impl, like
+    // `Bytes.to_string() -> Result<…>`, is never mistaken for rendering), a virtual
+    // dispatch (an interface-typed or bounded-generic value), or a concrete impl
+    // method.
     fn emit_display(self, _ t: Type, _ span: SourceSpan) -> Void {
         if let Some(symbol) = self.native_display_symbol(name_of_type(t)) {
             self.emit(Instr.CallNative(symbol, 1));
@@ -1801,10 +1806,11 @@ impl FnCompiler {
         ) {
             Some(to_string_idx) => { self.emit(Instr.Call(to_string_idx, 1)); },
             None => {
-                // Total rendering: no static `Display` impl, so dispatch `to_string`
-                // virtually. The runtime renders via the type's `Display` if it has
-                // one, else its auto-derived `Debug` (Debug-fallback) — so this works
-                // for any value, including an unbounded type parameter.
+                // Total rendering: no static `Display` impl, so dispatch
+                // `to_string` virtually. The runtime renders via the type's
+                // `Display` if it has one, else its auto-derived `Debug`
+                // (Debug-fallback) — so this works for any value, including an
+                // unbounded type parameter.
                 self.emit(Instr.CallVirtual('to_string', 1));
             },
         }
@@ -1835,9 +1841,9 @@ impl FnCompiler {
     // --- structs / fields / indexing ---
 
     fn struct_expr(self, _ x: StructExpr) -> Void {
-        // Owner-correct (Phase 1 T4): resolve the constructed type's owner from this
-        // file's scope, honoring a `ns.Point` qualifier, so two libraries' same-named
-        // structs get their own layout and field defaults.
+        // Owner-correct (Phase 1 T4): resolve the constructed type's owner from
+        // this file's scope, honoring a `ns.Point` qualifier, so two libraries'
+        // same-named structs get their own layout and field defaults.
         let fs = file_scope(self.scope.library, self.file);
         let owner = fs.resolve_type_owner(x.type_name, x.namespace);
         match self.scope.resolve_struct(owner, x.type_name) {
@@ -1889,10 +1895,10 @@ impl FnCompiler {
                         return;
                     }
                     // `xs.map(json.str)` — the qualified counterpart of the bare
-                    // `xs.map(str)` that `load_function_value` handles. Without this
-                    // the checker accepted the reference and codegen then read it as
-                    // a field access on the namespace, so it was a check-clean
-                    // program that failed to compile.
+                    // `xs.map(str)` that `load_function_value` handles. Without
+                    // this the checker accepted the reference and codegen then read
+                    // it as a field access on the namespace, so it was a
+                    // check-clean program that failed to compile.
                     if let Some(fn_idx) = self.scope.function_in_file(owner, field) {
                         self.emit(Instr.ClosureNew(fn_idx, 0));
                         return;
@@ -1932,9 +1938,9 @@ impl FnCompiler {
         let idx = field_index_of(info, field);
         if idx < 0 {
             self.error('no such field: ${field}', span);
-            // The error dooms the compile (the module is never encoded), but
-            // return a valid in-range placeholder rather than let a −1 flow into
-            // the emitted `FieldGet`/`FieldSet`.
+            // The error dooms the compile (the module is never encoded), but return
+            // a valid in-range placeholder rather than let a −1 flow into the
+            // emitted `FieldGet`/`FieldSet`.
             return 0;
         }
         return idx;
@@ -2014,8 +2020,8 @@ impl FnCompiler {
                 return;
             },
             Ident(_, name) => {
-                // A call through a function value in a local (a let-bound lambda
-                // or a function-typed parameter) shadows a same-named function.
+                // A call through a function value in a local (a let-bound lambda or
+                // a function-typed parameter) shadows a same-named function.
                 if self.slots.has(name) {
                     self.load_local_value(name, x.span);
                     for arg in x.args {
@@ -2108,10 +2114,10 @@ impl FnCompiler {
     }
 
     // Namespace-qualified call: `ns.fn(...)`. A `native fn` lowers to a receiver-
-    // less native; an ordinary free function to a direct call. Both resolve
-    // within `ns`'s owning library (owner-correct): the member must be on the
-    // namespace's own surface — a flat native table used to let any import's
-    // native `get` hijack an unrelated library's ordinary `pub fn get`.
+    // less native; an ordinary free function to a direct call. Both resolve within
+    // `ns`'s owning library (owner-correct): the member must be on the namespace's
+    // own surface — a flat native table used to let any import's native `get`
+    // hijack an unrelated library's ordinary `pub fn get`.
     fn emit_namespace_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         if let Ident(_, ns_name) = obj {
             if self.is_namespace(ns_name) {
@@ -2135,7 +2141,8 @@ impl FnCompiler {
                         );
                         // Thread expected arg types (like the bare-call path), so a
                         // qualified call passing an un-annotated lambda types it
-                        // bidirectionally — making `ns.fn(...)` byte-identical to `fn(...)`.
+                        // bidirectionally — making `ns.fn(...)` byte-identical to
+                        // `fn(...)`.
                         self.emit_ordered_args(x.callee, x.args, ordered);
                         self.emit(Instr.Call(fn_idx, ordered.len()));
                         return true;
@@ -2186,10 +2193,10 @@ impl FnCompiler {
                     for arg in x.args {
                         self.expr(arg.value);
                     }
-                    // `list.len()` lowers to the `ListLen` primitive
-                    // (the receiver is on the stack) rather than a
-                    // native round-trip — it is by far the hottest
-                    // native. Other instance natives stay `call.native`.
+                    // `list.len()` lowers to the `ListLen` primitive (the receiver
+                    // is on the stack) rather than a native round-trip — it is by
+                    // far the hottest native. Other instance natives stay
+                    // `call.native`.
                     if instance_native == 'list_len' {
                         self.emit(Instr.Simple(Op.ListLen));
                     } else {
@@ -2216,19 +2223,19 @@ impl FnCompiler {
         }
     }
 
-    // Dynamic dispatch: the receiver is interface-typed (`x: Display`) or a
-    // generic parameter bound by an interface. The concrete type isn't known
-    // here, so dispatch on the runtime type id. False (→ a "no method" error)
-    // when the selector isn't declared by any candidate interface — except the
-    // universal `to_string`/`debug` selectors, which dispatch on any receiver
-    // (total rendering: the runtime resolves the value's impl or its auto-derived
+    // Dynamic dispatch: the receiver is interface-typed (`x: Display`) or a generic
+    // parameter bound by an interface. The concrete type isn't known here, so
+    // dispatch on the runtime type id. False (→ a "no method" error) when the
+    // selector isn't declared by any candidate interface — except the universal
+    // `to_string`/`debug` selectors, which dispatch on any receiver (total
+    // rendering: the runtime resolves the value's impl or its auto-derived
     // fallback).
     fn emit_virtual_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
-        // A non-universal selector must be declared by a candidate interface;
-        // the declaring interface's signature governs the call (its parameter
-        // defaults fill omitted arguments, as at every statically resolved
-        // site). `to_string`/`debug` are universal (and nullary): they dispatch
-        // on any receiver with no signature to consult.
+        // A non-universal selector must be declared by a candidate interface; the
+        // declaring interface's signature governs the call (its parameter defaults
+        // fill omitted arguments, as at every statically resolved site).
+        // `to_string`/`debug` are universal (and nullary): they dispatch on any
+        // receiver with no signature to consult.
         let mut sig: Option<IfaceMethodSig> = Option.None;
         if field != 'to_string' && field != 'debug' {
             match self.dispatch_interfaces(
@@ -2258,17 +2265,17 @@ impl FnCompiler {
         match sig {
             Some(s) => {
                 // Fill defaults and thread each parameter's expected type (the
-                // interface method's, instantiated with the receiver's type
-                // args) so a lambda argument types its un-annotated parameters
+                // interface method's, instantiated with the receiver's type args)
+                // so a lambda argument types its un-annotated parameters
                 // bidirectionally — matching the instance-method path.
                 let ordered = self.resolve_args(s.params, x.args, x.span, s.file);
                 self.emit_ordered_args(x.callee, x.args, ordered);
                 self.emit(Instr.CallVirtual(field, ordered.len() + 1));
             },
             None => {
-                // No consultable signature (a universal selector): emit the
-                // written arguments as-is, threading expected types in call
-                // order as before.
+                // No consultable signature (a universal selector): emit the written
+                // arguments as-is, threading expected types in call order as
+                // before.
                 let expected = expected_arg_types(x.callee, x.args, self.type_scope, self.ctx);
                 for p in x.args.enumerate() {
                     let exp = match expected {
@@ -2305,9 +2312,9 @@ impl FnCompiler {
         return false;
     }
 
-    // The unit index of method `name` on receiver `receiver`, or None. A type
-    // name (`Type` or `ns.Type`, not a local) selects a static method; otherwise
-    // the receiver's static type does.
+    // The unit index of method `name` on receiver `receiver`, or None. A type name
+    // (`Type` or `ns.Type`, not a local) selects a static method; otherwise the
+    // receiver's static type does.
     fn resolve_method(self, _ receiver: Expr, _ name: String) -> Option<Int> {
         // Key the method table by the receiver's owner-qualified identity — a
         // static type-name receiver (`Type`/`ns.Type`) or the receiver value's
@@ -2316,12 +2323,12 @@ impl FnCompiler {
             Some(t) => Option.Some(t),
             None => match self.type_id_of(receiver) {
                 Some(t) => Option.Some(t),
-                // A primitive receiver carries no `Interface` TypeId; key it by
-                // the *core* registry identity (`impl Int`/… registered against
-                // the core declaration — `owner_of` resolves the same owner).
-                // Nothing else falls back: a type-parameter or unknown receiver
-                // has no method-table identity (CG8 — this was a flat by-name
-                // lookup any same-named type could satisfy).
+                // A primitive receiver carries no `Interface` TypeId; key it by the
+                // *core* registry identity (`impl Int`/… registered against the
+                // core declaration — `owner_of` resolves the same owner). Nothing
+                // else falls back: a type-parameter or unknown receiver has no
+                // method-table identity (CG8 — this was a flat by-name lookup any
+                // same-named type could satisfy).
                 None => self.primitive_receiver_id(receiver),
             },
         };
@@ -2368,11 +2375,11 @@ impl FnCompiler {
         self.bind(end);
     }
 
-    // Emit the parameter-ordered argument values, each with its expected type
-    // (the callee's parameter types, instantiated) so a lambda argument types its
+    // Emit the parameter-ordered argument values, each with its expected type (the
+    // callee's parameter types, instantiated) so a lambda argument types its
     // un-annotated parameters bidirectionally. `expected_param_types` returns one
-    // entry per non-self parameter, aligned with `ordered` (`expected_arg_types`
-    // is the call-ordered view — a reordered labeled call would misalign here).
+    // entry per non-self parameter, aligned with `ordered` (`expected_arg_types` is
+    // the call-ordered view — a reordered labeled call would misalign here).
     fn emit_ordered_args(
         self,
         _ callee: Expr,
@@ -2398,12 +2405,12 @@ impl FnCompiler {
 
     // Emit a value materialized from a parameter's default. The expression was
     // written in the *callee's* file, so it compiles in that file's top-level
-    // context — its names (a file-local const, a member of an import only that
-    // file has) resolve there, not against whatever the caller happens to see.
-    // The call site is threaded through separately, as the `#loc` site: a default
-    // needs both scopes at once, the declaration's for names and the call's for
-    // `#loc`. Expanding per call site (rather than hoisting the default into a
-    // thunk compiled in its own file) is what keeps that second half working.
+    // context — its names (a file-local const, a member of an import only that file
+    // has) resolve there, not against whatever the caller happens to see. The call
+    // site is threaded through separately, as the `#loc` site: a default needs both
+    // scopes at once, the declaration's for names and the call's for `#loc`.
+    // Expanding per call site (rather than hoisting the default into a thunk
+    // compiled in its own file) is what keeps that second half working.
     fn emit_default_arg(
         self,
         _ value: Expr,
@@ -2417,8 +2424,8 @@ impl FnCompiler {
         self.restore_file_context(saved);
     }
 
-    // Match call arguments to a callee's (non-self) parameters, returning the
-    // value expressions in parameter order (named-argument + default resolution).
+    // Match call arguments to a callee's (non-self) parameters, returning the value
+    // expressions in parameter order (named-argument + default resolution).
     // `decl_file` is the file the callee was declared in — the scope any default
     // this fills in must compile against (see `emit_default_arg`).
     fn resolve_args(
@@ -2495,8 +2502,8 @@ impl FnCompiler {
         return Option.None;
     }
 
-    // The identity of the *core* interface `name` (`Eq`/`Display`/`Iterator`, …)
-    // — never a same-named user interface.
+    // The identity of the *core* interface `name` (`Eq`/`Display`/`Iterator`, …) —
+    // never a same-named user interface.
     fn core_iface_key(self, _ name: String) -> TypeId {
         return TypeId { owner: element.core_owner(self.scope.library, name), name: name };
     }
@@ -2542,10 +2549,9 @@ impl FnCompiler {
     }
 }
 
-// The argument an omitted parameter contributes: its default value, tagged with
-// the file that default was written in and the call being filled in. None when
-// the parameter has no default — a missing argument, which `resolve_args`
-// reports.
+// The argument an omitted parameter contributes: its default value, tagged with the
+// file that default was written in and the call being filled in. None when the
+// parameter has no default — a missing argument, which `resolve_args` reports.
 fn default_arg(
     _ d: Option<Expr>,
     _ decl_file: Option<String>,
@@ -2561,8 +2567,8 @@ pub struct EnumVariantRef {
 }
 
 // A match large enough to dispatch on a hoisted enum tag rather than the per-arm
-// tag recompute + linear chain. Below this many non-final cases the simple chain
-// is smaller, so small matches lower byte-for-byte as the plain chain.
+// tag recompute + linear chain. Below this many non-final cases the simple chain is
+// smaller, so small matches lower byte-for-byte as the plain chain.
 pub const MATCH_DISPATCH_MIN_CASES: Int = 6;
 
 // A planned binary-search dispatch: each non-final arm keyed by its variant tag,
@@ -2573,9 +2579,9 @@ pub struct DispatchPlan {
 }
 
 // The invariant context of a match's enum-dispatch emission, shared by
-// `emit_dispatch`/`emit_bisect`/`emit_leaf`. As `emit_bisect` recurses only the
-// tag subrange (`lo`/`hi`) changes; everything here stays constant, so it rides
-// in one struct rather than as five repeated parameters.
+// `emit_dispatch`/`emit_bisect`/`emit_leaf`. As `emit_bisect` recurses only the tag
+// subrange (`lo`/`hi`) changes; everything here stays constant, so it rides in one
+// struct rather than as five repeated parameters.
 struct MatchCtx {
     let subject: Int;           // slot holding the subject value
     let subject_ty: Type;       // the subject's full (instantiated) type
@@ -2584,8 +2590,8 @@ struct MatchCtx {
     let expected: Option<Type>; // the expected result type of an arm body
 }
 
-// The number of non-final arms that emit a top-level tag test in the linear
-// scheme — the constructor-pattern arms. Drives whether hoisting the tag pays.
+// The number of non-final arms that emit a top-level tag test in the linear scheme
+// — the constructor-pattern arms. Drives whether hoisting the tag pays.
 fn top_level_tag_tests(_ e: MatchExpr) -> Int {
     let mut n = 0;
     let mut i = 0;
@@ -2642,10 +2648,10 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
 
 // --- free helpers ---
 
-// The receiver type a method's `self` denotes: a primitive, or the named type
-// with its declared parameters applied (`List` -> `List<T>`). This is codegen's
-// inference-context construction; it matches the checker's `impl_self_type` so
-// the two infer a method body identically.
+// The receiver type a method's `self` denotes: a primitive, or the named type with
+// its declared parameters applied (`List` -> `List<T>`). This is codegen's
+// inference-context construction; it matches the checker's `impl_self_type` so the
+// two infer a method body identically.
 fn named_self_type(
     _ name: String,
     _ library: element.LibraryElement,
@@ -2796,8 +2802,8 @@ fn name_of_type(_ t: Type) -> Option<String> {
 }
 
 // The `TypeId` of an interface (struct/enum) type, or None for primitives / type
-// parameters / unknowns — the owner-carrying analogue of `name_of_type` used to
-// key the codegen type table.
+// parameters / unknowns — the owner-carrying analogue of `name_of_type` used to key
+// the codegen type table.
 fn type_id_of_type(_ t: Type) -> Option<TypeId> {
     return match t {
         Interface(id, _) => Option.Some(id),
@@ -2853,10 +2859,10 @@ fn lift_lambda(_ x: LambdaExpr, _ captures: List<String>) -> FnDecl {
     };
 }
 
-// The free variables of `lambda`: identifiers referenced in its body that it
-// does not itself bind. Its own parameters, and names introduced by nested
-// lambdas, match patterns, block lets, and for loops, are bound (not free).
-// Listed in first-reference order so the capture layout is deterministic.
+// The free variables of `lambda`: identifiers referenced in its body that it does
+// not itself bind. Its own parameters, and names introduced by nested lambdas,
+// match patterns, block lets, and for loops, are bound (not free). Listed in
+// first-reference order so the capture layout is deterministic.
 fn free_variables(_ lambda: LambdaExpr) -> List<String> {
     let v = FreeVars { free: [], seen: Set.new() };
     let bound: Set<String> = Set.new();
@@ -2887,22 +2893,22 @@ fn copy_slots(_ m: Map<String, Int>) -> Map<String, Int> {
 // A visitor over a function body's expression tree, driving the closure analyses
 // (free variables, boxed mutable locals) from ONE structural walk
 // (`walk_expr`/`walk_stmt`/`walk_block`) — so a new `Expr`/`Stmt` variant is
-// handled in a single place, not silently missed by one of two parallel walks.
-// The walker owns the recursion and lexical-scope tracking; an implementation
-// supplies only the behaviors that differ.
+// handled in a single place, not silently missed by one of two parallel walks. The
+// walker owns the recursion and lexical-scope tracking; an implementation supplies
+// only the behaviors that differ.
 interface TreeVisitor {
     // An identifier reference not bound in the current lexical scope.
     fn free_ref(self, _ name: String) -> Void;
     // A `mut` local declaration (its name).
     fn mut_local(self, _ name: String) -> Void;
-    // A lambda expression. Return true to descend into its body (its parameters
-    // are added to the scope); false to skip it (the visitor handles it).
+    // A lambda expression. Return true to descend into its body (its parameters are
+    // added to the scope); false to skip it (the visitor handles it).
     fn enter_lambda(self, _ x: LambdaExpr) -> Bool;
 }
 
 // Collects the free variables of a body: each unbound identifier once, in
-// first-reference order (the capture layout must be deterministic). Descends
-// into nested lambdas (their inner references can still be free here).
+// first-reference order (the capture layout must be deterministic). Descends into
+// nested lambdas (their inner references can still be free here).
 struct FreeVars {
     let free: List<String>;
     let seen: Set<String>;
@@ -2919,8 +2925,8 @@ impl TreeVisitor for FreeVars {
     fn enter_lambda(self, _ x: LambdaExpr) -> Bool { return true; }
 }
 
-// Collects a function's own `mut` locals and its top-level lambdas (a lambda's
-// body belongs to the lifted unit, so it is not descended into).
+// Collects a function's own `mut` locals and its top-level lambdas (a lambda's body
+// belongs to the lifted unit, so it is not descended into).
 struct BoxScan {
     let muts: Set<String>;
     let lambdas: List<LambdaExpr>;
@@ -3077,8 +3083,8 @@ fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
 // --- module-global initialization order (docs/bytecode.md) ---
 
 // Order the module globals so each initializer runs after the globals it
-// references: a depth-first post-order over the reference graph. A back edge is
-// an initializer cycle — a located compile error (cf. the cyclic-`const` guard).
+// references: a depth-first post-order over the reference graph. A back edge is an
+// initializer cycle — a located compile error (cf. the cyclic-`const` guard).
 // Cross-module order falls out of registration order (imports before importers),
 // which the post-order preserves for globals with no edge between them.
 fn order_global_inits(
@@ -3131,11 +3137,11 @@ fn visit_global_init(
     ordered.push(g);
 }
 
-// Natives a module-`let` initializer may not call: time-varying or I/O
-// operations whose result would be a stale load-time snapshot (docs/language.md
-// -> Module-level bindings). Process-stable reads (env queries, the OS,
-// the path separator) are allowed. A cheap denylist, not a purity analysis —
-// matched on the resolved runtime symbol, so namespace aliasing can't evade it.
+// Natives a module-`let` initializer may not call: time-varying or I/O operations
+// whose result would be a stale load-time snapshot (docs/language.md ->
+// Module-level bindings). Process-stable reads (env queries, the OS, the path
+// separator) are allowed. A cheap denylist, not a purity analysis — matched on the
+// resolved runtime symbol, so namespace aliasing can't evade it.
 fn forbidden_in_initializer(_ sym: String) -> Bool {
     return sym.starts_with('time_')
         || sym.starts_with('fs_')
@@ -3147,12 +3153,11 @@ fn forbidden_in_initializer(_ sym: String) -> Bool {
 }
 
 // The module globals an initializer references directly: bare identifiers that
-// resolve to a global from the initializer's own file (same-file first, then
-// its bare surface), returned as owner-qualified `global_key`s. Names bound
-// inside the initializer (lambda params, block lets, match/for patterns) are
-// excluded by the free-variable walk. Indirect dependencies through a called
-// function's body are not tracked — initializers should reference their
-// dependencies directly.
+// resolve to a global from the initializer's own file (same-file first, then its
+// bare surface), returned as owner-qualified `global_key`s. Names bound inside the
+// initializer (lambda params, block lets, match/for patterns) are excluded by the
+// free-variable walk. Indirect dependencies through a called function's body are
+// not tracked — initializers should reference their dependencies directly.
 fn global_init_deps(_ g: GlobalInit, _ scope: ModuleScope) -> List<String> {
     let v = FreeVars { free: [], seen: Set.new() };
     walk_expr(g.value, Set.new(), v);
@@ -3165,8 +3170,8 @@ fn global_init_deps(_ g: GlobalInit, _ scope: ModuleScope) -> List<String> {
     return deps;
 }
 
-// The `mut` locals of the function with body `body` that are captured by a
-// lambda, and therefore need boxing. One walk gathers this function's own `mut`
+// The `mut` locals of the function with body `body` that are captured by a lambda,
+// and therefore need boxing. One walk gathers this function's own `mut`
 // declarations (not descending into lambda bodies — those belong to the lifted
 // unit) and its top-level lambdas; a captured-and-mutable local is the
 // intersection.
@@ -3212,14 +3217,14 @@ fn find_field_init(_ fields: List<FieldInit>, _ name: String) -> Option<Expr> {
 
 // `name` (optionally qualified by `ns`) as a static-receiver type identity: the
 // type this file's scope resolves — same-file, bare surface, built-in, or the
-// namespace's public surface — when its definition is a struct, enum, or
-// built-in (an interface has no static-receiver form).
+// namespace's public surface — when its definition is a struct, enum, or built-in
+// (an interface has no static-receiver form).
 fn receiver_type_id(_ fs: FileScope, _ name: String, _ ns: Option<String>) -> Option<TypeId> {
     let id = TypeId { owner: fs.resolve_type_owner(name, ns), name: name };
     // No explicit unresolved (`''`) guard: `''` is also the anonymous program's
-    // real file key (EL11's double duty), and hermetic/in-memory programs own
-    // their types under it. The per-file def lookup disambiguates — a real miss
-    // has no `''` table to hit.
+    // real file key (EL11's double duty), and hermetic/in-memory programs own their
+    // types under it. The per-file def lookup disambiguates — a real miss has no
+    // `''` table to hit.
     return match fs.resolve_type_def(id) {
         Some(def) => if def.kind == element.TypeDefKind.Interface { Option.None } else {
             Option.Some(id)

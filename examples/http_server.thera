@@ -1,5 +1,5 @@
-// A local HTTP server, answered by our own client — the whole `std.http` surface
-// in one program.
+// A local HTTP server, answered by our own client — the whole `std.http` surface in
+// one program.
 //
 // The `std.http` split is deliberate, and two imports is all it takes:
 //

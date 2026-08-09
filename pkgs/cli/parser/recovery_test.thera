@@ -1,8 +1,8 @@
-// Parser error-recovery tests (docs/frontend.md §Parser error recovery). These pin recovery
-// *behavior*, not the language spec, so they live in the @test suite rather than
-// tests/lang. Every case asserts two directions: the broken input yields the
-// expected partial tree, AND the well-formed counterpart is unchanged — the
-// build's fixpoint guards the no-op-on-valid invariant globally, these lock it
+// Parser error-recovery tests (docs/frontend.md §Parser error recovery). These pin
+// recovery *behavior*, not the language spec, so they live in the @test suite
+// rather than tests/lang. Every case asserts two directions: the broken input
+// yields the expected partial tree, AND the well-formed counterpart is unchanged —
+// the build's fixpoint guards the no-op-on-valid invariant globally, these lock it
 // locally and document intent.
 //
 // The stages these exercise (docs/frontend.md §Parser error recovery):
@@ -73,9 +73,9 @@ fn test_dump_statements_and_control_flow() -> Result<Void, Error> {
 @test
 fn test_error_expr_replaces_unit_placeholder() -> Result<Void, Error> {
     // A missing right-hand side yields `Binary(a, +, Error)`, rendered `<error>`.
-    // Before Stage 0 the placeholder was `Expr.Unit` (rendered `void`), which
-    // types as `Void` and cascades in a typed slot; `Expr.Error` types as
-    // `Unknown` and stays quiet. The reroute is what this asserts.
+    // Before Stage 0 the placeholder was `Expr.Unit` (rendered `void`), which types
+    // as `Void` and cascades in a typed slot; `Expr.Error` types as `Unknown` and
+    // stays quiet. The reroute is what this asserts.
     testing.assert_eq(actual: expr_str('a +'), expected: '(a + <error>)')?;
     // Well-formed counterpart unchanged.
     testing.assert_eq(actual: expr_str('a + b'), expected: '(a + b)')?;
@@ -84,8 +84,8 @@ fn test_error_expr_replaces_unit_placeholder() -> Result<Void, Error> {
 
 @test
 fn test_dangling_dot_yields_empty_field() -> Result<Void, Error> {
-    // `user.` → a `Field` whose member is the empty string — the completion
-    // anchor. It renders as a trailing `.` (empty member name).
+    // `user.` → a `Field` whose member is the empty string — the completion anchor.
+    // It renders as a trailing `.` (empty member name).
     testing.assert_eq(actual: expr_str('user.'), expected: 'user.')?;
     // Well-formed counterpart unchanged.
     testing.assert_eq(actual: expr_str('user.name'), expected: 'user.name')?;
@@ -129,9 +129,9 @@ fn test_missing_call_paren_survives() -> Result<Void, Error> {
 
 @test
 fn test_broken_statement_preserves_siblings() -> Result<Void, Error> {
-    // A statement that can't parse (`let y = ` with no initializer — a `;` where
-    // an expression must begin, i.e. genuine confusion) is replaced by an
-    // `Expr.Error` placeholder; the statements before AND after it survive.
+    // A statement that can't parse (`let y = ` with no initializer — a `;` where an
+    // expression must begin, i.e. genuine confusion) is replaced by an `Expr.Error`
+    // placeholder; the statements before AND after it survive.
     let src = 'fn f() -> Int { let x = 1; let y = ; return x; }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert(r.has_errors(), message: 'expected a parse error for the empty initializer')?;
@@ -147,9 +147,9 @@ fn test_broken_statement_preserves_siblings() -> Result<Void, Error> {
 @test
 fn test_broken_body_keeps_signature() -> Result<Void, Error> {
     // Signature-past-body (§5): a body full of garbage no longer discards the
-    // declaration — the block recovers internally, so `parse_block` returns and
-    // the `FnDecl` keeps its real signature (name, params, return type). A
-    // dependent in another file can still resolve against it.
+    // declaration — the block recovers internally, so `parse_block` returns and the
+    // `FnDecl` keeps its real signature (name, params, return type). A dependent in
+    // another file can still resolve against it.
     let src = 'fn compute(_ x: Int) -> Int { ) ) ) }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert(r.has_errors(), message: 'expected a parse error for the garbage body')?;
@@ -180,10 +180,10 @@ fn test_broken_body_does_not_swallow_next_decl() -> Result<Void, Error> {
 
 @test
 fn test_broken_match_arm_does_not_cascade() -> Result<Void, Error> {
-    // A missing `,` after an arm leaves the cursor exactly at the next arm's
-    // start, so arm recovery (Stage 2b) resumes there without syncing: exactly
-    // one error, and *both* arms — and the whole `let` — survive. (Before
-    // Stage 2b the entire statement collapsed to an `Expr.Error`.)
+    // A missing `,` after an arm leaves the cursor exactly at the next arm's start,
+    // so arm recovery (Stage 2b) resumes there without syncing: exactly one error,
+    // and *both* arms — and the whole `let` — survive. (Before Stage 2b the entire
+    // statement collapsed to an `Expr.Error`.)
     let src = 'fn f() -> Int { let x = match n { 1 => 10 2 => 20 }; return x; }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert_eq(actual: r.errors.len(), expected: 1)?;
@@ -199,10 +199,10 @@ fn test_broken_match_arm_does_not_cascade() -> Result<Void, Error> {
 
 @test
 fn test_broken_stmt_in_match_arm_block_keeps_the_match() -> Result<Void, Error> {
-    // The motivating completion case: a broken statement inside an arm's `{…}`
-    // body recovers *within* the arm block, so the enclosing `let`, the match
-    // tree, and the sibling arm all survive (previously the whole statement
-    // collapsed to an `Expr.Error`).
+    // The motivating completion case: a broken statement inside an arm's `{…}` body
+    // recovers *within* the arm block, so the enclosing `let`, the match tree, and
+    // the sibling arm all survive (previously the whole statement collapsed to an
+    // `Expr.Error`).
     let src = 'fn f(_ n: Int) -> Int { let x = match n { 1 => { let y = ; y }, _ => 0 }; return x; }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert_eq(actual: r.errors.len(), expected: 1)?;
@@ -216,9 +216,9 @@ fn test_broken_stmt_in_match_arm_block_keeps_the_match() -> Result<Void, Error> 
 
 @test
 fn test_broken_arm_expression_body_keeps_siblings() -> Result<Void, Error> {
-    // An arm whose expression body can't parse (`1 => ,`) recovers to the next
-    // arm: the broken arm keeps its pattern with an `<error>` body, and the
-    // sibling arm survives.
+    // An arm whose expression body can't parse (`1 => ,`) recovers to the next arm:
+    // the broken arm keeps its pattern with an `<error>` body, and the sibling arm
+    // survives.
     let src = 'fn f(_ n: Int) -> Int { let x = match n { 1 => , _ => 0 }; return x; }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert_eq(actual: r.errors.len(), expected: 1)?;
@@ -233,10 +233,10 @@ fn test_broken_arm_expression_body_keeps_siblings() -> Result<Void, Error> {
 @test
 fn test_unterminated_call_keeps_its_frame() -> Result<Void, Error> {
     // The signature-help shape: `add(1,` before the body's `}`. A closer token
-    // can't start an argument, so the args loop stops and the `expect` fills
-    // the `)` — the call node survives with the arguments already written
-    // (previously the failed argument parse unwound the whole statement).
-    // Two holes, two errors: the missing `)` and the missing `;`.
+    // can't start an argument, so the args loop stops and the `expect` fills the
+    // `)` — the call node survives with the arguments already written (previously
+    // the failed argument parse unwound the whole statement). Two holes, two
+    // errors: the missing `)` and the missing `;`.
     let src = 'fn f() -> Int { return add(1, }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert_eq(actual: r.errors.len(), expected: 2)?;
@@ -249,9 +249,9 @@ fn test_unterminated_call_keeps_its_frame() -> Result<Void, Error> {
 
 @test
 fn test_broken_stmt_in_block_expression_keeps_the_binding() -> Result<Void, Error> {
-    // A block *expression* initializer with a broken statement recovers in
-    // place: the `let x` binding and the trailing statement survive. The same
-    // shape with the hole in *tail* position recovers to an `Expr.Error` tail.
+    // A block *expression* initializer with a broken statement recovers in place:
+    // the `let x` binding and the trailing statement survive. The same shape with
+    // the hole in *tail* position recovers to an `Expr.Error` tail.
     let stmt_src = 'fn f() -> Int { let x = { let y = ; 5 }; return x; }';
     let r = parse_tokens(tokenize(stmt_src).tokens);
     testing.assert_eq(actual: r.errors.len(), expected: 1)?;
@@ -337,9 +337,9 @@ fn test_eof_incomplete_enum_keeps_decl() -> Result<Void, Error> {
 
 @test
 fn test_position_sensitive_holes() -> Result<Void, Error> {
-    // A type-annotation hole, a parameter-type hole, an incomplete struct field,
-    // an operator with no RHS, and an empty match all recover in place, leaving a
-    // node the LSP can complete against. Each asserted structurally.
+    // A type-annotation hole, a parameter-type hole, an incomplete struct field, an
+    // operator with no RHS, and an empty match all recover in place, leaving a node
+    // the LSP can complete against. Each asserted structurally.
     testing.assert_eq(
         actual: dump_str('struct User { let name:'),
         expected: 'type User\n  field name: ',
@@ -365,9 +365,9 @@ fn test_position_sensitive_holes() -> Result<Void, Error> {
 
 @test
 fn test_dangling_dot_anchor_carries_cursor_span() -> Result<Void, Error> {
-    // The synthetic member token must be a zero-length span at the cursor — a
-    // wrong offset silently breaks completion. `user.` → the empty member sits at
-    // offset 5 (just past the dot), length 0.
+    // The synthetic member token must be a zero-length span at the cursor — a wrong
+    // offset silently breaks completion. `user.` → the empty member sits at offset
+    // 5 (just past the dot), length 0.
     let src = 'user.';
     let e = parse_expression(tokenize(src).tokens);
     if let Field(_, _, member) = e {
@@ -401,8 +401,8 @@ fn test_error_expr_carries_cursor_span() -> Result<Void, Error> {
 
 // --- Forward-progress invariant: recovery never spins (§3) ---
 
-// Parse every token-prefix of `src` (each re-terminated with EOF) and count them.
-// A non-advancing recovery loop would hang instead of returning — exactly the
+// Parse every token-prefix of `src` (each re-terminated with EOF) and count them. A
+// non-advancing recovery loop would hang instead of returning — exactly the
 // mid-edit fragment the LSP feeds the parser on each keystroke.
 fn count_prefix_parses(_ src: String) -> Int {
     let toks = tokenize(src).tokens;
@@ -423,8 +423,8 @@ fn count_prefix_parses(_ src: String) -> Int {
 fn test_recovery_terminates_on_changed_constructs() -> Result<Void, Error> {
     // Non-fatal `expect` let sub-parsers return without consuming; every prefix of
     // these must still parse to completion. The snippets stress the constructs
-    // whose recovery non-fatal `expect` changed — impl/interface method bodies
-    // (the loop with the forward-progress guard), enum/struct fields, match arms,
+    // whose recovery non-fatal `expect` changed — impl/interface method bodies (the
+    // loop with the forward-progress guard), enum/struct fields, match arms,
     // generic argument lists, and dangling members/delimiters.
     let samples: List<String> = [
         'impl Foo { fn bar() -> Int { return 1; } fn baz(',

@@ -3,12 +3,12 @@
 //
 // Resolution at a syntactic position is: consult the lexical scope (a
 // `Map<String, Type>`, threaded separately by each consumer and unchanged here),
-// then the *static tier* — this file's own top-level declarations, its bare
-// imports (the prelude + `as _`), the import namespaces it binds, and the
-// built-ins. `FileScope` reifies that static tier into one value, built cheaply
-// from a `LibraryElement` and the current file, and exposes element-returning
-// `resolve_*` queries so the checker, inference, and codegen stop reaching into
-// the flat tables ad hoc.
+// then the *static tier* — this file's own top-level declarations, its bare imports
+// (the prelude + `as _`), the import namespaces it binds, and the built-ins.
+// `FileScope` reifies that static tier into one value, built cheaply from a
+// `LibraryElement` and the current file, and exposes element-returning `resolve_*`
+// queries so the checker, inference, and codegen stop reaching into the flat tables
+// ad hoc.
 //
 // Today this is a thin facade over the element model's existing per-file overlays
 // (`file_owned`/`file_bare_surface`/`file_namespaces`/`file_functions`) and the
@@ -22,8 +22,8 @@ import 'types' as _;
 import 'element' as _;
 
 // The static resolution context of one file: the resolved library plus the file
-// whose imports/ownership govern resolution. A real source path is never empty,
-// so `None` denotes the primary/anonymous program (see `file_key`).
+// whose imports/ownership govern resolution. A real source path is never empty, so
+// `None` denotes the primary/anonymous program (see `file_key`).
 pub struct FileScope {
     let library: LibraryElement;
     let file: Option<String>;
@@ -31,12 +31,12 @@ pub struct FileScope {
 
 // --- TypeRef -> Type resolution (scope-aware, Phase 1 T4) ---
 //
-// Lives here (not the resolver) so that both the resolver and inference can
-// resolve a syntactic `TypeRef` to a semantic `Type` without an import cycle:
-// inference needs this, and the resolver in turn calls inference (module-global
-// type inference is a resolver pass). The owner stamped on a named type is
-// chosen by the current file's `FileScope` (own declarations -> bare surface ->
-// built-ins), so two libraries' same-named types resolve distinctly.
+// Lives here (not the resolver) so that both the resolver and inference can resolve
+// a syntactic `TypeRef` to a semantic `Type` without an import cycle: inference
+// needs this, and the resolver in turn calls inference (module-global type
+// inference is a resolver pass). The owner stamped on a named type is chosen by the
+// current file's `FileScope` (own declarations -> bare surface -> built-ins), so
+// two libraries' same-named types resolve distinctly.
 
 // Resolve an optional type reference; a missing one (omitted annotation) is
 // Unknown.
@@ -73,11 +73,11 @@ fn resolve_named_in(
     _ type_params: Set<String>,
     _ self_type: Option<Type>,
 ) -> Type {
-    // A qualifier that isn't one of this file's namespaces resolves to
-    // Unknown — never a bare-name fallback, which would mint a *different*
-    // identity for the same spelling and cascade into a same-name type
-    // mismatch. The checker reports `unknown namespace` at the annotation
-    // (`check_named_type`); Unknown's leniency keeps that the only error.
+    // A qualifier that isn't one of this file's namespaces resolves to Unknown —
+    // never a bare-name fallback, which would mint a *different* identity for the
+    // same spelling and cascade into a same-name type mismatch. The checker reports
+    // `unknown namespace` at the annotation (`check_named_type`); Unknown's
+    // leniency keeps that the only error.
     if let Some(ns) = nt.namespace {
         match scope.namespace_surface(ns) {
             Some(_) => void,
@@ -148,9 +148,9 @@ impl FileScope {
     }
 
     // Whether a *bare* value name binds in this file's static tier — same-file
-    // (`file_owns`), bare-legal from another library (prelude / `as _`), a
-    // built-in type used in value position (`Set.new()` / `Enum.Variant`), or an
-    // import namespace this file binds (the receiver of `ns.fn`). The lexical
+    // (`file_owns`), bare-legal from another library (prelude / `as _`), a built-in
+    // type used in value position (`Set.new()` / `Enum.Variant`), or an import
+    // namespace this file binds (the receiver of `ns.fn`). The lexical
     // `scope.has(name)` is the caller's to add — this is the non-lexical half of
     // the old `is_defined_name`.
     pub fn binds_value(self, _ name: String) -> Bool {
@@ -164,13 +164,13 @@ impl FileScope {
     //
     // The member `name` reached through namespace `ns`, resolved **within `ns`'s
     // library** (owner-correct): the namespace surface's origin map (Phase 2e S2)
-    // names the file that declares the member, and the per-file element tables
-    // (S1) hold its element. This is what lifts global name uniqueness — two
-    // libraries' same-named members resolve to their own files. The lenient
-    // resolvers used by inference; visibility (`pub`) is the checker's concern,
-    // and the caller has already established `ns` is a namespace it binds. A
-    // non-public or absent member has no origin entry → None (the checker reports
-    // it; on a clean program no such access reaches here).
+    // names the file that declares the member, and the per-file element tables (S1)
+    // hold its element. This is what lifts global name uniqueness — two libraries'
+    // same-named members resolve to their own files. The lenient resolvers used by
+    // inference; visibility (`pub`) is the checker's concern, and the caller has
+    // already established `ns` is a namespace it binds. A non-public or absent
+    // member has no origin entry → None (the checker reports it; on a clean program
+    // no such access reaches here).
 
     // The file (key) that owns public member `name` of namespace `ns`, or None.
     // Public so codegen can map a qualified call to its owning file's unit.
@@ -224,12 +224,12 @@ impl FileScope {
     // The type definition an already-resolved `Type.Interface(id)` denotes,
     // resolved **within its owning file** (Phase 1 T2): a `Type` now carries its
     // origin (`TypeId {owner, name}`), so the def comes from that file's table, not
-    // a global by-name lookup — a wrong owner misses rather than silently
-    // resolving a same-named type elsewhere. The `<builtin>` sentinel (the hermetic
-    // floor's owner) falls through to the global floor; every real owner is a file
-    // in `file_type_defs`. Type names are still globally unique (the flip is T4),
-    // so under uniqueness this returns the same element the global lookup did —
-    // which the SDK fixpoint confirms.
+    // a global by-name lookup — a wrong owner misses rather than silently resolving
+    // a same-named type elsewhere. The `<builtin>` sentinel (the hermetic floor's
+    // owner) falls through to the global floor; every real owner is a file in
+    // `file_type_defs`. Type names are still globally unique (the flip is T4), so
+    // under uniqueness this returns the same element the global lookup did — which
+    // the SDK fixpoint confirms.
     pub fn resolve_type_def(self, _ id: TypeId) -> Option<TypeDefElement> {
         return def_by_id(self.library, id);
     }
@@ -247,11 +247,11 @@ impl FileScope {
     // qualified `ns.Foo` owns to the file `ns`'s surface attributes it to; a bare
     // `Foo` to this file (if it declares it), else its bare surface (prelude /
     // `as _`), else the `<builtin>` floor. A name the scope can't place is
-    // unresolved (`''`) — there is no flat-registry fallback (EL15): a type a
-    // file never imported must not resolve just because it exists somewhere in
-    // the closure (the value-side version of this shortcut produced the
-    // `find_method` miscompile). The tier order (own file → bare surface →
-    // built-in) is language.md's "bare type name" algorithm.
+    // unresolved (`''`) — there is no flat-registry fallback (EL15): a type a file
+    // never imported must not resolve just because it exists somewhere in the
+    // closure (the value-side version of this shortcut produced the `find_method`
+    // miscompile). The tier order (own file → bare surface → built-in) is
+    // language.md's "bare type name" algorithm.
     pub fn resolve_type_owner(self, _ name: String, _ namespace: Option<String>) -> String {
         if let Some(ns) = namespace {
             if let Some(owner) = self.member_owner(ns, name) {
@@ -288,11 +288,11 @@ impl FileScope {
         if !self.library.type_defs.has(name) {
             return false;
         }
-        // Same-file first, kind-aware: a file that binds `name` at all owns it
-        // for every kind (one name space per scope) — so `name` is a known type
-        // here only if the file's own binding *is* a type. A same-file value
-        // binding shadows any bare-imported or builtin type of that name (the
-        // checker also rejects such a shadow at the declaration site).
+        // Same-file first, kind-aware: a file that binds `name` at all owns it for
+        // every kind (one name space per scope) — so `name` is a known type here
+        // only if the file's own binding *is* a type. A same-file value binding
+        // shadows any bare-imported or builtin type of that name (the checker also
+        // rejects such a shadow at the declaration site).
         if file_owns(self.library, self.file, name) {
             return match self.library.file_type_defs.get(file_key(self.file)) {
                 Some(defs) => defs.has(name),
@@ -303,8 +303,8 @@ impl FileScope {
             || bare_surface_has(self.library, self.file, name);
     }
 
-    // Whether `name` is a built-in type (`Int`/`List`/`Set`/…) — always in scope.
-    // A floor-owned entry of any kind counts too: the hermetic floor's
+    // Whether `name` is a built-in type (`Int`/`List`/`Set`/…) — always in scope. A
+    // floor-owned entry of any kind counts too: the hermetic floor's
     // `Eq`/`Display`/`Debug` are interfaces, and only surface when no real
     // declaration shadows them.
     pub fn is_builtin_type(self, _ name: String) -> Bool {
@@ -337,11 +337,11 @@ impl FileScope {
     }
 
     // The first namespace this file imports that exposes `name`, or None — so a
-    // bare-but-qualifiable name becomes the "qualify as `ns.name`" diagnostic.
-    // A namespace this file binds whose public surface exposes `name` — used
-    // for "qualify as `ns.T`" hints. When several qualify, the first in import
-    // order wins (map iteration is insertion-ordered, so this is deterministic
-    // — EL17); the hint names *a* valid qualifier, not the only one.
+    // bare-but-qualifiable name becomes the "qualify as `ns.name`" diagnostic. A
+    // namespace this file binds whose public surface exposes `name` — used for
+    // "qualify as `ns.T`" hints. When several qualify, the first in import order
+    // wins (map iteration is insertion-ordered, so this is deterministic — EL17);
+    // the hint names *a* valid qualifier, not the only one.
     pub fn qualifying_namespace(self, _ name: String) -> Option<String> {
         let nss = namespaces_in(self.library, self.file);
         for ns in nss.keys() {

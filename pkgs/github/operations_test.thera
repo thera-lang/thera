@@ -1,9 +1,9 @@
 // Tests for the operations and for pagination.
 //
-// Same hermetic loop as `client_test.thera` — a fake GitHub on a loopback port — but the
-// handlers here route on the request target, because the thing under test is a client
-// that *follows* what the server tells it. A pagination test whose second page is a
-// fixture rather than a fetch would not be testing pagination.
+// Same hermetic loop as `client_test.thera` — a fake GitHub on a loopback port —
+// but the handlers here route on the request target, because the thing under test
+// is a client that *follows* what the server tells it. A pagination test whose
+// second page is a fixture rather than a fetch would not be testing pagination.
 
 import std.fiber;
 import std.http;
@@ -14,20 +14,21 @@ import std.testing;
 import 'client' as _;
 import 'issues' as _;
 import 'pagination' as _;
-// Nothing here names `Pulls`, but this import is what makes `client.pulls()` resolve —
-// the accessor is an `impl Client` block over in `pulls.thera`.
+// Nothing here names `Pulls`, but this import is what makes `client.pulls()`
+// resolve — the accessor is an `impl Client` block over in `pulls.thera`.
 import 'pulls' as _;
 
 // --- harness ---
 
 /// The fake GitHub's state: every request target it answered, and its own base URL.
 ///
-/// `base` is `mut` and filled in by `serving`, because a handler that emits a `Link`
-/// header has to point it back at us and the port is only known after the bind. The
-/// obvious spelling is a handler *factory* — `(String) -> ((Request) -> Response)` — and
-/// it cannot be written: a parenthesised function type is a parse error, and without the
-/// parentheses the nested result does not reach the inner lambda's inference. Function
-/// types do not nest, so the state goes in a struct instead.
+/// `base` is `mut` and filled in by `serving`, because a handler that emits a
+/// `Link` header has to point it back at us and the port is only known after the
+/// bind. The obvious spelling is a handler *factory* —
+/// `(String) -> ((Request) -> Response)` — and it cannot be written: a
+/// parenthesised function type is a parse error, and without the parentheses the
+/// nested result does not reach the inner lambda's inference. Function types do not
+/// nest, so the state goes in a struct instead.
 struct Fake {
     let mut base: String;
     let seen: List<String>;
@@ -37,7 +38,8 @@ fn fake() -> Fake {
     return Fake { base: '', seen: [] };
 }
 
-/// Serve `handler` on loopback, filling in `state.base` before any request can arrive.
+/// Serve `handler` on loopback, filling in `state.base` before any request can
+/// arrive.
 fn serving(
     _ state: Fake,
     _ handler: (http.Request) -> Result<http.Response, Error>,
@@ -97,8 +99,8 @@ fn list_builds_the_documented_query() -> Result<Void, Error> {
     );
 }
 
-/// An optional parameter that was not passed does not appear at all — the query-string
-/// half of `omit_nulls`, and the reason `params` exists.
+/// An optional parameter that was not passed does not appear at all — the
+/// query-string half of `omit_nulls`, and the reason `params` exists.
 @test
 fn an_unpassed_optional_parameter_is_absent() -> Result<Void, Error> {
     let log = fake();
@@ -113,16 +115,17 @@ fn an_unpassed_optional_parameter_is_absent() -> Result<Void, Error> {
         base: Option.Some('main'),
         per_page: 100,
     ))?;
-    // `head` and `direction` were not passed, so they are not in the URL; `base` was.
+    // `head` and `direction` were not passed, so they are not in the URL; `base`
+    // was.
     return testing.assert_eq(
         actual: log.seen[0],
         expected: '/repos/o/r/pulls?state=all&base=main&sort=created&per_page=100&page=1',
     );
 }
 
-/// Path segments are interpolated, and a repository name needing escapes is not this
-/// client's problem — GitHub owner/repo names are already restricted to the unreserved
-/// set. The assertion is that the path is *not* double-encoded.
+/// Path segments are interpolated, and a repository name needing escapes is not
+/// this client's problem — GitHub owner/repo names are already restricted to the
+/// unreserved set. The assertion is that the path is *not* double-encoded.
 @test
 fn the_path_carries_owner_and_repo() -> Result<Void, Error> {
     let log = fake();
@@ -161,8 +164,9 @@ fn an_empty_list_is_an_empty_page() -> Result<Void, Error> {
     return testing.assert_eq(actual: page.has_next(), expected: false);
 }
 
-/// One malformed element fails the whole page, naming its index — the array position is
-/// carried by the path, which is what makes a bad element findable in a 100-item page.
+/// One malformed element fails the whole page, naming its index — the array
+/// position is carried by the path, which is what makes a bad element findable in a
+/// 100-item page.
 @test
 fn a_malformed_element_names_its_index() -> Result<Void, Error> {
     let client = serving(fake(), (_req) => Result.Ok(json_response(
@@ -179,9 +183,9 @@ fn a_malformed_element_names_its_index() -> Result<Void, Error> {
 
 // --- following the Link header ---
 
-/// A two-page walk. The second request's URL is the one the *server* supplied, not one
-/// the client computed — including its query string, which is why the handler asserts on
-/// it rather than on a page number.
+/// A two-page walk. The second request's URL is the one the *server* supplied, not
+/// one the client computed — including its query string, which is why the handler
+/// asserts on it rather than on a page number.
 @test
 fn next_follows_the_link_header() -> Result<Void, Error> {
     let log = fake();
@@ -218,8 +222,9 @@ fn next_on_the_last_page_is_none() -> Result<Void, Error> {
     return testing.assert_eq(actual: following.is_none(), expected: true);
 }
 
-/// A `Link` header with neighbours but no `next` — the common shape of the last page of
-/// a multi-page result, and the one a naive `contains('rel=')` would get wrong.
+/// A `Link` header with neighbours but no `next` — the common shape of the last
+/// page of a multi-page result, and the one a naive `contains('rel=')` would get
+/// wrong.
 @test
 fn a_link_header_without_a_next_offers_no_next_page() -> Result<Void, Error> {
     let client = serving(fake(), (_req) => Result.Ok(json_response(
@@ -231,7 +236,8 @@ fn a_link_header_without_a_next_offers_no_next_page() -> Result<Void, Error> {
     return testing.assert_eq(actual: page.has_next(), expected: false);
 }
 
-/// The unquoted `rel` form, which RFC 8288 permits and a rewriting proxy may produce.
+/// The unquoted `rel` form, which RFC 8288 permits and a rewriting proxy may
+/// produce.
 @test
 fn an_unquoted_rel_parses() -> Result<Void, Error> {
     let headers: Map<String, String> = ['link': '<http://h/next>; rel=next'];
@@ -273,8 +279,8 @@ fn all_walks_the_whole_chain() -> Result<Void, Error> {
     return testing.assert_eq(actual: every[2].number, expected: 3);
 }
 
-/// And it stops at `max_pages`, counting the page it started from — the bound that keeps
-/// a convenience method from becoming unbounded network I/O.
+/// And it stops at `max_pages`, counting the page it started from — the bound that
+/// keeps a convenience method from becoming unbounded network I/O.
 @test
 fn all_stops_at_the_page_bound() -> Result<Void, Error> {
     let log = fake();
@@ -333,7 +339,8 @@ fn creating_a_pull_request_sends_only_what_was_given() -> Result<Void, Error> {
         draft: Option.Some(true),
     ))?;
     testing.assert_eq(actual: log.seen[0], expected: 'POST /repos/thera-lang/thera/pulls')?;
-    // `body` and `maintainer_can_modify` were not passed, so they are not in the JSON.
+    // `body` and `maintainer_can_modify` were not passed, so they are not in the
+    // JSON.
     testing.assert_eq(
         actual: log.seen[1],
         expected: '{"head":"github_client","base":"main",' +
@@ -366,8 +373,9 @@ fn creating_an_issue_decodes_the_created_issue() -> Result<Void, Error> {
     return testing.assert_eq(actual: issue.labels[0].name(), expected: 'bug');
 }
 
-/// A validation failure on a write arrives as a `Status` with the fields named — the
-/// path that matters most in practice, since a create is where a caller gets it wrong.
+/// A validation failure on a write arrives as a `Status` with the fields named —
+/// the path that matters most in practice, since a create is where a caller gets it
+/// wrong.
 @test
 fn a_rejected_create_reports_the_fields() -> Result<Void, Error> {
     let client = serving(fake(), (_req) => Result.Ok(json_response(

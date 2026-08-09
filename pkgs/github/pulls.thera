@@ -10,16 +10,17 @@
 // The third wins on the number that matters. GitHub has 1220 operations across ~40
 // resource tags; the flat forms put all 1220 names in one completion list and force
 // every one of them to carry its resource in its name, because `list` collides the
-// moment a second resource wants it. Grouping makes each step's choice small — 40, then
-// a dozen — which is the same argument docs/scale.md § Discoverability makes about
-// reading radius, applied to an API surface instead of a repository. It is also what
-// every official GitHub SDK does, so it is what a model has seen.
+// moment a second resource wants it. Grouping makes each step's choice small — 40,
+// then a dozen — which is the same argument docs/scale.md § Discoverability makes
+// about reading radius, applied to an API surface instead of a repository. It is
+// also what every official GitHub SDK does, so it is what a model has seen.
 //
-// It costs one struct and one accessor per tag, and both are mechanical. The accessor
-// lives *here* rather than in `client.thera`, which matters more than it looks: a
-// generator adds a resource by writing one new file, with no edit to any existing one.
-// Thera allows an `impl` block for a sibling file's type as long as the type is in scope
-// unqualified, so `impl Client` below is legal and the import graph stays acyclic.
+// It costs one struct and one accessor per tag, and both are mechanical. The
+// accessor lives *here* rather than in `client.thera`, which matters more than it
+// looks: a generator adds a resource by writing one new file, with no edit to any
+// existing one. Thera allows an `impl` block for a sibling file's type as long as
+// the type is in scope unqualified, so `impl Client` below is legal and the import
+// graph stays acyclic.
 
 import std.json;
 
@@ -41,14 +42,14 @@ impl Client {
 }
 
 impl Pulls {
-    /// `GET /repos/{owner}/{repo}/pulls` — pull requests in a repository, newest first
-    /// by default.
+    /// `GET /repos/{owner}/{repo}/pulls` — pull requests in a repository, newest
+    /// first by default.
     ///
     /// The parameter list is the spec's, defaults included: `state` and `sort` have
-    /// documented defaults, `direction` does not (GitHub picks one from `sort`), and
-    /// `per_page`/`page` come from shared parameter definitions every list endpoint
-    /// shares. Sending a default explicitly is harmless and makes the URL a function of
-    /// the call, which is worth more than a shorter query string.
+    /// documented defaults, `direction` does not (GitHub picks one from `sort`),
+    /// and `per_page`/`page` come from shared parameter definitions every list
+    /// endpoint shares. Sending a default explicitly is harmless and makes the URL
+    /// a function of the call, which is worth more than a shorter query string.
     pub fn list(
         self,
         owner: String,
@@ -76,21 +77,23 @@ impl Pulls {
 
     /// `POST /repos/{owner}/{repo}/pulls` — open a pull request.
     ///
-    /// **`title` is optional in the spec, and a request without one usually fails.**
-    /// GitHub accepts either a `title` or an `issue` number (which converts an existing
-    /// issue into a pull request), so neither field is individually required and the
-    /// real rule is "exactly one of these two". OpenAPI's `required` is per-field and
-    /// cannot say that, so the constraint lives only in a 422 — the first thing here
-    /// that a generated signature *cannot* be right about, however faithful it is.
+    /// **`title` is optional in the spec, and a request without one usually
+    /// fails.** GitHub accepts either a `title` or an `issue` number (which
+    /// converts an existing issue into a pull request), so neither field is
+    /// individually required and the real rule is "exactly one of these two".
+    /// OpenAPI's `required` is per-field and cannot say that, so the constraint
+    /// lives only in a 422 — the first thing here that a generated signature
+    /// *cannot* be right about, however faithful it is.
     ///
-    /// The `issue` form is not modeled: it is rare, and modeling it would mean either a
-    /// second function or two optional parameters that are secretly exclusive.
+    /// The `issue` form is not modeled: it is rare, and modeling it would mean
+    /// either a second function or two optional parameters that are secretly
+    /// exclusive.
     ///
-    /// The return type is `PullRequest`, the same type `list` returns — see its note.
-    /// `pulls/create` actually answers with the wider `pull-request` schema, and this
-    /// works because our `PullRequest` is a subset of *both*. That is a judgment about
-    /// which fields matter, which is exactly what a generator cannot make: it would emit
-    /// two types, and callers would convert between them.
+    /// The return type is `PullRequest`, the same type `list` returns — see its
+    /// note. `pulls/create` actually answers with the wider `pull-request` schema,
+    /// and this works because our `PullRequest` is a subset of *both*. That is a
+    /// judgment about which fields matter, which is exactly what a generator cannot
+    /// make: it would emit two types, and callers would convert between them.
     pub fn create(
         self,
         owner: String,

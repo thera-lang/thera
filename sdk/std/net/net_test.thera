@@ -105,8 +105,8 @@ fn many_concurrent_connections() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// A short write must not lose the tail: push far more than a send buffer holds
-/// and read it all back. This is what `io.write_all`'s loop exists for, and it also
+/// A short write must not lose the tail: push far more than a send buffer holds and
+/// read it all back. This is what `io.write_all`'s loop exists for, and it also
 /// drives `socket_write`'s park path — the payload has to outrun the buffer by
 /// enough that the writer blocks, not merely writes short (macOS auto-tunes
 /// loopback buffers into the hundreds of KB, so 400 KB was not enough).
@@ -329,8 +329,8 @@ fn unusable_trust_roots_are_reported() -> Result<Void, Error> {
 // that is a deliberate trade. Minting would need a certificate-generation native,
 // which means putting `rcgen` in the shipped runtime to serve tests alone; the
 // Rust-side tests already do generate theirs, because there `rcgen` is a
-// dev-dependency and costs the binary nothing. What is checked in is a throwaway
-// CA and a `localhost` leaf with no value to anyone — but it does carry an expiry
+// dev-dependency and costs the binary nothing. What is checked in is a throwaway CA
+// and a `localhost` leaf with no value to anyone — but it does carry an expiry
 // (2052-08-06), so a distant future run failing on `certificate expired` means
 // regenerate, not debug. The commands are in the comment on the constants.
 
@@ -355,9 +355,9 @@ omV2ILMnXKa17+iXPISAqJBBCdBgbuZwcQYC
 ';
 
 /// The `localhost` leaf the test server presents, signed by the CA above. Its SAN
-/// is `DNS:localhost`, which is the name the client verifies (it dials
-/// `127.0.0.1`, so the two differ on purpose — verification is against the *name*,
-/// never the address).
+/// is `DNS:localhost`, which is the name the client verifies (it dials `127.0.0.1`,
+/// so the two differ on purpose — verification is against the *name*, never the
+/// address).
 ///
 /// ```
 /// openssl req -newkey ed25519 -nodes -keyout leaf.key -out leaf.csr -subj "/CN=localhost"
@@ -478,8 +478,8 @@ fn an_unusable_server_identity_is_reported() -> Result<Void, Error> {
 /// The one test that exercises the *production* trust path — a real certificate
 /// against the bundled Mozilla roots — which nothing hermetic can cover. Off unless
 /// `THERA_NET_TESTS` is set, because it needs the network and a third party's
-/// server: exactly the properties the rest of this file avoids
-/// (docs/http-tls.md §Testing).
+/// server: exactly the properties the rest of this file avoids (docs/http-tls.md
+/// §Testing).
 @test
 fn a_live_https_endpoint_verifies_against_the_bundled_roots() -> Result<Void, Error> {
     if env.get('THERA_NET_TESTS').is_none() {

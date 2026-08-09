@@ -1,5 +1,5 @@
-// Tests for workspace file discovery: the pure prune predicate, plus a real
-// on-disk walk under a temp tree to confirm `.thera` files are found and the
+// Tests for workspace file discovery: the pure prune predicate, plus a real on-disk
+// walk under a temp tree to confirm `.thera` files are found and the
 // `build`/dot-directory subtrees are skipped.
 
 import std.testing;

@@ -1,7 +1,7 @@
 //! std.core — the built-in Map<K, V> type.
 //!
-//! Map<K, V> is an ordered key-value store (insertion order is preserved). It is
-//! a built-in type: always in scope, never explicitly imported (there is no
+//! Map<K, V> is an ordered key-value store (insertion order is preserved). It is a
+//! built-in type: always in scope, never explicitly imported (there is no
 //! `import std.map`). Build one with a map literal: `{k1: v1, k2: v2}`.
 //!
 //! Indexing:
@@ -14,8 +14,8 @@
 //! Use `.get(key)` when a missing key is a normal, expected case. See "Runtime
 //! faults" and "Collections" in docs/language.md.
 
-/// The built-in ordered key-value store — an opaque, runtime-represented value
-/// (no struct layout); a map literal (`{k: v}`) constructs one.
+/// The built-in ordered key-value store — an opaque, runtime-represented value (no
+/// struct layout); a map literal (`{k: v}`) constructs one.
 pub native type Map<K, V>
 
 impl Map<K, V> {
@@ -24,14 +24,14 @@ impl Map<K, V> {
     //
     //   fn [](self, _ key: K) -> V          // traps if `key` is absent
     //
-    // returns the value for `key`, **trapping** on a missing key — use `get`
-    // below for the checked `Option<V>` form. The write
+    // returns the value for `key`, **trapping** on a missing key — use `get` below
+    // for the checked `Option<V>` form. The write
     //
     //   fn []=(self, _ key: K, _ v: V)      // insert or update; never traps
     //
-    // inserts a new entry or replaces the existing one (the binding must be
-    // `mut`). (Indexing isn't an overloadable interface yet; this documents the
-    // contract the compiler implements for `Map`.)
+    // inserts a new entry or replaces the existing one (the binding must be `mut`).
+    // (Indexing isn't an overloadable interface yet; this documents the contract
+    // the compiler implements for `Map`.)
 
     /// Number of entries.
     @extern('map_len')
@@ -98,9 +98,9 @@ impl Debug for Map<K, V> {
     }
 }
 
-/// A map's display form *is* its developer form — the structural `Debug`
-/// rendering is canonical (there is no prettier user-facing shape; the
-/// Python `str`-delegates-to-`repr` convention for containers).
+/// A map's display form *is* its developer form — the structural `Debug` rendering
+/// is canonical (there is no prettier user-facing shape; the Python
+/// `str`-delegates-to-`repr` convention for containers).
 impl Display for Map<K, V> {
     fn to_string(self) -> String {
         return self.debug();

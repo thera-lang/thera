@@ -24,8 +24,8 @@ fn select_returns_the_ready_channel() -> Result<Void, Error> {
     return testing.assert_eq(b.receive().unwrap_or(0), 9);
 }
 
-/// When several are ready the lowest index wins — deterministic, unlike Go's
-/// random pick, matching the scheduler's deterministic-by-design stance.
+/// When several are ready the lowest index wins — deterministic, unlike Go's random
+/// pick, matching the scheduler's deterministic-by-design stance.
 @test
 fn select_prefers_the_lowest_ready_index() -> Result<Void, Error> {
     let a = fiber.channel<Int>(1);
@@ -35,8 +35,8 @@ fn select_prefers_the_lowest_ready_index() -> Result<Void, Error> {
     return testing.assert_eq(fiber.select([a, b]), 0);
 }
 
-/// The parking path: nothing is ready, so select waits for another fiber's
-/// progress to wake it.
+/// The parking path: nothing is ready, so select waits for another fiber's progress
+/// to wake it.
 @test
 fn select_waits_for_a_later_send() -> Result<Void, Error> {
     let a = fiber.channel<Int>(1);

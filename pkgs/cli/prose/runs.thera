@@ -1,23 +1,23 @@
 //! Finding the comment **runs** a prose pass may rewrite.
 //!
-//! A run is a maximal stack of own-line comments sharing a marker and an indent
-//! — the unit that becomes exactly one edit, so the edits are disjoint and
+//! A run is a maximal stack of own-line comments sharing a marker and an indent —
+//! the unit that becomes exactly one edit, so the edits are disjoint and
 //! `edit.apply_edits` (which silently corrupts on overlap) is safe.
 //!
 //! Two things here are easy to get wrong and expensive to get wrong.
 //!
-//! **Own-line means no token anywhere on the line, not no token starting on
-//! it.** A multi-line string's closing line carries a token that began several
-//! lines earlier, so a comment after it (`'''; // note`) looks own-line to a
-//! start-line index and is in fact trailing. Rewrapping it would move code.
+//! **Own-line means no token anywhere on the line, not no token starting on it.** A
+//! multi-line string's closing line carries a token that began several lines
+//! earlier, so a comment after it (`'''; // note`) looks own-line to a start-line
+//! index and is in fact trailing. Rewrapping it would move code.
 //!
-//! **Runs group by the exact marker text, not by [CommentKind].** `//` and
-//! `////` both classify `Line` (source.thera), and merging them would reflow a
-//! slash-run divider into a sentence.
+//! **Runs group by the exact marker text, not by [CommentKind].** `//` and `////`
+//! both classify `Line` (source.thera), and merging them would reflow a slash-run
+//! divider into a sentence.
 //!
-//! Structurally ineligible runs are dropped whole rather than partially: a run
-//! is a paragraph's worth of context, and rewriting half of one is worse than
-//! rewriting none.
+//! Structurally ineligible runs are dropped whole rather than partially: a run is a
+//! paragraph's worth of context, and rewriting half of one is worse than rewriting
+//! none.
 
 import std.char;
 
@@ -30,12 +30,12 @@ pub struct CommentRun {
     let marker: String;
     /// The run's leading whitespace, always spaces.
     let indent: String;
-    /// Code-point offsets of the region to replace: the first line's `//`
-    /// through the end of the last line's comment.
+    /// Code-point offsets of the region to replace: the first line's `//` through
+    /// the end of the last line's comment.
     let start: Int;
     let end: Int;
-    /// Content after the marker and one space, trailing whitespace trimmed. A
-    /// bare marker line is `''`.
+    /// Content after the marker and one space, trailing whitespace trimmed. A bare
+    /// marker line is `''`.
     let lines: List<String>;
 }
 
@@ -45,9 +45,9 @@ pub fn comment_runs(_ source: String, _ lex: LexResult) -> List<CommentRun> {
     let busy = occupied_lines(chars, lex.tokens);
 
     // Pass one: the own-line comments, with their marker/indent/content pulled
-    // apart. A comment that cannot be taken apart is simply absent from here, so
-    // it also breaks any run it sat in — which is what we want, since the run's
-    // lines would no longer be contiguous.
+    // apart. A comment that cannot be taken apart is simply absent from here, so it
+    // also breaks any run it sat in — which is what we want, since the run's lines
+    // would no longer be contiguous.
     let parts: List<CommentPart> = [];
     for c in lex.comments {
         if busy.contains(c.span.line) {
@@ -101,8 +101,8 @@ fn continues(_ a: CommentPart, _ b: CommentPart) -> Bool {
     return b.line == a.line + 1 && b.marker == a.marker && b.indent == a.indent;
 }
 
-// Split one comment into marker, indent and content, or `None` if it is not a
-// shape this pass rewrites.
+// Split one comment into marker, indent and content, or `None` if it is not a shape
+// this pass rewrites.
 fn split_comment(_ chars: List<Int>, _ c: Comment) -> Option<CommentPart> {
     let Some(indent) = space_indent(chars, c.span.offset) else {
         return Option.None; // a tab indent, or something before it on the line
@@ -147,8 +147,8 @@ fn marker_of(_ text: String) -> Option<String> {
     return Option.None;
 }
 
-// The width of the all-spaces indent ending at `offset`, or `None` if anything
-// else precedes the comment on its line.
+// The width of the all-spaces indent ending at `offset`, or `None` if anything else
+// precedes the comment on its line.
 fn space_indent(_ chars: List<Int>, _ offset: Int) -> Option<Int> {
     let mut i = offset;
     while i > 0 && chars[i - 1] == char.SPACE {
@@ -160,8 +160,8 @@ fn space_indent(_ chars: List<Int>, _ offset: Int) -> Option<Int> {
     return Option.Some(offset - i);
 }
 
-// Every 1-based line any token occupies, a multi-line string's interior
-// included. See the file header: this must be a range, not a start-line index.
+// Every 1-based line any token occupies, a multi-line string's interior included.
+// See the file header: this must be a range, not a start-line index.
 fn occupied_lines(_ chars: List<Int>, _ tokens: List<Token>) -> Set<Int> {
     let out: Set<Int> = Set.new();
     for t in tokens {

@@ -18,7 +18,8 @@ fn body(_ req: Request) -> String {
 // --- what a caller writes ---
 
 /// The minimal call: three arguments, no ceremony, and nothing optional reaches the
-/// wire. This is the line an agent writes most often, so it is the one that matters.
+/// wire. This is the line an agent writes most often, so it is the one that
+/// matters.
 @test
 fn a_minimal_request_names_three_arguments() -> Result<Void, Error> {
     let req = create(
@@ -65,8 +66,9 @@ fn a_full_request_carries_every_field() -> Result<Void, Error> {
 // --- absent means absent ---
 
 /// The property `omit_nulls` exists for: an optional field the caller didn't set is
-/// not `"temperature":null` on the wire, it is not there at all. Sending an explicit
-/// null would be a different request, and for several fields an invalid one.
+/// not `"temperature":null` on the wire, it is not there at all. Sending an
+/// explicit null would be a different request, and for several fields an invalid
+/// one.
 @test
 fn an_unset_optional_field_is_absent_not_null() -> Result<Void, Error> {
     let req = create(model: 'm', messages: [user('x')], max_tokens: 1);
@@ -90,9 +92,9 @@ fn setting_one_optional_field_leaves_the_rest_off() -> Result<Void, Error> {
     return testing.assert_eq(text.contains('top_p'), false);
 }
 
-/// `0` is a real value, not "unset" — the reason every optional field is an `Option`
-/// and not a sentinel. A request that pins `top_k` to zero has to be distinguishable
-/// from one that says nothing about it.
+/// `0` is a real value, not "unset" — the reason every optional field is an
+/// `Option` and not a sentinel. A request that pins `top_k` to zero has to be
+/// distinguishable from one that says nothing about it.
 @test
 fn a_zero_valued_optional_field_is_still_sent() -> Result<Void, Error> {
     let zeroed = create(model: 'm', messages: [user('x')], max_tokens: 1, top_k: Option.Some(0));

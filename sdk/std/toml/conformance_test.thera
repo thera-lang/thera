@@ -1,10 +1,10 @@
 //! The toml-test conformance suite, run against std.toml.
 //!
-//! Walks the vendored snapshot in third_party/toml-test (see its README):
-//! every valid case must parse and match its expected value, rendered in
-//! toml-test's tagged-JSON encoding and read back with std.json; every
-//! invalid case must be rejected. Paths are relative to the repo root, which
-//! is where bin/test.sh and bin/thera.sh run.
+//! Walks the vendored snapshot in third_party/toml-test (see its README): every
+//! valid case must parse and match its expected value, rendered in toml-test's
+//! tagged-JSON encoding and read back with std.json; every invalid case must be
+//! rejected. Paths are relative to the repo root, which is where bin/test.sh and
+//! bin/thera.sh run.
 
 import std.fs;
 import std.json;
@@ -41,8 +41,8 @@ fn test_conformance_invalid() -> Result<Void, Error> {
         if rel.starts_with('invalid/') && rel.ends_with('.toml') {
             checked = checked + 1;
             // An unreadable case (the encoding files carry invalid UTF-8) is
-            // rejected by the String type before it can reach parse — which
-            // is the rejection, for an API that takes a String.
+            // rejected by the String type before it can reach parse — which is the
+            // rejection, for an API that takes a String.
             let read = fs.read_text('${base}/${rel}');
             if read.is_ok() {
                 if parse(read.unwrap_or('')).is_ok() {
@@ -62,8 +62,8 @@ fn case_list() -> Result<List<String>, Error> {
     return Result.Ok(text.lines());
 }
 
-/// One valid case: parse the .toml, decode the sibling .json, compare.
-/// None on success, a description on failure.
+/// One valid case: parse the .toml, decode the sibling .json, compare. None on
+/// success, a description on failure.
 fn run_valid_case(_ rel: String) -> Option<String> {
     let read = fs.read_text('${base}/${rel}');
     if read.is_err() {
@@ -97,8 +97,8 @@ fn run_valid_case(_ rel: String) -> Option<String> {
 }
 
 /// Structural comparison between a parsed `Toml` and toml-test's tagged-JSON
-/// encoding: tables are plain objects, arrays plain arrays, and every scalar
-/// a `{"type": …, "value": …}` pair with the value carried as a string.
+/// encoding: tables are plain objects, arrays plain arrays, and every scalar a
+/// `{"type": …, "value": …}` pair with the value carried as a string.
 fn matches(_ ours: Toml, _ theirs: json.Json) -> Bool {
     let kind = ours.kind();
     if kind == 'table' {
@@ -212,9 +212,9 @@ fn float_value(_ s: String) -> Option<Double> {
     return s.to_double();
 }
 
-/// Normalize a date-time string for comparison: uppercase T/Z, the space
-/// delimiter to T, and the fractional part stripped of trailing zeros (an
-/// all-zero fraction drops entirely) — the spellings RFC 3339 treats as one.
+/// Normalize a date-time string for comparison: uppercase T/Z, the space delimiter
+/// to T, and the fractional part stripped of trailing zeros (an all-zero fraction
+/// drops entirely) — the spellings RFC 3339 treats as one.
 fn norm_datetime(_ s: String) -> String {
     let cps = s.chars();
     let mut out: List<Int> = [];

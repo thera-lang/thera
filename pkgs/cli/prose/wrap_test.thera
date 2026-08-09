@@ -1,16 +1,16 @@
 // Tests for atom scanning and greedy filling.
 //
-// The atom cases carry more weight than they look: the guard normalizes
-// whitespace before comparing prose, so it cannot see a code span whose interior
-// spacing was mangled. These are the only check on that.
+// The atom cases carry more weight than they look: the guard normalizes whitespace
+// before comparing prose, so it cannot see a code span whose interior spacing was
+// mangled. These are the only check on that.
 
 import std.testing;
 
 import 'wrap' as _;
 
 // The atoms of `text`, joined with `|` so a case reads as one string. `?` on the
-// `None` case is deliberate — a test that expected atoms and got none should
-// fail loudly.
+// `None` case is deliberate — a test that expected atoms and got none should fail
+// loudly.
 fn atoms(_ text: String) -> Result<String, Error> {
     let Some(xs) = atoms_of(text) else {
         throw error('unbalanced delimiter in: ${text}');
@@ -53,8 +53,8 @@ fn a_symbol_reference_is_one_atom() -> Result<Void, Error> {
 
 @test
 fn a_link_keeps_its_destination() -> Result<Void, Error> {
-    // Breaking between `]` and `(` would break the link outright; breaking inside
-    // a destination that holds a space would too.
+    // Breaking between `]` and `(` would break the link outright; breaking inside a
+    // destination that holds a space would too.
     return testing.assert_eq(
         actual: atoms('read [the docs](../a b.md) first')?,
         expected: 'read|[the docs](../a b.md)|first',
@@ -68,8 +68,8 @@ fn a_space_between_bracket_and_paren_is_not_a_link() -> Result<Void, Error> {
 
 @test
 fn an_unbalanced_delimiter_yields_none() -> Result<Void, Error> {
-    // The caller emits the block untouched rather than guessing where the span
-    // was meant to end.
+    // The caller emits the block untouched rather than guessing where the span was
+    // meant to end.
     testing.assert(atoms_of('an odd ` backtick').is_none())?;
     testing.assert(atoms_of('an open [ bracket').is_none())?;
     return Result.Ok(void);
@@ -77,8 +77,8 @@ fn an_unbalanced_delimiter_yields_none() -> Result<Void, Error> {
 
 @test
 fn atoms_are_measured_in_code_points() -> Result<Void, Error> {
-    // `⏎` is one atom of length 1, not its byte length — the corpus uses it
-    // inline to show a line break.
+    // `⏎` is one atom of length 1, not its byte length — the corpus uses it inline
+    // to show a line break.
     let Some(xs) = atoms_of('a ⏎ b') else {
         throw error('unexpected None');
     };
@@ -104,8 +104,8 @@ fn fills_greedily_to_the_margin() -> Result<Void, Error> {
 
 @test
 fn an_atom_wider_than_the_margin_gets_its_own_line() -> Result<Void, Error> {
-    // Unavoidable, and the same answer the code side gives a long string
-    // literal: the margin is a target, not a guarantee.
+    // Unavoidable, and the same answer the code side gives a long string literal:
+    // the margin is a target, not a guarantee.
     return testing.assert_eq(
         actual: filled('a `a-very-long-span-indeed` b', 10)?,
         expected: 'a/`a-very-long-span-indeed`/b',
@@ -134,8 +134,8 @@ fn never_breaks_before_an_ordered_item_atom() -> Result<Void, Error> {
 @test
 fn never_leaves_a_lone_bold_label_on_a_line() -> Result<Void, Error> {
     // A line holding only `**Note:**` would re-read as a label paragraph, so it
-    // keeps the following atom even though that overflows. Only reachable when
-    // the label leads the block — nothing ever breaks *before* it.
+    // keeps the following atom even though that overflows. Only reachable when the
+    // label leads the block — nothing ever breaks *before* it.
     return testing.assert_eq(
         actual: filled('**Note:** wideish-word-here and more', 12)?,
         expected: '**Note:** wideish-word-here/and more',
@@ -144,9 +144,37 @@ fn never_leaves_a_lone_bold_label_on_a_line() -> Result<Void, Error> {
 
 @test
 fn wrapping_is_idempotent() -> Result<Void, Error> {
-    // Filling the result again must not move anything — the property the whole
-    // pass rests on.
+    // Filling the result again must not move anything — the property the whole pass
+    // rests on.
     let once = filled('names plus these - built-ins here and more words', 16)?;
     let again = filled(once.replace('/', ' '), 16)?;
     return testing.assert_eq(actual: again, expected: once);
+}
+
+@test
+fn never_starts_a_line_with_a_commonmark_construct() -> Result<Void, Error> {
+    // Segmentation reads only Thera's documented subset, so `*`, `+`, `#`, `>` and
+    // `|` are prose to *this* pass — but a doc renderer is likely to be a full
+    // CommonMark one, so the wrapper still refuses to create such a line.
+    testing.assert_eq(
+        actual: filled('names and these + built-ins here', 16)?,
+        expected: 'names and these +/built-ins here',
+    )?;
+    testing.assert_eq(
+        actual: filled('the value is # hash here', 12)?,
+        expected: 'the value is #/hash here',
+    )?;
+    return testing.assert_eq(
+        actual: filled('a table row | cell two', 11)?,
+        expected: 'a table row |/cell two',
+    );
+}
+
+@test
+fn never_starts_a_line_with_a_rule() -> Result<Void, Error> {
+    // `---` under a paragraph is a setext heading; alone it is a thematic break.
+    return testing.assert_eq(
+        actual: filled('some words --- more words', 10)?,
+        expected: 'some words ---/more words',
+    );
 }

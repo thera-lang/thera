@@ -1,18 +1,18 @@
 // LSP diagnostics: map the session's diagnostics for a document to the LSP
-// `Diagnostic[]` JSON shape. The analysis itself is the session's `check`
-// (lex -> parse -> load imports -> check, run by `Analysis`); this is just the
-// per-file filter and the span -> `Range` / message -> JSON translation.
+// `Diagnostic[]` JSON shape. The analysis itself is the session's `check` (lex ->
+// parse -> load imports -> check, run by `Analysis`); this is just the per-file
+// filter and the span -> `Range` / message -> JSON translation.
 
 import std.json as _;
 
 import '../diagnostic';  // Diagnostic, Severity
 import 'positions';       // span_to_range
 
-// The LSP `Diagnostic[]` for the document at (canonical) `canon`, as a JSON
-// array. The session reports the whole closure (incl. imported-file errors);
-// the LSP publishes per-URI, so keep only this document's own diagnostics — an
-// imported file's surface when *it* is the open document. Attribution
-// (`d.file`) is canonical, so `canon` must be too.
+// The LSP `Diagnostic[]` for the document at (canonical) `canon`, as a JSON array.
+// The session reports the whole closure (incl. imported-file errors); the LSP
+// publishes per-URI, so keep only this document's own diagnostics — an imported
+// file's surface when *it* is the open document. Attribution (`d.file`) is
+// canonical, so `canon` must be too.
 pub fn render_diagnostics(_ diags: List<diagnostic.Diagnostic>, _ canon: String) -> Json {
     let items: List<Json> = [];
     for d in diags {
@@ -24,12 +24,12 @@ pub fn render_diagnostics(_ diags: List<diagnostic.Diagnostic>, _ canon: String)
 }
 
 // Fold a closure check's diagnostics into `into` (canonical file -> LSP JSON
-// items), rendering each and deduping by identity via `seen`. A diagnostic with
-// no `file` is the checked file's own, so `primary` (canonical) attributes it.
-// Merging into shared accumulators lets a workspace pass combine many files'
-// checks — where one imported file's error surfaces from several importers — into
-// one report per owning file. Companion to `render_diagnostics` (the single-file,
-// per-URI path); this is the project-wide, group-by-owner path.
+// items), rendering each and deduping by identity via `seen`. A diagnostic with no
+// `file` is the checked file's own, so `primary` (canonical) attributes it. Merging
+// into shared accumulators lets a workspace pass combine many files' checks — where
+// one imported file's error surfaces from several importers — into one report per
+// owning file. Companion to `render_diagnostics` (the single-file, per-URI path);
+// this is the project-wide, group-by-owner path.
 pub fn group_by_file(
     _ diags: List<diagnostic.Diagnostic>,
     _ primary: String,
@@ -72,8 +72,8 @@ fn diagnostic_to_json(_ d: diagnostic.Diagnostic) -> Json {
     ]);
 }
 
-// Thera `Severity` -> the LSP `DiagnosticSeverity` code (1 Error, 2 Warning,
-// 3 Information). Every compile-phase diagnostic is an Error today.
+// Thera `Severity` -> the LSP `DiagnosticSeverity` code (1 Error, 2 Warning, 3
+// Information). Every compile-phase diagnostic is an Error today.
 fn lsp_severity(_ s: diagnostic.Severity) -> Int {
     return match s {
         Error => 1,

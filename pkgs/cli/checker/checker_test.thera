@@ -22,8 +22,8 @@ fn first_message(_ errs: List<Diagnostic>) -> String {
     return errs[0].message;
 }
 
-// Reserved-name diagnostics from a full closure check (`check_files`, the path
-// that runs the reserved-name check — `check` alone does not).
+// Reserved-name diagnostics from a full closure check (`check_files`, the path that
+// runs the reserved-name check — `check` alone does not).
 fn reserved_errors(_ primary: Program, _ imports: List<Program>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in check_files(primary, imports, [:], [:]).errors {
@@ -261,8 +261,8 @@ fn test_conformance_missing_method() -> Result<Void, Error> {
 
 @test
 fn test_default_method_optional() -> Result<Void, Error> {
-    // A defaulted interface method (a body in the interface) need not be
-    // provided by an impl — the interface supplies it.
+    // A defaulted interface method (a body in the interface) need not be provided
+    // by an impl — the interface supplies it.
     let errs = errors_of('interface Show { fn id(self) -> Int; '
         + 'fn show(self) -> Int { return self.id(); } }\n'
         + 'struct P { let v: Int; }\n'
@@ -304,11 +304,11 @@ fn test_generic_bound_violation() -> Result<Void, Error> {
 
 @test
 fn test_primitive_bound_rejects_user_interface() -> Result<Void, Error> {
-    // A user interface implemented *on a primitive* cannot be reached through
-    // a bound: primitives carry no dispatch vtable rows, so the bounded call
-    // would trap at the `call.virtual`. The diagnostic names the limitation
-    // rather than a baffling "does not implement" (the impl is right there —
-    // and stays usable for static calls).
+    // A user interface implemented *on a primitive* cannot be reached through a
+    // bound: primitives carry no dispatch vtable rows, so the bounded call would
+    // trap at the `call.virtual`. The diagnostic names the limitation rather than a
+    // baffling "does not implement" (the impl is right there — and stays usable for
+    // static calls).
     let errs = errors_of('interface Doubler { fn doubled(self) -> Int; }\n'
         + 'impl Doubler for Int { pub fn doubled(self) -> Int { return self * 2; } }\n'
         + 'fn need<T: Doubler>(_ x: T) -> Int { return x.doubled(); }\n'
@@ -327,8 +327,8 @@ fn test_primitive_bound_rejects_user_interface() -> Result<Void, Error> {
 @test
 fn test_primitive_bounds_allow_the_core_interfaces() -> Result<Void, Error> {
     // The four dispatchable core interfaces stay satisfiable by primitives —
-    // `Eq`/`Debug` intrinsically, `Display`/`Ord` via the (floor-seeded)
-    // declared core impls.
+    // `Eq`/`Debug` intrinsically, `Display`/`Ord` via the (floor-seeded) declared
+    // core impls.
     let errs = errors_of('fn need_eq<T: Eq>(_ x: T) { }\n'
         + 'fn need_debug<T: Debug>(_ x: T) { }\n'
         + 'fn need_display<T: Display>(_ x: T) { }\n'
@@ -361,9 +361,9 @@ fn test_primitive_bound_rejected_on_generic_type_too() -> Result<Void, Error> {
 
 @test
 fn test_rich_generic_program_is_clean() -> Result<Void, Error> {
-    // A false-positive guard: generic enum + struct, an impl method, and a
-    // generic function whose lambda argument is typed bidirectionally from the
-    // (recovered) type arguments — all of which must check cleanly.
+    // A false-positive guard: generic enum + struct, an impl method, and a generic
+    // function whose lambda argument is typed bidirectionally from the (recovered)
+    // type arguments — all of which must check cleanly.
     let errs = errors_of('enum Opt<T> { Some(T), Nope }\n'
         + 'struct Box<T> { let value: T; }\n'
         + 'impl Box<T> { fn get(self) -> T { return self.value; } }\n'
@@ -423,8 +423,8 @@ fn test_method_wrong_arity() -> Result<Void, Error> {
 
 @test
 fn test_generic_method_arg_substitutes_receiver() -> Result<Void, Error> {
-    // `put`'s parameter is the receiver's `T`; on a `Box<Int>` a `String`
-    // argument is a mismatch (receiver generics are made concrete first).
+    // `put`'s parameter is the receiver's `T`; on a `Box<Int>` a `String` argument
+    // is a mismatch (receiver generics are made concrete first).
     let errs = errors_of('struct Box<T> { let value: T; }\n'
         + 'impl Box<T> { fn put(self, _ v: T) -> T { return v; } }\n'
         + 'fn f() -> Int { let b = Box { value: 1 }; return b.put(\'x\'); }');
@@ -473,9 +473,9 @@ fn test_match_arms_consistent_is_clean() -> Result<Void, Error> {
 
 @test
 fn test_match_later_arm_violates_expected_type() -> Result<Void, Error> {
-    // Under an annotated context (the function's return type), a wrong *later*
-    // arm is caught even though the first arm matches — the old whole-match
-    // inference (first arm wins) missed this.
+    // Under an annotated context (the function's return type), a wrong *later* arm
+    // is caught even though the first arm matches — the old whole-match inference
+    // (first arm wins) missed this.
     let errs = errors_of('fn f(_ n: Int) -> String {\n'
         + '  return match n { 0 => \'zero\', _ => 1 };\n'
         + '}');
@@ -489,8 +489,8 @@ fn test_match_later_arm_violates_expected_type() -> Result<Void, Error> {
 
 @test
 fn test_match_void_arm_in_value_match_is_flagged() -> Result<Void, Error> {
-    // A non-diverging `Void` arm in a value-producing match flows its unit
-    // value out and traps only at the use site — a check error, both spellings.
+    // A non-diverging `Void` arm in a value-producing match flows its unit value
+    // out and traps only at the use site — a check error, both spellings.
     let errs = errors_of('fn f(_ n: Int) -> Int {\n'
         + '  let _x = match n { 0 => 1, _ => {} };\n'
         + '  return n;\n'
@@ -510,8 +510,8 @@ fn test_match_void_arm_in_value_match_is_flagged() -> Result<Void, Error> {
 
 @test
 fn test_match_all_void_arms_is_clean() -> Result<Void, Error> {
-    // A side-effecting match whose arms all produce nothing stays clean — the
-    // match produces no value, so there is nothing a `Void` arm can corrupt.
+    // A side-effecting match whose arms all produce nothing stays clean — the match
+    // produces no value, so there is nothing a `Void` arm can corrupt.
     let errs = errors_of('fn g() -> Void {}\n'
         + 'fn f(_ n: Int) -> Int {\n'
         + '  match n { 0 => g(), _ => void }\n'
@@ -523,8 +523,8 @@ fn test_match_all_void_arms_is_clean() -> Result<Void, Error> {
 
 @test
 fn test_match_diverging_block_arm_is_exempt() -> Result<Void, Error> {
-    // A block-bodied diverging arm infers `Unit` (a tail-less block), but it
-    // exits the function — the syntactic always-exits view keeps it exempt.
+    // A block-bodied diverging arm infers `Unit` (a tail-less block), but it exits
+    // the function — the syntactic always-exits view keeps it exempt.
     let errs = errors_of('fn f(_ n: Int) -> Int {\n'
         + '  let x = match n { 0 => 1, _ => { return 0; } };\n'
         + '  return x;\n'
@@ -535,9 +535,9 @@ fn test_match_diverging_block_arm_is_exempt() -> Result<Void, Error> {
 
 @test
 fn test_if_let_discarded_value_is_clean() -> Result<Void, Error> {
-    // A statement `if let` whose then-branch tail is a discarded value desugars
-    // to a match with a fabricated Unit wildcard arm — never flagged (the
-    // diagnostic is Source-origin only).
+    // A statement `if let` whose then-branch tail is a discarded value desugars to
+    // a match with a fabricated Unit wildcard arm — never flagged (the diagnostic
+    // is Source-origin only).
     let errs = errors_of('enum E { A(Int), B }\n'
         + 'fn f(_ e: E) -> Int {\n'
         + '  if let A(v) = e { v }\n'
@@ -549,8 +549,8 @@ fn test_if_let_discarded_value_is_clean() -> Result<Void, Error> {
 
 @test
 fn test_match_return_arm_is_exempt() -> Result<Void, Error> {
-    // An arm that is a bare `return` is `Unknown`-typed and exempt from
-    // unification (it diverges rather than producing the match's value).
+    // An arm that is a bare `return` is `Unknown`-typed and exempt from unification
+    // (it diverges rather than producing the match's value).
     let errs = errors_of('fn f(_ n: Int) -> Int {\n'
         + '  let x = match n { 0 => 1, _ => return 0 };\n'
         + '  return x;\n'
@@ -592,7 +592,8 @@ fn test_generic_call_pinned_by_type_args_is_clean() -> Result<Void, Error> {
 
 @test
 fn test_generic_call_pinned_by_return_context_is_clean() -> Result<Void, Error> {
-    // The enclosing function's return type flows in as the expected type and pins T.
+    // The enclosing function's return type flows in as the expected type and pins
+    // T.
     let errs = errors_of('fn mk<T>() -> List<T> { return []; }\n'
         + 'fn g() -> List<Int> { return mk(); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
@@ -618,12 +619,11 @@ fn test_generic_call_pinned_by_surrounding_argument_is_clean() -> Result<Void, E
     return Result.Ok(void);
 }
 
-// ---- static-method call checking ----
-// (Namespace-function calls share the same `check_call_args` /
-// `check_inferable_type_args` path. They're exercised end to end by the rest of
-// the suite — the whole front-end is namespace calls — but need an import + a
-// namespace map to set up hermetically, so the focused unit tests use static
-// methods, which `errors_of` builds directly.)
+// ---- static-method call checking ---- (Namespace-function calls share the same
+// `check_call_args` / `check_inferable_type_args` path. They're exercised end to
+// end by the rest of the suite — the whole front-end is namespace calls — but need
+// an import + a namespace map to set up hermetically, so the focused unit tests use
+// static methods, which `errors_of` builds directly.)
 
 @test
 fn test_static_method_wrong_arity() -> Result<Void, Error> {
@@ -637,8 +637,8 @@ fn test_static_method_wrong_arity() -> Result<Void, Error> {
 
 @test
 fn test_static_method_generic_unpinnable_is_diagnosed() -> Result<Void, Error> {
-    // `T` is the owner's parameter and shows up only in the static method's
-    // return — unannotated, it can't be inferred.
+    // `T` is the owner's parameter and shows up only in the static method's return
+    // — unannotated, it can't be inferred.
     let errs = errors_of('struct Box<T> { let value: T; }\n'
         + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
         + 'fn f() { let _b = Box.make(); }');
@@ -719,10 +719,10 @@ fn test_pub_function_shared_across_files_is_allowed() -> Result<Void, Error> {
 
 @test
 fn test_pathless_programs_do_not_alias() -> Result<Void, Error> {
-    // Two in-memory (path-less) programs used to share one `<anon>` identity
-    // (LD8), merging their name spaces — a same-named private helper in each
-    // read as a same-file duplicate. Distinct stamped identities keep them the
-    // ordinary cross-file case (same-file-first, no collision).
+    // Two in-memory (path-less) programs used to share one `<anon>` identity (LD8),
+    // merging their name spaces — a same-named private helper in each read as a
+    // same-file duplicate. Distinct stamped identities keep them the ordinary
+    // cross-file case (same-file-first, no collision).
     let dep = testkit.parse('fn helper() -> Int { return 1; }');
     let main = testkit.parse('fn helper() -> Int { return 2; }\n'
         + 'fn run() -> Int { return helper(); }');
@@ -791,8 +791,8 @@ fn records_of(_ src: String) -> List<TypeRecord> {
     return check(testkit.parse(src), [], [:], [:]).records;
 }
 
-// The rendered committed type of the first occurrence of `text` in `src`.
-// Scans the whole record; a later entry supersedes (the refinement override).
+// The rendered committed type of the first occurrence of `text` in `src`. Scans the
+// whole record; a later entry supersedes (the refinement override).
 fn record_for(_ rec: List<TypeRecord>, _ src: String, _ text: String) -> String {
     return match src.find(text) {
         Some(off) => {
@@ -821,8 +821,8 @@ fn test_record_covers_expressions_and_let_names() -> Result<Void, Error> {
 
 @test
 fn test_record_let_value_holds_the_refined_type() -> Result<Void, Error> {
-    // Forward-flow pins `xs` to List<Int>; the refined type supersedes the
-    // value's pre-refinement `List<?>` record.
+    // Forward-flow pins `xs` to List<Int>; the refined type supersedes the value's
+    // pre-refinement `List<?>` record.
     let src = 'fn f() -> Void { let xs = []; xs.push(1); }';
     let rec = records_of(src);
     testing.assert_eq(actual: record_for(rec, src, '[]'), expected: 'List<Int>')?;
@@ -832,9 +832,8 @@ fn test_record_let_value_holds_the_refined_type() -> Result<Void, Error> {
 
 @test
 fn test_record_compound_assign_is_first_write_wins() -> Result<Void, Error> {
-    // The compound-assign transient (`total + 2` synthesized over the
-    // `total += 2` span) records once; the re-synthesis in later probes hits
-    // the same key.
+    // The compound-assign transient (`total + 2` synthesized over the `total += 2`
+    // span) records once; the re-synthesis in later probes hits the same key.
     let src = 'fn f() -> Int { let mut total = 1; total += 2; return total; }';
     let rec = records_of(src);
     testing.assert_eq(actual: record_for(rec, src, 'total += 2'), expected: 'Int')?;
@@ -844,8 +843,8 @@ fn test_record_compound_assign_is_first_write_wins() -> Result<Void, Error> {
 
 @test
 fn test_record_skips_synthesized_desugar_nodes() -> Result<Void, Error> {
-    // The if-let desugar fabricates zero-length-span nodes (PA6); none of them
-    // may be recorded (no real token has length 0).
+    // The if-let desugar fabricates zero-length-span nodes (PA6); none of them may
+    // be recorded (no real token has length 0).
     let src = 'fn f(_ o: Option<Int>) -> Int {\n'
         + '    if let Some(x) = o { return x; }\n'
         + '    return 0;\n'
@@ -929,8 +928,8 @@ fn test_bare_return_in_value_fn() -> Result<Void, Error> {
 
 @test
 fn test_all_paths_exit_is_clean() -> Result<Void, Error> {
-    // Every path returns or throws; `while true` without a break never
-    // completes normally (and with a break, the fall-through is back).
+    // Every path returns or throws; `while true` without a break never completes
+    // normally (and with a break, the fall-through is back).
     let errs = errors_of('fn f(_ b: Bool) -> Int { if b { return 1; } else { return 2; } }\n'
         + 'fn g() -> Int { while true { return 1; } }\n'
         + 'fn t(_ b: Bool) -> Int { if b { throw 0 - 1; } else { return 2; } }');
@@ -992,8 +991,8 @@ fn test_annotated_globals_are_clean() -> Result<Void, Error> {
 
 @test
 fn test_reserved_name_exempt_for_its_core_owner() -> Result<Void, Error> {
-    // A reserved type declared by the file that owns the core type is allowed —
-    // the SDK's own `sdk/std/core` sources. Exemption is by owner *identity*
+    // A reserved type declared by the file that owns the core type is allowed — the
+    // SDK's own `sdk/std/core` sources. Exemption is by owner *identity*
     // (`core_owner`), not a path heuristic, so it holds on every analysis path
     // (check/LSP/test) regardless of how the file path was spelled.
     let core = program_at('pub enum Result { Ok, Err }', '/core/result.thera');
@@ -1003,8 +1002,8 @@ fn test_reserved_name_exempt_for_its_core_owner() -> Result<Void, Error> {
 
 @test
 fn test_reserved_name_flagged_for_non_owner() -> Result<Void, Error> {
-    // A different file declaring the same reserved type is flagged: the core
-    // owner arrives as an import, the redeclaration as the primary.
+    // A different file declaring the same reserved type is flagged: the core owner
+    // arrives as an import, the redeclaration as the primary.
     let core = program_at('pub enum Result { Ok, Err }', '/core/result.thera');
     let user = program_at('struct Result { let x: Int; }', '/app/main.thera');
     let errs = reserved_errors(user, [core]);
@@ -1078,9 +1077,9 @@ fn test_bounded_type_param_good_method_clean() -> Result<Void, Error> {
 
 @test
 fn test_unbounded_type_param_method_is_a_definitive_miss() -> Result<Void, Error> {
-    // An unbounded `T` has no methods, so a (non-universal) method call on it is
-    // a definitive miss — `check` catches it, matching codegen (which used to be
-    // the only phase to reject it).
+    // An unbounded `T` has no methods, so a (non-universal) method call on it is a
+    // definitive miss — `check` catches it, matching codegen (which used to be the
+    // only phase to reject it).
     let errs = errors_of('fn f<T>(_ x: T) -> Int { return x.anything(); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: 'no method "anything" on T')?;
@@ -1089,10 +1088,10 @@ fn test_unbounded_type_param_method_is_a_definitive_miss() -> Result<Void, Error
 
 // ---- qualified bounds and supers (`<S: ns.I>`, `interface A : ns.B`) ----
 
-// Check `main_src` (at 'main.thera') against `helper_src` (at 'helper.thera'),
-// with 'main.thera' binding the `helper` namespace exposing `names` — the
-// loader-side surface/origin maps built by hand, the hermetic analogue of a
-// real `import 'helper';`.
+// Check `main_src` (at 'main.thera') against `helper_src` (at 'helper.thera'), with
+// 'main.thera' binding the `helper` namespace exposing `names` — the loader-side
+// surface/origin maps built by hand, the hermetic analogue of a real
+// `import 'helper';`.
 fn cross_lib_errors(
     _ main_src: String,
     _ helper_src: String,
@@ -1117,9 +1116,9 @@ const READER_LIB: String = 'pub interface Reader { fn read(self) -> Int; }';
 
 @test
 fn test_qualified_bound_cross_library() -> Result<Void, Error> {
-    // A generic bounded by another library's interface: the bound resolves
-    // through the namespace, its methods are callable on the parameter, and a
-    // conforming argument satisfies it at the call site.
+    // A generic bounded by another library's interface: the bound resolves through
+    // the namespace, its methods are callable on the parameter, and a conforming
+    // argument satisfies it at the call site.
     let errs = cross_lib_errors(
         'struct R { let v: Int; }\n'
         + 'impl helper.Reader for R { pub fn read(self) -> Int { return self.v; } }\n'
@@ -1183,8 +1182,8 @@ fn test_qualified_super_interface_cross_library() -> Result<Void, Error> {
 
 @test
 fn test_universal_method_on_type_param_is_clean() -> Result<Void, Error> {
-    // `to_string`/`debug` are universal — callable on any parameter, bounded or
-    // not (total rendering resolves impl-or-fallback at runtime).
+    // `to_string`/`debug` are universal — callable on any parameter, bounded or not
+    // (total rendering resolves impl-or-fallback at runtime).
     testing.assert_eq(
         actual: errors_of('fn f<T>(_ x: T) -> String { return x.debug(); }').len(),
         expected: 0,
@@ -1321,9 +1320,9 @@ fn test_interface_default_body_is_checked() -> Result<Void, Error> {
 
 @test
 fn test_param_default_is_checked_at_the_declaration() -> Result<Void, Error> {
-    // A default value used to be checked by nobody: `check` skipped it and
-    // codegen resolved it in the *caller's* scope. It is now checked once, where
-    // it is written — so an unresolvable name is an error even with no call.
+    // A default value used to be checked by nobody: `check` skipped it and codegen
+    // resolved it in the *caller's* scope. It is now checked once, where it is
+    // written — so an unresolvable name is an error even with no call.
     let errs = errors_of('fn f(w: Int = missing) -> Int { return w; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: 'undefined name: missing')?;
@@ -1442,8 +1441,8 @@ fn test_unused_result_is_an_error() -> Result<Void, Error> {
 
 @test
 fn test_unused_option_is_legal() -> Result<Void, Error> {
-    // Deliberately Result-only: pop/remove-style mutators return the removed
-    // value as a convenience, and dropping it is idiomatic.
+    // Deliberately Result-only: pop/remove-style mutators return the removed value
+    // as a convenience, and dropping it is idiomatic.
     let errs = errors_of('fn g() -> Option<Int> { return Option.None; }\n' + 'fn f() { g(); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
@@ -1491,8 +1490,8 @@ fn test_same_block_rebinding_is_an_error() -> Result<Void, Error> {
 
 @test
 fn test_inner_scope_shadowing_is_legal() -> Result<Void, Error> {
-    // A nested block/arm/loop is its own scope; a param may be shadowed by a
-    // body `let`; `_` binds nothing so repeating it never collides.
+    // A nested block/arm/loop is its own scope; a param may be shadowed by a body
+    // `let`; `_` binds nothing so repeating it never collides.
     let errs = errors_of('fn f(_ x: Int) -> Int {\n'
         + '    let x = x + 1;\n'
         + '    let y = 1;\n'
@@ -1507,8 +1506,8 @@ fn test_inner_scope_shadowing_is_legal() -> Result<Void, Error> {
 
 // ---- warnings: unused-import + `// ignore:` suppression ----
 
-// The error-severity count of a mixed list (mirrors diagnostic.error_count;
-// local so the test file needs no extra import surface).
+// The error-severity count of a mixed list (mirrors diagnostic.error_count; local
+// so the test file needs no extra import surface).
 fn diag_error_count(_ errs: List<Diagnostic>) -> Int {
     let mut n = 0;
     for e in errs {
@@ -1559,8 +1558,8 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
             'import \'helper\' as h;\nfn f() -> Int { return h.go(); }')).len(),
         expected: 0,
     )?;
-    // A qualified generic bound and a qualified super-interface each count as
-    // a use of the namespace.
+    // A qualified generic bound and a qualified super-interface each count as a use
+    // of the namespace.
     testing.assert_eq(
         actual: warning_messages(errors_of(
             'import \'helper\';\nfn f<S: helper.Thing>(_ x: S) -> Int { return 1; }')).len(),
@@ -1571,8 +1570,8 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
             'import \'helper\';\ninterface I : helper.Thing { fn go(self) -> Int; }')).len(),
         expected: 0,
     )?;
-    // `pub import` (a re-export is itself the use) is exempt; an `as _` import
-    // with no recorded surface (this harness registers none) is skipped.
+    // `pub import` (a re-export is itself the use) is exempt; an `as _` import with
+    // no recorded surface (this harness registers none) is skipped.
     testing.assert_eq(
         actual: warning_messages(errors_of('pub import \'helper\';')).len(),
         expected: 0,
@@ -1584,9 +1583,9 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A `file_namespaces` table registering an anonymous primary's `helper`
-// import with the given public surface — the loader-side data the `as _`
-// attribution reads, built by hand for the hermetic harness.
+// A `file_namespaces` table registering an anonymous primary's `helper` import with
+// the given public surface — the loader-side data the `as _` attribution reads,
+// built by hand for the hermetic harness.
 fn helper_surface(_ names: List<String>) -> Map<String, Map<String, LibraryNamespace>> {
     let set: Set<String> = Set.new();
     for n in names {
@@ -1642,18 +1641,18 @@ fn test_as_underscore_used_import_is_clean() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// An import whose file declares an `impl` block for a *foreign* type is not judgeable by
-/// name references, so the rule abstains.
+/// An import whose file declares an `impl` block for a *foreign* type is not
+/// judgeable by name references, so the rule abstains.
 ///
-/// The regression: `client.pulls()` resolves through an `impl Client` block living in
-/// `pulls.thera`, whose only export is `Pulls`. A caller names neither `pulls` nor
-/// `Pulls`, so the scan called the import unused — and removing it made the call
-/// unresolvable. A false positive on a load-bearing import, which the rule's contract
-/// says cannot happen.
+/// The regression: `client.pulls()` resolves through an `impl Client` block living
+/// in `pulls.thera`, whose only export is `Pulls`. A caller names neither `pulls`
+/// nor `Pulls`, so the scan called the import unused — and removing it made the
+/// call unresolvable. A false positive on a load-bearing import, which the rule's
+/// contract says cannot happen.
 @test
 fn test_import_that_extends_a_foreign_type_is_not_reported() -> Result<Void, Error> {
-    // The three-file shape this comes from: `owner` declares the type, `helper` extends
-    // it, and the caller imports both but names only the type.
+    // The three-file shape this comes from: `owner` declares the type, `helper`
+    // extends it, and the caller imports both but names only the type.
     let owner = testkit.parse_at('pub struct Client { let v: Int; }', 'lib/owner.thera');
     let helper = testkit.parse_at(
         'import \'owner\' as _;\n'
@@ -1686,8 +1685,8 @@ fn test_import_that_extends_a_foreign_type_is_not_reported() -> Result<Void, Err
     return testing.assert_eq(actual: warning_messages(result.errors), expected: []);
 }
 
-/// The abstention is narrow: an import that only exports names, with no foreign `impl`,
-/// is still reported when none of those names is referenced.
+/// The abstention is narrow: an import that only exports names, with no foreign
+/// `impl`, is still reported when none of those names is referenced.
 @test
 fn test_import_with_only_names_is_still_reported() -> Result<Void, Error> {
     let primary = testkit.parse_at(
@@ -1708,8 +1707,8 @@ fn test_import_with_only_names_is_still_reported() -> Result<Void, Error> {
 }
 
 /// A one-name import surface attributed to `file` — the loader-side data the `as _`
-/// attribution reads, with `origin` populated (unlike `helper_surface`, which predates
-/// the foreign-`impl` rule needing it).
+/// attribution reads, with `origin` populated (unlike `helper_surface`, which
+/// predates the foreign-`impl` rule needing it).
 fn surface_of(_ name: String, _ file: String) -> LibraryNamespace {
     let names: Set<String> = Set.new();
     names.add(name);
@@ -1720,8 +1719,8 @@ fn surface_of(_ name: String, _ file: String) -> LibraryNamespace {
 
 @test
 fn test_unreachable_code_warns() -> Result<Void, Error> {
-    // Two dead statements after the `return`, but one warning per block —
-    // on the first.
+    // Two dead statements after the `return`, but one warning per block — on the
+    // first.
     let errs = errors_of('fn f() -> Int {\n  return 1;\n  let x = 2;\n  return x;\n}');
     testing.assert_eq(
         actual: warning_messages(errs),
@@ -1809,9 +1808,9 @@ fn test_unused_variable_warns() -> Result<Void, Error> {
         expected: ['unused variable: `x` is never referenced'],
     )?;
     testing.assert_eq(actual: diag_error_count(errs), expected: 0)?;
-    // An unused inner shadow is flagged even when the outer binding is used —
-    // the pass is per block, and a use before the inner `let` can only refer
-    // to the outer binding.
+    // An unused inner shadow is flagged even when the outer binding is used — the
+    // pass is per block, and a use before the inner `let` can only refer to the
+    // outer binding.
     testing.assert_eq(
         actual: warning_messages(
             errors_of(

@@ -1,8 +1,9 @@
 // The `issues` resource — one operation, and the second half of the untagged-union
 // finding.
 //
-// `issue.labels` is an untagged `oneOf` on the way *in* as well as on the way out, and
-// so are `title` and `milestone` on this request body. The asymmetry is the point:
+// `issue.labels` is an untagged `oneOf` on the way *in* as well as on the way out,
+// and so are `title` and `milestone` on this request body. The asymmetry is the
+// point:
 //
 //   - **On the response side a union must be modeled.** You receive whatever the server
 //     sends, so `IssueLabel` has both branches and dispatches on `Json.kind()`.
@@ -11,12 +12,12 @@
 //     `title` is `string | integer` because GitHub will accept a number as a title;
 //     taking `String` costs nothing real and saves every call site an enum.
 //
-// A generator does not know that. Faithful output makes `title` a two-variant union and
-// every caller wrap a string in a constructor to pass it — for a parameter that is a
-// string in every request anyone has ever sent. So request-side unions want a manifest
-// rule ("pick this branch"), and it is the same manifest entry that would collapse
-// `nullable-simple-user` into `Option<User>`: a per-field override of what the schema
-// literally says.
+// A generator does not know that. Faithful output makes `title` a two-variant union
+// and every caller wrap a string in a constructor to pass it — for a parameter that
+// is a string in every request anyone has ever sent. So request-side unions want a
+// manifest rule ("pick this branch"), and it is the same manifest entry that would
+// collapse `nullable-simple-user` into `Option<User>`: a per-field override of what
+// the schema literally says.
 
 import std.json;
 
@@ -39,18 +40,19 @@ impl Client {
 impl Issues {
     /// `POST /repos/{owner}/{repo}/issues` — open an issue.
     ///
-    /// `labels` and `assignees` are silently dropped by GitHub unless the credential has
-    /// push access — documented in the spec's description text, invisible to its schema,
-    /// and a thing no generated signature can warn about.
+    /// `labels` and `assignees` are silently dropped by GitHub unless the
+    /// credential has push access — documented in the spec's description text,
+    /// invisible to its schema, and a thing no generated signature can warn about.
     ///
-    /// **`milestone` shows where `Option` is lossy.** The field is nullable, and on the
-    /// *update* endpoint sending `null` explicitly is how you clear a milestone, while
-    /// omitting the key leaves it alone. `Option<Int>` cannot say both: `None` means
-    /// omitted, because that is what `omit_nulls` does with it. Reading a nullable field
-    /// is unambiguous; writing one has three states — set, clear, leave — and only two
-    /// fit in an `Option`. Nothing bites here (there is nothing to clear on a create),
-    /// but a generator emitting update endpoints needs a third spelling for it, and
-    /// `Option<Option<T>>` is not a serious answer.
+    /// **`milestone` shows where `Option` is lossy.** The field is nullable, and on
+    /// the *update* endpoint sending `null` explicitly is how you clear a
+    /// milestone, while omitting the key leaves it alone. `Option<Int>` cannot say
+    /// both: `None` means omitted, because that is what `omit_nulls` does with it.
+    /// Reading a nullable field is unambiguous; writing one has three states — set,
+    /// clear, leave — and only two fit in an `Option`. Nothing bites here (there is
+    /// nothing to clear on a create), but a generator emitting update endpoints
+    /// needs a third spelling for it, and `Option<Option<T>>` is not a serious
+    /// answer.
     pub fn create(
         self,
         owner: String,
@@ -74,9 +76,10 @@ impl Issues {
     }
 }
 
-/// A `List<String>` as a JSON array — the encoder `json.opt` needs for a field whose
-/// payload is not a single leaf. `pkgs/anthropic` has the identical function, which is
-/// two occurrences and therefore a shape `std.json` should probably carry itself.
+/// A `List<String>` as a JSON array — the encoder `json.opt` needs for a field
+/// whose payload is not a single leaf. `pkgs/anthropic` has the identical function,
+/// which is two occurrences and therefore a shape `std.json` should probably carry
+/// itself.
 fn strings(_ values: List<String>) -> json.Json {
     return json.arr(values.map(json.str));
 }

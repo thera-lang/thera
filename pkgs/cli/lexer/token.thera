@@ -1,6 +1,5 @@
 // The token model: the token kinds, the keyword table, and the Token itself.
-// `SourceSpan` and the comment side channel live in the source model
-// (`../source`).
+// `SourceSpan` and the comment side channel live in the source model (`../source`).
 
 import '../source' as _;
 
@@ -37,9 +36,9 @@ pub enum TokenKind {
     KwTrue,
     KwVoid, // the unit value (the `Void` type's single value)
     KwWhile,
-    // Note: `type` is not reserved — it lexes as an ordinary identifier. Its
-    // only keyword-like role is the `native type` declaration form, which the
-    // parser recognizes by lexeme.
+    // Note: `type` is not reserved — it lexes as an ordinary identifier. Its only
+    // keyword-like role is the `native type` declaration form, which the parser
+    // recognizes by lexeme.
 
     // Identifiers (type names, Ok, Err, Some, None, user names, etc.)
     Identifier,
@@ -96,9 +95,9 @@ pub enum TokenKind {
     Eof,
 }
 
-// The reserved keyword for `text`, or None for an ordinary identifier.
-// (`type` is deliberately absent: it is a contextual keyword — an ordinary
-// identifier that the parser gives meaning only in `native type`.)
+// The reserved keyword for `text`, or None for an ordinary identifier. (`type` is
+// deliberately absent: it is a contextual keyword — an ordinary identifier that the
+// parser gives meaning only in `native type`.)
 pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
     return match text {
         'as' => Option.Some(TokenKind.KwAs),
@@ -131,10 +130,9 @@ pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
     };
 }
 
-// Whether `kind` is a reserved keyword. Member positions (field names, field
-// access after `.`, call-site and parameter labels) accept these as ordinary
-// names — the parser's `expect_member_name` — since no other production can
-// appear there.
+// Whether `kind` is a reserved keyword. Member positions (field names, field access
+// after `.`, call-site and parameter labels) accept these as ordinary names — the
+// parser's `expect_member_name` — since no other production can appear there.
 pub fn is_keyword(_ kind: TokenKind) -> Bool {
     return match kind {
         KwAs => true,
@@ -172,14 +170,14 @@ pub fn is_keyword(_ kind: TokenKind) -> Bool {
 pub struct Token {
     let kind: TokenKind;
     let span: SourceSpan;
-    // String-literal content (with ${...} kept verbatim) or identifier text;
-    // None for every other kind.
+    // String-literal content (with ${...} kept verbatim) or identifier text; None
+    // for every other kind.
     let value: Option<String>;
     // For a string literal: the source span of each `${...}` interpolation's
     // expression (between the `${` and its matching `}`), in value order. The
-    // parser's splitter rebases each sub-parse onto these, so diagnostics and
-    // AST spans inside interpolations point at the real file (PA2). Empty for
-    // every other kind.
+    // parser's splitter rebases each sub-parse onto these, so diagnostics and AST
+    // spans inside interpolations point at the real file (PA2). Empty for every
+    // other kind.
     let interps: List<SourceSpan>;
 }
 

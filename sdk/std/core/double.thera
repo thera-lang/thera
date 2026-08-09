@@ -1,9 +1,8 @@
-//! std.core — the built-in Double type's methods (auto-imported with the
-//! prelude).
+//! std.core — the built-in Double type's methods (auto-imported with the prelude).
 //!
 //! Mirrors the magnitude/ordering methods on Int (int.thera) so they're
-//! type-preserving on either numeric type. The inherently-Double functions
-//! (sqrt, floor, sin, …) live in std.math, not here.
+//! type-preserving on either numeric type. The inherently-Double functions (sqrt,
+//! floor, sin, …) live in std.math, not here.
 
 /// The built-in 64-bit IEEE-754 floating-point type — an opaque,
 /// runtime-represented primitive whose methods attach below.
@@ -49,9 +48,9 @@ impl Double {
     @extern('double_to_int')
     pub native fn to_int(self) -> Int
 
-    /// The raw IEEE-754 bit pattern of this Double, reinterpreted as an Int (the
-    /// 64 bits, not a numeric conversion). For hashing, serialization, and exact
-    /// bit inspection; e.g. `(1.0).to_bits()` is 0x3FF0000000000000.
+    /// The raw IEEE-754 bit pattern of this Double, reinterpreted as an Int (the 64
+    /// bits, not a numeric conversion). For hashing, serialization, and exact bit
+    /// inspection; e.g. `(1.0).to_bits()` is 0x3FF0000000000000.
     @extern('double_to_bits')
     pub native fn to_bits(self) -> Int
 }

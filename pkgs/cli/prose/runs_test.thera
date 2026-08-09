@@ -1,5 +1,5 @@
-// Tests for comment-run discovery — which comments are rewritable, and where
-// one run ends and the next begins.
+// Tests for comment-run discovery — which comments are rewritable, and where one
+// run ends and the next begins.
 
 import std.testing;
 
@@ -34,8 +34,8 @@ fn a_blank_line_ends_a_run() -> Result<Void, Error> {
 
 @test
 fn a_marker_change_ends_a_run() -> Result<Void, Error> {
-    // `//` and `///` mean different things; a run that mixed them would reflow
-    // an aside into documentation.
+    // `//` and `///` mean different things; a run that mixed them would reflow an
+    // aside into documentation.
     return testing.assert_eq(
         actual: shape('//! head\n/// doc\n// aside\n'),
         expected: '//!@0[head] ///@0[doc] //@0[aside]',
@@ -96,8 +96,8 @@ fn an_ineligible_line_breaks_the_run_around_it() -> Result<Void, Error> {
 
 @test
 fn trailing_whitespace_is_trimmed_from_content() -> Result<Void, Error> {
-    // Normalizing here means a blank line is always `''`, so the guard can
-    // compare blank blocks byte-exactly and no rendered line can end in space.
+    // Normalizing here means a blank line is always `''`, so the guard can compare
+    // blank blocks byte-exactly and no rendered line can end in space.
     return testing.assert_eq(actual: shape('// one   \n//   \n'), expected: '//@0[one|]');
 }
 

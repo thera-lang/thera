@@ -15,8 +15,8 @@
 @extern('term_is_tty')
 pub native fn is_tty() -> Bool
 
-/// The terminal's size in character cells, or None when stdout is not a terminal
-/// or the size cannot be determined.
+/// The terminal's size in character cells, or None when stdout is not a terminal or
+/// the size cannot be determined.
 ///
 /// ```thera
 /// if let Some(sz) = term.size() { print('${sz.cols}x${sz.rows}'); }
@@ -39,8 +39,8 @@ pub struct TermSize {
 @extern('term_size')
 native fn size_raw() -> Option<List<Int>>
 
-/// A foreground color for `style` / `paint`. `Default` restores the terminal's
-/// own default foreground.
+/// A foreground color for `style` / `paint`. `Default` restores the terminal's own
+/// default foreground.
 pub enum Color {
     Black,
     Red,

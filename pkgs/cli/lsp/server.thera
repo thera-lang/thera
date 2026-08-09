@@ -1,11 +1,11 @@
 // The Thera language server: a JSON-RPC dispatch loop over stdio that answers a
-// small slice of the LSP. Slice 1 covers the lifecycle (`initialize` /
-// `shutdown` / `exit`), full-document sync (`didOpen` / `didChange` /
-// `didClose`), and pull-model diagnostics (`textDocument/diagnostic` +
-// `workspace/diagnostic`, with a `workspace/diagnostic/refresh` nudge on edits;
-// a streaming client's workspace pull is **held open** and updated via
-// `$/progress` deltas — see `open_pull` — so an idle server does nothing at all).
-// Document symbols, hover, and definition land in later slices.
+// small slice of the LSP. Slice 1 covers the lifecycle (`initialize` / `shutdown` /
+// `exit`), full-document sync (`didOpen` / `didChange` / `didClose`), and
+// pull-model diagnostics (`textDocument/diagnostic` + `workspace/diagnostic`, with
+// a `workspace/diagnostic/refresh` nudge on edits; a streaming client's workspace
+// pull is **held open** and updated via `$/progress` deltas — see `open_pull` — so
+// an idle server does nothing at all). Document symbols, hover, and definition land
+// in later slices.
 //
 // This is the Thera port of the Dart `lsp/server.dart` (which rode on
 // `package:lsp_server`); here the transport is our own jsonrpc.thera.
@@ -29,8 +29,8 @@ import 'type_definition';
 import 'formatting';
 import 'code_action';
 import 'workspace_symbols';
-// `references` and `rename` are both semantic now — they resolve every candidate
-// by `SymbolId` identity over the open documents (via `analysis.references_at` /
+// `references` and `rename` are both semantic now — they resolve every candidate by
+// `SymbolId` identity over the open documents (via `analysis.references_at` /
 // `rename_at`), so unrelated same-named symbols are never touched. See
 // references.thera and rename.thera.
 
@@ -38,18 +38,17 @@ import 'workspace_symbols';
 // (`shutdown_received`); the workspace analysis state — open documents, the SDK
 // root, the cross-request caches, and the dirty set — lives in `Analysis`
 // (analysis.thera), where the incremental engine grows (see docs/roadmap.md).
-// Recomputing diagnostics is the expensive step, so an edit only marks its
-// document dirty; the actual re-check is deferred to `flush`, which lets a
-// burst of keystrokes collapse into a single re-check per document (see
-// `serve`).
+// Recomputing diagnostics is the expensive step, so an edit only marks its document
+// dirty; the actual re-check is deferred to `flush`, which lets a burst of
+// keystrokes collapse into a single re-check per document (see `serve`).
 pub struct Server {
     let analysis: Analysis;
     // Every outgoing message funnels through here so the dispatch loop and a
     // background `workspace/diagnostic` worker never interleave bytes of one framed
-    // message. `serve` installs an async outbox (a writer fiber draining a channel);
-    // `handle` (tests/one-shot) installs a direct one that writes straight through.
-    // A fresh server holds a discard outbox until one of those runs — no message is
-    // sent in that window. See outbox.thera.
+    // message. `serve` installs an async outbox (a writer fiber draining a
+    // channel); `handle` (tests/one-shot) installs a direct one that writes
+    // straight through. A fresh server holds a discard outbox until one of those
+    // runs — no message is sent in that window. See outbox.thera.
     let mut outbox: outbox.Outbox;
     let mut shutdown_received: Bool;
     // Whether the client supports `workspace/diagnostic/refresh` (from
@@ -84,16 +83,16 @@ pub struct Server {
     let mut scan_id: Json;
     // Why the in-flight scan is being superseded — decides the error its request
     // settles with when the worker bails (see `send_bail_error`). Set by each
-    // generation-bump site right before the bump; every site then joins the
-    // worker, so a reason is consumed before the next one can be set.
+    // generation-bump site right before the bump; every site then joins the worker,
+    // so a reason is consumed before the next one can be set.
     let mut scan_bail: ScanBail;
     // The held-open `workspace/diagnostic` pull, once its first report has been
     // streamed. A client that sends a `partialResultToken` gets its report as
     // `$/progress` and **no response**: completing the request is what re-arms the
     // client's periodic re-pull (2s in vscode-languageclient, re-issued after every
     // settlement), so holding it open is what lets an idle server be *idle* — the
-    // spec's own recommendation ("allow servers to keep the request open for a
-    // long time"). Later workspace changes stream delta batches to its token; the
+    // spec's own recommendation ("allow servers to keep the request open for a long
+    // time"). Later workspace changes stream delta batches to its token; the
     // request settles only on supersession, cancel, or shutdown, and the client
     // re-triggers a pull whenever it does.
     let mut open_pull: Option<OpenPull>;
@@ -112,12 +111,12 @@ struct OpenPull {
     let token: Json;
 }
 
-// Why an in-flight scan is superseded — the diagnostic-pull spec assigns each
-// cause its own settle error (see `send_bail_error`).
+// Why an in-flight scan is superseded — the diagnostic-pull spec assigns each cause
+// its own settle error (see `send_bail_error`).
 enum ScanBail {
     // A newer pull replaced it, or the session is shutting down: ServerCancelled,
-    // with DiagnosticServerCancellationData telling the client *not* to
-    // re-trigger — the newer pull is already in hand (or the server is going away).
+    // with DiagnosticServerCancellationData telling the client *not* to re-trigger
+    // — the newer pull is already in hand (or the server is going away).
     Superseded,
     // The client cancelled this very request: RequestCancelled, the advised code.
     Cancelled,
@@ -233,12 +232,12 @@ impl Server {
         _ prev_ids: Map<String, String>,
         _ token: Json,
     ) -> Void {
-        // A new pull replaces a held-open one: settle the old request first, so
-        // the client is never owed two workspace responses.
+        // A new pull replaces a held-open one: settle the old request first, so the
+        // client is never owed two workspace responses.
         self.settle_open_pull();
         // Bump first, then reclaim any prior scan: it sees the new generation and
-        // bails at its next yield — settling as superseded — so at most one
-        // worker is ever in flight.
+        // bails at its next yield — settling as superseded — so at most one worker
+        // is ever in flight.
         self.scan_bail = ScanBail.Superseded;
         self.ws_generation = self.ws_generation + 1;
         self.join_current_worker();
@@ -313,8 +312,8 @@ impl Server {
             };
             match self.analysis.workspace_delta_interruptible(() => self.ws_generation == gen) {
                 Some(batch) => {
-                    // An all-quiet pass (e.g. an edit that didn't change any
-                    // file's diagnostics) streams nothing at all.
+                    // An all-quiet pass (e.g. an edit that didn't change any file's
+                    // diagnostics) streams nothing at all.
                     if batch.get('items').as_array().unwrap_or([]).len() > 0 {
                         send_progress(self.outbox, pull.token, batch);
                     }
@@ -326,8 +325,7 @@ impl Server {
 
     // Queue a delta stream to the held-open pull (no-op for polling clients). The
     // flag is set before any early return so a change landing while the initial
-    // scan is still in flight is not lost — that worker drains it before
-    // finishing.
+    // scan is still in flight is not lost — that worker drains it before finishing.
     fn stream_workspace_delta(self) -> Void {
         self.delta_pending = true;
         if let Some(w) = self.current_worker {
@@ -349,15 +347,15 @@ impl Server {
     // on `exit`. (Requests like hover still answer inline — only the diagnostics
     // refresh is deferred.)
     fn ingest(self, _ body: String) -> Bool {
-        // An unparseable body gets a JSON-RPC ParseError (id null), not a
-        // silent drop — the client learns its message was lost (LS9).
+        // An unparseable body gets a JSON-RPC ParseError (id null), not a silent
+        // drop — the client learns its message was lost (LS9).
         let Ok(msg) = json.parse(body) else {
             send_error(self.outbox, json.null(), -32700, 'parse error');
             return true;
         };
-        // A request has both `method` and `id`; a notification has `method` and
-        // no `id`; a response (no `method`) we ignore — the only requests we send
-        // are `workspace/diagnostic/refresh`, whose result we don't act on.
+        // A request has both `method` and `id`; a notification has `method` and no
+        // `id`; a response (no `method`) we ignore — the only requests we send are
+        // `workspace/diagnostic/refresh`, whose result we don't act on.
         return match msg.get('method').as_string() {
             Some(method) => self.dispatch(method, msg.get('id'), msg.get('params')),
             None => true,
@@ -367,8 +365,8 @@ impl Server {
     // `id` is a JSON Null for a notification, present for a request.
     fn dispatch(self, _ method: String, _ id: Json, _ params: Json) -> Bool {
         // After `shutdown`, only `exit` is meaningful: further requests are
-        // answered with InvalidRequest and notifications are dropped, per the
-        // LSP lifecycle.
+        // answered with InvalidRequest and notifications are dropped, per the LSP
+        // lifecycle.
         if self.shutdown_received && method != 'exit' {
             if !id.is_null() {
                 send_error(self.outbox, id, -32600, 'invalid request: server is shut down');
@@ -553,8 +551,9 @@ impl Server {
             return true;
         }
         // Pull-model diagnostics (LSP 3.17): the client asks for a document's or
-        // the whole workspace's diagnostics on its own schedule. `workspace/
-        // diagnostic` is what makes diagnostics project-wide with no file open.
+        // the whole workspace's diagnostics on its own schedule.
+        // `workspace/ diagnostic` is what makes diagnostics project-wide with no
+        // file open.
         if method == 'textDocument/diagnostic' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
                 send_response(
@@ -577,9 +576,9 @@ impl Server {
         }
         // A cancel targets the only cancellable background ops — the in-flight
         // workspace scan and the held-open pull, both matched by request id. Any
-        // other cancel names a request that has already completed (everything
-        // else answers inline), which the protocol says to ignore — it must not
-        // kill an innocent scan.
+        // other cancel names a request that has already completed (everything else
+        // answers inline), which the protocol says to ignore — it must not kill an
+        // innocent scan.
         if method == '$/cancelRequest' {
             let cancel_id = json.stringify(params.get('id'));
             // A cancelled request cannot be left hanging (JSON-RPC): settle a
@@ -593,8 +592,8 @@ impl Server {
                 }
             }
             // Naming the scan's request makes the worker bail — a still-running
-            // initial scan then settles it with RequestCancelled (a delta drain
-            // for an already-settled pull just stops, silently).
+            // initial scan then settles it with RequestCancelled (a delta drain for
+            // an already-settled pull just stops, silently).
             if !self.scan_id.is_null() && json.stringify(self.scan_id) == cancel_id {
                 self.scan_bail = ScanBail.Cancelled;
                 self.ws_generation = self.ws_generation + 1;
@@ -612,19 +611,19 @@ impl Server {
             }
             return true;
         }
-        // An unhandled *request* gets a MethodNotFound error so the client
-        // doesn't hang (a null *result* would claim we handled it); a
-        // notification (Null id) is simply dropped.
+        // An unhandled *request* gets a MethodNotFound error so the client doesn't
+        // hang (a null *result* would claim we handled it); a notification (Null
+        // id) is simply dropped.
         if !id.is_null() {
             send_error(self.outbox, id, -32601, 'method not found: ${method}');
         }
         return true;
     }
 
-    // Store `text` for `uri` (when both are present); `set_document` marks it
-    // dirty for the next `flush` and evicts the file's cached parse so an
-    // importer's next check re-sees the change. The refresh nudge is deferred (not
-    // done here) so a burst of edits coalesces into one re-pull.
+    // Store `text` for `uri` (when both are present); `set_document` marks it dirty
+    // for the next `flush` and evicts the file's cached parse so an importer's next
+    // check re-sees the change. The refresh nudge is deferred (not done here) so a
+    // burst of edits coalesces into one re-pull.
     fn update_document(
         self,
         _ uri: Option<String>,
@@ -638,9 +637,9 @@ impl Server {
         }
     }
 
-    // The outline for an open document, or an empty array when it isn't open.
-    // Built from the recovered parse (via the session's parse cache — no
-    // re-tokenize per request), so it still works while the file has errors.
+    // The outline for an open document, or an empty array when it isn't open. Built
+    // from the recovered parse (via the session's parse cache — no re-tokenize per
+    // request), so it still works while the file has errors.
     fn document_symbols(self, _ uri: Option<String>) -> Json {
         return match uri {
             Some(u) => match self.analysis.parsed(u) {
@@ -659,8 +658,8 @@ impl Server {
         };
     }
 
-    // Completion at a position: `CompletionItem[]`, empty when the document
-    // isn't open or nothing offers.
+    // Completion at a position: `CompletionItem[]`, empty when the document isn't
+    // open or nothing offers.
     fn completion(self, _ uri: Option<String>, _ position: Json) -> Json {
         return match self.analysis.analyze_at(uri, position) {
             Some(a) => completion.handle_completion(a.ctx, a.text, a.offset),
@@ -668,8 +667,8 @@ impl Server {
         };
     }
 
-    // Signature help at a position: the enclosing call's signature with the
-    // active parameter, or JSON null.
+    // Signature help at a position: the enclosing call's signature with the active
+    // parameter, or JSON null.
     fn signature_help(self, _ uri: Option<String>, _ position: Json) -> Json {
         return match self.analysis.analyze_at(uri, position) {
             Some(a) => signature_help.handle_signature_help(a.ctx, a.text, a.offset),
@@ -685,8 +684,8 @@ impl Server {
         };
     }
 
-    // Go-to-type-definition at a position: the `Location` of the declaration of
-    // the value's *type*, or JSON null.
+    // Go-to-type-definition at a position: the `Location` of the declaration of the
+    // value's *type*, or JSON null.
     fn type_definition(self, _ uri: Option<String>, _ position: Json) -> Json {
         return match self.analysis.analyze_at(uri, position) {
             Some(a) => type_definition.handle_type_definition(a.ctx, a.text, a.offset),
@@ -704,9 +703,9 @@ impl Server {
         };
     }
 
-    // Code actions at a range: the idiomatic-rewrite refactorings (`match → if
-    // let`). Purely syntactic — the session's cached parse, no import closure.
-    // An empty array when the document isn't open or offers no rewrites.
+    // Code actions at a range: the idiomatic-rewrite refactorings
+    // (`match → if let`). Purely syntactic — the session's cached parse, no import
+    // closure. An empty array when the document isn't open or offers no rewrites.
     fn code_action(self, _ uri: Option<String>, _ range: Json, _ context: Json) -> Json {
         return match uri {
             Some(u) => match self.analysis.text(u) {
@@ -726,9 +725,8 @@ impl Server {
         };
     }
 
-    // Every open document's cached parse (the session stamps canonical
-    // identity); previously this re-tokenized every open buffer per query
-    // keystroke.
+    // Every open document's cached parse (the session stamps canonical identity);
+    // previously this re-tokenized every open buffer per query keystroke.
     fn workspace_symbol(self, _ query: Option<String>) -> Json {
         let q = query.unwrap_or('');
         let programs: List<Program> = [];
@@ -741,8 +739,8 @@ impl Server {
     }
 
     // Find references at a position: every occurrence across the open documents
-    // that resolves to the same declaration (semantic, not lexical). An empty
-    // array when the document isn't open or nothing resolves.
+    // that resolves to the same declaration (semantic, not lexical). An empty array
+    // when the document isn't open or nothing resolves.
     fn references(self, _ uri: Option<String>, _ position: Json, _ context: Json) -> Json {
         // `includeDeclaration` defaults to true when the client omits the context.
         let include_decl = context.get('includeDeclaration').as_bool().unwrap_or(true);
@@ -799,8 +797,8 @@ impl Server {
         }
     }
 
-    // Ask the client to re-pull all diagnostics — the pull model's proactive
-    // signal (the server pushes nothing). A server-initiated request; the client's
+    // Ask the client to re-pull all diagnostics — the pull model's proactive signal
+    // (the server pushes nothing). A server-initiated request; the client's
     // response carries no `method`, so `ingest` drops it. A no-op when the client
     // didn't advertise refresh support (it then pulls on its own cadence).
     fn request_workspace_refresh(self) -> Void {
@@ -872,8 +870,8 @@ fn send_response(_ ob: outbox.Outbox, _ id: Json, _ result: Json) -> Void {
     ob.send(json.obj(['jsonrpc': json.str('2.0'), 'id': id, 'result': result]));
 }
 
-// A `$/progress` notification carrying `value` under the client-supplied `token`
-// — the partial-result transport (the workspace report and its delta batches).
+// A `$/progress` notification carrying `value` under the client-supplied `token` —
+// the partial-result transport (the workspace report and its delta batches).
 fn send_progress(_ ob: outbox.Outbox, _ token: Json, _ value: Json) -> Void {
     ob.send(json.obj([
         'jsonrpc': json.str('2.0'),
@@ -882,11 +880,11 @@ fn send_progress(_ ob: outbox.Outbox, _ token: Json, _ value: Json) -> Void {
     ]));
 }
 
-// A JSON-RPC error response (`code` from the spec's reserved range:
-// -32700 ParseError, -32601 MethodNotFound, -32600 InvalidRequest, and the LSP
-// extensions -32800 RequestCancelled / -32802 ServerCancelled / -32803
-// RequestFailed). A non-null `data` rides on the error object — e.g. the
-// diagnostic pulls' `DiagnosticServerCancellationData`.
+// A JSON-RPC error response (`code` from the spec's reserved range: -32700
+// ParseError, -32601 MethodNotFound, -32600 InvalidRequest, and the LSP extensions
+// -32800 RequestCancelled / -32802 ServerCancelled / -32803 RequestFailed). A
+// non-null `data` rides on the error object — e.g. the diagnostic pulls'
+// `DiagnosticServerCancellationData`.
 fn send_error(
     _ ob: outbox.Outbox,
     _ id: Json,
@@ -906,8 +904,8 @@ fn send_error(
 fn initialize_result() -> Json {
     return json.obj([
         'capabilities': json.obj([
-            // The protocol default, declared explicitly: positions crossing
-            // the boundary are UTF-16 code units (see positions.thera, LS6).
+            // The protocol default, declared explicitly: positions crossing the
+            // boundary are UTF-16 code units (see positions.thera, LS6).
             'positionEncoding': json.str('utf-16'),
             'textDocumentSync': json.int(1), // TextDocumentSyncKind.Full
             'documentSymbolProvider': json.bool(true),
@@ -939,14 +937,14 @@ fn initialize_result() -> Json {
 
 // --- helpers ---
 
-// The workspace root directories from an `initialize` request, as filesystem
-// paths. `workspaceFolders` (each folder's `uri`) is the modern form; a
-// single `rootUri` is the fallback the folder-less/older client sends. A
-// client that opened a loose file (no folder) sends neither — an empty list,
-// which leaves references/rename scoped to the open documents.
-// Whether the client can handle a `workspace/diagnostic/refresh` request, from
-// its `initialize` capabilities (`workspace.diagnostics.refreshSupport`). `get`
-// on an absent key returns JSON null, so the chain degrades to `false`.
+// The workspace root directories from an `initialize` request, as filesystem paths.
+// `workspaceFolders` (each folder's `uri`) is the modern form; a single `rootUri`
+// is the fallback the folder-less/older client sends. A client that opened a loose
+// file (no folder) sends neither — an empty list, which leaves references/rename
+// scoped to the open documents. Whether the client can handle a
+// `workspace/diagnostic/refresh` request, from its `initialize` capabilities
+// (`workspace.diagnostics.refreshSupport`). `get` on an absent key returns JSON
+// null, so the chain degrades to `false`.
 fn client_supports_diagnostic_refresh(_ params: Json) -> Bool {
     return params.get('capabilities').get('workspace').get('diagnostics')
         .get('refreshSupport').as_bool().unwrap_or(false);
@@ -974,10 +972,10 @@ fn string_array(_ j: Json) -> List<String> {
     return out;
 }
 
-// The client's `previousResultIds` from a `workspace/diagnostic` request, as a
-// URI -> resultId map (an array of `{ uri, value }`). Tells the server which
-// resultId the client last holds per file, so an unchanged file returns a light
-// `unchanged` report instead of re-sending items. Missing/malformed entries drop.
+// The client's `previousResultIds` from a `workspace/diagnostic` request, as a URI
+// -> resultId map (an array of `{ uri, value }`). Tells the server which resultId
+// the client last holds per file, so an unchanged file returns a light `unchanged`
+// report instead of re-sending items. Missing/malformed entries drop.
 fn previous_result_ids(_ params: Json) -> Map<String, String> {
     let out: Map<String, String> = [:];
     if let Some(entries) = params.get('previousResultIds').as_array() {
@@ -1011,8 +1009,8 @@ fn workspace_roots(_ params: Json) -> List<String> {
     return roots;
 }
 
-// The text of the last full-document content change (full-sync convention), or
-// None when there are no changes.
+// The text of the last full-document content change (full-sync convention), or None
+// when there are no changes.
 fn last_change_text(_ changes: Json) -> Option<String> {
     return match changes.as_array() {
         Some(list) => {

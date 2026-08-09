@@ -1,7 +1,7 @@
 // Tests for the refactoring transforms, driven end-to-end through `fix_source`
-// (detect → source-slice edit → apply → format). Each case pins the rewritten
-// text, so it exercises the whole pipeline including the formatter's reindent of
-// the spliced region and the desugar marker that stops a rewrite re-firing.
+// (detect → source-slice edit → apply → format). Each case pins the rewritten text,
+// so it exercises the whole pipeline including the formatter's reindent of the
+// spliced region and the desugar marker that stops a rewrite re-firing.
 
 import std.testing;
 
@@ -55,8 +55,8 @@ fn wraps_a_bare_body_in_braces() -> Result<Void, Error> {
 
 @test
 fn wraps_a_bare_return_body_as_a_statement() -> Result<Void, Error> {
-    // A bare *diverging* arm body needs a `;` inside the block — a `return` can't be
-    // a block's tail expression (unlike a value body, which can).
+    // A bare *diverging* arm body needs a `;` inside the block — a `return` can't
+    // be a block's tail expression (unlike a value body, which can).
     return check(
         'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => return v, None => {} }\n    return 0;\n}\n',
         'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n',
@@ -94,8 +94,8 @@ fn preserves_a_comment_in_the_body() -> Result<Void, Error> {
 
 @test
 fn is_a_minimal_edit_leaving_the_rest_untouched() -> Result<Void, Error> {
-    // Only the rewritten span changes; formatting drift elsewhere (a blank-line
-    // run a whole-file format would collapse) survives — fixing is not formatting.
+    // Only the rewritten span changes; formatting drift elsewhere (a blank-line run
+    // a whole-file format would collapse) survives — fixing is not formatting.
     let src = 'fn f(_ o: Option<Int>) -> Int {\n'
         + '    match o { Some(v) => { return v; }, None => {} }\n'
         + '\n'
@@ -132,11 +132,11 @@ fn handles_nested_convertible_matches() -> Result<Void, Error> {
 
 @test
 fn skips_a_match_in_value_position() -> Result<Void, Error> {
-    // The `if let` rewrite is statement-only: an else-less `if` cannot stand
-    // where a value is consumed. A convertible-shaped match as an *arm body*
-    // or a `let` initializer must be left alone (regression: an arm body was
-    // once rewritten into `if let … { … }` with no `else`, which does not
-    // parse in value position).
+    // The `if let` rewrite is statement-only: an else-less `if` cannot stand where
+    // a value is consumed. A convertible-shaped match as an *arm body* or a `let`
+    // initializer must be left alone (regression: an arm body was once rewritten
+    // into `if let … { … }` with no `else`, which does not parse in value
+    // position).
     let arm_body = 'fn f(_ o: Option<Option<Int>>) -> Void {\n'
         + '    match o {\n'
         + '        Some(x) => use(x),\n'
@@ -241,7 +241,8 @@ fn rewrites_option_propagation_to_question() -> Result<Void, Error> {
 
 @test
 fn question_parenthesizes_a_loose_subject() -> Result<Void, Error> {
-    // `?` is postfix, so a binary subject is wrapped to keep it applying to the sum.
+    // `?` is postfix, so a binary subject is wrapped to keep it applying to the
+    // sum.
     return check(
         'fn f(_ a: Result<Int, Error>) -> Result<Int, Error> {\n'
         + '    return match a + b { Ok(x) => x, Err(e) => return Result.Err(e) };\n}\n',

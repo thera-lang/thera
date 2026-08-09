@@ -1,5 +1,5 @@
-//! std.core — the built-in `Bytes` and `BytesBuilder` types (auto-imported with
-//! the prelude).
+//! std.core — the built-in `Bytes` and `BytesBuilder` types (auto-imported with the
+//! prelude).
 //!
 //! `Bytes` is an immutable buffer of raw bytes (each 0..=255); it is what binary
 //! I/O (`std.io`, `fs`, `hash`, `encoding`) reads and writes, and what
@@ -51,8 +51,8 @@ impl Bytes {
     pub native fn from_list(_ values: List<Int>) -> Result<Bytes, Error>
 }
 
-/// A Bytes value's `Debug` form: `Bytes[hh hh …]` (space-joined hex), matching
-/// the structural renderer.
+/// A Bytes value's `Debug` form: `Bytes[hh hh …]` (space-joined hex), matching the
+/// structural renderer.
 impl Debug for Bytes {
     @extern('bytes_debug')
     pub native fn debug(self) -> String
@@ -87,12 +87,12 @@ impl BytesBuilder {
     @extern('bytesbuilder_finish')
     pub native fn finish(self) -> Bytes
 
-    // --- fixed-width integers / floats (little- and big-endian) ---
-    // Pure Thera over `write_u8` + bitwise ops (each `write_u8` keeps the low 8
-    // bits). The little-endian writers mirror the runtime's `serialize.rs`, so
-    // the bytecode writer can be expressed in Thera; the big-endian writers are the
-    // network / wire-format order (most-significant byte first). `>>>` (logical
-    // shift) extracts each byte of the raw bit pattern regardless of sign.
+    // --- fixed-width integers / floats (little- and big-endian) --- Pure Thera
+    // over `write_u8` + bitwise ops (each `write_u8` keeps the low 8 bits). The
+    // little-endian writers mirror the runtime's `serialize.rs`, so the bytecode
+    // writer can be expressed in Thera; the big-endian writers are the network /
+    // wire-format order (most-significant byte first). `>>>` (logical shift)
+    // extracts each byte of the raw bit pattern regardless of sign.
 
     /// The low 16 bits of `v`, little-endian (2 bytes).
     pub fn write_u16_le(self, _ v: Int) -> Void {
@@ -176,8 +176,8 @@ impl BytesBuilder {
     }
 
     /// Signed LEB128 of `v` (the encoding used for `Int` immediates). `>>` is
-    /// arithmetic, so the sign extends; the high bit of the final group encodes
-    /// the sign.
+    /// arithmetic, so the sign extends; the high bit of the final group encodes the
+    /// sign.
     pub fn write_ivarint(self, _ v: Int) -> Void {
         let mut x = v;
         let mut more = true;
@@ -196,12 +196,12 @@ impl BytesBuilder {
     }
 }
 
-/// A forward cursor over a `Bytes` — the reader counterpart to `BytesBuilder`.
-/// Each read advances `pos` and returns `None` when the buffer is exhausted (or,
-/// for the multi-byte reads, when fewer bytes remain than the read needs), so a
-/// truncated stream is a clean `None` rather than a trap. The integer decoders
-/// are the exact inverses of `BytesBuilder`'s writers, so a value written there
-/// round-trips through here. Pure Thera over `Bytes.get` + bitwise ops.
+/// A forward cursor over a `Bytes` — the reader counterpart to `BytesBuilder`. Each
+/// read advances `pos` and returns `None` when the buffer is exhausted (or, for the
+/// multi-byte reads, when fewer bytes remain than the read needs), so a truncated
+/// stream is a clean `None` rather than a trap. The integer decoders are the exact
+/// inverses of `BytesBuilder`'s writers, so a value written there round-trips
+/// through here. Pure Thera over `Bytes.get` + bitwise ops.
 pub struct BytesReader {
     let data: Bytes;
     let mut pos: Int;
@@ -246,8 +246,8 @@ impl BytesReader {
     }
 
     /// Fixed little-endian integers — the inverses of `write_u32_le`/
-    /// `write_u64_le`. The result is the raw bit pattern (`read_u64_le`
-    /// round-trips the full 64-bit range, sign included).
+    /// `write_u64_le`. The result is the raw bit pattern (`read_u64_le` round-trips
+    /// the full 64-bit range, sign included).
     pub fn read_u32_le(self) -> Option<Int> {
         return self.read_le(4);
     }
@@ -256,8 +256,8 @@ impl BytesReader {
         return self.read_le(8);
     }
 
-    /// Assemble the next `n` little-endian bytes into an Int, or None if fewer
-    /// than `n` remain.
+    /// Assemble the next `n` little-endian bytes into an Int, or None if fewer than
+    /// `n` remain.
     fn read_le(self, _ n: Int) -> Option<Int> {
         let b = self.read_bytes(n)?;
         let mut result = 0;
