@@ -394,9 +394,9 @@ the formatter's output, not a thing humans diff over.
 It owns **line breaks** as well as everything within and between lines, so the
 layout is a function of the token stream: the same code comes out the same
 however it was typed. A bracket group over the 100-column margin is split, one
-that fits is joined back, and a comma list is laid out all-or-nothing — every
-element on its own line, or all on one. Splitting adds the trailing comma and
-joining removes it, so adding an argument later is a one-line diff.
+that fits is joined back, and a group is laid out all-or-nothing — every element
+on its own line, or all on one. Splitting adds the trailing comma and joining
+removes it, so adding an argument later is a one-line diff.
 
 Two deliberate limits on that. A split has to **pay for itself** — a group whose
 split would leave the line over the margin anyway is passed over in favour of an
@@ -405,9 +405,12 @@ rather than pry itself apart around it. And a line no break can shorten (one
 long string literal, a long trailing comment) is left over the margin rather
 than mangled; the margin is a target, not a guarantee.
 
-The author does keep one lever: **a multi-line string is emitted verbatim**, and
-where a scalar `[…]` wraps is packed rather than exploded one element per line.
-Everything else is the formatter's.
+The author does keep a few levers. **A multi-line string is emitted verbatim**,
+and where a scalar `[…]` wraps is packed rather than exploded one element per
+line. And **a `{` block may be written on one line** — nothing joins a block, so
+a guard clause or a match arm can stay compact — though all-or-nothing still
+applies, so a block is either wholly on one line or fully expanded, never split
+at one end and not the other. Everything else is the formatter's.
 
 Except for that trailing comma, it rewrites only whitespace — so it **never
 changes what the code means**. A token-equality and re-parse guard enforces this

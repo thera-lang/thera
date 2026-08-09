@@ -257,15 +257,25 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
             out.push(e);
         }
     }
-    // Independently of width: a comma list broken at *some* of its break points
-    // is broken at all of them, and ends in a trailing comma. All-or-nothing was
-    // already how a group splits when the margin selects it; stating it as an
-    // invariant is what makes the split form a function of the tokens rather than
-    // of how the code arrived. Without it a hand-wrapped
+    // Independently of width: a group broken at *some* of its break points is
+    // broken at all of them, and a comma list ends in a trailing comma.
+    // All-or-nothing was already how a group splits when the margin selects it;
+    // stating it as an invariant is what makes the split form a function of the
+    // tokens rather than of how the code arrived. Without it a hand-wrapped
     // `add_error(errors,⏎ '…',⏎ span);` whose message is too long to ever fit
     // keeps that shape forever, while the same call with a shorter message comes
     // out one argument per line — layout depending on how long an argument
     // happens to be, which is author-dependent layout in another guise.
+    //
+    // It applies to a comma list and to a `{` group. The two other comma-less
+    // groups — a grouping `(a + b)`, a one-element `[a]` — are `Fit`, so a
+    // half-broken one that fits is joined flat before it can get here and one
+    // that doesn't is a width problem; a `{` group is the only one nothing joins
+    // (see groups.thera), so it is the only one that can sit half-broken
+    // forever. That is what makes `{⏎ return x; }` and `{ return x;⏎}` settle on
+    // the fully-split form rather than each being its own fixpoint. A block flat
+    // on one line takes none of its breaks, so it stays flat — the one-line
+    // block is still available, it just cannot be half of one.
     //
     // "Some of its *own* breaks taken", not "spans several lines": a group is
     // also multi-line when an element is, and there none of its own breaks are
@@ -278,8 +288,8 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
     // scalar `[…]` is packed to the margin by design ([fill_breaks]), so its
     // half-taken breaks are the intended layout, not a half-finished split.
     for p in pairs {
-        if !p.has_comma {
-            continue; // a grouping paren or a `;` block, not a comma list
+        if !p.has_comma && p.kind != TokenKind.LBrace {
+            continue; // a grouping paren or a one-element list, which `Fit` covers
         }
         let left = usable_breaks(p, chars);
         if left.len() == p.breaks.len() {

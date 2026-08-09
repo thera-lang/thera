@@ -323,6 +323,38 @@ fn reflow_completes_a_half_split_comma_list() -> Result<Void, Error> {
 }
 
 @test
+fn reflow_completes_a_half_split_block() -> Result<Void, Error> {
+    // The same invariant on a `{` group, which needs it most: nothing ever joins
+    // a block (groups.thera), so a half-broken one would otherwise be its own
+    // fixpoint. Both halves snap to the fully-split form.
+    let want = 'fn f() -> Int {\n    return 1;\n}\n';
+    check_canonical('fn f() -> Int {\n    return 1; }\n', want, 100)?;
+    return check_canonical('fn f() -> Int { return 1;\n}\n', want, 100);
+}
+
+@test
+fn reflow_keeps_a_one_line_block_flat() -> Result<Void, Error> {
+    // A block flat on one line takes none of its own breaks, so all-or-nothing
+    // leaves it alone — the one-line block stays available for the shapes that
+    // want it (a guard clause, a match arm), it just cannot be half of one.
+    let src = 'fn f() -> Int {\n    if a { return 1; }\n    match b {\n'
+        + '        A => { p(); },\n        B => { q(); },\n    }\n    return 0;\n}\n';
+    return check_canonical(src, src, 100);
+}
+
+@test
+fn reflow_splits_a_block_packing_two_statements_a_line() -> Result<Void, Error> {
+    // The shape the invariant is really after: a block split at some of its
+    // statements but packing others two to a line. Every top-level `;` is a break
+    // point, so taking one takes them all.
+    return check_canonical(
+        'fn f() -> Int {\n    a(); b();\n    c();\n    return 0;\n}\n',
+        'fn f() -> Int {\n    a();\n    b();\n    c();\n    return 0;\n}\n',
+        100,
+    );
+}
+
+@test
 fn reflow_keeps_a_hugged_list_whole() -> Result<Void, Error> {
     // `g(…)` is a comma list spanning lines, but none of its *own* breaks are
     // taken — it is multi-line because an argument is. That is the hugging
