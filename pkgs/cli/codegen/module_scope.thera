@@ -808,7 +808,6 @@ impl ModuleScope {
                         entries.push(
                             DispatchEntry { type_id: tid, selector: row.selector, func: f }
                         );
-
                     },
                     None => { unresolved.push(row); },
                 }

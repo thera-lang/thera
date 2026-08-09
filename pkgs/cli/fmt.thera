@@ -16,8 +16,9 @@
 // indentation. It is also useful alone, and the rest of this file is it.
 //
 // It preserves every line break it is given and normalizes the vertical layout —
-// re-indents each line, collapses runs of blank lines to one, trims trailing
-// whitespace, and ensures a single final newline.
+// re-indents each line, collapses runs of blank lines to one, drops a blank line
+// that opens or closes a bracket group, trims trailing whitespace, and ensures a
+// single final newline.
 //
 // Indentation uses a stack of **content-indent levels**, one per open bracket. A
 // `{` block indents its body one level past the statement it belongs to; a `(` or
@@ -643,6 +644,10 @@ fn same_span_chars(_ xc: List<Int>, _ xs: SourceSpan, _ yc: List<Int>, _ ys: Sou
 struct LineInfo {
     let indent: List<Int>;    // indent level to render the line at
     let verbatim: List<Bool>; // line is part of a multi-line string literal
+    // Whether the line's last/first token opens/closes a bracket group — the two
+    // sides of a group boundary, which [emit] will not let a blank line sit on.
+    let ends_open: List<Bool>;
+    let starts_close: List<Bool>;
 }
 
 // Walk the tokens, grouped by line, maintaining a stack of *anchors* — one per
@@ -695,6 +700,18 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
                 }
             }
         }
+    }
+
+    // Bracket-group edges, read off the same rows. Token-driven rather than
+    // text-driven so a `{` inside a line comment can't read as an opener.
+    let ends_open: List<Bool> = [];
+    let starts_close: List<Bool> = [];
+    let mut bi = 0;
+    while bi < n {
+        let row = toks_by_line[bi];
+        ends_open.push(row.len() > 0 && is_opener(row[row.len() - 1].kind));
+        starts_close.push(row.len() > 0 && is_closer(row[0].kind));
+        bi = bi + 1;
     }
 
     let indent: List<Int> = filled_int(n, 0);
@@ -794,41 +811,65 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
         }
         li = li + 1;
     }
-    return LineInfo { indent: indent, verbatim: verbatim };
+    return LineInfo {
+        indent: indent,
+        verbatim: verbatim,
+        ends_open: ends_open,
+        starts_close: starts_close,
+    };
 }
 
 // Re-emit each line at its computed indent, collapsing blank runs and dropping
-// trailing blanks, with a single final newline.
+// the blanks that carry no separation, with a single final newline.
+//
+// A blank is *held back* rather than emitted where it is found, so the decision
+// can see the content on both sides of it. Holding a run back and flushing at
+// most one line is also what collapses the run. A held blank is dropped when it
+// leads the file, trails it, or sits on a bracket-group boundary — directly
+// after an opener or before a closer. Vertical space there separates code from
+// its own delimiter rather than one piece of code from another, so `{⏎⏎ x;⏎⏎ }`
+// and `{⏎ x;⏎ }` are the same code and get the same layout.
 fn emit(_ lines: List<String>, _ info: LineInfo) -> String {
     let out: List<String> = [];
-    let mut prev_blank = false;
+    let mut pending_blank = false;
+    let mut prev_opens = false; // last content line emitted ended with an opener
     let n = lines.len();
     let mut i = 0;
     while i < n {
         let line = lines[i];
         if info.verbatim[i] {
+            // A multi-line string's own lines are content, blank or not.
+            if pending_blank && !prev_opens {
+                out.push('');
+            }
+            pending_blank = false;
             out.push(line);
-            prev_blank = false;
+            prev_opens = false;
         } else {
             let trimmed = line.trim();
             if trimmed == '' {
-                // Collapse a run of blank lines to one; never lead with a blank.
-                if out.len() > 0 && !prev_blank {
-                    out.push('');
-                    prev_blank = true;
+                // Never lead with a blank.
+                if out.len() > 0 {
+                    pending_blank = true;
                 }
             } else {
-                prev_blank = false;
+                if pending_blank && !prev_opens && !info.starts_close[i] {
+                    out.push('');
+                }
+                pending_blank = false;
                 let mut level = info.indent[i];
                 if level < 0 {
                     level = 0;
                 }
                 out.push(INDENT.repeat(level) + trimmed);
+                prev_opens = info.ends_open[i];
             }
         }
         i = i + 1;
     }
 
+    // A trailing blank never gets flushed, so this only reaches a blank line at
+    // the end of a multi-line string — the one blank `out` can end with.
     while out.len() > 0 && out[out.len() - 1] == '' {
         out.pop();
     }

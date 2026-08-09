@@ -252,7 +252,6 @@ fn test_self_member_inside_interpolation_resolves() -> Result<Void, Error> {
     match resolve.resolve_at(ctx_of(program, imports), src, use_off) {
         Some(r) => {
             testing.assert(r.render.starts_with('count:'), message: 'renders the field')?;
-
         },
         None => { testing.assert(false, message: 'self.count in interp did not resolve')?; },
     }
@@ -299,7 +298,6 @@ fn test_inferred_receiver_field_renders() -> Result<Void, Error> {
     match resolve.resolve_at(typed_ctx(program), src, use_off) {
         Some(r) => {
             testing.assert(r.render.starts_with('x:'), message: 'renders the field type')?;
-
         },
         None => { testing.assert(false, message: 'p.x did not resolve')?; },
     }
@@ -595,7 +593,6 @@ fn test_unimported_name_does_not_resolve() -> Result<Void, Error> {
     let use_off = src.find('width;').unwrap_or(0);
     if let Some(_) = resolve.resolve_at(cross_ctx(primary), src, use_off) {
         testing.assert(false, message: 'unimported width must not resolve')?;
-
     }
     return Result.Ok(void);
 }
