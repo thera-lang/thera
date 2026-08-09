@@ -51,7 +51,8 @@ fn main(args: List<String>) -> Result<Int, Error> {
 ```
 
 Semicolons terminate statements. Blocks are braces. Indent 4 spaces, 100-column
-lines — `thera fmt` owns line breaking, so never hand-wrap. Names: `snake_case`
+lines for code and 84 for comment prose — `thera fmt` owns line breaking in
+both, so never hand-wrap code _or_ comments. Names: `snake_case`
 functions/values, `PascalCase` types/variants, `SCREAMING_SNAKE` consts. String
 literals conventionally use single quotes.
 

@@ -392,11 +392,11 @@ so a project never spends effort choosing or arguing a style. The goal is to
 the formatter's output, not a thing humans diff over.
 
 It owns **line breaks** as well as everything within and between lines, so the
-layout is a function of the token stream: the same code comes out the same
-however it was typed. A bracket group over the 100-column margin is split, one
-that fits is joined back, and a group is laid out all-or-nothing — every element
-on its own line, or all on one. Splitting adds the trailing comma and joining
-removes it, so adding an argument later is a one-line diff.
+layout of code is a function of the token stream: the same code comes out the
+same however it was typed. A bracket group over the 100-column margin is split,
+one that fits is joined back, and a group is laid out all-or-nothing — every
+element on its own line, or all on one. Splitting adds the trailing comma and
+joining removes it, so adding an argument later is a one-line diff.
 
 Two deliberate limits on that. A split has to **pay for itself** — a group whose
 split would leave the line over the margin anyway is passed over in favour of an
@@ -404,6 +404,20 @@ inner one that can help, which is what makes a call hug a multi-line argument
 rather than pry itself apart around it. And a line no break can shorten (one
 long string literal, a long trailing comment) is left over the margin rather
 than mangled; the margin is a target, not a guarantee.
+
+It also owns **comment prose**, which the token stream does not carry — the
+lexer records comments on a side channel. A comment paragraph is refilled to
+**84 columns of line**, which is 80 of prose behind a top-level `///`: the same
+budget the `*.md` files get from `bin/fmt_docs.sh`, once the marker is paid for.
+Code and prose want different measures, the split PEP 8 also codifies. Structure
+inside a comment is left exactly as written — fenced blocks, lists, and the
+indented lines hanging under them — and an inline `` `code` `` span or a
+`[Symbol]` reference is never broken across lines, so both stay greppable and
+resolvable. Only own-line comments are refilled; a trailing comment cannot be
+rewrapped without moving code. Because comments are not tokens, this pass
+carries its own guard rather than the token-equality one: prose compares by
+words, structure byte-for-byte, and the output is re-segmented and required to
+yield the same block structure it started with.
 
 The author does keep a few levers. **A multi-line string is emitted verbatim**,
 and where a scalar `[…]` wraps is packed rather than exploded one element per
@@ -413,9 +427,11 @@ applies, so a block is either wholly on one line or fully expanded, never split
 at one end and not the other. Everything else is the formatter's.
 
 Except for that trailing comma, it rewrites only whitespace — so it **never
-changes what the code means**. A token-equality and re-parse guard enforces this
-on every file, and falls back to layout-only (reporting the file) if a result
-ever fails it, so running the formatter is always safe.
+changes what the code means**, and inside a comment it only ever moves a line
+break between words. Two guards enforce that on every file, one per concern:
+token equality plus a re-parse for the code, and prose preservation for the
+comments. Either can fall back to leaving its half alone (reporting the file),
+so running the formatter is always safe.
 
 ## Options considered and rejected
 

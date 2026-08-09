@@ -11,6 +11,13 @@ test and its oracle are a single artifact you can also just run by hand
 (`thera run <file>` / `thera check <file>`). They are grouped into
 subdirectories by spec area (`expressions/`, `control_flow/`, `errors/`, …).
 
+**Do not run `thera fmt` here.** These files are fixture data, not source: the
+`//! spec:` / `//! mode:` front matter and the `// expect:` directives are
+parsed line by line, and the formatter's comment reflow would join adjacent ones
+into a single line and break the oracle. `bin/test.sh` formats only
+`pkgs sdk/std examples bench`, which is why this is a convention rather than a
+gate.
+
 The harness is [`tests/lang_runner.thera`](../lang_runner.thera); `bin/test.sh`
 runs it.
 

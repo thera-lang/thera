@@ -12,11 +12,12 @@ every production in EBNF — is in [grammar.md](grammar.md). For the _why_ see
 ## Style
 
 - **Indent:** 4 spaces (no tabs).
-- **Line length:** 100 characters. `thera fmt` enforces it — it breaks a line
-  over the margin and rejoins one that fits, so line breaks are the formatter's
-  rather than the author's (see [architecture.md](architecture.md) §The
-  formatter). A line no break can shorten, such as one long string literal, is
-  left as it is.
+- **Line length:** 100 characters for code, **84 for comment prose** (which is
+  80 columns of text behind a top-level `///`). `thera fmt` enforces both — it
+  breaks a line over the margin, rejoins one that fits, and refills comment
+  paragraphs, so line breaks are the formatter's rather than the author's (see
+  [architecture.md](architecture.md) §The formatter). A line no break can
+  shorten, such as one long string literal, is left as it is.
 
 ---
 
@@ -1516,7 +1517,10 @@ lead with the result as a noun phrase ("The substring of code points in
 ### Markdown
 
 Doc comments are Markdown, restricted to a small, predictable subset (anything
-outside it is treated as plain text):
+outside it is treated as plain text). This list is also what `thera fmt` reads
+when it refills comment prose: a paragraph reflows, while everything below keeps
+the line structure you gave it. A `` `code` `` span and a `[Symbol]` reference
+are never split across lines.
 
 - **Inline:** `` `code` `` and `**bold**`.
 - **Links & references:** `[text](path)` is an ordinary Markdown link, used to
