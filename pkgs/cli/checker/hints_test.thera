@@ -45,6 +45,14 @@ fn test_method_hints_strip_generic_args() -> Result<Void, Error> {
         message: 'String.parse should have a hint',
     )?;
     testing.assert(
+        hints.method_hint('List<Int>', 'some').is_some(),
+        message: 'List.some should have a hint',
+    )?;
+    testing.assert(
+        hints.method_hint('Map<String, Int>', 'items').is_some(),
+        message: 'Map.items should have a hint',
+    )?;
+    testing.assert(
         hints.method_hint('Option<Int>', 'no_such_guess').is_none(),
         message: 'unknown method: no hint',
     )?;
@@ -87,8 +95,16 @@ fn test_suggested_forms_exist() -> Result<Void, Error> {
     testing.assert_eq(actual: xs.sorted_by((a, b) => a < b), expected: [1, 2, 3, 4])?;
     xs.sort((a, b) => a < b);
     testing.assert_eq(actual: xs, expected: [1, 2, 3, 4])?;
-    // Map.contains_key → has; Set.insert → add
+    // List.some/every → any/all; sum → fold (exercised above); remove → remove_at +
+    // index_of
+    testing.assert(xs.any(n => n > 3), message: 'List.any')?;
+    testing.assert(xs.all(n => n > 0), message: 'List.all')?;
+    testing.assert_eq(actual: xs.remove_at(0), expected: 1)?;
+    testing.assert_eq(actual: xs.index_of(3), expected: Option.Some(1))?;
+    // Map.items → entries; Map.contains_key → has; Set.insert → add
     let m: Map<String, Int> = ['a': 1];
+    testing.assert_eq(actual: m.entries()[0].key, expected: 'a')?;
+    testing.assert_eq(actual: m.entries()[0].value, expected: 1)?;
     testing.assert(m.has('a'), message: 'Map.has')?;
     let s: Set<Int> = Set.new();
     s.add(1);

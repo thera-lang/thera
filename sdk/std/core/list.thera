@@ -101,6 +101,114 @@ impl List<T> {
         return Option.None;
     }
 
+    /// True if `pred` returns true for at least one element (false for an empty
+    /// list); stops at the first match. The predicate form of [contains].
+    pub fn any(self, _ pred: (T) -> Bool) -> Bool {
+        for x in self {
+            if pred(x) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// True if `pred` returns true for every element (vacuously true for an empty
+    /// list); stops at the first counterexample.
+    pub fn all(self, _ pred: (T) -> Bool) -> Bool {
+        for x in self {
+            if !pred(x) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// The first element for which `pred` returns true, or None if there is none.
+    pub fn find(self, _ pred: (T) -> Bool) -> Option<T> {
+        for x in self {
+            if pred(x) {
+                return Option.Some(x);
+            }
+        }
+        return Option.None;
+    }
+
+    /// The index of the first element for which `pred` returns true, or None if
+    /// there is none — the predicate form of [index_of].
+    pub fn find_index(self, _ pred: (T) -> Bool) -> Option<Int> {
+        let mut i = 0;
+        let n = self.len();
+        while i < n {
+            if pred(self[i]) {
+                return Option.Some(i);
+            }
+            i = i + 1;
+        }
+        return Option.None;
+    }
+
+    /// Insert `item` at index `at`, in place, shifting later elements one slot
+    /// toward the end. `at` may be any index in `[0, len]` — `insert(len, v)` is
+    /// `push(v)`; anything outside that range traps (the indexing contract).
+    pub fn insert(self, _ at: Int, _ item: T) -> Void {
+        if at == self.len() {
+            self.push(item);
+            return;
+        }
+        // Every other valid `at` names an existing slot, so this read traps on an
+        // out-of-range index before the list is touched. Then ripple `prev` toward
+        // the end, one swap per slot, and the displaced last element becomes a
+        // push.
+        let mut prev = self[at];
+        self[at] = item;
+        let mut i = at + 1;
+        while i < self.len() {
+            let tmp = self[i];
+            self[i] = prev;
+            prev = tmp;
+            i = i + 1;
+        }
+        self.push(prev);
+    }
+
+    /// Remove and return the element at index `i`, in place, shifting later
+    /// elements one slot toward the front; traps if `i` is out of range (the
+    /// indexing contract). The positional companion of `pop` (which is
+    /// `remove_at(len - 1)` with a checked `Option` result).
+    pub fn remove_at(self, _ i: Int) -> T {
+        let removed = self[i];
+        let mut j = i;
+        let last = self.len() - 1;
+        while j < last {
+            self[j] = self[j + 1];
+            j = j + 1;
+        }
+        self.pop();
+        return removed;
+    }
+
+    /// Append every element of `other` to this list, in place (like `push`, a
+    /// mutation of this list; the returns-new form is [concat]).
+    pub fn extend(self, _ other: List<T>) -> Void {
+        // Iterate to a pre-captured length so `xs.extend(xs)` doubles the list
+        // rather than chasing its own growth.
+        let n = other.len();
+        let mut i = 0;
+        while i < n {
+            self.push(other[i]);
+            i = i + 1;
+        }
+    }
+
+    /// A new list of this list's elements followed by `other`'s; neither input
+    /// changes (the in-place form is [extend]).
+    pub fn concat(self, _ other: List<T>) -> List<T> {
+        let result = [];
+        result.extend(self);
+        result.extend(other);
+        return result;
+    }
+
     /// Reverse the elements **in place** (like `push`/`pop`, a mutation of this
     /// list; the returns-new form is [reversed]).
     pub fn reverse(self) -> Void {
@@ -248,6 +356,20 @@ impl List<T> {
             if keep(item) {
                 result.push(item);
             }
+        }
+        return result;
+    }
+
+    /// A new list with `f` applied to each element and the resulting lists
+    /// concatenated flat, in order.
+    ///
+    /// ```thera
+    /// [1, 2, 3].flat_map(n => [n, n * 10])   // [1, 10, 2, 20, 3, 30]
+    /// ```
+    pub fn flat_map<U>(self, _ f: (T) -> List<U>) -> List<U> {
+        let result = [];
+        for item in self {
+            result.extend(f(item));
         }
         return result;
     }

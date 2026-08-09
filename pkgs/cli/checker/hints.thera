@@ -67,6 +67,13 @@ pub fn method_hint(_ rendered: String, _ method: String) -> Option<String> {
         'List.sort_by' => Option.Some(
             'use `sort(less)` (in place) or `sorted_by(less)` (returns new)'
         ),
+        'List.some' => Option.Some('use `any(pred)`'),
+        'List.every' => Option.Some('use `all(pred)`'),
+        'List.sum' => Option.Some('use `fold(0, (acc, n) => acc + n)`'),
+        'List.remove' => Option.Some(
+            'use `remove_at(index)` (pair with `index_of(value)` to remove by value)'
+        ),
+        'Map.items' => Option.Some('use `entries()` (`.key` / `.value` pairs)'),
         'Map.contains_key' => Option.Some('key presence is `has(key)`'),
         'Map.contains' => Option.Some('key presence is `has(key)`'),
         'Map.size' => Option.Some('use `len()`'),

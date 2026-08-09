@@ -130,6 +130,100 @@ fn test_contains_index_of() -> Result<Void, Error> {
 }
 
 @test
+fn test_any_all() -> Result<Void, Error> {
+    let xs = [1, 2, 3];
+    testing.assert(xs.any(n => n == 2))?;
+    testing.assert(!xs.any(n => n > 9))?;
+    testing.assert(xs.all(n => n > 0))?;
+    testing.assert(!xs.all(n => n == 1))?;
+    // Empty list: `any` is false, `all` is vacuously true.
+    let empty: List<Int> = [];
+    testing.assert(!empty.any(n => true))?;
+    testing.assert(empty.all(n => false))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_find_find_index() -> Result<Void, Error> {
+    let xs = [10, 21, 30, 41];
+    // The first match wins.
+    testing.assert_eq(actual: xs.find(n => n % 2 == 1), expected: Option.Some(21))?;
+    testing.assert_eq(actual: xs.find(n => n > 99), expected: Option.None)?;
+    testing.assert_eq(actual: xs.find_index(n => n % 2 == 1), expected: Option.Some(1))?;
+    testing.assert_eq(actual: xs.find_index(n => n > 99), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_insert_in_place() -> Result<Void, Error> {
+    let xs = [1, 3];
+    xs.insert(1, 2); // middle
+    testing.assert_eq(actual: xs, expected: [1, 2, 3])?;
+    xs.insert(0, 0); // front
+    testing.assert_eq(actual: xs, expected: [0, 1, 2, 3])?;
+    xs.insert(4, 4); // `insert(len, v)` is `push(v)`
+    testing.assert_eq(actual: xs, expected: [0, 1, 2, 3, 4])?;
+    let empty: List<Int> = [];
+    empty.insert(0, 7);
+    testing.assert_eq(actual: empty, expected: [7])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_remove_at_in_place() -> Result<Void, Error> {
+    let xs = [10, 20, 30, 40];
+    testing.assert_eq(actual: xs.remove_at(1), expected: 20)?; // middle
+    testing.assert_eq(actual: xs, expected: [10, 30, 40])?;
+    testing.assert_eq(actual: xs.remove_at(0), expected: 10)?; // first
+    testing.assert_eq(actual: xs.remove_at(1), expected: 40)?; // last
+    testing.assert_eq(actual: xs, expected: [30])?;
+    testing.assert_eq(actual: xs.remove_at(0), expected: 30)?; // drain to empty
+    testing.assert(xs.is_empty())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_extend_in_place() -> Result<Void, Error> {
+    let xs = [1, 2];
+    xs.extend([3, 4]);
+    testing.assert_eq(actual: xs, expected: [1, 2, 3, 4])?;
+    xs.extend([]);
+    testing.assert_eq(actual: xs, expected: [1, 2, 3, 4])?;
+    // Self-extension doubles the list (the source length is captured up front).
+    let ys = [1, 2];
+    ys.extend(ys);
+    testing.assert_eq(actual: ys, expected: [1, 2, 1, 2])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_concat_returns_new() -> Result<Void, Error> {
+    let xs = [1, 2];
+    let ys = [3];
+    testing.assert_eq(actual: xs.concat(ys), expected: [1, 2, 3])?;
+    // Neither input changes.
+    testing.assert_eq(actual: xs, expected: [1, 2])?;
+    testing.assert_eq(actual: ys, expected: [3])?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: empty.concat(xs), expected: xs)?;
+    testing.assert_eq(actual: xs.concat(empty), expected: xs)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_flat_map() -> Result<Void, Error> {
+    testing.assert_eq(
+        actual: [1, 2, 3].flat_map(n => [n, n * 10]),
+        expected: [1, 10, 2, 20, 3, 30],
+    )?;
+    // Empty inner lists just contribute nothing.
+    let none: List<Int> = [];
+    testing.assert_eq(actual: [1, 2, 3].flat_map(n => none), expected: none)?;
+    testing.assert_eq(actual: none.flat_map(n => [n]), expected: none)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_reverse_in_place() -> Result<Void, Error> {
     let xs = [1, 2, 3];
     xs.reverse();

@@ -76,3 +76,31 @@ fn test_clear_empties_in_place() -> Result<Void, Error> {
     testing.assert_eq(actual: m.get('x'), expected: Option.Some(9))?;
     return Result.Ok(void);
 }
+
+@test
+fn test_entries_pair_keys_and_values() -> Result<Void, Error> {
+    // Entries pair each key with its value, in insertion order.
+    let m = ['first': 10, 'second': 20];
+    let es = m.entries();
+    testing.assert_eq(actual: es.len(), expected: 2)?;
+    testing.assert_eq(actual: es[0].key, expected: 'first')?;
+    testing.assert_eq(actual: es[0].value, expected: 10)?;
+    testing.assert_eq(actual: es[1].key, expected: 'second')?;
+    testing.assert_eq(actual: es[1].value, expected: 20)?;
+    let empty: Map<String, Int> = [:];
+    testing.assert(empty.entries().is_empty())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_entries_drive_a_for_loop() -> Result<Void, Error> {
+    // The intended use: iterate keys and values together (the keys() + m[key]
+    // replacement).
+    let m = ['a': 1, 'b': 2];
+    let mut seen: List<String> = [];
+    for e in m.entries() {
+        seen.push('${e.key}=${e.value}');
+    }
+    testing.assert_eq(actual: seen, expected: ['a=1', 'b=2'])?;
+    return Result.Ok(void);
+}

@@ -77,6 +77,29 @@ impl Map<K, V> {
 
     @extern('map_values')
     pub native fn values(self) -> List<V>
+
+    /// The entries, in insertion order, as `Entry<K, V>` values (`.key`, `.value`)
+    /// — the paired form of [keys]/[values], for iterating both at once.
+    ///
+    /// ```thera
+    /// for e in scores.entries() {
+    ///     println('${e.key}: ${e.value}');
+    /// }
+    /// ```
+    pub fn entries(self) -> List<Entry<K, V>> {
+        let result = [];
+        for key in self.keys() {
+            result.push(Entry { key: key, value: self[key] });
+        }
+        return result;
+    }
+}
+
+/// One key-value pair of a map, as produced by [Map.entries] — read `.key` and
+/// `.value` (the map-shaped sibling of `Indexed<T>`'s `.index`/`.value`).
+pub struct Entry<K, V> {
+    let key: K;
+    let value: V;
 }
 
 impl Debug for Map<K, V> {
