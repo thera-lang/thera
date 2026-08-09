@@ -30,9 +30,9 @@ fn test_is_digit() -> Result<Void, Error> {
 @test
 fn test_is_hex_digit() -> Result<Void, Error> {
     testing.assert(is_hex_digit(DIGIT_0))?;
-    testing.assert(is_hex_digit(LOWER_A))?;    // a
-    testing.assert(is_hex_digit(UPPER_A))?;    // A
-    testing.assert(!is_hex_digit(LOWER_Z))?;   // z is past f
+    testing.assert(is_hex_digit(LOWER_A))?; // a
+    testing.assert(is_hex_digit(UPPER_A))?; // A
+    testing.assert(!is_hex_digit(LOWER_Z))?; // z is past f
     return Result.Ok(void);
 }
 

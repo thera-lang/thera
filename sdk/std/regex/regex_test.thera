@@ -57,11 +57,11 @@ fn test_captures() -> Result<Void, Error> {
     let re = compiled(r'(\w+)@(\w+)')?;
     match re.captures('a@b') {
         Some(c) => {
-            testing.assert_eq(actual: c.len(), expected: 3)?;        // group 0 + two subgroups
+            testing.assert_eq(actual: c.len(), expected: 3)?; // group 0 + two subgroups
             testing.assert_eq(actual: c.text(), expected: Option.Some('a@b'))?;
             testing.assert_eq(actual: c.group(1), expected: Option.Some('a'))?;
             testing.assert_eq(actual: c.group(2), expected: Option.Some('b'))?;
-            testing.assert_eq(actual: c.group(3), expected: Option.None)?;   // out of range
+            testing.assert_eq(actual: c.group(3), expected: Option.None)?; // out of range
         },
         None => { return Result.Err(error('expected captures')); },
     }

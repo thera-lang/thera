@@ -52,11 +52,11 @@ fn test_md5() -> Result<Void, Error> {
 @test
 fn test_crc32() -> Result<Void, Error> {
     testing.assert_eq(actual: crc32(''.bytes()), expected: 0)?;
-    testing.assert_eq(actual: crc32('abc'.bytes()), expected: 891568578)?;       // 0x352441C2
+    testing.assert_eq(actual: crc32('abc'.bytes()), expected: 891568578)?; // 0x352441C2
     testing.assert_eq(
         actual: crc32('The quick brown fox jumps over the lazy dog'.bytes()),
         expected: 1095738169,
-    )?;                                                   // 0x414FA339
+    )?; // 0x414FA339
     return Result.Ok(void);
 }
 

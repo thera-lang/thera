@@ -48,7 +48,7 @@ pub fn async_outbox(_ writer: io.Writer) -> Outbox {
         while going {
             match ch.receive() {
                 Some(msg) => jsonrpc.send_message(writer, msg),
-                None => { going = false; },  // channel closed and drained
+                None => { going = false; }, // channel closed and drained
             }
         }
     });

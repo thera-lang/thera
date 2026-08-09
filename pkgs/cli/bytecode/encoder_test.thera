@@ -133,12 +133,12 @@ fn test_double_bool_and_negative_int() -> Result<Void, Error> {
         84, 72, 69, 82, 65, 3, 0, 0, 0,
         2, 1, 0, // no pooled strings
         3, 1, 0, // no types
-        1, 18, 1, 0, 0, 4,             // functions: 1 fn (no name), 0/0, 4 instrs
+        1, 18, 1, 0, 0, 4, // functions: 1 fn (no name), 0/0, 4 instrs
         2, 0, 0, 0, 0, 0, 0, 248, 63, // const.double 1.5 (IEEE-754 LE)
-        3, 1,                          // const.bool true
-        1, 127,                        // const.int -1 (signed LEB128)
-        45,                            // return
-        7, 3, 1, 1, 103,               // symbols: "g"
+        3, 1, // const.bool true
+        1, 127, // const.int -1 (signed LEB128)
+        45, // return
+        7, 3, 1, 1, 103, // symbols: "g"
     ];
     testing.assert_eq(actual: encode_module(m).to_list(), expected: expected)?;
     return Result.Ok(void);

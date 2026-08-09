@@ -18,11 +18,11 @@
 
 import std.testing;
 
-import '../loader' as _;   // find_sdk_root, load_imports
-import '../testkit' as _;  // parse
-import 'element' as _;     // BUILTIN_OWNER, TypeDefElement
-import 'resolver' as _;    // builtin_type_defs, build_library
-import 'scope' as _;       // file_scope
+import '../loader' as _; // find_sdk_root, load_imports
+import '../testkit' as _; // parse
+import 'element' as _; // BUILTIN_OWNER, TypeDefElement
+import 'resolver' as _; // builtin_type_defs, build_library
+import 'scope' as _; // file_scope
 
 // The real `std.core` type registry, resolved by linking the prelude closure the
 // same way the CLI does: parse a trivial (non-SDK) entry, load its imports — which
@@ -39,7 +39,7 @@ fn core_scope() -> Result<FileScope, Error> {
             error('no SDK found — cannot guard the floor against real std.core')
         ),
     };
-    let entry = '/thera_floor_guard/main.thera';  // not under `std/`, so std.core auto-imports
+    let entry = '/thera_floor_guard/main.thera'; // not under `std/`, so std.core auto-imports
     let prog = parse('fn _probe() -> Void { }\n');
     let loaded = load_imports(entry, prog, Option.Some(root));
     let lib = build_library(

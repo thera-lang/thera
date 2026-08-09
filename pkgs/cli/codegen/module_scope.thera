@@ -121,8 +121,8 @@ pub fn type_key(_ owner: String, _ name: String) -> String {
 // `library` backs the on-demand inference codegen consumes for opcode selection
 // (Thera has no `Expr.resolvedType`).
 pub struct ModuleScope {
-    let units: List<FnDecl>;              // index -> declaration
-    let unit_names: List<String>;         // index -> mangled name (e.g. Point.area)
+    let units: List<FnDecl>; // index -> declaration
+    let unit_names: List<String>; // index -> mangled name (e.g. Point.area)
     let unit_self_types: List<Option<String>>; // index -> receiver type, if a method
     let unit_files: List<Option<String>>; // index -> declaring file (for name scoping)
     // Free functions resolve same-file-first, then via this file's **bare surface**
@@ -138,7 +138,7 @@ pub struct ModuleScope {
     // wrong owner misses (and the SDK fixpoint would break), the same discipline
     // that validates values (`file_functions`) and the element model (T2).
     let structs: Map<String, Map<String, StructInfo>>; // owner -> name -> info
-    let enums: Map<String, Map<String, EnumInfo>>;     // owner -> name -> info
+    let enums: Map<String, Map<String, EnumInfo>>; // owner -> name -> info
     let types: List<TypeDef>;
     // The enum name tables emitted as the module's Enums section (name + variant
     // names per enum type id), for named `Debug` rendering. Accumulated as enums

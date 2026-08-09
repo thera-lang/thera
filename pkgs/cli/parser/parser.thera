@@ -45,7 +45,7 @@ impl ParseResult {
 // closers are separate `Gt` tokens (the lexer never combines them — see
 // `token.thera`), so each is recorded by its own offset. Consumed by `fmt`.
 pub struct GenericDelims {
-    let opens: Set<Int>;  // offsets of `<` used as a generic open
+    let opens: Set<Int>; // offsets of `<` used as a generic open
     let closes: Set<Int>; // offsets of `>` used as a generic close
 }
 

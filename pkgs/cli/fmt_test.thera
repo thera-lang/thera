@@ -482,10 +482,41 @@ fn closer_line_aligns_with_its_own_opener() -> Result<Void, Error> {
 }
 
 @test
-fn leaves_trailing_comment_untouched() -> Result<Void, Error> {
-    // The gap before a `//` comment holds a newline (comments end their line), so
-    // Stage A never touches it — but code spacing on the line is still fixed.
-    return check('fn f() {\nlet x=1 ; // set x\n}\n', 'fn f() {\n    let x = 1; // set x\n}\n');
+fn leaves_trailing_comment_text_untouched() -> Result<Void, Error> {
+    // A trailing comment's text is never rewritten — only the code before it and
+    // the one space between.
+    return check('fn f() {\nlet x=1 ; // set  x\n}\n', 'fn f() {\n    let x = 1; // set  x\n}\n');
+}
+
+@test
+fn normalizes_the_gap_before_a_trailing_comment() -> Result<Void, Error> {
+    // One space, always. The padding authors used to align runs of these into
+    // columns is not maintainable by hand — the columns drift as soon as one line
+    // outgrows them — and keeping them true would make a one-line edit a
+    // whole-block diff.
+    return check(
+        'fn f() {\n    a();      // one\n    bbbbbb(); // two\n    c();// three\n}\n',
+        'fn f() {\n    a(); // one\n    bbbbbb(); // two\n    c(); // three\n}\n',
+    );
+}
+
+@test
+fn an_own_line_comment_keeps_its_indentation() -> Result<Void, Error> {
+    // The gap before an own-line comment holds a newline, so it is Stage B's to set
+    // from bracket depth, not Stage A's to collapse.
+    return check(
+        'fn f() {\nx();\n// note\ny();\n}\n',
+        'fn f() {\n    x();\n    // note\n    y();\n}\n',
+    );
+}
+
+@test
+fn a_comment_inside_a_string_is_not_a_comment() -> Result<Void, Error> {
+    // `//` in a string literal is text; the spacing around it is the literal's.
+    return check(
+        'fn f() {\nlet u = \'https://x\' ;\n}\n',
+        'fn f() {\n    let u = \'https://x\';\n}\n',
+    );
 }
 
 // --- comment prose ---

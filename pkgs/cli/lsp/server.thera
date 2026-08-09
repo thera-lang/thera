@@ -11,13 +11,13 @@
 // `package:lsp_server`); here the transport is our own jsonrpc.thera.
 
 import std.json as _;
-import std.io;             // io.Reader, io.Writer
-import std.fiber;          // background workspace-diagnostic worker
+import std.io; // io.Reader, io.Writer
+import std.fiber; // background workspace-diagnostic worker
 
-import '../ast/ast' as _;       // Program
+import '../ast/ast' as _; // Program
 
 import 'jsonrpc';
-import 'outbox';           // the single serialized outbound message sink
+import 'outbox'; // the single serialized outbound message sink
 import 'paths';
 import 'symbols';
 import 'analysis' as _;
@@ -308,7 +308,7 @@ impl Server {
             self.delta_pending = false;
             let pull = match self.open_pull {
                 Some(p) => p,
-                None => return,  // settled (cancel/shutdown); nothing to stream to
+                None => return, // settled (cancel/shutdown); nothing to stream to
             };
             match self.analysis.workspace_delta_interruptible(() => self.ws_generation == gen) {
                 Some(batch) => {
@@ -318,7 +318,7 @@ impl Server {
                         send_progress(self.outbox, pull.token, batch);
                     }
                 },
-                None => return,  // superseded mid-scan
+                None => return, // superseded mid-scan
             }
         }
     }

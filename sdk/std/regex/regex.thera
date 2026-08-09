@@ -39,7 +39,7 @@ native fn _replace_all(_ handle: Int, _ text: String, _ replacement: String) -> 
 
 /// A pattern that failed to compile.
 pub enum RegexError {
-    Syntax(String),   // the engine's message for the offending pattern
+    Syntax(String), // the engine's message for the offending pattern
 }
 
 impl Error for RegexError {
@@ -148,7 +148,7 @@ impl Regex {
             let start = spans[i];
             let end = spans[i + 1];
             if start < 0 {
-                groups.push(Option.None);   // group did not participate
+                groups.push(Option.None); // group did not participate
             } else {
                 groups.push(Option.Some(text.byte_slice(start, end)));
             }

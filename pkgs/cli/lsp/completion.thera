@@ -12,10 +12,10 @@
 
 import std.json as _;
 
-import '../ast/ast' as _;      // Program, Decl, FnDecl; describe_type
-import '../element';   // file_key; Type (the receiver's committed type)
-import '../lexer' as _;  // Token, TokenKind
-import '../source' as _;  // SourceSpan
+import '../ast/ast' as _; // Program, Decl, FnDecl; describe_type
+import '../element'; // file_key; Type (the receiver's committed type)
+import '../lexer' as _; // Token, TokenKind
+import '../source' as _; // SourceSpan
 import 'resolve';
 
 // A completion candidate: its label, LSP `CompletionItemKind`, and a hover-style

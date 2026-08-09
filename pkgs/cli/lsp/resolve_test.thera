@@ -152,7 +152,7 @@ fn test_variant_pattern_binding_still_local() -> Result<Void, Error> {
         + '    };\n'
         + '}\n';
     let use_off = at(src, 'Full(n) => n', 5); // the `n` binding in the pattern
-    let decl_off = at(src, 'Full(n)', 5);     // its own declaration site
+    let decl_off = at(src, 'Full(n)', 5); // its own declaration site
     testing.assert_eq(actual: typed_def_offset(src, use_off), expected: decl_off)?;
     return Result.Ok(void);
 }
@@ -740,7 +740,7 @@ fn test_hover_struct_literal_field() -> Result<Void, Error> {
     let program = program_of(src);
     let ctx = typed_ctx(program);
     let field_decl = src.find('count').unwrap_or(0);
-    let lit = src.find('{ count: 5').unwrap_or(0) + 2;   // the `count` in the literal
+    let lit = src.find('{ count: 5').unwrap_or(0) + 2; // the `count` in the literal
     let r = resolve.resolve_at(ctx, src, lit);
     testing.assert_eq(actual: def_offset_of(r), expected: field_decl)?;
     testing.assert_eq(actual: render_of(r), expected: 'count: Int')?;
@@ -755,7 +755,7 @@ fn test_hover_call_argument_label() -> Result<Void, Error> {
     let program = program_of(src);
     let ctx = typed_ctx(program);
     let param_decl = src.find('n: Int').unwrap_or(0);
-    let label = src.find('greet(n: 3').unwrap_or(0) + 6;   // the `n` label
+    let label = src.find('greet(n: 3').unwrap_or(0) + 6; // the `n` label
     let r = resolve.resolve_at(ctx, src, label);
     testing.assert_eq(actual: def_offset_of(r), expected: param_decl)?;
     testing.assert_eq(actual: render_of(r), expected: 'n: Int')?;

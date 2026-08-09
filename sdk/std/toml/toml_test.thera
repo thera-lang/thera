@@ -57,23 +57,23 @@ fn test_integer_range() -> Result<Void, Error> {
     let hex = parse('v = 0x7FFFFFFFFFFFFFFF\n')?;
     testing.assert_eq(actual: hex.get_int('v'), expected: Option.Some(9223372036854775807))?;
 
-    testing.assert_err(parse('v = 9223372036854775808\n'))?;    // i64 max + 1
-    testing.assert_err(parse('v = -9223372036854775809\n'))?;   // i64 min - 1
-    testing.assert_err(parse('v = 0x8000000000000000\n'))?;     // sign bit set
+    testing.assert_err(parse('v = 9223372036854775808\n'))?; // i64 max + 1
+    testing.assert_err(parse('v = -9223372036854775809\n'))?; // i64 min - 1
+    testing.assert_err(parse('v = 0x8000000000000000\n'))?; // sign bit set
     testing.assert_err(parse('v = 0o1000000000000000000000\n'))?;
     return Result.Ok(void);
 }
 
 @test
 fn test_integer_syntax_errors() -> Result<Void, Error> {
-    testing.assert_err(parse('v = 03\n'))?;        // leading zero
-    testing.assert_err(parse('v = 1__2\n'))?;      // doubled underscore
-    testing.assert_err(parse('v = 1_\n'))?;        // trailing underscore
-    testing.assert_err(parse('v = _1\n'))?;        // leading underscore
-    testing.assert_err(parse('v = 0x\n'))?;        // no digits after prefix
-    testing.assert_err(parse('v = 0x_1\n'))?;      // underscore before first digit
-    testing.assert_err(parse('v = 0o8\n'))?;       // digit out of base
-    testing.assert_err(parse('v = -0x1\n'))?;      // prefix forms take no sign
+    testing.assert_err(parse('v = 03\n'))?; // leading zero
+    testing.assert_err(parse('v = 1__2\n'))?; // doubled underscore
+    testing.assert_err(parse('v = 1_\n'))?; // trailing underscore
+    testing.assert_err(parse('v = _1\n'))?; // leading underscore
+    testing.assert_err(parse('v = 0x\n'))?; // no digits after prefix
+    testing.assert_err(parse('v = 0x_1\n'))?; // underscore before first digit
+    testing.assert_err(parse('v = 0o8\n'))?; // digit out of base
+    testing.assert_err(parse('v = -0x1\n'))?; // prefix forms take no sign
     return Result.Ok(void);
 }
 
@@ -103,7 +103,7 @@ fn test_float_specials() -> Result<Void, Error> {
     testing.assert_eq(actual: doc.get_double('b'), expected: Option.Some(math.INFINITY))?;
     testing.assert_eq(actual: doc.get_double('c'), expected: Option.Some(0.0 - math.INFINITY))?;
     let d = doc.get_double('d').unwrap_or(0.0);
-    testing.assert_eq(actual: d != d, expected: true)?;   // NaN is unequal to itself
+    testing.assert_eq(actual: d != d, expected: true)?; // NaN is unequal to itself
     let e = doc.get_double('e').unwrap_or(0.0);
     testing.assert_eq(actual: e != e, expected: true)?;
     return Result.Ok(void);
@@ -111,11 +111,11 @@ fn test_float_specials() -> Result<Void, Error> {
 
 @test
 fn test_float_syntax_errors() -> Result<Void, Error> {
-    testing.assert_err(parse('v = .5\n'))?;        // digits required before the dot
-    testing.assert_err(parse('v = 5.\n'))?;        // and after it
+    testing.assert_err(parse('v = .5\n'))?; // digits required before the dot
+    testing.assert_err(parse('v = 5.\n'))?; // and after it
     testing.assert_err(parse('v = 1.e3\n'))?;
-    testing.assert_err(parse('v = 7e\n'))?;        // empty exponent
-    testing.assert_err(parse('v = 03.14\n'))?;     // leading zero
+    testing.assert_err(parse('v = 7e\n'))?; // empty exponent
+    testing.assert_err(parse('v = 03.14\n'))?; // leading zero
     return Result.Ok(void);
 }
 
@@ -136,11 +136,11 @@ fn test_basic_strings() -> Result<Void, Error> {
 
 @test
 fn test_basic_string_errors() -> Result<Void, Error> {
-    testing.assert_err(parse('v = "no end\n'))?;             // unterminated
-    testing.assert_err(parse('v = "slash \\/ escape"\n'))?;  // \/ is JSON, not TOML
-    testing.assert_err(parse('v = "\\uD800"\n'))?;           // surrogate: not a scalar value
-    testing.assert_err(parse('v = "\\U00110000"\n'))?;       // beyond U+10FFFF
-    testing.assert_err(parse('v = "\\x41"\n'))?;             // \x is not in the set
+    testing.assert_err(parse('v = "no end\n'))?; // unterminated
+    testing.assert_err(parse('v = "slash \\/ escape"\n'))?; // \/ is JSON, not TOML
+    testing.assert_err(parse('v = "\\uD800"\n'))?; // surrogate: not a scalar value
+    testing.assert_err(parse('v = "\\U00110000"\n'))?; // beyond U+10FFFF
+    testing.assert_err(parse('v = "\\x41"\n'))?; // \x is not in the set
     // A raw control character must be escaped (tab is the exception).
     let ctrl = String.from_chars([118, 32, 61, 32, 34, 7, 34, 10]); // v = "<BEL>"
     testing.assert_err(parse(ctrl))?;
@@ -239,11 +239,11 @@ fn test_dotted_keys() -> Result<Void, Error> {
 
 @test
 fn test_key_semantics_errors() -> Result<Void, Error> {
-    testing.assert_err(parse('a = 1\na = 2\n'))?;             // duplicate key
-    testing.assert_err(parse('a = 1\na.b = 2\n'))?;           // a value is not a table
-    testing.assert_err(parse('a.b.c = 1\na.b = 2\n'))?;       // redefining a dotted table
-    testing.assert_err(parse('t = { x = 1 }\nt.y = 2\n'))?;   // inline tables are closed
-    testing.assert_err(parse('t = { x = 1, x = 2 }\n'))?;     // duplicate inside inline
+    testing.assert_err(parse('a = 1\na = 2\n'))?; // duplicate key
+    testing.assert_err(parse('a = 1\na.b = 2\n'))?; // a value is not a table
+    testing.assert_err(parse('a.b.c = 1\na.b = 2\n'))?; // redefining a dotted table
+    testing.assert_err(parse('t = { x = 1 }\nt.y = 2\n'))?; // inline tables are closed
+    testing.assert_err(parse('t = { x = 1, x = 2 }\n'))?; // duplicate inside inline
     testing.assert_err(parse('t = { a.b = 1, a.b.c = 2 }\n'))?;
     // A shared dotted prefix is legal — only the leaves must be new.
     let doc = parse('a.b = 1\na.c = 2\n')?;
@@ -275,7 +275,7 @@ fn test_arrays() -> Result<Void, Error> {
     // Newlines, comments, and a trailing comma are all legal inside.
     let ml = parse('v = [\n  1, # one\n  2,\n]\n')?;
     testing.assert_eq(actual: len_of(ml.get_array('v')), expected: 2)?;
-    testing.assert_err(parse('v = [1 2]\n'))?;    // a comma is required
+    testing.assert_err(parse('v = [1 2]\n'))?; // a comma is required
     return Result.Ok(void);
 }
 
@@ -289,8 +289,8 @@ fn test_inline_tables() -> Result<Void, Error> {
     testing.assert_eq(actual: doc.get_int('name.first.b'), expected: Option.Some(2))?;
     testing.assert_eq(actual: doc.get_int('nest.inner.v'), expected: Option.Some(3))?;
 
-    testing.assert_err(parse('v = { a = 1, }\n'))?;           // no trailing comma
-    testing.assert_err(parse('v = { a = 1\n, b = 2 }\n'))?;   // single-line only
+    testing.assert_err(parse('v = { a = 1, }\n'))?; // no trailing comma
+    testing.assert_err(parse('v = { a = 1\n, b = 2 }\n'))?; // single-line only
     // ... though a value inside may still span lines (an array can).
     let arr = parse('v = { a = [\n1,\n2] }\n')?;
     testing.assert_eq(actual: len_of(arr.get_array('v.a')), expected: 2)?;
@@ -315,11 +315,11 @@ fn test_comments_and_layout() -> Result<Void, Error> {
 
 @test
 fn test_document_errors() -> Result<Void, Error> {
-    testing.assert_err(parse('a\n'))?;             // key without =
-    testing.assert_err(parse('a =\n'))?;           // = without value
-    testing.assert_err(parse('a = 1 b = 2\n'))?;   // junk after a value
-    testing.assert_err(parse('= 1\n'))?;           // value without key
-    testing.assert_err(parse('a = truex\n'))?;     // not a boolean
+    testing.assert_err(parse('a\n'))?; // key without =
+    testing.assert_err(parse('a =\n'))?; // = without value
+    testing.assert_err(parse('a = 1 b = 2\n'))?; // junk after a value
+    testing.assert_err(parse('= 1\n'))?; // value without key
+    testing.assert_err(parse('a = truex\n'))?; // not a boolean
     return Result.Ok(void);
 }
 
@@ -366,17 +366,17 @@ fn test_datetime_normalization() -> Result<Void, Error> {
 
 @test
 fn test_datetime_validation() -> Result<Void, Error> {
-    testing.assert_err(parse('d = 1979-13-01\n'))?;              // month 13
-    testing.assert_err(parse('d = 1979-00-01\n'))?;              // month 0
-    testing.assert_err(parse('d = 1979-02-30\n'))?;              // February 30th
-    testing.assert_err(parse('d = 2100-02-29\n'))?;              // 2100 is not a leap year
-    testing.assert_err(parse('d = 1979-05-27T24:00:00Z\n'))?;    // hour 24
-    testing.assert_err(parse('d = 1979-05-27T07:61:00Z\n'))?;    // minute 61
-    testing.assert_err(parse('d = 1979-05-27T07:32:61Z\n'))?;    // second 61
+    testing.assert_err(parse('d = 1979-13-01\n'))?; // month 13
+    testing.assert_err(parse('d = 1979-00-01\n'))?; // month 0
+    testing.assert_err(parse('d = 1979-02-30\n'))?; // February 30th
+    testing.assert_err(parse('d = 2100-02-29\n'))?; // 2100 is not a leap year
+    testing.assert_err(parse('d = 1979-05-27T24:00:00Z\n'))?; // hour 24
+    testing.assert_err(parse('d = 1979-05-27T07:61:00Z\n'))?; // minute 61
+    testing.assert_err(parse('d = 1979-05-27T07:32:61Z\n'))?; // second 61
     testing.assert_err(parse('d = 1979-05-27T07:32:00+24:00\n'))?; // offset hour 24
-    testing.assert_err(parse('d = 1979-05-27T07:32\n'))?;        // seconds required in 1.0
-    testing.assert_err(parse('d = 1979-05-27T07:32:00.\n'))?;    // empty fraction
-    testing.assert_err(parse('t = 07:32\n'))?;                   // seconds required
+    testing.assert_err(parse('d = 1979-05-27T07:32\n'))?; // seconds required in 1.0
+    testing.assert_err(parse('d = 1979-05-27T07:32:00.\n'))?; // empty fraction
+    testing.assert_err(parse('t = 07:32\n'))?; // seconds required
     // Leap cases that must pass.
     let ok = parse('a = 2000-02-29\nb = 2024-02-29\nc = 1990-12-31T23:59:60Z\n')?;
     testing.assert_eq(actual: datetime_of(ok.get('a')).text, expected: '2000-02-29')?;
@@ -426,7 +426,7 @@ fn test_super_table_after_subtable() -> Result<Void, Error> {
     let doc = parse('[x.y.z.w]\na = 1\n[x]\nb = 2\n')?;
     testing.assert_eq(actual: doc.get_int('x.y.z.w.a'), expected: Option.Some(1))?;
     testing.assert_eq(actual: doc.get_int('x.b'), expected: Option.Some(2))?;
-    testing.assert_err(parse('[x.y]\n[x]\n[x]\n'))?;      // second [x] redefines
+    testing.assert_err(parse('[x.y]\n[x]\n[x]\n'))?; // second [x] redefines
     testing.assert_err(parse('[a]\nx = 1\n[a]\ny = 2\n'))?; // plain duplicate
     return Result.Ok(void);
 }
@@ -492,7 +492,7 @@ fn test_header_redefinition_errors() -> Result<Void, Error> {
     testing.assert_err(parse('a = 1\n[a]\n'))?;
     testing.assert_err(parse('a = 1\n[a.b]\n'))?;
     testing.assert_err(parse('fruit = []\n[[fruit]]\n'))?;
-    testing.assert_err(parse('t = { x = 1 }\n[t]\n'))?;      // inline tables are closed
+    testing.assert_err(parse('t = { x = 1 }\n[t]\n'))?; // inline tables are closed
     testing.assert_err(parse('t = { x = 1 }\n[t.y]\n'))?;
     // A table and an array of tables cannot trade places.
     testing.assert_err(parse('[a]\n[[a]]\n'))?;
@@ -530,11 +530,11 @@ fn test_header_key_collisions() -> Result<Void, Error> {
 
 @test
 fn test_header_syntax_errors() -> Result<Void, Error> {
-    testing.assert_err(parse('[a\n'))?;          // unclosed
-    testing.assert_err(parse('[]\n'))?;          // empty
-    testing.assert_err(parse('[a.]\n'))?;        // trailing dot
-    testing.assert_err(parse('[a] junk\n'))?;    // trailing junk
-    testing.assert_err(parse('[[a]\n'))?;        // mismatched close
+    testing.assert_err(parse('[a\n'))?; // unclosed
+    testing.assert_err(parse('[]\n'))?; // empty
+    testing.assert_err(parse('[a.]\n'))?; // trailing dot
+    testing.assert_err(parse('[a] junk\n'))?; // trailing junk
+    testing.assert_err(parse('[[a]\n'))?; // mismatched close
     testing.assert_err(parse('[[a]]]\n'))?;
     testing.assert_err(parse('[a]]\n'))?;
     return Result.Ok(void);
@@ -560,8 +560,8 @@ fn test_manifest_shape() -> Result<Void, Error> {
 fn test_navigation_misses() -> Result<Void, Error> {
     let doc = parse('a.b = 1\ns = "x"\n')?;
     testing.assert_eq(actual: doc.get('nope').is_none(), expected: true)?;
-    testing.assert_eq(actual: doc.get('a.b.c').is_none(), expected: true)?;  // through a value
-    testing.assert_eq(actual: doc.get_int('s'), expected: Option.None)?;     // wrong type
+    testing.assert_eq(actual: doc.get('a.b.c').is_none(), expected: true)?; // through a value
+    testing.assert_eq(actual: doc.get_int('s'), expected: Option.None)?; // wrong type
     testing.assert_eq(actual: doc.get_int('a.b'), expected: Option.Some(1))?;
     testing.assert_eq(actual: doc.get_int('missing.port').unwrap_or(8080), expected: 8080)?;
     // at() on a non-array misses; kind() names kinds in TOML vocabulary.

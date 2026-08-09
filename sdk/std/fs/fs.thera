@@ -94,7 +94,7 @@ pub struct Metadata {
 /// One entry of a `read_dir`: a basename plus the kind the directory read reported,
 /// without following symlinks (see `read_dir`).
 pub struct DirEntry {
-    let name: String;   // basename, not a full path — join it with the directory
+    let name: String; // basename, not a full path — join it with the directory
     let kind: FileKind;
 }
 
@@ -474,7 +474,7 @@ pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError> {
 /// with `symlink_metadata`), so a symlinked directory is yielded as a leaf and a
 /// link cycle can't loop the traversal.
 pub struct WalkIter {
-    let stack: List<String>;  // frontier of discovered paths to visit (LIFO)
+    let stack: List<String>; // frontier of discovered paths to visit (LIFO)
     let mut err: Option<FsError>;
 }
 

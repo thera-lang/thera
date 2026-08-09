@@ -9,8 +9,8 @@
 // built over these — a test reads best when its *assertion* machinery sits beside
 // the assertions, while the shared parse/stamp logic lives in one place.
 
-import 'ast/ast' as _;       // Program
-import 'lexer/lexer' as _;   // tokenize
+import 'ast/ast' as _; // Program
+import 'lexer/lexer' as _; // tokenize
 import 'parser/parser' as _; // parse_tokens
 
 // Tokenize and parse `src`, returning its `Program` (dropping the token stream and

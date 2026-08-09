@@ -51,7 +51,7 @@ fn walk_dir(
 ) -> Void {
     let entries = match fs.read_dir(dir) {
         Ok(es) => es,
-        Err(_) => return,  // unreadable directory — skip its subtree
+        Err(_) => return, // unreadable directory — skip its subtree
     };
     for e in entries {
         let full = path.join(dir, e.name);

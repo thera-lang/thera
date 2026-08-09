@@ -167,7 +167,7 @@ pub fn url_encode(_ s: String) -> String {
     for p in bytes.enumerate() {
         let b = p.value;
         if is_unreserved(b) {
-            cps.push(b);   // an unreserved byte is ASCII; its value is its code point
+            cps.push(b); // an unreserved byte is ASCII; its value is its code point
         } else {
             cps.push(char.PERCENT);
             cps.push(hex_digit((b >> 4) & 0xF, upper: true));
@@ -203,7 +203,7 @@ pub fn url_decode(_ s: String) -> Result<String, Error> {
             bytes.push((hi << 4) | lo);
             i = i + 3;
         } else if c <= char.DEL {
-            bytes.push(c);   // a literal ASCII byte
+            bytes.push(c); // a literal ASCII byte
             i = i + 1;
         } else {
             // A raw non-ASCII character: contribute its UTF-8 bytes so decoding is
@@ -223,13 +223,13 @@ pub fn url_decode(_ s: String) -> Result<String, Error> {
 /// The base64 character (code point) for a 6-bit value 0..63.
 fn b64_char(_ v: Int) -> Int {
     if v < 26 {
-        return char.UPPER_A + v;            // 'A'..'Z'
+        return char.UPPER_A + v; // 'A'..'Z'
     }
     if v < 52 {
-        return char.LOWER_A + (v - 26);     // 'a'..'z'
+        return char.LOWER_A + (v - 26); // 'a'..'z'
     }
     if v < 62 {
-        return char.DIGIT_0 + (v - 52);     // '0'..'9'
+        return char.DIGIT_0 + (v - 52); // '0'..'9'
     }
     if v == 62 {
         return char.PLUS;
@@ -241,13 +241,13 @@ fn b64_char(_ v: Int) -> Int {
 /// (`=` padding included — it is handled by the caller).
 fn b64_value(_ cp: Int) -> Int {
     if char.is_upper(cp) {
-        return cp - char.UPPER_A;           // 'A'..'Z' -> 0..25
+        return cp - char.UPPER_A; // 'A'..'Z' -> 0..25
     }
     if char.is_lower(cp) {
-        return cp - char.LOWER_A + 26;      // 'a'..'z' -> 26..51
+        return cp - char.LOWER_A + 26; // 'a'..'z' -> 26..51
     }
     if char.is_digit(cp) {
-        return cp - char.DIGIT_0 + 52;      // '0'..'9' -> 52..61
+        return cp - char.DIGIT_0 + 52; // '0'..'9' -> 52..61
     }
     if cp == char.PLUS {
         return 62;
@@ -262,12 +262,12 @@ fn b64_value(_ cp: Int) -> Int {
 /// `upper` is set.
 fn hex_digit(_ nibble: Int, upper: Bool = false) -> Int {
     if nibble < 10 {
-        return char.DIGIT_0 + nibble;           // '0'..'9'
+        return char.DIGIT_0 + nibble; // '0'..'9'
     }
     if upper {
-        return char.UPPER_A + (nibble - 10);    // 'A'..'F'
+        return char.UPPER_A + (nibble - 10); // 'A'..'F'
     }
-    return char.LOWER_A + (nibble - 10);        // 'a'..'f'
+    return char.LOWER_A + (nibble - 10); // 'a'..'f'
 }
 
 /// The value of a hex digit (code point), upper- or lowercase, or -1 if not hex.

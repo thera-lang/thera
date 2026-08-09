@@ -7,10 +7,10 @@
 
 import std.json as _;
 
-import '../source' as _;  // SourceSpan
-import 'resolve';         // resolve_at
-import 'positions';     // span_to_range
-import 'paths';             // path_to_uri
+import '../source' as _; // SourceSpan
+import 'resolve'; // resolve_at
+import 'positions'; // span_to_range
+import 'paths'; // path_to_uri
 
 // The LSP `Location` (as JSON) for the definition of the symbol at `offset`, or
 // JSON null when nothing resolves to a navigable declaration.

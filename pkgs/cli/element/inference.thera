@@ -1039,14 +1039,14 @@ fn infer_call_field(
 // lowering for the resolved kind (a native symbol vs. a unit index vs. a virtual
 // selector) — it no longer re-derives the classification against its own tables.
 pub enum CalleeKind {
-    EnumCtor,       // `(ns.)?Enum.Variant(...)`
-    EnumName,       // `e.name()` on an enum value
-    Namespace,      // `ns.fn(...)` — a namespaced free or native function
-    StaticMethod,   // `(ns.)?Type.method(...)` — no receiver
+    EnumCtor, // `(ns.)?Enum.Variant(...)`
+    EnumName, // `e.name()` on an enum value
+    Namespace, // `ns.fn(...)` — a namespaced free or native function
+    StaticMethod, // `(ns.)?Type.method(...)` — no receiver
     InstanceMethod, // `recv.method(...)` on a concrete receiver (user or native)
-    Virtual,        // dynamic dispatch: interface-typed or interface-bound receiver
-    FieldCall,      // a function-valued struct field invoked like a method
-    Unresolved,     // the site doesn't resolve
+    Virtual, // dynamic dispatch: interface-typed or interface-bound receiver
+    FieldCall, // a function-valued struct field invoked like a method
+    Unresolved, // the site doesn't resolve
 }
 
 // Classify `obj.field(...)` against the element model — the same cascade
@@ -1759,8 +1759,8 @@ pub fn struct_field_immutable(_ recv: Type, _ field: String, _ ctx: InferCtx) ->
 // method") double lookup.
 pub enum MethodLookup {
     Method(MethodResolution), // an arg-checkable impl/default method + bindings
-    Lenient,                  // resolves, but nothing to arg-check
-    Missing,                  // a definitive miss
+    Lenient, // resolves, but nothing to arg-check
+    Missing, // a definitive miss
 }
 
 pub fn lookup_method(
@@ -1900,7 +1900,7 @@ pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<
 // each re-walking the type-name/namespace tables.
 pub enum StaticReceiver {
     StaticMethod(TypeDefElement, FunctionElement), // `(ns.)?Type.method` — owner + method
-    NamespaceFn(FunctionElement),                  // `ns.fn` — a namespaced free/native fn
+    NamespaceFn(FunctionElement), // `ns.fn` — a namespaced free/native fn
 }
 
 pub fn resolve_static_receiver(
