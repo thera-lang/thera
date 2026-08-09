@@ -8,19 +8,19 @@ import std.json as _;
 import std.fs;
 import std.fiber;
 
-import '../ast/ast' as _;      // Program
+import '../ast/ast' as _; // Program
 import '../loader';
 import '../session';
-import 'resolve';         // ResolveCtx
-import 'references';       // collect_in / matching_spans (semantic)
-import 'rename';           // edits_for / is_identifier (semantic rename)
-import 'workspace';       // thera_files (on-disk project scan)
-import 'diagnostics';     // render_diagnostics
-import 'surface';         // surface_signature (cross-file-change detection)
-import 'glob';             // exclude-pattern matching
-import 'fixtures';         // conformance-fixture diagnostic suppression
-import 'paths';             // uri_to_path
-import 'positions';       // position_to_offset
+import 'resolve'; // ResolveCtx
+import 'references'; // collect_in / matching_spans (semantic)
+import 'rename'; // edits_for / is_identifier (semantic rename)
+import 'workspace'; // thera_files (on-disk project scan)
+import 'diagnostics'; // render_diagnostics
+import 'surface'; // surface_signature (cross-file-change detection)
+import 'glob'; // exclude-pattern matching
+import 'fixtures'; // conformance-fixture diagnostic suppression
+import 'paths'; // uri_to_path
+import 'positions'; // position_to_offset
 
 pub struct Analysis {
     // uri -> current text (open-buffer overlays over what's on disk). The same
@@ -806,7 +806,7 @@ impl Analysis {
         let files = self.scan_files();
         let by_file = match self.scan_by_file(files, still_current) {
             Some(m) => m,
-            None => return Option.None,  // superseded mid-scan
+            None => return Option.None, // superseded mid-scan
         };
         // One report per scanned file (empty items = clean), keyed by canonical
         // path so an open buffer and its on-disk copy don't double-report. Excluded
@@ -871,7 +871,7 @@ impl Analysis {
         let files = self.scan_files();
         let by_file = match self.scan_by_file(files, still_current) {
             Some(m) => m,
-            None => return Option.None,  // superseded mid-scan
+            None => return Option.None, // superseded mid-scan
         };
         let items: List<Json> = [];
         let next_emitted: Map<String, WsSent> = [:];
@@ -1032,7 +1032,7 @@ impl Analysis {
         for f in files {
             let prev = match cache.contents.get(loader.canonical_path(f.path)) {
                 Some(t) => t,
-                None => return Option.None,  // a file this scan didn't see
+                None => return Option.None, // a file this scan didn't see
             };
             if prev != f.text {
                 return Option.None;

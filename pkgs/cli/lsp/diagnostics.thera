@@ -5,8 +5,8 @@
 
 import std.json as _;
 
-import '../diagnostic';  // Diagnostic, Severity
-import 'positions';       // span_to_range
+import '../diagnostic'; // Diagnostic, Severity
+import 'positions'; // span_to_range
 
 // The LSP `Diagnostic[]` for the document at (canonical) `canon`, as a JSON array.
 // The session reports the whole closure (incl. imported-file errors); the LSP

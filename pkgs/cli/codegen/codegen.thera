@@ -22,7 +22,7 @@ import '../element' as _;
 import '../element';
 import 'module_scope' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error
-import std.env;   // the differential inference oracle (THERA_INFER_ORACLE) reads a flag
+import std.env; // the differential inference oracle (THERA_INFER_ORACLE) reads a flag
 
 pub struct CodegenResult {
     let module: Module;
@@ -2583,10 +2583,10 @@ pub struct DispatchPlan {
 // subrange (`lo`/`hi`) changes; everything here stays constant, so it rides in one
 // struct rather than as five repeated parameters.
 struct MatchCtx {
-    let subject: Int;           // slot holding the subject value
-    let subject_ty: Type;       // the subject's full (instantiated) type
-    let tag_slot: Int;          // slot holding the hoisted `enum.tag`
-    let end: Int;               // the merge label each arm body jumps to
+    let subject: Int; // slot holding the subject value
+    let subject_ty: Type; // the subject's full (instantiated) type
+    let tag_slot: Int; // slot holding the hoisted `enum.tag`
+    let end: Int; // the merge label each arm body jumps to
     let expected: Option<Type>; // the expected result type of an arm body
 }
 

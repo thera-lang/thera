@@ -116,7 +116,7 @@ impl Duration {
 // --- Instant: a monotonic point in time, for measuring elapsed spans ---
 
 pub struct Instant {
-    let nanos: Int;   // monotonic, relative to an arbitrary process baseline
+    let nanos: Int; // monotonic, relative to an arbitrary process baseline
 }
 
 /// The current monotonic instant. Only differences are meaningful.
@@ -146,7 +146,7 @@ pub fn sleep(_ d: Duration) -> Void {
 // --- DateTime: a wall-clock instant, UTC, stored as Unix milliseconds ---
 
 pub struct DateTime {
-    let millis: Int;   // Unix epoch milliseconds, UTC
+    let millis: Int; // Unix epoch milliseconds, UTC
 }
 
 /// The current wall-clock time (UTC).
@@ -176,13 +176,13 @@ impl DateTime {
     /// non-zero millisecond part is included as '.sss'.
     pub fn format_rfc3339(self) -> String {
         let total_secs = floor_div(self.millis, 1000);
-        let ms = self.millis - total_secs * 1000;        // [0, 999]
+        let ms = self.millis - total_secs * 1000; // [0, 999]
         let days = floor_div(total_secs, 86400);
-        let sod = total_secs - days * 86400;             // [0, 86399]
+        let sod = total_secs - days * 86400; // [0, 86399]
         let hour = sod / 3600;
         let minute = (sod % 3600) / 60;
         let second = sod % 60;
-        let date = civil_from_days(days);                // [year, month, day]
+        let date = civil_from_days(days); // [year, month, day]
         let stamp = pad4(date[0]) + '-' + pad2(date[1]) + '-' + pad2(date[2])
             + 'T' + pad2(hour) + ':' + pad2(minute) + ':' + pad2(second);
         if ms == 0 {
@@ -331,12 +331,12 @@ fn days_from_civil(_ y0: Int, _ m: Int, _ d: Int) -> Int {
     if y < 0 {
         era = (y - 399) / 400;
     }
-    let yoe = y - era * 400;                       // [0, 399]
+    let yoe = y - era * 400; // [0, 399]
     let mut mq = m - 3;
     if m <= 2 {
         mq = m + 9;
     }
-    let doy = (153 * mq + 2) / 5 + d - 1;          // [0, 365]
+    let doy = (153 * mq + 2) / 5 + d - 1; // [0, 365]
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // [0, 146096]
     return era * 146097 + doe - 719468;
 }
@@ -348,12 +348,12 @@ fn civil_from_days(_ days: Int) -> List<Int> {
     if z < 0 {
         era = (z - 146096) / 146097;
     }
-    let doe = z - era * 146097;                    // [0, 146096]
+    let doe = z - era * 146097; // [0, 146096]
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
     let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);  // [0, 365]
-    let mp = (5 * doy + 2) / 153;                  // [0, 11]
-    let d = doy - (153 * mp + 2) / 5 + 1;          // [1, 31]
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
     let mut m = mp + 3;
     if mp >= 10 {
         m = mp - 9;

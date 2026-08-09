@@ -4,20 +4,20 @@
 //! This is a barrel: it only re-exports its sibling files (see docs/language.md),
 //! it defines no symbols of its own.
 
-pub import 'interfaces';   // Eq, Display, Debug
-pub import 'ordering';     // Ordering, Ord (total ordering)
-pub import 'source_loc';   // SourceLoc (the `#loc` metaconstant's type)
-pub import 'io';           // println, print
-pub import 'option';       // Option<T>
-pub import 'result';       // Result<T, E>
-pub import 'error';        // Error
-pub import 'void';         // Void (the unit type; the value `void`)
-pub import 'bool';         // Bool (the built-in boolean type)
-pub import 'int';          // Int methods (abs, min, max, clamp, to_double)
-pub import 'double';       // Double methods (abs, min, max, clamp, to_int)
-pub import 'string';       // String static/native helpers
-pub import 'bytes';        // Bytes + BytesBuilder
-pub import 'list';         // List helpers
-pub import 'map';          // Map helpers
-pub import 'set';          // Set<T> (over Map)
-pub import 'iterator';     // Iterator<T> (the lazy iteration protocol)
+pub import 'interfaces'; // Eq, Display, Debug
+pub import 'ordering'; // Ordering, Ord (total ordering)
+pub import 'source_loc'; // SourceLoc (the `#loc` metaconstant's type)
+pub import 'io'; // println, print
+pub import 'option'; // Option<T>
+pub import 'result'; // Result<T, E>
+pub import 'error'; // Error
+pub import 'void'; // Void (the unit type; the value `void`)
+pub import 'bool'; // Bool (the built-in boolean type)
+pub import 'int'; // Int methods (abs, min, max, clamp, to_double)
+pub import 'double'; // Double methods (abs, min, max, clamp, to_int)
+pub import 'string'; // String static/native helpers
+pub import 'bytes'; // Bytes + BytesBuilder
+pub import 'list'; // List helpers
+pub import 'map'; // Map helpers
+pub import 'set'; // Set<T> (over Map)
+pub import 'iterator'; // Iterator<T> (the lazy iteration protocol)

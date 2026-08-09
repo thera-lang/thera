@@ -44,49 +44,49 @@ pub enum TokenKind {
     Identifier,
 
     // Punctuation
-    LBrace,     // {
-    RBrace,     // }
-    LParen,     // (
-    RParen,     // )
-    LBracket,   // [
-    RBracket,   // ]
-    Comma,      // ,
-    Semi,       // ;
-    Colon,      // :
-    Dot,        // .
-    DotDot,     // ..
-    Arrow,      // ->
-    FatArrow,   // =>
-    Question,   // ?
-    At,         // @
-    Hash,       // #  (compiler metaconstants, e.g. #loc)
+    LBrace, // {
+    RBrace, // }
+    LParen, // (
+    RParen, // )
+    LBracket, // [
+    RBracket, // ]
+    Comma, // ,
+    Semi, // ;
+    Colon, // :
+    Dot, // .
+    DotDot, // ..
+    Arrow, // ->
+    FatArrow, // =>
+    Question, // ?
+    At, // @
+    Hash, // #  (compiler metaconstants, e.g. #loc)
     Underscore, // _  (label suppressor and wildcard pattern)
 
     // Operators
-    Plus,      // +
-    Minus,     // -
-    Star,      // *
-    Slash,     // /
-    Percent,   // %
-    PlusEq,    // +=
-    MinusEq,   // -=
-    StarEq,    // *=
-    SlashEq,   // /=
+    Plus, // +
+    Minus, // -
+    Star, // *
+    Slash, // /
+    Percent, // %
+    PlusEq, // +=
+    MinusEq, // -=
+    StarEq, // *=
+    SlashEq, // /=
     PercentEq, // %=
-    Eq,        // =
-    EqEq,      // ==
-    BangEq,    // !=
-    Lt,        // <
-    Gt,        // >
-    LtEq,      // <=
-    GtEq,      // >=
-    AmpAmp,    // &&
-    PipePipe,  // ||
-    Bang,      // !
-    Amp,       // &  (bitwise and)
-    Pipe,      // |  (bitwise or)
-    Caret,     // ^  (bitwise xor)
-    Tilde,     // ~  (bitwise complement)
+    Eq, // =
+    EqEq, // ==
+    BangEq, // !=
+    Lt, // <
+    Gt, // >
+    LtEq, // <=
+    GtEq, // >=
+    AmpAmp, // &&
+    PipePipe, // ||
+    Bang, // !
+    Amp, // &  (bitwise and)
+    Pipe, // |  (bitwise or)
+    Caret, // ^  (bitwise xor)
+    Tilde, // ~  (bitwise complement)
     // Note: the shift operators << >> >>> are not tokens; the parser combines
     // adjacent `Lt`/`Gt` tokens, leaving nested generics (`List<List<Int>>`) to
     // close with single `>` tokens.

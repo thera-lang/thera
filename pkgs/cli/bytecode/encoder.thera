@@ -40,8 +40,8 @@ const SECTION_ENUMS: Int = 8;
 // the encoded pool matches the runtime's. A linear scan keeps the port free of
 // map-field mutation; the pool is small.
 struct StringPool {
-    let strings: List<String>;      // pool entries, in first-seen (insertion) order
-    let index: Map<String, Int>;    // entry -> its pool index, mirroring `strings`
+    let strings: List<String>; // pool entries, in first-seen (insertion) order
+    let index: Map<String, Int>; // entry -> its pool index, mirroring `strings`
 }
 
 impl StringPool {

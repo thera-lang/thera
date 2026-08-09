@@ -57,15 +57,15 @@ pub enum Toml {
     Str(String),
     Datetime(Datetime),
     Array(List<Toml>),
-    Table(Map<String, Toml>),    // insertion-ordered
+    Table(Map<String, Toml>), // insertion-ordered
 }
 
 /// Which of TOML's four date-time shapes a `Datetime` carries.
 pub enum DatetimeKind {
-    OffsetDateTime,    // 1979-05-27T07:32:00Z
-    LocalDateTime,     // 1979-05-27T07:32:00
-    LocalDate,         // 1979-05-27
-    LocalTime,         // 07:32:00
+    OffsetDateTime, // 1979-05-27T07:32:00Z
+    LocalDateTime, // 1979-05-27T07:32:00
+    LocalDate, // 1979-05-27
+    LocalTime, // 07:32:00
 }
 
 /// A TOML date-time: the kind plus the validated, normalized source text (the

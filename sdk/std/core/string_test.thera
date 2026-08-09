@@ -87,7 +87,7 @@ fn test_pad() -> Result<Void, Error> {
 fn test_trim_start_end() -> Result<Void, Error> {
     testing.assert_eq(actual: '  hi  '.trim_start(), expected: 'hi  ')?;
     testing.assert_eq(actual: '  hi  '.trim_end(), expected: '  hi')?;
-    testing.assert_eq(actual: 'hi'.trim_start(), expected: 'hi')?;     // nothing to strip
+    testing.assert_eq(actual: 'hi'.trim_start(), expected: 'hi')?; // nothing to strip
     testing.assert_eq(actual: '\t\nhi'.trim_start(), expected: 'hi')?; // tabs/newlines too
     return Result.Ok(void);
 }
@@ -126,10 +126,10 @@ fn test_from_chars_is_total() -> Result<Void, Error> {
 fn test_slice() -> Result<Void, Error> {
     testing.assert_eq(actual: 'hello'.slice(1, 4), expected: 'ell')?;
     testing.assert_eq(actual: 'hello'.slice(0, 5), expected: 'hello')?;
-    testing.assert_eq(actual: 'hello'.slice(0, 99), expected: 'hello')?;   // clamps high
-    testing.assert_eq(actual: 'hello'.slice(-3, 2), expected: 'he')?;      // clamps low
-    testing.assert_eq(actual: 'hello'.slice(3, 1), expected: '')?;         // reversed -> empty
-    testing.assert_eq(actual: 'hello'.slice(2, 2), expected: '')?;         // empty range
+    testing.assert_eq(actual: 'hello'.slice(0, 99), expected: 'hello')?; // clamps high
+    testing.assert_eq(actual: 'hello'.slice(-3, 2), expected: 'he')?; // clamps low
+    testing.assert_eq(actual: 'hello'.slice(3, 1), expected: '')?; // reversed -> empty
+    testing.assert_eq(actual: 'hello'.slice(2, 2), expected: '')?; // empty range
     // Code-point indices, not bytes: 'É' is one code point.
     testing.assert_eq(actual: 'Éa'.slice(1, 2), expected: 'a')?;
     return Result.Ok(void);
@@ -141,7 +141,7 @@ fn test_numeric_escapes() -> Result<Void, Error> {
     testing.assert_eq(actual: '\x41', expected: 'A')?;
     testing.assert_eq(actual: '\u{48}\u{69}', expected: 'Hi')?;
     testing.assert_eq(actual: '\u{1F600}'.chars(), expected: [128512])?; // 😀
-    testing.assert_eq(actual: '\u{FFFD}'.chars(), expected: [65533])?;   // replacement char
+    testing.assert_eq(actual: '\u{FFFD}'.chars(), expected: [65533])?; // replacement char
     return Result.Ok(void);
 }
 

@@ -23,11 +23,11 @@
 // record (CH19's `primary_types`); still deferred: members of a value receiver
 // (`xs.foo()` where `xs`'s type isn't written).
 
-import '../ast/ast' as _;       // Program, Decl, the per-decl payloads; describe_*
-import '../lexer' as _;   // Token, TokenKind, tokenize
-import '../source' as _;   // SourceSpan
-import '../element';    // file_key, LibraryNamespace, TypeRecord, Type
-import 'paths';              // program_path
+import '../ast/ast' as _; // Program, Decl, the per-decl payloads; describe_*
+import '../lexer' as _; // Token, TokenKind, tokenize
+import '../source' as _; // SourceSpan
+import '../element'; // file_key, LibraryNamespace, TypeRecord, Type
+import 'paths'; // program_path
 
 // The identifier under the cursor: its name and source span.
 pub struct NameRef {
@@ -674,7 +674,7 @@ pub fn receiver_of_dot(_ toks: List<Token>, _ dot_idx: Int) -> Receiver {
 // member/owner lookup uses the bare name directly, rather than round-tripping a
 // `List<T>` display string back through a strip-at-`<`.
 struct SelfType {
-    let name: String;    // `List` — the bare type name, for owner/member resolution
+    let name: String; // `List` — the bare type name, for owner/member resolution
     let display: String; // `List<T>` — the hover render
 }
 
@@ -1447,11 +1447,11 @@ fn call_in_expr(_ e: Expr, _ offset: Int) -> Option<CallExpr> {
 // reference: the field name in a `struct` body, a `S { field: … }` initializer
 // name, or an `f(label: …)` argument label.
 enum StructuralTarget {
-    FieldDefName(FieldDef),               // `count` in `struct S { count: Int }`
-    VariantDefName(String, EnumVariant),  // `Low`   in `enum Priority { Low }` (+ enum name)
-    LitField(StructExpr, FieldInit),      // `count` in `S { count: … }`
-    CallLabel(CallExpr, CallArg),         // `name`  in `f(name: …)`
-    MatchVariant(SourceSpan),             // `Low`   in `match p { Low => … }` (subject span)
+    FieldDefName(FieldDef), // `count` in `struct S { count: Int }`
+    VariantDefName(String, EnumVariant), // `Low`   in `enum Priority { Low }` (+ enum name)
+    LitField(StructExpr, FieldInit), // `count` in `S { count: … }`
+    CallLabel(CallExpr, CallArg), // `name`  in `f(name: …)`
+    MatchVariant(SourceSpan), // `Low`   in `match p { Low => … }` (subject span)
 }
 
 // Resolve a structural name at `offset` (hover render + navigable declaration), or

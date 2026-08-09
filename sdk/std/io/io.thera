@@ -50,9 +50,9 @@ pub interface Closer {
 
 /// Where a `seek` measures its offset from.
 pub enum SeekFrom {
-    Start(Int),    // an absolute offset from the beginning (>= 0)
-    Current(Int),  // relative to the current position (may be negative)
-    End(Int),      // relative to the end (usually <= 0)
+    Start(Int), // an absolute offset from the beginning (>= 0)
+    Current(Int), // relative to the current position (may be negative)
+    End(Int), // relative to the end (usually <= 0)
 }
 
 /// A resource with a movable read/write cursor (files; not pipes or the standard
@@ -65,8 +65,8 @@ pub interface Seek {
 
 /// I/O failures. A domain error: implements the common `Error`.
 pub enum IoError {
-    Eof,             // an unexpected end of stream (e.g. a future read_exact)
-    Other(String),   // any other I/O failure, with the OS message
+    Eof, // an unexpected end of stream (e.g. a future read_exact)
+    Other(String), // any other I/O failure, with the OS message
 }
 
 impl Error for IoError {
@@ -298,11 +298,11 @@ fn strip_cr(_ b: Bytes) -> Bytes {
 /// still yielded.
 pub struct BufReader {
     let source: Reader;
-    let mut buf: Bytes;      // bytes read from `source` but not yet returned
-    let mut scanned: Int;    // length of `buf` already scanned for `\n` (none below)
-    let mut eof: Bool;       // `source` is exhausted
+    let mut buf: Bytes; // bytes read from `source` but not yet returned
+    let mut scanned: Int; // length of `buf` already scanned for `\n` (none below)
+    let mut eof: Bool; // `source` is exhausted
     let mut err: Option<Error>;
-    let chunk: Int;          // bytes requested per underlying read
+    let chunk: Int; // bytes requested per underlying read
 }
 
 impl BufReader {

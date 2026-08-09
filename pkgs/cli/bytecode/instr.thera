@@ -68,7 +68,7 @@ pub enum Op {
     XorI64,
     BnotI64,
     ShlI64,
-    ShrI64,  // arithmetic (sign-preserving) right shift
+    ShrI64, // arithmetic (sign-preserving) right shift
     UShrI64, // logical (zero-fill) right shift
     ListLen, // pop a list, push its length (the `list.len()` read)
     // Module globals (top-level `let`); see docs/bytecode.md.
@@ -158,22 +158,22 @@ pub enum Instr {
     ConstDouble(Double),
     ConstBool(Bool),
     ConstStr(String),
-    Load(Int),                  // slot
-    Store(Int),                 // slot
-    GlobalGet(Int),             // global slot
-    GlobalSet(Int),             // global slot
-    Call(Int, Int),             // func index, argc
-    CallNative(String, Int),    // native name, argc
-    EnumNew(Int, Int, Int),     // type, variant, field count
-    EnumGet(Int),               // field index
-    StructNew(Int),             // type
-    FieldGet(Int),              // field index
-    FieldSet(Int),              // field index
-    ListNew(Int),               // element count
-    ClosureNew(Int, Int),       // func index, capture count
-    CallIndirect(Int),          // argc
-    CallVirtual(String, Int),   // selector, argc
-    Jump(Int),                  // absolute target
-    JumpIfTrue(Int),            // absolute target
-    JumpIfFalse(Int),           // absolute target
+    Load(Int), // slot
+    Store(Int), // slot
+    GlobalGet(Int), // global slot
+    GlobalSet(Int), // global slot
+    Call(Int, Int), // func index, argc
+    CallNative(String, Int), // native name, argc
+    EnumNew(Int, Int, Int), // type, variant, field count
+    EnumGet(Int), // field index
+    StructNew(Int), // type
+    FieldGet(Int), // field index
+    FieldSet(Int), // field index
+    ListNew(Int), // element count
+    ClosureNew(Int, Int), // func index, capture count
+    CallIndirect(Int), // argc
+    CallVirtual(String, Int), // selector, argc
+    Jump(Int), // absolute target
+    JumpIfTrue(Int), // absolute target
+    JumpIfFalse(Int), // absolute target
 }

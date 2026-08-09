@@ -36,8 +36,8 @@ pub struct Process {
 // --- errors ---
 
 pub enum ProcessError {
-    NotFound(String),   // the executable could not be found
-    Io(String),         // any other failure (spawn, wait, pipe I/O)
+    NotFound(String), // the executable could not be found
+    Io(String), // any other failure (spawn, wait, pipe I/O)
 }
 
 impl Error for ProcessError {

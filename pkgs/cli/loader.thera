@@ -276,7 +276,7 @@ pub fn parse_file_or_null(_ path: String) -> Option<Program> {
 
 struct Loader {
     let sdk_root: Option<String>;
-    let order: List<Program>;            // imported programs, deduped, in load order
+    let order: List<Program>; // imported programs, deduped, in load order
     let cache: Map<String, LibrarySource>; // resolved file -> library source (per call)
     let diagnostics: List<diagnostic.Diagnostic>; // lex/parse errors collected across the closure
     // Cross-call parse cache (resolved file -> ParsedFile), supplied by the caller.

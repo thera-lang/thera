@@ -47,10 +47,10 @@ fn test_base64_roundtrip_binary() -> Result<Void, Error> {
 
 @test
 fn test_base64_decode_rejects_bad_input() -> Result<Void, Error> {
-    testing.assert_err(base64_decode('Zm9'))?;       // length not a multiple of 4
-    testing.assert_err(base64_decode('Zm9v===='))?;  // a full padding group
-    testing.assert_err(base64_decode('!@#$'))?;       // non-alphabet characters
-    testing.assert_err(base64_decode('Z=m='))?;       // misplaced padding
+    testing.assert_err(base64_decode('Zm9'))?; // length not a multiple of 4
+    testing.assert_err(base64_decode('Zm9v===='))?; // a full padding group
+    testing.assert_err(base64_decode('!@#$'))?; // non-alphabet characters
+    testing.assert_err(base64_decode('Z=m='))?; // misplaced padding
     return Result.Ok(void);
 }
 
@@ -70,8 +70,8 @@ fn test_hex_encode_decode() -> Result<Void, Error> {
 
 @test
 fn test_hex_decode_rejects_bad_input() -> Result<Void, Error> {
-    testing.assert_err(hex_decode('abc'))?;   // odd length
-    testing.assert_err(hex_decode('xy'))?;    // non-hex digit
+    testing.assert_err(hex_decode('abc'))?; // odd length
+    testing.assert_err(hex_decode('xy'))?; // non-hex digit
     return Result.Ok(void);
 }
 
@@ -100,7 +100,7 @@ fn test_url_decode() -> Result<Void, Error> {
 
 @test
 fn test_url_decode_rejects_bad_input() -> Result<Void, Error> {
-    testing.assert_err(url_decode('%2'))?;    // truncated escape
-    testing.assert_err(url_decode('%zz'))?;   // non-hex escape
+    testing.assert_err(url_decode('%2'))?; // truncated escape
+    testing.assert_err(url_decode('%zz'))?; // non-hex escape
     return Result.Ok(void);
 }

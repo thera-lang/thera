@@ -6,9 +6,9 @@
 
 import std.json as _;
 
-import '../ast/ast' as _;      // Program, Decl, the per-decl payloads, EnumVariant
-import '../source' as _;  // SourceSpan
-import 'positions';     // span_to_range
+import '../ast/ast' as _; // Program, Decl, the per-decl payloads, EnumVariant
+import '../source' as _; // SourceSpan
+import 'positions'; // span_to_range
 
 // LSP `SymbolKind` values (the subset we emit):
 //   Class=5  Method=6  Enum=10  Interface=11  Function=12  Variable=13

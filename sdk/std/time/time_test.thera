@@ -120,7 +120,7 @@ fn test_parse_rfc3339_offset_and_fraction() -> Result<Void, Error> {
 fn test_parse_rfc3339_rejects_malformed() -> Result<Void, Error> {
     testing.assert_err(time.DateTime.parse_rfc3339('not a date'))?;
     testing.assert_err(time.DateTime.parse_rfc3339('2023-13-01T00:00:00Z'))?; // month 13
-    testing.assert_err(time.DateTime.parse_rfc3339('2023-11-14T22:13:20'))?;  // no zone
+    testing.assert_err(time.DateTime.parse_rfc3339('2023-11-14T22:13:20'))?; // no zone
     testing.assert_err(time.DateTime.parse_rfc3339('2023-11-14 22:13:20Z'))?; // space, no 'T'
     return Result.Ok(void);
 }

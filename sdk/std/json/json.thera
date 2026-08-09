@@ -44,12 +44,12 @@ pub enum Json {
     Double(Double),
     Str(String),
     Array(List<Json>),
-    Object(Map<String, Json>),    // insertion-ordered → stringify is stable
+    Object(Map<String, Json>), // insertion-ordered → stringify is stable
 }
 
 /// What `parse` can reject. A domain error: implements the common `Error`.
 pub enum JsonError {
-    Syntax(String),    // a message including the offending line/column
+    Syntax(String), // a message including the offending line/column
 }
 
 impl Error for JsonError {

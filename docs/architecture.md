@@ -426,6 +426,16 @@ a guard clause or a match arm can stay compact — though all-or-nothing still
 applies, so a block is either wholly on one line or fully expanded, never split
 at one end and not the other. Everything else is the formatter's.
 
+**Aligning trailing comments into columns is not one of the levers** — the gap
+before a `//` at the end of a line is one space, always. Alignment has to be
+maintained by hand, so it decays: when this rule landed, 22 of the 75 aligned
+runs in the corpus had already drifted out of true because one line outgrew its
+column. Having the formatter maintain the columns instead would trade that for
+worse: every edit that changed one line's length would re-column its whole
+block, which is exactly the diff churn the trailing-comma rule exists to
+prevent. Anything whose line structure matters belongs in a comment's own
+structure — a fenced block or a list — which is left verbatim.
+
 Except for that trailing comma, it rewrites only whitespace — so it **never
 changes what the code means**, and inside a comment it only ever moves a line
 break between words. Two guards enforce that on every file, one per concern:

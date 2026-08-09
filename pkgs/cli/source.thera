@@ -95,8 +95,8 @@ pub fn synthetic_span_after(_ anchor: SourceSpan) -> SourceSpan {
 // covers the `//` through the end of the line, not the trailing newline; its
 // `.text()` is the comment verbatim.
 pub enum CommentKind {
-    Line,      // `//` — an ordinary comment, never extracted
-    Doc,       // `///` — an item doc comment
+    Line, // `//` — an ordinary comment, never extracted
+    Doc, // `///` — an item doc comment
     ModuleDoc, // `//!` — a file/package doc comment
 }
 

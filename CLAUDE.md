@@ -123,9 +123,10 @@ there at runtime)
   ad-hoc script — the one time that was tried it destroyed a table.
 - **Comment prose is formatted by `thera fmt`**, same bargain: write a paragraph
   as one long line or however it falls out, and let the formatter wrap it (84
-  columns). Don't hand-wrap or align comment text. Structure inside a comment —
-  fences, lists, indented lines — is left as you write it, so that is where to
-  put anything whose line breaks matter.
+  columns). Don't hand-wrap comment text, and don't align trailing comments into
+  columns — the gap before an end-of-line `//` is one space. Structure inside a
+  comment — fences, lists, indented lines — is left as you write it, so that is
+  where to put anything whose line breaks matter.
 - Perform work in new branches (no commits to main).
 - Each PR should be focused on a single task, feature, or arc of work.
 - Work items live in the GitHub issue tracker; label issues and PRs per

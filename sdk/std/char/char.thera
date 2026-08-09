@@ -15,55 +15,55 @@
 // --- ASCII control characters ---
 
 pub const NUL: Int = 0;
-pub const BS: Int = 8;           // backspace
+pub const BS: Int = 8; // backspace
 pub const TAB: Int = 9;
 pub const LF: Int = 10;
-pub const VT: Int = 11;          // vertical tab
-pub const FF: Int = 12;          // form feed
+pub const VT: Int = 11; // vertical tab
+pub const FF: Int = 12; // form feed
 pub const CR: Int = 13;
 pub const ESC: Int = 27;
 
 // --- ASCII printable characters ---
 
 pub const SPACE: Int = 32;
-pub const BANG: Int = 33;        // !
-pub const DQUOTE: Int = 34;      // "
-pub const HASH: Int = 35;        // #
-pub const DOLLAR: Int = 36;      // $
-pub const PERCENT: Int = 37;     // %
-pub const AMP: Int = 38;         // &
-pub const SQUOTE: Int = 39;      // '
-pub const LPAREN: Int = 40;      // (
-pub const RPAREN: Int = 41;      // )
-pub const STAR: Int = 42;        // *
-pub const PLUS: Int = 43;        // +
-pub const COMMA: Int = 44;       // ,
-pub const MINUS: Int = 45;       // -
-pub const DOT: Int = 46;         // .
-pub const SLASH: Int = 47;       // /
-pub const DIGIT_0: Int = 48;     // 0
-pub const DIGIT_9: Int = 57;     // 9
-pub const COLON: Int = 58;       // :
-pub const SEMI: Int = 59;        // ;
-pub const LT: Int = 60;          // <
-pub const EQ: Int = 61;          // =
-pub const GT: Int = 62;          // >
-pub const QUESTION: Int = 63;    // ?
-pub const AT: Int = 64;          // @
-pub const UPPER_A: Int = 65;     // A
-pub const UPPER_Z: Int = 90;     // Z
-pub const LBRACKET: Int = 91;    // [
-pub const BACKSLASH: Int = 92;   // \
-pub const RBRACKET: Int = 93;    // ]
-pub const CARET: Int = 94;       // ^
-pub const UNDERSCORE: Int = 95;  // _
-pub const BACKTICK: Int = 96;    // `
-pub const LOWER_A: Int = 97;     // a
-pub const LOWER_Z: Int = 122;    // z
-pub const LBRACE: Int = 123;     // {
-pub const PIPE: Int = 124;       // |
-pub const RBRACE: Int = 125;     // }
-pub const TILDE: Int = 126;      // ~
+pub const BANG: Int = 33; // !
+pub const DQUOTE: Int = 34; // "
+pub const HASH: Int = 35; // #
+pub const DOLLAR: Int = 36; // $
+pub const PERCENT: Int = 37; // %
+pub const AMP: Int = 38; // &
+pub const SQUOTE: Int = 39; // '
+pub const LPAREN: Int = 40; // (
+pub const RPAREN: Int = 41; // )
+pub const STAR: Int = 42; // *
+pub const PLUS: Int = 43; // +
+pub const COMMA: Int = 44; // ,
+pub const MINUS: Int = 45; // -
+pub const DOT: Int = 46; // .
+pub const SLASH: Int = 47; // /
+pub const DIGIT_0: Int = 48; // 0
+pub const DIGIT_9: Int = 57; // 9
+pub const COLON: Int = 58; // :
+pub const SEMI: Int = 59; // ;
+pub const LT: Int = 60; // <
+pub const EQ: Int = 61; // =
+pub const GT: Int = 62; // >
+pub const QUESTION: Int = 63; // ?
+pub const AT: Int = 64; // @
+pub const UPPER_A: Int = 65; // A
+pub const UPPER_Z: Int = 90; // Z
+pub const LBRACKET: Int = 91; // [
+pub const BACKSLASH: Int = 92; // \
+pub const RBRACKET: Int = 93; // ]
+pub const CARET: Int = 94; // ^
+pub const UNDERSCORE: Int = 95; // _
+pub const BACKTICK: Int = 96; // `
+pub const LOWER_A: Int = 97; // a
+pub const LOWER_Z: Int = 122; // z
+pub const LBRACE: Int = 123; // {
+pub const PIPE: Int = 124; // |
+pub const RBRACE: Int = 125; // }
+pub const TILDE: Int = 126; // ~
 pub const DEL: Int = 127;
 
 // --- Predicates (ASCII only; pure Thera — no native fn required) ---

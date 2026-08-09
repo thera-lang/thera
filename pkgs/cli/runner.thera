@@ -16,10 +16,10 @@ import std.process;
 import std.time;
 import std.env;
 
-import 'ast/ast';      // ast.Program, ast.FnDecl, Decl
-import 'lexer/lexer';  // tokenize
+import 'ast/ast'; // ast.Program, ast.FnDecl, Decl
+import 'lexer/lexer'; // tokenize
 import 'parser/parser'; // parse
-import 'session';      // the analysis session (check/compile + shared caches)
+import 'session'; // the analysis session (check/compile + shared caches)
 
 // The per-file test tally a run produces. `failed_tests` comes from the driver's
 // machine trailer (see `test_driver`), not the exit code — the exit code stays

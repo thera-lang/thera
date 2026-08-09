@@ -278,7 +278,7 @@ pub fn normalize(_ path: String) -> String {
     }
     let body = stack.join('/');
     if is_abs {
-        return '/${body}';   // '' body → '/', the root
+        return '/${body}'; // '' body → '/', the root
     }
     if body.is_empty() {
         return '.';

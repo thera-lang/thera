@@ -201,12 +201,12 @@ fn test_display() -> Result<Void, Error> {
 @test
 fn test_clear_empties_in_place() -> Result<Void, Error> {
     let xs = [1, 2, 3];
-    let alias = xs;            // same underlying list (reference type)
+    let alias = xs; // same underlying list (reference type)
     xs.clear();
     testing.assert(xs.is_empty())?;
     testing.assert_eq(actual: xs.len(), expected: 0)?;
     testing.assert(alias.is_empty(), message: 'clear is observed through an alias')?;
-    xs.push(7);               // still usable after clearing
+    xs.push(7); // still usable after clearing
     testing.assert_eq(actual: xs.get(0), expected: Option.Some(7))?;
     return Result.Ok(void);
 }
@@ -214,7 +214,7 @@ fn test_clear_empties_in_place() -> Result<Void, Error> {
 @test
 fn test_pop_returns_last_and_shrinks() -> Result<Void, Error> {
     let xs = [1, 2, 3];
-    let alias = xs;           // same underlying list (reference type)
+    let alias = xs; // same underlying list (reference type)
     testing.assert_eq(actual: xs.pop(), expected: Option.Some(3))?;
     testing.assert_eq(actual: xs.pop(), expected: Option.Some(2))?;
     testing.assert_eq(actual: xs.len(), expected: 1)?;

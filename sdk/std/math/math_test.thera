@@ -38,8 +38,8 @@ fn test_double_methods() -> Result<Void, Error> {
 @test
 fn test_conversions() -> Result<Void, Error> {
     testing.assert_eq(actual: 3.to_double(), expected: 3.0)?;
-    testing.assert_eq(actual: 3.7.to_int(), expected: 3)?;       // truncates
-    testing.assert_eq(actual: (-3.7).to_int(), expected: -3)?;   // toward zero
+    testing.assert_eq(actual: 3.7.to_int(), expected: 3)?; // truncates
+    testing.assert_eq(actual: (-3.7).to_int(), expected: -3)?; // toward zero
     return Result.Ok(void);
 }
 
@@ -47,7 +47,7 @@ fn test_conversions() -> Result<Void, Error> {
 fn test_rounding() -> Result<Void, Error> {
     testing.assert_eq(actual: floor(3.7), expected: 3.0)?;
     testing.assert_eq(actual: ceil(3.2), expected: 4.0)?;
-    testing.assert_eq(actual: round(2.5), expected: 3.0)?;        // halves away from zero
+    testing.assert_eq(actual: round(2.5), expected: 3.0)?; // halves away from zero
     testing.assert_eq(actual: trunc(3.9), expected: 3.0)?;
     return Result.Ok(void);
 }
@@ -87,9 +87,9 @@ fn test_inverse_trig() -> Result<Void, Error> {
 @test
 fn test_infinity_and_nan() -> Result<Void, Error> {
     testing.assert(INFINITY > 1000000.0)?;
-    testing.assert(INFINITY + 1.0 == INFINITY)?;   // adding to infinity stays infinity
+    testing.assert(INFINITY + 1.0 == INFINITY)?; // adding to infinity stays infinity
     testing.assert(1.0 / INFINITY == 0.0)?;
     testing.assert(-INFINITY < 0.0)?;
-    testing.assert(NAN != NAN)?;                    // NaN is unequal to itself
+    testing.assert(NAN != NAN)?; // NaN is unequal to itself
     return Result.Ok(void);
 }

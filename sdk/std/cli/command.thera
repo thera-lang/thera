@@ -102,10 +102,10 @@ pub struct Command {
 /// What kind of thing `parse` rejected. The payload is the offending token (`match`
 /// on it for the cause); the surrounding `CliError` adds *where* it happened.
 pub enum CliErrorKind {
-    UnknownFlag(String),        // an undeclared --flag / -x
-    MissingValue(String),       // an option given with no value
-    UnexpectedValue(String),    // a value attached to a flag (--verbose=x)
-    UnknownSubcommand(String),  // a bare token where a subcommand was expected
+    UnknownFlag(String), // an undeclared --flag / -x
+    MissingValue(String), // an option given with no value
+    UnexpectedValue(String), // a value attached to a flag (--verbose=x)
+    UnknownSubcommand(String), // a bare token where a subcommand was expected
 }
 
 /// A parse failure: its `kind` (the cause) plus the command `path` where it

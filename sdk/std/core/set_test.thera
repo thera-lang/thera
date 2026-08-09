@@ -37,8 +37,8 @@ fn test_add_is_idempotent() -> Result<Void, Error> {
 @test
 fn test_remove_reports_presence() -> Result<Void, Error> {
     let s = Set.from([1, 2, 3]);
-    testing.assert(s.remove(2))?;       // was present
-    testing.assert(!s.remove(2))?;      // already gone
+    testing.assert(s.remove(2))?; // was present
+    testing.assert(!s.remove(2))?; // already gone
     testing.assert(!s.contains(2))?;
     testing.assert_eq(actual: s.len(), expected: 2)?;
     return Result.Ok(void);
@@ -67,13 +67,13 @@ fn test_works_with_strings() -> Result<Void, Error> {
 @test
 fn test_clear_empties_in_place() -> Result<Void, Error> {
     let s = Set.from([1, 2, 3]);
-    let alias = s;            // same underlying set (reference type)
+    let alias = s; // same underlying set (reference type)
     s.clear();
     testing.assert(s.is_empty())?;
     testing.assert_eq(actual: s.len(), expected: 0)?;
     testing.assert(!s.contains(1))?;
     testing.assert(alias.is_empty(), message: 'clear is observed through an alias')?;
-    s.add(8);                // still usable after clearing
+    s.add(8); // still usable after clearing
     testing.assert(s.contains(8))?;
     return Result.Ok(void);
 }

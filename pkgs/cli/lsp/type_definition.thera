@@ -23,11 +23,11 @@
 
 import std.json as _;
 
-import '../ast/ast' as _;     // TypeRef
+import '../ast/ast' as _; // TypeRef
 import '../source' as _; // SourceSpan
-import 'resolve';        // ResolveCtx, NameRef, recorded_type_at, member_target
-import 'positions';    // span_to_range
-import 'paths';            // path_to_uri
+import 'resolve'; // ResolveCtx, NameRef, recorded_type_at, member_target
+import 'positions'; // span_to_range
+import 'paths'; // path_to_uri
 
 // The LSP `Location` (as JSON) for the type of the value at `offset`, or JSON null
 // when nothing resolves to a navigable type declaration.
