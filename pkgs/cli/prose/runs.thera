@@ -1,0 +1,195 @@
+//! Finding the comment **runs** a prose pass may rewrite.
+//!
+//! A run is a maximal stack of own-line comments sharing a marker and an indent
+//! — the unit that becomes exactly one edit, so the edits are disjoint and
+//! `edit.apply_edits` (which silently corrupts on overlap) is safe.
+//!
+//! Two things here are easy to get wrong and expensive to get wrong.
+//!
+//! **Own-line means no token anywhere on the line, not no token starting on
+//! it.** A multi-line string's closing line carries a token that began several
+//! lines earlier, so a comment after it (`'''; // note`) looks own-line to a
+//! start-line index and is in fact trailing. Rewrapping it would move code.
+//!
+//! **Runs group by the exact marker text, not by [CommentKind].** `//` and
+//! `////` both classify `Line` (source.thera), and merging them would reflow a
+//! slash-run divider into a sentence.
+//!
+//! Structurally ineligible runs are dropped whole rather than partially: a run
+//! is a paragraph's worth of context, and rewriting half of one is worse than
+//! rewriting none.
+
+import std.char;
+
+import '../lexer' as _; // LexResult, Token, TokenKind
+import '../source' as _; // Comment, SourceSpan
+
+/// A stack of own-line comments that will be re-rendered together.
+pub struct CommentRun {
+    /// `//`, `///`, or `//!` — identical on every line of the run.
+    let marker: String;
+    /// The run's leading whitespace, always spaces.
+    let indent: String;
+    /// Code-point offsets of the region to replace: the first line's `//`
+    /// through the end of the last line's comment.
+    let start: Int;
+    let end: Int;
+    /// Content after the marker and one space, trailing whitespace trimmed. A
+    /// bare marker line is `''`.
+    let lines: List<String>;
+}
+
+/// Every rewritable comment run in `source`, in source order and disjoint.
+pub fn comment_runs(_ source: String, _ lex: LexResult) -> List<CommentRun> {
+    let chars = source.chars();
+    let busy = occupied_lines(chars, lex.tokens);
+
+    // Pass one: the own-line comments, with their marker/indent/content pulled
+    // apart. A comment that cannot be taken apart is simply absent from here, so
+    // it also breaks any run it sat in — which is what we want, since the run's
+    // lines would no longer be contiguous.
+    let parts: List<CommentPart> = [];
+    for c in lex.comments {
+        if busy.contains(c.span.line) {
+            continue;
+        }
+        if let Some(p) = split_comment(chars, c) {
+            parts.push(p);
+        }
+    }
+
+    // Pass two: group into runs.
+    let out: List<CommentRun> = [];
+    let mut i = 0;
+    while i < parts.len() {
+        let head = parts[i];
+        let mut j = i + 1;
+        while j < parts.len() && continues(parts[j - 1], parts[j]) {
+            j = j + 1;
+        }
+        let lines: List<String> = [];
+        let mut k = i;
+        while k < j {
+            lines.push(parts[k].content);
+            k = k + 1;
+        }
+        out.push(CommentRun {
+            marker: head.marker,
+            indent: ' '.repeat(head.indent),
+            start: head.offset,
+            end: parts[j - 1].end,
+            lines: lines,
+        });
+        i = j;
+    }
+    return out;
+}
+
+// One own-line comment, taken apart.
+struct CommentPart {
+    let marker: String;
+    let indent: Int;
+    let line: Int;
+    let offset: Int;
+    let end: Int;
+    let content: String;
+}
+
+// Whether `b` continues the run `a` is in: the next line down, same marker, same
+// indent.
+fn continues(_ a: CommentPart, _ b: CommentPart) -> Bool {
+    return b.line == a.line + 1 && b.marker == a.marker && b.indent == a.indent;
+}
+
+// Split one comment into marker, indent and content, or `None` if it is not a
+// shape this pass rewrites.
+fn split_comment(_ chars: List<Int>, _ c: Comment) -> Option<CommentPart> {
+    let Some(indent) = space_indent(chars, c.span.offset) else {
+        return Option.None; // a tab indent, or something before it on the line
+    };
+    let text = c.span.text();
+    let Some(marker) = marker_of(text) else {
+        return Option.None; // `////`+ divider, or some other slash run
+    };
+    let rest = text.slice(marker.len(), text.len());
+    if rest != '' && !rest.starts_with(' ') {
+        return Option.None; // `//foo` — not prose this pass wrote or will write
+    }
+    let body = if rest == '' { rest } else { rest.slice(1, rest.len()) };
+    if body.contains('\t') {
+        return Option.None; // an aligned aside; leave it as the author set it
+    }
+    return Option.Some(CommentPart {
+        marker: marker,
+        indent: indent,
+        line: c.span.line,
+        offset: c.span.offset,
+        end: c.span.offset + c.span.length,
+        content: body.trim_end(),
+    });
+}
+
+// The comment's marker: `//!`, `///`, or `//`. `None` for `////`+ — a run of
+// slashes is a divider, and reflowing one would make it a sentence.
+fn marker_of(_ text: String) -> Option<String> {
+    if text.starts_with('//!') {
+        return Option.Some('//!');
+    }
+    if text.starts_with('////') {
+        return Option.None;
+    }
+    if text.starts_with('///') {
+        return Option.Some('///');
+    }
+    if text.starts_with('//') {
+        return Option.Some('//');
+    }
+    return Option.None;
+}
+
+// The width of the all-spaces indent ending at `offset`, or `None` if anything
+// else precedes the comment on its line.
+fn space_indent(_ chars: List<Int>, _ offset: Int) -> Option<Int> {
+    let mut i = offset;
+    while i > 0 && chars[i - 1] == char.SPACE {
+        i = i - 1;
+    }
+    if i > 0 && chars[i - 1] != char.LF {
+        return Option.None;
+    }
+    return Option.Some(offset - i);
+}
+
+// Every 1-based line any token occupies, a multi-line string's interior
+// included. See the file header: this must be a range, not a start-line index.
+fn occupied_lines(_ chars: List<Int>, _ tokens: List<Token>) -> Set<Int> {
+    let out: Set<Int> = Set.new();
+    for t in tokens {
+        if t.kind == TokenKind.Eof {
+            continue;
+        }
+        let last = t.span.line + count_newlines(
+            chars,
+            t.span.offset,
+            t.span.offset + t.span.length,
+        );
+        let mut ln = t.span.line;
+        while ln <= last {
+            out.add(ln);
+            ln = ln + 1;
+        }
+    }
+    return out;
+}
+
+fn count_newlines(_ chars: List<Int>, _ start: Int, _ end: Int) -> Int {
+    let mut n = 0;
+    let mut i = start;
+    while i < end && i < chars.len() {
+        if chars[i] == char.LF {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    return n;
+}

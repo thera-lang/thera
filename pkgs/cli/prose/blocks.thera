@@ -1,0 +1,188 @@
+//! The block structure of comment prose — what may be rewrapped and what may
+//! not.
+//!
+//! Input is a comment run's **content lines**: the text after the marker and one
+//! space, trailing whitespace already trimmed (see `runs.thera`). Output is a
+//! partition of those lines into [Block]s, in order, losing nothing —
+//! `blocks_of` is total, which is what lets the guard compare block sequences
+//! and conclude something about every line.
+//!
+//! The markdown recognized here is **exactly the subset doc comments are
+//! specified to use** (language.md § Documentation → Markdown): `-` bullets and
+//! `1.` ordered lists, fenced code blocks (indented code blocks are not a
+//! Thera doc form), and the bold-label paragraphs (`**Example:**`). Anything
+//! else — `#`, `>`, `|`, a `*` or `+` bullet — is plain text, and treating it
+//! as plain text is not a shortcut: it is what makes the pass idempotent. A
+//! wrapped line that happens to start with `#` re-reads as the same prose on
+//! the next run, because nothing here ever read `#` as a construct.
+//!
+//! Nothing in this file knows about wrapping, markers, or widths. The fence
+//! state machine is the piece doc-snippet verification needs too, which is why
+//! it lives behind [fence_len] / [blocks_of] rather than inside the wrapper.
+
+import std.char;
+
+/// What may be done to a block's lines.
+pub enum BlockKind {
+    /// Flowable text: the lines are one paragraph and may be rewrapped.
+    Prose,
+    /// Structure: the lines are re-emitted exactly as they came in.
+    Verbatim,
+    /// A single empty line — a paragraph separator.
+    Blank,
+}
+
+/// A run of content lines that share a fate.
+pub struct Block {
+    let kind: BlockKind;
+    let lines: List<String>;
+}
+
+/// The content lines of `lines`, partitioned into blocks in source order.
+///
+/// Total: concatenating the result's `lines` reproduces the input exactly. The
+/// guard depends on that — a line this function dropped would be a line no
+/// invariant covers.
+pub fn blocks_of(_ lines: List<String>) -> List<Block> {
+    let out: List<Block> = [];
+    let mut cur: List<String> = [];
+    let mut kind = BlockKind.Prose;
+    // The opening fence's backtick count while inside a fence, else 0. A fence
+    // may only be closed by a run at least as long as the one that opened it,
+    // so ```` ``` ```` inside a ````` ```` ````` block is content.
+    let mut fence_open = 0;
+
+    for line in lines {
+        if fence_open > 0 {
+            // Inside a fence every line is content, blank lines included — the
+            // newlines are the code's, not the layout's.
+            cur.push(line);
+            if closes_fence(line, fence_open) {
+                out.push(Block { kind: BlockKind.Verbatim, lines: cur });
+                cur = [];
+                fence_open = 0;
+            }
+            continue;
+        }
+
+        let opens = fence_len(line);
+        if opens >= 3 {
+            if cur.len() > 0 {
+                out.push(Block { kind: kind, lines: cur });
+                cur = [];
+            }
+            cur.push(line);
+            kind = BlockKind.Verbatim;
+            fence_open = opens;
+            continue;
+        }
+
+        let want = if line == '' {
+            BlockKind.Blank
+        } else if is_block_lead(line) {
+            BlockKind.Verbatim
+        } else {
+            BlockKind.Prose
+        };
+        // A blank line is always its own block; the other two accumulate. So a
+        // bullet and the indented lines under it become one `Verbatim` block,
+        // which is right — the whole thing is re-emitted untouched, and asking
+        // where one list item ends is a question this pass never needs answered.
+        let same = cur.len() > 0 && kind == want && want != BlockKind.Blank;
+        if !same && cur.len() > 0 {
+            out.push(Block { kind: kind, lines: cur });
+            cur = [];
+        }
+        kind = want;
+        cur.push(line);
+    }
+
+    if cur.len() > 0 {
+        // An unclosed fence takes the rest of the run with it, as CommonMark
+        // says it should. That is also the only self-consistent choice: the
+        // output re-reads as the same unclosed fence, so the block sequence is
+        // stable and the guard passes.
+        out.push(Block { kind: kind, lines: cur });
+    }
+    return out;
+}
+
+/// Whether `content` opens a block that is not prose — the one predicate both
+/// [blocks_of] and the wrapper's line-start rule consult.
+///
+/// The wrapper's use is what makes this shared: a wrapped line may never *start*
+/// with something that would come back as a construct, or the next run would
+/// segment the same words differently.
+pub fn is_block_lead(_ content: String) -> Bool {
+    if content == '' {
+        return false; // a separator, not a lead
+    }
+    if fence_len(content) >= 3 {
+        return true;
+    }
+    let cps = content.chars();
+    if cps[0] == char.SPACE {
+        // Indented. Doc comments have no indented code blocks (language.md says
+        // so — the `///` prefix makes the indent width ambiguous), so what this
+        // catches is a list item's continuation lines, plus any aligned aside in
+        // an ordinary `//` comment. Both want leaving alone.
+        return true;
+    }
+    if cps[0] == char.MINUS && (cps.len() == 1 || cps[1] == char.SPACE) {
+        return true;
+    }
+    return is_ordered_lead(cps) || is_bold_label(content);
+}
+
+/// The length of the backtick run opening `content` if it is a fence marker
+/// (three or more), else 0.
+pub fn fence_len(_ content: String) -> Int {
+    let cps = content.chars();
+    let mut n = 0;
+    while n < cps.len() && cps[n] == char.BACKTICK {
+        n = n + 1;
+    }
+    return if n >= 3 { n } else { 0 };
+}
+
+/// Whether `content` closes a fence opened with `open` backticks: a long-enough
+/// run with nothing after it (an info string is only allowed on the opener).
+fn closes_fence(_ content: String, _ open: Int) -> Bool {
+    let n = fence_len(content);
+    if n < open {
+        return false;
+    }
+    return content.slice(n, content.len()).trim() == '';
+}
+
+/// Whether `cps` opens an ordered list item — digits, `.`, then end or a space.
+/// `1.` and `304.` qualify; `#127` and `3.14` do not.
+fn is_ordered_lead(_ cps: List<Int>) -> Bool {
+    let mut i = 0;
+    while i < cps.len() && char.is_digit(cps[i]) {
+        i = i + 1;
+    }
+    if i == 0 || i >= cps.len() || cps[i] != char.DOT {
+        return false;
+    }
+    return i + 1 == cps.len() || cps[i + 1] == char.SPACE;
+}
+
+/// Whether `content` is a standalone bold label — the whole line is
+/// `**Something:**`, the form language.md gives for a doc's sections.
+///
+/// Deliberately narrow. A paragraph that merely *opens* in bold
+/// (`**Line breaking** decides where the breaks go…`) is ordinary prose, and
+/// reading it as a label would freeze its first line and rewrap the rest as a
+/// separate paragraph.
+fn is_bold_label(_ content: String) -> Bool {
+    if !content.starts_with('**') || !content.ends_with(':**') {
+        return false;
+    }
+    let n = content.len();
+    if n < 6 {
+        return false; // `**x:**` is the shortest
+    }
+    let inner = content.slice(2, n - 3);
+    return inner != '' && !inner.contains('*');
+}

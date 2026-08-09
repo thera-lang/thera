@@ -1,0 +1,126 @@
+//! Greedy line filling for comment prose, over **atoms** rather than words.
+//!
+//! An atom is the unit that may not be split: a word, but also an inline code
+//! span (`` `Map<String, List<NameSite>>` ``) and a `[Symbol]` reference or
+//! `[text](path)` link. Keeping those whole is better for grep and for the
+//! reference resolution doc tooling does, and it costs nothing — no atom in the
+//! corpus is wider than the margin.
+//!
+//! Atoms are cut out of the text **verbatim**, and the scan never splits on
+//! punctuation, so spacing inside a span survives byte for byte and
+//! ``(`hover`, `definition`,)`` cannot come back as ``( `hover` , `definition` ,)``.
+//! That matters more than it looks: the guard normalizes whitespace before
+//! comparing prose, so it would not catch the damage. [atoms_of] being right is
+//! the only thing protecting it.
+//!
+//! Widths are code points, not bytes — comment prose here uses `⏎` and `→`
+//! inline.
+//!
+//! Nothing in this file knows about comment markers or indentation; the caller
+//! turns a margin into an `avail` and renders the result.
+
+import std.char;
+
+import 'blocks';
+
+/// The unbreakable units of `text`, in order, or `None` if a delimiter is left
+/// open.
+///
+/// A whitespace run is a break point only outside every code span, `[…]`, and
+/// `](…)` link tail. `None` means the caller cannot reason about this text —
+/// emit the block unchanged rather than guess.
+pub fn atoms_of(_ text: String) -> Option<List<String>> {
+    let cps = text.chars();
+    let out: List<String> = [];
+    let mut cur: List<Int> = [];
+    let mut tick = false; // inside a `…` code span
+    let mut brk = 0; // depth of `[` … `]`
+    let mut link = false; // inside the `(` … `)` of a `[text](path)` link
+    let mut after_close = false; // the previous code point closed a `]`
+    let mut i = 0;
+    while i < cps.len() {
+        let c = cps[i];
+        if !tick && brk == 0 && !link && is_space(c) {
+            if cur.len() > 0 {
+                out.push(String.from_chars(cur));
+                cur = [];
+            }
+            after_close = false; // `] (x)` is two atoms, not a link
+            i = i + 1;
+            continue;
+        }
+        if c == char.BACKTICK {
+            tick = !tick;
+        } else if !tick {
+            if c == char.LBRACKET {
+                brk = brk + 1;
+            } else if c == char.RBRACKET && brk > 0 {
+                brk = brk - 1;
+            } else if c == char.LPAREN && after_close && brk == 0 {
+                link = true;
+            } else if c == char.RPAREN && link {
+                link = false;
+            }
+        }
+        after_close = !tick && c == char.RBRACKET;
+        cur.push(c);
+        i = i + 1;
+    }
+    if cur.len() > 0 {
+        out.push(String.from_chars(cur));
+    }
+    if tick || brk > 0 || link {
+        return Option.None;
+    }
+    return Option.Some(out);
+}
+
+/// `atoms` filled greedily into lines of at most `avail` code points.
+///
+/// Two rules override the margin, and they are the same rule twice: **no
+/// emitted line may re-read as a block construct**, or the next `thera fmt`
+/// would segment the same words differently and the pass would not be a
+/// fixpoint.
+///
+/// - Never break *before* a lead atom — keep it on the current line instead,
+///   over-width if need be.
+/// - Never leave a line holding a lone lead atom — keep the next atom on it.
+///
+/// Together they are sufficient, which is why there is no "give up" path: a
+/// line's first atom is a lead only if the block's own first line already began
+/// that way, and [blocks.blocks_of] would then have called the block `Verbatim`
+/// and never sent it here. Testing the *atom* rather than the finished line is
+/// sound because every lead form is decided by the line's first token — and
+/// conservative in the one case it is not (a bold label mid-paragraph), which
+/// costs a long line, never a wrong one.
+pub fn wrap_atoms(_ atoms: List<String>, _ avail: Int) -> List<String> {
+    let lines: List<String> = [];
+    let mut cur: List<String> = [];
+    let mut col = 0;
+    for a in atoms {
+        if cur.len() == 0 {
+            cur = [a];
+            col = a.len();
+            continue;
+        }
+        let fits = col + 1 + a.len() <= avail;
+        let pinned = blocks.is_block_lead(a)
+            || (cur.len() == 1 && blocks.is_block_lead(cur[0]));
+        if fits || pinned {
+            cur.push(a);
+            col = col + 1 + a.len();
+            continue;
+        }
+        lines.push(cur.join(' '));
+        cur = [a];
+        col = a.len();
+    }
+    if cur.len() > 0 {
+        lines.push(cur.join(' '));
+    }
+    return lines;
+}
+
+fn is_space(_ cp: Int) -> Bool {
+    return cp == char.SPACE || cp == char.TAB;
+}

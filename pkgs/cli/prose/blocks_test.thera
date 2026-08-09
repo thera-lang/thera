@@ -1,0 +1,135 @@
+// Tests for the comment-prose block model. Each case pins the block sequence a
+// set of content lines segments into, plus the cross-cutting property that
+// segmentation loses nothing.
+
+import std.testing;
+
+import 'blocks' as _;
+
+// The block sequence as `<kind><line count>` per block — `P2 B1 V3` is a
+// two-line paragraph, a separator, then three verbatim lines. Compact enough to
+// read the whole shape off one assertion.
+fn shape(_ lines: List<String>) -> String {
+    let parts: List<String> = [];
+    for b in blocks_of(lines) {
+        let tag = match b.kind {
+            Prose => 'P',
+            Verbatim => 'V',
+            Blank => 'B',
+        };
+        parts.push('${tag}${b.lines.len()}');
+    }
+    return parts.join(' ');
+}
+
+// Assert the shape, and that the blocks concatenate back to the input — the
+// totality the guard leans on.
+fn check(_ lines: List<String>, _ want: String) -> Result<Void, Error> {
+    testing.assert_eq(actual: shape(lines), expected: want)?;
+    let flat: List<String> = [];
+    for b in blocks_of(lines) {
+        for l in b.lines {
+            flat.push(l);
+        }
+    }
+    testing.assert_eq(actual: flat.join('\n'), expected: lines.join('\n'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn paragraphs_split_on_blank_lines() -> Result<Void, Error> {
+    return check(['one', 'two', '', 'three'], 'P2 B1 P1');
+}
+
+@test
+fn a_blank_line_is_always_its_own_block() -> Result<Void, Error> {
+    // Two blanks in a row stay two blocks rather than merging, so the renderer
+    // can reproduce them and the guard can compare them one for one.
+    return check(['a', '', '', 'b'], 'P1 B1 B1 P1');
+}
+
+@test
+fn a_fence_is_verbatim_including_its_delimiters() -> Result<Void, Error> {
+    return check(['before', '```thera', 'let x = 1;', '```', 'after'], 'P1 V3 P1');
+}
+
+@test
+fn a_blank_line_inside_a_fence_is_content() -> Result<Void, Error> {
+    // Inside a fence the newlines belong to the code, so a blank line must not
+    // read as a paragraph separator.
+    return check(['```', 'a', '', 'b', '```'], 'V5');
+}
+
+@test
+fn a_shorter_fence_inside_a_longer_one_is_content() -> Result<Void, Error> {
+    // The four-backtick form is how a doc shows a fence; the inner three-backtick
+    // runs are code, not delimiters.
+    return check(['````', '```thera', 'x();', '```', '````'], 'V5');
+}
+
+@test
+fn an_unclosed_fence_absorbs_the_rest_of_the_run() -> Result<Void, Error> {
+    // CommonMark's rule, and the only self-consistent one: the output re-reads
+    // as the same unclosed fence, so the block sequence is stable.
+    return check(['intro', '```', 'x();', '', 'still code'], 'P1 V4');
+}
+
+@test
+fn a_bullet_keeps_its_indented_continuation() -> Result<Void, Error> {
+    // A list item and the lines hanging under it are one verbatim block — the
+    // pass never has to decide where an item ends.
+    return check(
+        ['lead in', '- first', '  wrapped under first', '- second', '', 'after'],
+        'P1 V3 B1 P1',
+    );
+}
+
+@test
+fn an_ordered_item_leads_a_block() -> Result<Void, Error> {
+    return check(['1. first', '2. second'], 'V2');
+}
+
+@test
+fn a_bold_label_leads_a_block_but_bold_prose_does_not() -> Result<Void, Error> {
+    // `**Example:**` is language.md's section form and stands alone; a paragraph
+    // that merely opens in bold is ordinary prose and must flow with its body.
+    check(['**Example:**', '```thera', 'x();', '```'], 'V1 V3')?;
+    return check(['**Line breaking** decides where', 'the breaks go.'], 'P2');
+}
+
+@test
+fn unsupported_markdown_is_plain_text() -> Result<Void, Error> {
+    // Doc comments have no ATX headers, block quotes, tables, or `*`/`+`
+    // bullets (language.md § Markdown). Reading them as prose is what keeps the
+    // pass idempotent — a wrapped line starting `# ` comes back as the same
+    // prose, because nothing ever read it as a construct.
+    return check([
+        '# not a heading',
+        '> not a quote',
+        '| not | a table',
+        '* not a bullet',
+        '+ not a bullet',
+    ], 'P5');
+}
+
+@test
+fn a_number_that_is_not_a_list_stays_prose() -> Result<Void, Error> {
+    // `304.` opens an ordered item; `3.14` and `#127` do not.
+    check(['304. The status is the whole message.'], 'V1')?;
+    return check(['3.14 is close enough', '#127 tracks this'], 'P2');
+}
+
+@test
+fn an_empty_run_yields_no_blocks() -> Result<Void, Error> {
+    let empty: List<String> = [];
+    return check(empty, '');
+}
+
+@test
+fn fence_len_measures_only_an_opening_run() -> Result<Void, Error> {
+    testing.assert_eq(actual: fence_len('```'), expected: 3)?;
+    testing.assert_eq(actual: fence_len('````thera'), expected: 4)?;
+    testing.assert_eq(actual: fence_len('``'), expected: 0)?;
+    testing.assert_eq(actual: fence_len('a ```'), expected: 0)?;
+    return Result.Ok(void);
+}
