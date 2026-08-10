@@ -545,12 +545,11 @@ label buys, and their evaluation order is the order they are written (see
 [Argument evaluation order](#argument-evaluation-order)). The author fixes which
 parameters carry labels; how the caller arranges them is the caller's.
 
-> **Enforcement status.** One gap remains between the model above and the
-> checker: passing a labeled parameter positionally is diagnosed but not yet
-> rejected — it is the `missing-argument-label` **warning**, which carries a
-> mechanical fix (`thera check --fix` inserts the label). The corpus is clean,
-> so what remains is flipping the warning to an error. Tracked in
-> [roadmap.md](roadmap.md).
+Both directions are **errors**, so a given function has exactly one call form:
+passing a `named` parameter positionally is `missing argument label`, and
+labeling a positional one is `unknown argument label`. The first carries a
+mechanical fix — `thera check --fix` inserts the label — and, being an error, is
+not suppressable: applying the fix is the way out.
 
 ### Default values
 

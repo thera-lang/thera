@@ -1874,11 +1874,12 @@ fn test_ignore_comment_suppresses_warning() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// ---- warnings: missing-argument-label ----
+// ---- argument labels are required (error) ----
 
-// The edits the fixable warnings carry, rendered as `offset+text` — enough to pin
-// where the label is inserted and what it says.
-fn warning_fixes(errs: List<Diagnostic>) -> List<String> {
+// The edits fixable diagnostics carry, rendered as `offset+text` — enough to pin
+// where the label is inserted and what it says. Severity-blind on purpose: a fix
+// rides errors as well as warnings.
+fn diag_fixes(errs: List<Diagnostic>) -> List<String> {
     let out: List<String> = [];
     for e in errs {
         if let Some(f) = e.fix {
@@ -1888,19 +1889,30 @@ fn warning_fixes(errs: List<Diagnostic>) -> List<String> {
     return out;
 }
 
+fn error_messages(errs: List<Diagnostic>) -> List<String> {
+    let out: List<String> = [];
+    for e in errs {
+        if let Error = e.severity {
+            out.push(e.message);
+        }
+    }
+    return out;
+}
+
 @test
-fn test_positional_argument_to_labeled_parameter_warns() -> Result<Void, Error> {
+fn test_positional_argument_to_labeled_parameter_is_an_error() -> Result<Void, Error> {
     let src = 'fn g(named a: Int, named b: Int) -> Int { return a + b; }\n'
         + 'fn f() -> Int { return g(1, 2); }';
     testing.assert_eq(
-        actual: warning_messages(errors_of(src)),
+        actual: error_messages(errors_of(src)),
         expected: [
             'missing argument label `a:` in the call to "g"',
             'missing argument label `b:` in the call to "g"',
         ],
     )?;
-    // Advisory ahead of the enforcement sweep: still no error.
-    testing.assert_eq(actual: diag_error_count(errors_of(src)), expected: 0)?;
+    // An error, not a warning — the enforcement flip is the whole point.
+    testing.assert_eq(actual: diag_error_count(errors_of(src)), expected: 2)?;
+    testing.assert_eq(actual: warning_messages(errors_of(src)).len(), expected: 0)?;
     return Result.Ok(void);
 }
 
@@ -1908,23 +1920,30 @@ fn test_positional_argument_to_labeled_parameter_warns() -> Result<Void, Error> 
 fn test_labeled_and_positional_parameters_are_clean() -> Result<Void, Error> {
     // Each argument in the one form its parameter declares.
     testing.assert_eq(
-        actual: warning_messages(errors_of(
+        actual: errors_of(
             'fn g(a: Int, named b: Int) -> Int { return a + b; }\n'
-            + 'fn f() -> Int { return g(1, b: 2); }')).len(),
+            + 'fn f() -> Int { return g(1, b: 2); }').len(),
         expected: 0,
     )?;
     // An omitted defaulted argument is not a missing label.
     testing.assert_eq(
-        actual: warning_messages(errors_of(
+        actual: errors_of(
             'fn g(a: Int, named b: Int = 2) -> Int { return a + b; }\n'
-            + 'fn f() -> Int { return g(1); }')).len(),
+            + 'fn f() -> Int { return g(1); }').len(),
         expected: 0,
     )?;
     // A fully positional signature owes nothing, however it is called.
     testing.assert_eq(
-        actual: warning_messages(errors_of(
+        actual: errors_of(
             'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
-            + 'fn f() -> Int { return g(1, 2); }')).len(),
+            + 'fn f() -> Int { return g(1, 2); }').len(),
+        expected: 0,
+    )?;
+    // Labeled arguments may be reordered (#156) — no diagnostic either way.
+    testing.assert_eq(
+        actual: errors_of(
+            'fn g(named a: Int, named b: Int) -> Int { return a + b; }\n'
+            + 'fn f() -> Int { return g(b: 2, a: 1); }').len(),
         expected: 0,
     )?;
     return Result.Ok(void);
@@ -1932,27 +1951,30 @@ fn test_labeled_and_positional_parameters_are_clean() -> Result<Void, Error> {
 
 @test
 fn test_missing_argument_label_carries_its_fix() -> Result<Void, Error> {
-    // The edit is a pure insertion at the argument's own offset — `1` and `2` in
-    // the `g(1, 2)` on the second line.
+    // Becoming an error did not cost the mechanical fix: `thera check --fix` still
+    // repairs it. The edit is a pure insertion at the argument's own offset — `1`
+    // and `2` in the `g(1, 2)` on the second line.
     let src = 'fn g(named a: Int, named b: Int) -> Int { return a + b; }\n'
         + 'fn f() -> Int { return g(1, 2); }';
     let call = src.find('g(1, 2)').unwrap_or(0);
     testing.assert_eq(
-        actual: warning_fixes(errors_of(src)),
+        actual: diag_fixes(errors_of(src)),
         expected: ['${call + 2}+a: ', '${call + 5}+b: '],
     )?;
     return Result.Ok(void);
 }
 
 @test
-fn test_missing_argument_label_is_suppressable() -> Result<Void, Error> {
-    testing.assert_eq(
-        actual: warning_messages(errors_of(
-            'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
-            + '// ignore: missing-argument-label\n'
-            + 'fn f() -> Int { return g(1, 2); }')).len(),
-        expected: 0,
-    )?;
+fn test_missing_argument_label_is_not_suppressable() -> Result<Void, Error> {
+    // Errors carry no rule name, so `// ignore:` has no key to match — the escape
+    // hatch a warning had is gone by design. The mechanical fix is the way out.
+    let src = 'fn g(named a: Int, named b: Int) -> Int { return a + b; }\n'
+        + '// ignore: missing-argument-label\n'
+        + 'fn f() -> Int { return g(1, 2); }';
+    testing.assert_eq(actual: diag_error_count(errors_of(src)), expected: 2)?;
+    for d in errors_of(src) {
+        testing.assert_eq(actual: d.rule, expected: Option.None)?;
+    }
     return Result.Ok(void);
 }
 

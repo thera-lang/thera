@@ -54,10 +54,10 @@ Type-checks each target (a .thera file, or a directory searched for *.thera) wit
   executing — the analyzer for CI and pre-commit hooks. No target checks the current
   directory.
 
-With `--fix`, it instead applies the mechanical fix carried by every fixable warning
-  (today: `missing-argument-label`) in place. Each fix is a localized edit — nothing
-  else in the file is touched. `--fix` requires an explicit target (like the other
-  writing commands), and only rewrites files among the targets.
+With `--fix`, it instead applies the mechanical fix carried by every fixable
+  diagnostic (today: a missing argument label) in place. Each fix is a localized edit
+  — nothing else in the file is touched. `--fix` requires an explicit target (like
+  the other writing commands), and only rewrites files among the targets.
 
 - stdout: one diagnostic per line, `path:line:col: message`, then a `Checked N source
   files; M issues found.` summary; with --fix, one line per rewritten file and a
