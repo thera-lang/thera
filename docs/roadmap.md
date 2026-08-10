@@ -614,21 +614,39 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     identical to "external label `named`, internal name `value`". Retiring it
     removes the ambiguity rather than managing it with a three-identifier
     `named default value: Bool` case, so the marker needs no lookahead rule.
+  - **Declaration order is not required** (decided 2026-08, closing #156):
+    labeled arguments may appear in any order, and no lint discourages it.
+    Freedom from order is the only thing a label buys that a positional
+    parameter doesn't — requiring it would leave the label as pure
+    documentation. The one-canonical-form principle argued the other way, but it
+    is thin here: reordering is expressible in only ~31 of 1,974 functions
+    (those with two or more `named` parameters, which the suffix rule already
+    keeps small), and just 2 call sites in the corpus use it.
+
+    What the investigation _did_ turn up is a real defect, which is the honest
+    reason the question felt unsettled: the front-end evaluates arguments in
+    **parameter** order, so a reordered call runs its side effects in an order
+    the line does not show, and nothing specified otherwise.
+    [language.md](language.md) now specifies **source order**, with a `ⓧ`
+    conformance test (`fn-arg-eval-order`) pinning it until `resolve_args` in
+    codegen is fixed to match (#163). Forbidding reordering was the other way to
+    close the gap — cheaper, but it would have removed the feature to avoid
+    specifying it.
+
   - Enforcement (the checker rejecting the non-canonical form rather than
-    warning — `missing-argument-label` today) and whether labeled arguments must
-    also appear in **declaration order** are the remaining calls.
+    warning — `missing-argument-label` today) is the remaining call.
   - The style rule inverts with the default and stays in the agent-facing idioms
     guidance (see _Idioms & best-practices guidance_): reach for `named` when
     the label earns its place — booleans, several same-typed arguments whose
     order is otherwise unclear, and any role the name and value don't already
     make obvious — and leave the subject argument bare.
 
-  **Landed** in #157 (the change) and #158 (the two-name form); the
-  declaration-order question stays in #156, and enforcement (warning → error) is
-  the last step. This decision superseded issue #134, whose lint and corpus
-  sweep landed under the old default; the sweep's 590 call-site labels were
-  unaffected, since the functions that took them are named-parameter functions
-  either way.
+  **Landed** in #157 (the change) and #158 (the two-name form); #156
+  (declaration order) is closed as _not required_, and enforcement (warning →
+  error) is the last step. This decision superseded issue #134, whose lint and
+  corpus sweep landed under the old default; the sweep's 590 call-site labels
+  were unaffected, since the functions that took them are named-parameter
+  functions either way.
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
