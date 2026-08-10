@@ -1,0 +1,237 @@
+//! Doc-comment attachment — re-associating `///` and `//!` comment runs with what
+//! they document.
+//!
+//! Import as: `import 'docs'`; usage: `docs.attach(program, lex.comments)`.
+//!
+//! Comments ride a side channel the parser never sees ([Comment] in
+//! `source.thera`), so the token stream and the AST stay pure functions of the
+//! source. This pass is the other half of that bargain — gofmt's model,
+//! re-associating by span — and it is what every doc consumer reads: LSP hover, the
+//! doc generator, doc-example extraction, `[Symbol]` resolution. See
+//! docs/documentation.md.
+//!
+//! **Attachment is by adjacency**, exactly as the doc model specifies: an item's
+//! doc is the contiguous run of `///` lines directly above it, and a blank line or
+//! an ordinary `//` line ends the run. Both fall out of the grouping rule — a blank
+//! line breaks line adjacency, and a `//` line has a different [CommentKind].
+//!
+//! **The result is a side table, not a field on the AST.** A span offset is already
+//! the AST's node identity, so a [DocMap] keyed by offset reaches every
+//! documentable item — declaration, method, field, enum variant — without the
+//! parser knowing comments exist, and without disturbing the structural equality
+//! the parser tests compare trees with.
+//!
+//! One deliberate simplification: a `///` written *after* code on the same line
+//! (`let x = 1; /// note`) still joins the run below it. Ruling that out costs a
+//! scan of the token stream for the lines each token occupies, and no such comment
+//! exists in the corpus — while the shapes that do occur (a blank line, an
+//! interposed `//`) are handled exactly.
+
+import std.char;
+
+import 'ast' as _; // Program, Decl, decl_span — AST types are used pervasively
+import 'source' as _; // Comment, CommentKind, SourceSpan
+
+/// A documentation comment: one contiguous run of `///` or `//!` lines.
+pub struct DocComment {
+    /// `Doc` for a `///` item doc, `ModuleDoc` for a `//!` file doc. Never `Line`.
+    let kind: CommentKind;
+    /// The whole run — the first line's `//` through the end of the last line.
+    let span: SourceSpan;
+    /// One entry per line, with the marker and the single space after it removed
+    /// and trailing whitespace trimmed. A bare `///` line is `''`.
+    let lines: List<String>;
+}
+
+impl DocComment {
+    /// The doc's content, lines rejoined with newlines and the markers gone.
+    pub fn text(self) -> String {
+        return self.lines.join('\n');
+    }
+
+    /// The **summary sentence**: the first sentence of the first paragraph, with
+    /// the line breaks the author happened to wrap at joined out. `''` for an empty
+    /// doc.
+    ///
+    /// A sentence ends at the first `.` followed by a space or the end of the
+    /// paragraph, which leaves a period inside a name (`std.fs`) or a range
+    /// (`[start, end)`) alone. An abbreviation that ends a word (`e.g. this`) does
+    /// cut early — the price of a rule with no dictionary in it.
+    pub fn summary(self) -> String {
+        let para = first_paragraph(self.lines);
+        return para.slice(0, sentence_end(para)).trim();
+    }
+
+    /// The last source line this run covers. Runs are line-contiguous by
+    /// construction, so it is the first line plus the rest of them.
+    pub fn end_line(self) -> Int {
+        return self.span.line + self.lines.len() - 1;
+    }
+}
+
+/// Every doc comment in one file, attached to what it documents.
+pub struct DocMap {
+    /// The file's `//!` header — the first `//!` run in the file, which is the
+    /// package doc when the file is a directory library's barrel.
+    let file_doc: Option<DocComment>;
+    /// Item docs, keyed by the code-point offset of the documented item's span.
+    /// Reach it through [DocMap.at] rather than reading it directly.
+    let by_offset: Map<Int, DocComment>;
+}
+
+impl DocMap {
+    /// The doc attached to the item whose span starts at `span`, if any. The key is
+    /// the offset, so any node's own span works — a declaration, an `impl` or
+    /// `interface` method, a struct field, an enum variant.
+    pub fn at(self, span: SourceSpan) -> Option<DocComment> {
+        return self.by_offset.get(span.offset);
+    }
+
+    /// The doc attached to `d`, if any.
+    pub fn for_decl(self, d: Decl) -> Option<DocComment> {
+        return self.at(decl_span(d));
+    }
+
+    /// How many items carry a doc.
+    pub fn len(self) -> Int {
+        return self.by_offset.len();
+    }
+}
+
+/// Attach `comments` to the items of `program`.
+///
+/// Pass the whole file's comments — `lex.comments`, unfiltered. Ordinary `//`
+/// comments are never extracted, but they are load-bearing here: one interposed
+/// between a doc run and a declaration ends the run, which is the disambiguation
+/// the doc model buys by separating the three comment forms lexically.
+pub fn attach(program: Program, comments: List<Comment>) -> DocMap {
+    let runs = doc_runs(comments);
+    let anchors = anchor_lines(program);
+
+    let by_offset: Map<Int, DocComment> = [:];
+    for run in runs {
+        if run.kind != CommentKind.Doc {
+            continue;
+        }
+        if let Some(offset) = anchors.get(run.end_line() + 1) {
+            by_offset[offset] = run;
+        }
+    }
+    let module_runs = runs.filter((r) => r.kind == CommentKind.ModuleDoc);
+    return DocMap { file_doc: module_runs.first(), by_offset: by_offset };
+}
+
+/// Every `///` and `//!` run in `comments`, in source order.
+///
+/// A run is a maximal stack of doc comments of one kind on consecutive lines.
+/// Ordinary `//` comments never join a run, and break any run they interrupt.
+pub fn doc_runs(comments: List<Comment>) -> List<DocComment> {
+    let out: List<DocComment> = [];
+    let mut i = 0;
+    while i < comments.len() {
+        let head = comments[i];
+        if head.kind == CommentKind.Line {
+            i = i + 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < comments.len() && continues(comments[j - 1], comments[j]) {
+            j = j + 1;
+        }
+        let lines: List<String> = [];
+        let mut k = i;
+        while k < j {
+            lines.push(content_of(comments[k]));
+            k = k + 1;
+        }
+        out.push(DocComment {
+            kind: head.kind,
+            span: head.span.cover(comments[j - 1].span),
+            lines: lines,
+        });
+        i = j;
+    }
+    return out;
+}
+
+// The start line of every item a doc run can attach to, mapped to that item's span
+// offset. A declaration's span starts at its first decorator (or `pub`, or the
+// introducing keyword), so this is the line a doc must sit directly above.
+//
+// First writer wins: two items on one line (`pub fn a() {} pub fn b() {}`) is
+// legal, and a doc above them documents the first.
+fn anchor_lines(program: Program) -> Map<Int, Int> {
+    let anchors: Map<Int, Int> = [:];
+    for d in program.decls {
+        note(anchors, decl_span(d));
+        if let Impl(x) = d {
+            for m in x.methods {
+                note(anchors, m.span);
+            }
+        }
+        if let Interface(x) = d {
+            for m in x.methods {
+                note(anchors, m.span);
+            }
+        }
+        if let Type(x) = d {
+            for f in x.fields {
+                note(anchors, f.span);
+            }
+        }
+        if let Enum(x) = d {
+            for v in x.variants {
+                note(anchors, v.span);
+            }
+        }
+    }
+    return anchors;
+}
+
+fn note(anchors: Map<Int, Int>, span: SourceSpan) -> Void {
+    if !anchors.has(span.line) {
+        anchors[span.line] = span.offset;
+    }
+}
+
+// Whether `b` continues the run `a` is in: the very next line, and the same marker.
+fn continues(a: Comment, b: Comment) -> Bool {
+    return b.span.line == a.span.line + 1 && b.kind == a.kind;
+}
+
+// One comment's content: the text past the three-character marker (`///` and `//!`
+// are both three), less one separating space and any trailing whitespace.
+fn content_of(c: Comment) -> String {
+    let text = c.span.text();
+    let rest = text.slice(3, text.len());
+    let body = if rest.starts_with(' ') { rest.slice(1, rest.len()) } else { rest };
+    return body.trim_end();
+}
+
+// The doc's first paragraph as one line: everything up to the first blank line,
+// with the author's wrapping joined out.
+fn first_paragraph(lines: List<String>) -> String {
+    let taken: List<String> = [];
+    for line in lines {
+        if line.trim() == '' {
+            break;
+        }
+        taken.push(line.trim());
+    }
+    return taken.join(' ').trim();
+}
+
+// Where the first sentence of `para` ends: just past the first `.` followed by a
+// space or nothing. The whole length when there is no such period, so a summary
+// written without one is the paragraph itself.
+fn sentence_end(para: String) -> Int {
+    let cs = para.chars();
+    let mut i = 0;
+    while i < cs.len() {
+        if cs[i] == char.DOT && (i + 1 == cs.len() || cs[i + 1] == char.SPACE) {
+            return i + 1;
+        }
+        i = i + 1;
+    }
+    return cs.len();
+}

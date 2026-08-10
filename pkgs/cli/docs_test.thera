@@ -1,0 +1,270 @@
+//! Tests for doc-comment attachment.
+//!
+//! The shapes worth pinning are the boundaries of a run — what joins one and what
+//! ends one — and that an offset key reaches nested items (methods, fields,
+//! variants), since that is the whole reason the map is keyed by span rather than
+//! by declaration name.
+
+import std.testing;
+
+import 'docs' as _;
+import 'lexer' as _;
+import 'parser' as _;
+import 'source' as _;
+
+// Attach docs for a source string, the way a real caller would.
+fn map_of(src: String) -> DocMap {
+    let lex = tokenize(src);
+    return attach(parse_tokens(lex.tokens).program, lex.comments);
+}
+
+// The doc text attached to the top-level decl at `index`, or `<none>`.
+fn decl_doc(src: String, index: Int) -> String {
+    let m = map_of(src);
+    let program = parse_tokens(tokenize(src).tokens).program;
+    return match m.for_decl(program.decls[index]) {
+        Some(d) => d.text(),
+        None => '<none>',
+    };
+}
+
+@test
+fn test_attaches_to_the_decl_below() -> Result<Void, Error> {
+    let src = '/// The answer.\nfn f() -> Int { return 42; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: 'The answer.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_multi_line_run_is_one_doc() -> Result<Void, Error> {
+    let src = '/// One.\n/// Two.\n/// Three.\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: 'One.\nTwo.\nThree.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bare_marker_line_is_an_empty_line() -> Result<Void, Error> {
+    let src = '/// Summary.\n///\n/// Detail.\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: 'Summary.\n\nDetail.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_blank_line_ends_the_run() -> Result<Void, Error> {
+    // The stray run above the blank line attaches to nothing; only the adjacent one
+    // reaches the declaration.
+    let src = '/// Stray.\n\n/// Real.\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: 'Real.')?;
+    testing.assert_eq(actual: map_of(src).len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_ordinary_comment_ends_the_run() -> Result<Void, Error> {
+    // The disambiguation the three lexical forms buy: an internal note may sit
+    // directly above a declaration without becoming its documentation.
+    let src = '/// Not the doc.\n// internal note\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: '<none>')?;
+    testing.assert_eq(actual: map_of(src).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_slash_run_divider_is_not_a_doc() -> Result<Void, Error> {
+    // `////`+ classifies as an ordinary comment (source.classify_comment), so a
+    // divider never becomes documentation.
+    let src = '//// ----\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: '<none>')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_doc_above_a_decorator_still_attaches() -> Result<Void, Error> {
+    // A decl's span starts at its first decorator, which is what the doc sits above
+    // in every `sdk/std` native binding.
+    let src = '/// Reads a file.\n@extern(\'fs_read_text\')\npub native fn read_text(p: String) -> String\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: 'Reads a file.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_module_doc_is_the_file_doc() -> Result<Void, Error> {
+    let src = '//! A library.\n//!\n//! Import as: import x;\n\n/// An item.\nfn f() -> Int { return 0; }\n';
+    let m = map_of(src);
+    let Some(file) = m.file_doc else {
+        return Result.Err(error('expected a file doc'));
+    };
+    testing.assert_eq(actual: file.text(), expected: 'A library.\n\nImport as: import x;')?;
+    testing.assert_eq(actual: file.kind, expected: CommentKind.ModuleDoc)?;
+    // The `//!` header is not also an item doc for the declaration under it.
+    testing.assert_eq(actual: decl_doc(src, 0), expected: 'An item.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_no_module_doc_is_none() -> Result<Void, Error> {
+    let m = map_of('/// An item.\nfn f() -> Int { return 0; }\n');
+    testing.assert_eq(actual: m.file_doc, expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_attaches_to_impl_methods() -> Result<Void, Error> {
+    let src = 'struct S { let x: Int; }\n\nimpl S {\n    /// The x.\n    pub fn x_of(self) -> Int { return self.x; }\n}\n';
+    let program = parse_tokens(tokenize(src).tokens).program;
+    let m = map_of(src);
+    let Impl(i) = program.decls[1] else {
+        return Result.Err(error('expected an impl decl'));
+    };
+    let Some(doc) = m.at(i.methods[0].span) else {
+        return Result.Err(error('expected a doc on the method'));
+    };
+    testing.assert_eq(actual: doc.text(), expected: 'The x.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_attaches_to_interface_methods() -> Result<Void, Error> {
+    let src = 'interface Show {\n    /// Renders it.\n    fn show(self) -> String;\n}\n';
+    let program = parse_tokens(tokenize(src).tokens).program;
+    let Interface(i) = program.decls[0] else {
+        return Result.Err(error('expected an interface decl'));
+    };
+    let Some(doc) = map_of(src).at(i.methods[0].span) else {
+        return Result.Err(error('expected a doc on the method'));
+    };
+    testing.assert_eq(actual: doc.text(), expected: 'Renders it.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_attaches_to_struct_fields() -> Result<Void, Error> {
+    let src = 'struct S {\n    /// Where it lives.\n    let path: String;\n}\n';
+    let program = parse_tokens(tokenize(src).tokens).program;
+    let Type(t) = program.decls[0] else {
+        return Result.Err(error('expected a struct decl'));
+    };
+    let Some(doc) = map_of(src).at(t.fields[0].span) else {
+        return Result.Err(error('expected a doc on the field'));
+    };
+    testing.assert_eq(actual: doc.text(), expected: 'Where it lives.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_attaches_to_enum_variants() -> Result<Void, Error> {
+    let src = 'enum E {\n    /// The empty one.\n    None,\n    Some(Int),\n}\n';
+    let program = parse_tokens(tokenize(src).tokens).program;
+    let Enum(e) = program.decls[0] else {
+        return Result.Err(error('expected an enum decl'));
+    };
+    let m = map_of(src);
+    let Some(doc) = m.at(e.variants[0].span) else {
+        return Result.Err(error('expected a doc on the variant'));
+    };
+    testing.assert_eq(actual: doc.text(), expected: 'The empty one.')?;
+    testing.assert_eq(actual: m.at(e.variants[1].span), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_doc_over_nothing_attaches_to_nothing() -> Result<Void, Error> {
+    // A trailing run with no declaration under it is simply unattached. It is still
+    // a run — a future lint can flag it — but nothing claims it.
+    let m = map_of('fn f() -> Int { return 0; }\n\n/// Dangling.\n');
+    testing.assert_eq(actual: m.len(), expected: 0)?;
+    testing.assert_eq(
+        actual: doc_runs(tokenize('fn f() -> Int { return 0; }\n\n/// Dangling.\n').comments).len(),
+        expected: 1,
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_each_decl_gets_its_own_doc() -> Result<Void, Error> {
+    let src = '/// First.\nfn a() -> Int { return 0; }\n\n/// Second.\nfn b() -> Int { return 1; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: 'First.')?;
+    testing.assert_eq(actual: decl_doc(src, 1), expected: 'Second.')?;
+    testing.assert_eq(actual: map_of(src).len(), expected: 2)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_span_covers_the_whole_run() -> Result<Void, Error> {
+    let src = '/// One.\n/// Two.\nfn f() -> Int { return 0; }\n';
+    let runs = doc_runs(tokenize(src).comments);
+    testing.assert_eq(actual: runs.len(), expected: 1)?;
+    testing.assert_eq(actual: runs[0].span.text(), expected: '/// One.\n/// Two.')?;
+    testing.assert_eq(actual: runs[0].span.line, expected: 1)?;
+    testing.assert_eq(actual: runs[0].end_line(), expected: 2)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_content_strips_one_space_only() -> Result<Void, Error> {
+    // Indentation inside a doc is structure the author meant (a fenced block, an
+    // indented list), so only the single separating space comes off.
+    let src = '///   indented\n///no space\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: '  indented\nno space')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_trailing_whitespace_is_trimmed() -> Result<Void, Error> {
+    let src = '/// Padded.   \nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: decl_doc(src, 0), expected: 'Padded.')?;
+    return Result.Ok(void);
+}
+
+// --- The summary sentence ---
+
+fn summary_of(src: String) -> String {
+    let m = map_of(src);
+    let program = parse_tokens(tokenize(src).tokens).program;
+    return match m.for_decl(program.decls[0]) {
+        Some(d) => d.summary(),
+        None => '<none>',
+    };
+}
+
+@test
+fn test_summary_is_the_first_sentence() -> Result<Void, Error> {
+    let src = '/// The answer. And more prose after it.\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: summary_of(src), expected: 'The answer.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_summary_joins_the_authors_wrapping() -> Result<Void, Error> {
+    let src = '/// The substring of the code points\n/// in the range. More detail here.\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(
+        actual: summary_of(src),
+        expected: 'The substring of the code points in the range.',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_summary_stops_at_the_first_paragraph() -> Result<Void, Error> {
+    // No terminating period, so the sentence rule falls through to the paragraph —
+    // which must not run on into the second one.
+    let src = '/// A summary with no period\n///\n/// A second paragraph.\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: summary_of(src), expected: 'A summary with no period')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_summary_keeps_a_period_inside_a_word() -> Result<Void, Error> {
+    // `std.fs` and `[start, end)` are the shapes the naive "first period" rule gets
+    // wrong; a period only ends a sentence when a space or the end follows it.
+    let src = '/// Reads via std.fs and returns it. Then stops.\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: summary_of(src), expected: 'Reads via std.fs and returns it.')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_summary_of_an_empty_doc_is_empty() -> Result<Void, Error> {
+    let src = '///\nfn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: summary_of(src), expected: '')?;
+    return Result.Ok(void);
+}
