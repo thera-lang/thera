@@ -309,19 +309,19 @@ fn status_has_no_body(_ status: Int) -> Bool {
 /// `content-length` is supplied from the body; a caller-set one is overwritten
 /// rather than trusted, since a length that disagrees with the bytes is a request
 /// smuggling primitive, not a preference.
-pub fn write_request(to dst: io.Writer, _ req: Request) -> Result<Void, Error> {
+pub fn write_request(to: io.Writer, _ req: Request) -> Result<Void, Error> {
     let head = BytesBuilder.new();
     head.write_str(req.method + ' ' + req.url + ' HTTP/1.1' + CRLF);
     write_headers(head, req.headers, req.body.len());
-    return finish_message(to: dst, head, req.body);
+    return finish_message(to: to, head, req.body);
 }
 
 /// Serialize `resp` to `dst` as an HTTP/1.1 response.
-pub fn write_response(to dst: io.Writer, _ resp: Response) -> Result<Void, Error> {
+pub fn write_response(to: io.Writer, _ resp: Response) -> Result<Void, Error> {
     let head = BytesBuilder.new();
     head.write_str('HTTP/1.1 ' + resp.status.to_string() + ' ' + reason_phrase(resp.status) + CRLF);
     write_headers(head, resp.headers, resp.body.len());
-    return finish_message(to: dst, head, resp.body);
+    return finish_message(to: to, head, resp.body);
 }
 
 /// The header block plus the blank line that ends it. `content-length` and any
@@ -346,12 +346,12 @@ fn write_headers(_ head: BytesBuilder, _ headers: Map<String, String>, _ body_le
     head.write_str(CRLF);
 }
 
-fn finish_message(to dst: io.Writer, _ head: BytesBuilder, _ body: Bytes) -> Result<Void, Error> {
+fn finish_message(to: io.Writer, _ head: BytesBuilder, _ body: Bytes) -> Result<Void, Error> {
     // One write for the head, one for the body: the head is small and the body may
     // be large, so concatenating them would copy the body for nothing.
-    io.write_all(to: dst, head.finish())?;
+    io.write_all(to: to, head.finish())?;
     if body.len() > 0 {
-        io.write_all(to: dst, body)?;
+        io.write_all(to: to, body)?;
     }
     return Result.Ok(void);
 }

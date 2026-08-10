@@ -777,11 +777,9 @@ impl Parser {
 
     fn parse_param(self) -> Param {
         let start = self.current();
-        // `self` is the receiver only when bare; followed by an identifier or `:`
-        // it is a parameter label/name like any other keyword
-        // (`fn url(self href: String)`).
-        if self.check(TokenKind.KwSelf) && self.peek_tok(1).kind != TokenKind.Identifier
-            && self.peek_tok(1).kind != TokenKind.Colon {
+        // `self` in a parameter list is always the receiver: a parameter's name is
+        // its label, and a keyword cannot be a name (it is read bare in the body).
+        if self.check(TokenKind.KwSelf) {
             let self_tok = self.advance();
             return Param {
                 span: self_tok.span,
@@ -795,11 +793,13 @@ impl Parser {
         }
 
         // Label/name forms:
-        //   _ name        → suppressed label
+        //   _ name        → suppressed label (positional)
         //   name          → label == name
-        //   label name    → distinct external label and internal name
-        // The *label* may be a keyword (member positions are closed); the internal
-        // name must be an identifier — it is read bare in the body.
+        // There is no two-name `label name` form: a parameter's external label *is*
+        // its internal name. (It existed until 2026-08 and was used 12 times across
+        // ~2k functions; retiring it costs only a keyword label — see the tracker.)
+        // So the name is an identifier in both forms, never a keyword: it is read
+        // bare in the body, where a keyword cannot appear.
         let mut label = Option.None;
         let mut name = '';
         let mut name_span = self.current().span;
@@ -809,27 +809,23 @@ impl Parser {
             let name_tok = self.expect(TokenKind.Identifier, 'parameter name');
             name = name_tok.lexeme();
             name_span = name_tok.span;
+        } else if self.check(TokenKind.Identifier) {
+            let name_tok = self.advance();
+            label = Option.Some(name_tok.lexeme());
+            name = name_tok.lexeme();
+            name_span = name_tok.span;
         } else if self.check_member_name() {
-            let first = self.advance();
-            if self.check(TokenKind.Identifier) {
-                label = Option.Some(first.lexeme());
-                let name_tok = self.advance();
-                name = name_tok.lexeme();
-                name_span = name_tok.span;
-            } else if is_keyword(first.kind) {
-                // `fn f(match: Int)` — the label may be `match`, but the internal
-                // name may not; prescribe the two-name form.
-                self.fail_at(
-                    'a keyword parameter label needs a distinct internal name: '
-                    + '`${first.lexeme()} name: T`',
-                    first.span,
-                );
-                return self.err_param();
-            } else {
-                label = Option.Some(first.lexeme());
-                name = first.lexeme();
-                name_span = first.span;
-            }
+            // A keyword here reads as an attempted label. Both ways out are worth
+            // naming: rename it, or make the parameter positional (`_ name: T`),
+            // which drops the label entirely.
+            let kw = self.current();
+            self.fail_at(
+                'a parameter name cannot be a keyword: `${kw.lexeme()}` is reserved, '
+                + 'and a parameter\'s label is its name — rename it, or make it '
+                + 'positional (`_ name: T`)',
+                kw.span,
+            );
+            return self.err_param();
         } else {
             self.fail('expected parameter name or _');
             return self.err_param();

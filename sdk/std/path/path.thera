@@ -299,14 +299,14 @@ pub fn normalize(_ path: String) -> String {
 /// path.relative(from: '/a', to: '/a/b/c')     // Ok('b/c')
 /// path.relative(from: 'x/y', to: 'x/y')       // Ok('.')
 /// ```
-pub fn relative(from base: String, to target: String) -> Result<String, Error> {
-    let b = normalize(base);
-    let t = normalize(target);
+pub fn relative(from: String, to: String) -> Result<String, Error> {
+    let b = normalize(from);
+    let t = normalize(to);
     if b == t {
         return Result.Ok('.');
     }
     if is_absolute(b) != is_absolute(t) {
-        return Result.Err(error('cannot make `${target}` relative to `${base}`: '
+        return Result.Err(error('cannot make `${to}` relative to `${from}`: '
             + 'one is absolute, the other relative'));
     }
     let bc = path_parts(b);
@@ -319,7 +319,7 @@ pub fn relative(from base: String, to target: String) -> Result<String, Error> {
     // A `..` remaining in `from` at the point of divergence can't be backed out of
     // (we don't know what it referred to).
     if i < bc.len() && bc[i] == '..' {
-        return Result.Err(error('cannot make `${target}` relative to `${base}`'));
+        return Result.Err(error('cannot make `${to}` relative to `${from}`'));
     }
     // One `..` per remaining `from` component, then the remaining `to` components.
     let out: List<String> = [];

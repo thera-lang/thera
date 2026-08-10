@@ -5,9 +5,10 @@ fn greet(name: String, times: Int) -> String {
     return '${name} x${times}';
 }
 
-// `default` is the external label; `value` is the internal name.
-fn flag(_ name: String, default value: Bool) -> Bool {
-    return value;
+// A label is simply the parameter's name — there is no separate external label.
+// `default` is not a reserved word, so it serves as both.
+fn flag(_ name: String, default: Bool) -> Bool {
+    return default;
 }
 
 fn main() -> Int {

@@ -107,7 +107,7 @@ pub fn read_all(_ src: Reader) -> Result<Bytes, Error> {
 /// buffer is finite, and a non-blocking one takes only what fits right now. This
 /// loops over the remainder; prefer it to a bare `write` unless you are handling
 /// the short-write case yourself.
-pub fn write_all(to dst: Writer, _ data: Bytes) -> Result<Void, Error> {
+pub fn write_all(to: Writer, _ data: Bytes) -> Result<Void, Error> {
     let end = data.len();
     let mut sent = 0;
     while sent < end {
@@ -116,7 +116,7 @@ pub fn write_all(to dst: Writer, _ data: Bytes) -> Result<Void, Error> {
         // tail every call makes a large transfer quadratic (each `slice` copies the
         // remainder). 64 KiB fills a socket send buffer in one syscall.
         let stop = if end - sent > 65536 { sent + 65536 } else { end };
-        let n = dst.write(data.slice(sent, stop))?;
+        let n = to.write(data.slice(sent, stop))?;
         if n <= 0 {
             // A writer that accepts nothing, without erroring, would spin here.
             return Result.Err(error('write accepted no bytes'));
@@ -127,17 +127,17 @@ pub fn write_all(to dst: Writer, _ data: Bytes) -> Result<Void, Error> {
 }
 
 /// Copy `src` to `dst` until EOF; returns the number of bytes copied.
-pub fn copy(to dst: Writer, from src: Reader) -> Result<Int, Error> {
+pub fn copy(to: Writer, from: Reader) -> Result<Int, Error> {
     let mut total = 0;
     let mut going = true;
     while going {
-        let chunk = src.read(max: 4096)?;
+        let chunk = from.read(max: 4096)?;
         if chunk.len() == 0 {
             going = false;
         } else {
             // `write_all`, not `write`: a short write would silently drop the tail
             // of the chunk (and miscount the total).
-            write_all(to: dst, chunk)?;
+            write_all(to: to, chunk)?;
             total = total + chunk.len();
         }
     }

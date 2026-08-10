@@ -2,7 +2,8 @@
 //! mode: run
 
 // `type` is a contextual keyword: an ordinary identifier usable as a field,
-// parameter (any form), label, or local. Only `native type` gives it meaning.
+// parameter, label, or local — a reserved word in any of those positions is an
+// error. Only `native type` gives it meaning.
 struct Block {
     let type: String;
 }
@@ -11,8 +12,8 @@ fn describe(type: String) -> String {
     return 'kind=${type}';
 }
 
-fn labeled(type kind: String) -> String {
-    return 'label=${kind}';
+fn labeled(_ type: String) -> String {
+    return 'label=${type}';
 }
 
 fn main() -> Int {
@@ -20,7 +21,7 @@ fn main() -> Int {
     let b = Block { type: type };
     println(b.type);                     // expect: text
     println(describe(type: 'tool_use')); // expect: kind=tool_use
-    println(labeled(type: 'thinking'));  // expect: label=thinking
+    println(labeled('thinking'));        // expect: label=thinking
     let f = (type: String) => type.len();
     println('${f('abc')}');              // expect: 3
     return 0;

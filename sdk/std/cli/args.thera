@@ -51,11 +51,11 @@ impl Args {
     ///
     /// TODO: support negation — `--no-<name>` should yield false — so a flag can be
     /// explicitly disabled, not just defaulted.
-    pub fn flag(self, _ name: String, default value: Bool) -> Bool {
+    pub fn flag(self, _ name: String, default: Bool) -> Bool {
         if self.has(name) {
             return true;
         }
-        return value;
+        return default;
     }
 
     /// The value following a `--name` token, or None.

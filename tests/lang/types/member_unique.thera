@@ -25,8 +25,8 @@ fn add(a: Int, a: Int) -> Int {   // expect error: duplicate parameter `a`
     return a;
 }
 
-fn tag(k first: Int, k second: Int) -> Int {   // expect error: duplicate parameter label `k`
-    return first + second;
+fn tag(k: Int, k: Int) -> Int {   // expect error: duplicate parameter `k`
+    return k;
 }
 
 struct S {
