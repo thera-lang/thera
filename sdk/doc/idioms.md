@@ -246,13 +246,14 @@ More canonical choices:
   `**Example:**` / `**Errors:**` / `**Note:**` label paragraphs. Reference
   symbols as `[fs.read_text]` when you want the link checked.
 
-- **Doc examples:** a ` ```thera ` fence is a promise the block compiles, and
-  the toolchain holds you to it — pin the result with `// =>`
-  (`'hi'.len() // => 2`), `no_run` if it has real side effects, `sketch` if the
-  API doesn't exist yet, and leave the fence untagged only when the content
-  isn't Thera. More than about five lines means it belongs in the sibling
-  `_test.thera` as an `@example` fn, referenced from the doc as
-  `/// @foo_test.thera#example_name`.
+- **Doc examples:** inside a `///` comment a fence **is** Thera and the compiler
+  holds you to it, so tag non-Thera content ` ```text `. Every name the block
+  uses it must bind or import — `let names = ['bo', 'al'];` before
+  `names.sort(…)`, not a variable assumed into existence. Pin the result with
+  `// =>` (`'hi'.len() // => 2`); ` ```thera,no_run ` if it has real side
+  effects, ` ```thera,no_check ` if the API doesn't exist yet. More than about
+  five lines means it belongs in the sibling `_test.thera` as an `@example` fn,
+  referenced from the doc as `/// @foo_test.thera#example_name`.
 
 ## The stdlib in one screen
 

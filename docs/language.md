@@ -1570,15 +1570,15 @@ are never split across lines.
 - **Lists:** `-` bullets and `1.` ordered lists.
 - **Code blocks:** fenced only — indented code blocks are **not** supported
   (they force an ambiguous indent-width rule under the `///` prefix). **The
-  fence tag is a contract**: a ` ```thera ` block claims to be real Thera and is
-  compile-checked by `thera check` (a failure is a `doc-example` warning) and
-  run by `thera test` when it carries a `// =>` oracle. The attributes
-  ` ```thera sketch ` (rendered, never checked) and ` ```thera no_run `
-  (compile-checked, never run) are the only opt-outs. An **untagged** fence is
-  ignored, and is the right form for preformatted content that is not Thera — a
-  syntax table, a grammar fragment, sample output — so the `thera` tag never
-  falsely implies something is runnable. Full rules, including the REPL-shape
-  relaxations and `...` elision that apply inside an example, are in
+  fence tag is a contract.** Inside a doc comment, a fence **is Thera by
+  default** and is compile-checked by `thera check` (a failure is the
+  `doc-example` warning) and run by `thera test` when it carries a `// =>`
+  oracle; tag non-Thera content ` ```text ` (or whatever it is). In a `.md` file
+  the reverse holds — a block is Thera only when tagged ` ```thera `.
+  Comma-separated attributes opt out: ` ```thera,no_run ` (compile-checked,
+  never run) and ` ```thera,no_check ` (rendered, never checked). Full rules,
+  including the REPL-shape relaxations, `...` elision, and the requirement that
+  an example bind every name it uses, are in
   [documentation.md § Tier 1](documentation.md#tier-1--fenced-examples-in-doc-comments).
 
 There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite
@@ -2263,7 +2263,7 @@ The warning rules:
   compile. Extracted only from the files `check` was pointed at, never the
   import closure. This is the one warning with **no `// ignore:` form** — a `//`
   line inside a doc comment would end the doc run it sits in — so the opt-out is
-  the `sketch` / `no_run` fence attribute, which is visible to readers too.
+  the `no_check` / `no_run` fence attribute, which is visible to readers too.
 - **`doc-reference`** — a `[Symbol]` doc reference that no longer resolves, or a
   `/// @file#fragment` example reference whose target is missing.
 - **`unreferenced-example`** — an `@example` function no doc site references.

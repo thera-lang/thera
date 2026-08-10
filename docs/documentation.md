@@ -60,7 +60,7 @@ comment above the symbol") cannot provide.
 That rule has one consequence worth stating early, because it shapes the tooling
 below: **a `//` line cannot appear inside a doc comment.** Any mechanism that
 would need one — a suppression comment, an out-of-band annotation — has to be
-spelled some other way. See [§ Opting out](#opting-out-sketch-and-no_run).
+spelled some other way. See [§ Opting out](#opting-out-no_check-and-no_run).
 
 A directory library's **barrel** `//!` header is the **package doc** — the
 single thing an agent reads to understand a whole library. A recommended
@@ -193,55 +193,69 @@ who is already looking at the symbol will actually see it.
 ### The fence tag is the contract
 
 A fence's info string states what the block claims to be, and the toolchain
-holds it to exactly that claim:
+holds it to exactly that claim.
 
-| Fence                     | Rendered | Compile-checked | Run                 |
-| ------------------------- | -------- | --------------- | ------------------- |
-| ` ```thera `              | yes      | **yes**         | if it has an oracle |
-| ` ```thera sketch `       | yes      | no              | no                  |
-| ` ```thera no_run `       | yes      | **yes**         | no                  |
-| ` ``` ` (untagged)        | yes      | no              | no                  |
-| ` ```json `, ` ```sh `, … | yes      | no              | no                  |
+**In a doc comment, Thera is the default.** A bare fence inside `///` or `//!`
+is Thera and is verified — a doc comment lives inside a `.thera` file, so code
+in it is Thera unless it says otherwise. The point of the default is that a new
+example is verified _without anyone remembering to ask for it_; the failure mode
+of an opt-in tag is silent, and silence is what this whole arrangement exists to
+remove.
 
-The rules that follow from the table:
+**In a Markdown file, it is opt-in.** A `.md` file is language-agnostic prose,
+and `docs/` is full of JSON, shell, and EBNF fences; there a block is Thera only
+when tagged `thera`.
 
-- **A `thera` tag is a claim that the block is real Thera**, and it is verified.
-  This is the whole mechanism: the tag is cheap to write, already habitual, and
-  turns a claim into a checked one.
-- **Attributes** follow the language tag, space-separated. `sketch` and `no_run`
-  are the only two; an unrecognized attribute is a `doc-example` warning rather
-  than a silent skip, so a typo (`thera norun`) cannot quietly disable
-  verification.
-- **An untagged fence is ignored**, legitimately. Preformatted content that is
-  not Thera — a syntax table, a grammar fragment, sample program output, a
-  diagnostic transcript — belongs in an untagged fence, and the `thera` tag
-  never falsely implies something is runnable.
+| Fence in a `///` / `//!` doc comment | Rendered | Compile-checked | Run                 |
+| ------------------------------------ | -------- | --------------- | ------------------- |
+| ` ``` ` (bare) or ` ```thera `       | yes      | **yes**         | if it has an oracle |
+| ` ```thera,no_run `                  | yes      | **yes**         | no                  |
+| ` ```thera,no_check `                | yes      | no              | no                  |
+| ` ```text `, ` ```sh `, ` ```json `  | yes      | no              | no                  |
 
-Design fiction — an example of an API that does not exist yet — is fine, but it
-must be **lexically marked**, and `thera sketch` is the marking. Prefer it over
-leaving such a block untagged: `sketch` says "Thera, aspirational", while
-untagged says "not Thera", and conflating them costs the reader the one signal
-that matters.
+| Fence in a `.md` file                  | Rendered | Compile-checked | Run                 |
+| -------------------------------------- | -------- | --------------- | ------------------- |
+| ` ```thera `                           | yes      | **yes**         | if it has an oracle |
+| ` ```thera,no_run `                    | yes      | **yes**         | no                  |
+| ` ```thera,no_check `                  | yes      | no              | no                  |
+| ` ``` ` (bare), ` ```sh `, ` ```json ` | yes      | no              | no                  |
 
-### Opting out: `sketch` and `no_run`
+**Attributes are comma-separated**, after the language tag — the spelling Rust's
+doctests use, so it is already familiar. A space after the comma is accepted and
+`thera fmt` normalizes to the tight form. Attributes always need the explicit
+`thera` tag: ` ```thera,no_run `, never a bare ` ```,no_run `. An unrecognized
+attribute is a `doc-example` warning rather than a silent skip, so a typo
+(`thera,norun`) cannot quietly disable verification.
 
-These attributes are the only opt-outs, and that is deliberate. The
-`doc-example` warning has **no `// ignore:` form** — the standard suppression
-comment is a `//` line, and a `//` line inside a doc comment would terminate the
-doc run it sits in (see [§ Three comment forms](#three-comment-forms)). Nothing
-can be hidden from the reader to appease the tool.
+**Non-Thera content gets a real tag.** Preformatted text that is not Thera — a
+syntax table, a grammar fragment, sample program output, a diagnostic transcript
+— is ` ```text `, or the language it actually is. Inside a doc comment this is
+now required rather than optional, which is the one cost of the default above.
 
-That constraint is a feature: an opt-out has to be visible in the rendered doc,
-where the person trusting the example can see it.
+### Opting out: `no_check` and `no_run`
+
+The two attributes name the stage they switch off, so they form a ladder:
+`no_run` disables running, `no_check` disables compiling and therefore running
+too.
 
 - **`no_run`** — compile-checked, never executed. For a block whose effects are
   real: opening a socket, writing a file, spawning a process, sleeping. The
   static bar still catches the rot class that matters (fictional syntax,
   fictional APIs, names stale after a rename).
-- **`sketch`** — rendered, never checked. For an API that does not exist yet.
-  Reach for it only when `no_run` genuinely cannot work; every `sketch` block is
-  a small permanent liability, and the honest lifecycle is that it becomes a
-  plain `thera` block the week its API lands.
+- **`no_check`** — rendered, never checked. For **design fiction**: an example
+  of an API that does not exist yet. Reach for it only when `no_run` genuinely
+  cannot work. Every `no_check` block is a small permanent liability, and the
+  honest lifecycle is that it becomes a plain `thera` block the week its API
+  lands — so a `no_check` block should have an issue behind it.
+
+These are the only opt-outs, and that is deliberate. The `doc-example` warning
+has **no `// ignore:` form** — the standard suppression comment is a `//` line,
+and a `//` line inside a doc comment would terminate the doc run it sits in (see
+[§ Three comment forms](#three-comment-forms)). Nothing can be hidden from the
+reader to appease the tool.
+
+That constraint is a feature: an opt-out has to be visible in the rendered doc,
+where the person trusting the example can see it.
 
 ### The doc-example dialect
 
@@ -265,31 +279,79 @@ pub native fn slice(self, start: Int, end: Int) -> String
 **2. An unused `Result` is not an error.** `fs.read_text(path)` on a line of its
 own reads fine in an example and would be a mistake in real code.
 
-**3. `...` elides code.** It is legal wherever a block body, an expression, or a
-member list is omitted, and it type-checks as a **diverging hole** — like
-`throw` — so the enclosing signature still checks in full:
+**3. `...` elides code.** It is legal wherever a block body, a statement, an
+expression, or a member list is omitted, and it type-checks as a **diverging
+hole** — like `throw` — so the enclosing signature still checks in full:
 
 ```thera
 pub fn get(self, index: Int) -> Option<T> { ... }
+
+if config.port.is_some() { ... }
 ```
 
-This is what lets a block whose whole point is a _signature_ stay verified
-rather than degrading to `sketch`. A block containing `...` is compile-only: it
-is never run, even if it carries an oracle. Outside a doc example `...` is not
-Thera, and the diagnostic says so.
+This is what lets a block whose whole point is a _signature_ or a _shape_ stay
+verified rather than degrading to `no_check`. A block containing `...` is
+compile-only: it is never run, even if it carries an oracle. Outside a doc
+example `...` is not Thera, and the diagnostic says so.
 
-**Wrapper synthesis.** The block is compiled as a source file: top-level
-declarations stay at the top level, and any loose statements are collected, in
-source order, into a synthesized `fn main`. So a block may show a declaration, a
-sequence of statements, or both, without the author thinking about it.
+The spelling is the three ASCII dots. The corpus also writes the single
+character `…` in this position; that is prose punctuation, it is not typeable
+without effort, and `thera fmt` rewrites it to `...` inside a verified block.
 
-**Imports.** The prelude (`std.core`) is ambient as always. In a doc comment the
-**documented library is auto-imported under its own namespace**, so a block in
-`sdk/std/path/path.thera` writes `path.components('a/b')` with no import line —
-which is what the existing corpus already assumes. Anything else the block
-imports itself. A Markdown fence has no documented library, so it writes every
-import it needs; that is the right default there anyway, since a reader copying
-out of `docs/` needs those lines.
+### What compiles, and what does not
+
+A doc example is **a whole source file**, so the shapes that work are the shapes
+a file can hold. Size is not the boundary — a one-line fragment and a
+twelve-line program are equally fine — and neither is statement-versus-function.
+
+**Wrapper synthesis.** Top-level declarations (`fn`, `struct`, `enum`,
+`interface`, `impl`, `import`) stay at the top level; every loose statement is
+collected, in source order, into a synthesized
+`fn main() -> Result<Int, Error>`. Writing `?` in a loose statement therefore
+works, which matters — the corpus leans on it heavily. A block that declares its
+own `main` gets no wrapper.
+
+| The block is                                  | Compiles |
+| --------------------------------------------- | -------- |
+| a bare expression — `'hello'.slice(1, 4)`     | yes      |
+| a sequence of statements                      | yes      |
+| declarations — `fn`, `struct`, `enum`, `impl` | yes      |
+| declarations _and_ loose statements, mixed    | yes      |
+| its own `fn main`                             | yes      |
+| a signature with an elided body — `{ ... }`   | yes      |
+
+**Imports.** The prelude (`std.core`) is ambient as always, and in a doc comment
+the **documented library is auto-imported under its own namespace** — a block in
+`sdk/std/path/path.thera` writes `path.components('a/b')` with no import line.
+Any _other_ library the block reaches for it imports itself, including from
+inside a `sdk/std` doc comment: a `std.net` example that calls `io.read_all`
+owes an `import std.io;`. A Markdown fence has no documented library, so it
+writes every import it needs — which is the right default there anyway, since a
+reader copying out of `docs/` needs those lines.
+
+**The one real constraint: an example must be self-contained.** Every name it
+uses it must define, import, or receive from the documented library. This is the
+rule that actually bites, because the natural way to write a small example is to
+assume a variable into existence:
+
+````thera
+/// ```
+/// names.sort((a, b) => a < b);          // ✗ what is `names`?
+/// ```
+
+/// ```
+/// let names = ['bo', 'al'];             // ✓
+/// names.sort((a, b) => a < b);
+/// names                                 // => ['al', 'bo']
+/// ```
+````
+
+Binding the context is nearly always an improvement rather than a tax: the
+example becomes copy-pasteable, and it gains something concrete for a `// =>`
+oracle to pin. Where the setup would genuinely drown the point being
+illustrated, that is the signal to move the example down a tier — a
+[`@example` function](#tier-2--example-functions) can afford a few lines of
+scaffolding, a `///` block cannot.
 
 ### Running is opt-in by shape
 
@@ -529,13 +591,15 @@ The short version, in the order the decision actually gets made:
 2. **Does it need more than about five lines, or a helper?** `@example` fn in
    the sibling `foo_test.thera`, referenced with `/// @file#fragment`.
 3. **Is it a program someone would run?** `examples/`.
-4. **Does the API not exist yet?** `thera sketch`, and open an issue — a sketch
-   block is a debt, not a resting state.
-5. **Does it have real side effects?** `thera no_run`.
+4. **Does the API not exist yet?** `thera,no_check`, and open an issue — a
+   `no_check` block is a debt, not a resting state.
+5. **Does it have real side effects?** `thera,no_run`.
 
-And the rule that ties the tiers together: if you are about to leave a fence
-untagged because it would not compile, that is the signal to pick one of 2–5
-instead. Untagged is for content that is not Thera.
+And the rule that ties the tiers together: if you are about to reach for
+`no_check` because the block would not compile, ask first whether it is really
+design fiction. Usually it is not — it is a fragment missing the two lines that
+would bind its context, and that is the signal to pick 1 (bind them) or 2 (move
+it down a tier), not to switch verification off.
 
 ## Implementation status
 
@@ -556,6 +620,7 @@ sits against the rest of developer tooling.
 | Attaching docs to AST nodes                                  | **done** — `docs.attach` (`pkgs/cli/docs.thera`), a span-keyed side table                           |
 | Fence extraction + compile-check, `doc-example` warning      | pending — **phase 1**, the high-order bit                                                           |
 | The doc-example dialect (bare exprs, unused `Result`, `...`) | pending — lands with phase 1                                                                        |
+| Making `sdk/std`'s examples self-contained                   | pending — lands with phase 1; see the snapshot below                                                |
 | `--docs` (Markdown fences)                                   | pending — phase 2                                                                                   |
 | `@example`, `/// @file#fragment` references, inlining        | pending — phase 3, lands with the doc generator ([scale.md item 5](scale.md#5-generated-api-index)) |
 | `// =>` / `// expect:` / `// expect error:` oracles          | pending — phase 4                                                                                   |
@@ -571,19 +636,41 @@ compile.
 Two things should land _with_ phase 1 rather than after it, because they are
 what makes the existing corpus taggable at all: the doc-example dialect (without
 it, `sdk/std`'s 109 REPL-shaped fences all fail) and `...` elision (without it,
-14 of language.md's most illustrative blocks would have to degrade to `sketch`).
-The dialect is language surface, so it wants [conformance](conformance.md) IDs
-when it lands.
+14 of language.md's most illustrative blocks would have to degrade to
+`no_check`). The dialect is language surface, so it wants
+[conformance](conformance.md) IDs when it lands.
 
 ## Corpus snapshot (2026-08)
 
-What the verification would face on day one:
+What the verification faces on day one:
 
-| Source                 | Tagged `thera` | Untagged | Notes                                                         |
-| ---------------------- | -------------- | -------- | ------------------------------------------------------------- |
-| `sdk/std` doc comments | 109            | 3        | nearly all REPL-shaped; the `// =>` sweep is phase 5          |
-| `docs/language.md`     | 73             | 5        | 14 tagged blocks elide with `...`                             |
-| `docs/stdlib.md`       | 2              | 29       | design fiction; should migrate to `thera sketch` as APIs land |
+| Source                 | Tagged `thera` | Untagged | Notes                                                                                                      |
+| ---------------------- | -------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `sdk/std` doc comments | 109            | 3        | REPL-shaped; the 3 untagged are a flag table and two `openssl` transcripts, and now need a `text`/`sh` tag |
+| `docs/language.md`     | 73             | 5        | 14 tagged blocks elide                                                                                     |
+| `docs/stdlib.md`       | 2              | 29       | design fiction; migrates to `thera,no_check` as its APIs land                                              |
 
-The corpus already conforms to the fence contract in the sense that matters:
-nothing is tagged `thera` as a lie. The work is verification, not migration.
+**Measured, not estimated.** The extraction and wrapper above were prototyped
+and run against all 109 `sdk/std` blocks (`dev/doc_example_survey.py`):
+
+| Outcome                                                      | Blocks |
+| ------------------------------------------------------------ | ------ |
+| compile clean already                                        | **49** |
+| reference a name they never bind — `names.sort(…)`           | **41** |
+| elide, with `...` or `…`                                     | 7      |
+| reference a type or library they never import (`Auth`, `io`) | 2      |
+| everything else                                              | 10     |
+
+Of that last row, six are artifacts of the prototype's line-based extraction
+(the real pass is parser-based) — and **two are genuinely broken
+documentation**, which is the point of the exercise, found in an afternoon:
+`sdk/std/net/net.thera` documents `'…'.to_bytes()`, a method that does not exist
+(it is `bytes()`), and `sdk/std/testing/env.thera` documents
+`fixed_env({ 'PORT': '8080' }, …)` using `{…}` map-literal syntax, which is not
+Thera. Both are exactly the rot class this arc exists to stop, and both had
+survived review.
+
+So phase 1 is verification **and** a bounded migration: roughly 41 blocks gain
+the binding or import they assume, 7 settle on `...`, 3 gain a non-Thera tag,
+and 2 get fixed. That is the honest cost, and it is one sweep, once — after
+which the default keeps it swept.

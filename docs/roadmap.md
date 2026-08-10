@@ -341,7 +341,7 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
   (fenced one-liners in doc comments; `@example` fns in `foo_test.thera`, pulled
   into doc sites by explicit `/// @file#fragment` references; whole programs in
   `examples/`); **the fence tag is the contract** — `thera`-tagged blocks are
-  verified (attributes `sketch`/`no_run` for exceptions), untagged blocks are
+  verified (attributes `no_check`/`no_run` for exceptions), untagged blocks are
   ignored, which the existing corpus already conforms to; **compile-check is the
   universal bar** and lands as a `doc-example` **warning** on `thera check`
   (target-set files only, never the import closure — `bin/test.sh`'s
