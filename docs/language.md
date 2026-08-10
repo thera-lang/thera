@@ -1498,6 +1498,10 @@ guiding principle is **progressive disclosure**: a reader should be able to
 grasp a file, then a symbol, by reading as little as possible — one summary
 sentence — and descend into detail only when they need it.
 
+This section is the syntax and the rules the toolchain enforces.
+[documentation.md](documentation.md) is the full treatment: how to write a good
+doc, the three tiers a code example comes in, and the verification tooling.
+
 ### Three comment forms
 
 Thera distinguishes documentation from ordinary comments lexically, so tooling
@@ -1532,32 +1536,18 @@ comment above the symbol") cannot provide.
 
 A directory library's **barrel** `//!` header is the **package doc** — the
 single thing an agent reads to understand a whole library. A recommended
-`Import as:` line gives the exact import to copy. (This is the only doc
-convention above the symbol level; directory overviews and generated indexes are
-deferred.)
+`Import as:` line gives the exact import to copy. It is the only doc convention
+above the symbol level.
 
 ### The summary sentence
 
-The **first sentence** of any doc (through the first `.`) is its summary. It
-must:
-
-- **stand alone** — it appears by itself in one-line contexts (a symbol index,
-  editor hover, a package's table of contents), with no further lines for
-  support;
-- **add information beyond the name** — if the name and signature already say
-  everything, write no doc at all rather than restate them. A doc that only
-  echoes the signature (`/// Returns the length.` on `len(self) -> Int`) is
-  worse than none.
-
-A blank `///` line separates the summary from any further paragraphs. Functions
-lead with the result as a noun phrase ("The substring of code points in
-`[start, end)`."), not "This function returns…".
-
-> **When to document.** Every `pub` symbol should carry a doc comment _unless
-> its name and signature are fully self-describing_. Private symbols are
-> documented only where the intent is non-obvious. Brevity is a feature: the
-> goal is the shortest doc that adds something a reader couldn't get from the
-> signature.
+The **first sentence** of any doc (through the first `.`) is its summary: it
+appears by itself in one-line contexts — a symbol index, editor hover, a
+package's table of contents — so it must **stand alone**, and it must **add
+information beyond the name**. A blank `///` line separates it from any further
+paragraphs. See
+[documentation.md § The summary sentence](documentation.md#the-summary-sentence)
+for what makes a good one and when to write no doc at all.
 
 ### Markdown
 
@@ -1573,20 +1563,23 @@ are never split across lines.
   symbol reference** — a shorthand naming a declared symbol the way code does
   (`[Display]`, `[String.slice]`, `[fs.read_text]`), resolved from the
   documented file's scope. The two are not interchangeable: `` `code` `` is
-  **inert text** the tooling never checks, whereas `[Symbol]` is a **checked,
-  navigable reference** — doc tooling links it, and a lint flags a `[Symbol]`
-  that no longer resolves (doc-rot protection). Use `[Symbol]` when you want a
-  reference to be navigable and verified; use backticks for any other
-  code-shaped text. Backticks always work, so the bracket form is a pure opt-in
-  upgrade, never required.
+  **inert text** the tooling never checks, whereas `[Symbol]` is **checked and
+  navigable** — doc tooling links it, and one that no longer resolves is a
+  `doc-reference` warning (doc-rot protection). Backticks always work, so the
+  bracket form is a pure opt-in upgrade, never required.
 - **Lists:** `-` bullets and `1.` ordered lists.
-- **Code blocks:** fenced only, tagged with the language — ` ```thera `.
-  Indented code blocks are **not** supported (they force an ambiguous
-  indent-width rule under the `///` prefix); a fence is delimited, needs no
-  measuring, and is the form LLMs read and emit most reliably. A fence may be
-  left **untagged** when its content is preformatted text that is _not_ Thera
-  code — a syntax table, a grammar fragment, or sample program output — so the
-  `thera` tag never falsely implies something is runnable.
+- **Code blocks:** fenced only — indented code blocks are **not** supported
+  (they force an ambiguous indent-width rule under the `///` prefix). **The
+  fence tag is a contract**: a ` ```thera ` block claims to be real Thera and is
+  compile-checked by `thera check` (a failure is a `doc-example` warning) and
+  run by `thera test` when it carries a `// =>` oracle. The attributes
+  ` ```thera sketch ` (rendered, never checked) and ` ```thera no_run `
+  (compile-checked, never run) are the only opt-outs. An **untagged** fence is
+  ignored, and is the right form for preformatted content that is not Thera — a
+  syntax table, a grammar fragment, sample output — so the `thera` tag never
+  falsely implies something is runnable. Full rules, including the REPL-shape
+  relaxations and `...` elision that apply inside an example, are in
+  [documentation.md § Tier 1](documentation.md#tier-1--fenced-examples-in-doc-comments).
 
 There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite
 long, sectioned docs that cut against the brevity goal, and a symbol's name is
@@ -1607,8 +1600,8 @@ set of **bold-label paragraphs** instead:
 /// **Example:**
 /// ```thera
 /// let xs = [10, 20, 30];
-/// xs.get(1);    // Some(20)
-/// xs.get(9);    // None
+/// xs.get(1)     // => Some(20)
+/// xs.get(9)     // => None
 /// ```
 pub fn get(self, index: Int) -> Option<T> { ... }
 ````
@@ -1616,10 +1609,10 @@ pub fn get(self, index: Int) -> Option<T> { ... }
 ### Parameters
 
 Document parameters **in prose**, naming them in backticks (`` `index` ``) —
-there is no `@param` tag vocabulary. Document a parameter only when its name and
+there is no `@param` tag vocabulary, and the return value is described in the
+summary rather than a separate tag. Document a parameter only when its name and
 type do not already convey its role: units, valid ranges, edge behavior, or how
-it relates to another parameter. The return value is described in the summary,
-not in a separate tag.
+it relates to another parameter.
 
 ```thera
 /// The substring of code points in the half-open range `[start, end)`.
@@ -1628,12 +1621,22 @@ not in a separate tag.
 pub fn slice(self, start: Int, end: Int) -> String { ... }
 ```
 
+### Examples
+
+Code examples come in three tiers by size, and size decides where one lives: a
+one-liner is a fenced block in the doc comment (above); a multi-call workflow is
+an `@example` fn in the sibling `foo_test.thera`, pulled into a doc site by an
+explicit `/// @file#fragment` reference; a whole program lives in `examples/`.
+All three are verified. See
+[documentation.md § Examples come in three tiers](documentation.md#examples-come-in-three-tiers).
+
 > **Enforcement status.** The conventions above are adoptable in source today:
 > the lexer skips every `//…` line, so `///` and `//!` already lex cleanly as
-> comments. The supporting _machinery_ — attaching docs to AST nodes, surfacing
-> them in LSP hover, a doc generator, formatter and lint awareness, and
-> migrating the existing `//` headers in `sdk/std/` — is tracked in
-> [roadmap.md](roadmap.md).
+> comments. The supporting _machinery_ — attaching docs to AST nodes, verifying
+> examples, surfacing docs in LSP hover, a doc generator, formatter and lint
+> awareness, and migrating the existing `//` headers in `pkgs/cli/` — is tracked
+> in [roadmap.md](roadmap.md) and summarized in
+> [documentation.md § Implementation status](documentation.md#implementation-status).
 
 ---
 
@@ -2176,6 +2179,15 @@ Each returns `Result<Void, Error>`; call with `?` to propagate failures.
 | `testing.assert_ok(result)` → inner value     | Fails if result is Err        |
 | `testing.assert_err(result)`                  | Fails if result is Ok         |
 
+### `@example` functions
+
+A test file may also hold `@example` functions — same shape as `@test` (no
+arguments, returns `Result<Void, Error>`), compiled and run on the same terms,
+but written to be **read**: a doc site pulls one in with a `/// @file#fragment`
+reference and the doc tooling inlines its body. This is the middle tier of the
+example model, for workflows too large to sit inside a doc comment. See
+[documentation.md § Tier 2](documentation.md#tier-2--example-functions).
+
 ---
 
 ## The `thera` tool
@@ -2247,6 +2259,17 @@ The warning rules:
   intentional-discard escape, and any later occurrence of the name counts as a
   reference — an assignment target, an interpolation, a lambda capture, even a
   use that resolves to an inner shadow.
+- **`doc-example`** — a ` ```thera ` block in a doc comment that does not
+  compile. Extracted only from the files `check` was pointed at, never the
+  import closure. This is the one warning with **no `// ignore:` form** — a `//`
+  line inside a doc comment would end the doc run it sits in — so the opt-out is
+  the `sketch` / `no_run` fence attribute, which is visible to readers too.
+- **`doc-reference`** — a `[Symbol]` doc reference that no longer resolves, or a
+  `/// @file#fragment` example reference whose target is missing.
+- **`unreferenced-example`** — an `@example` function no doc site references.
+
+The three doc rules are specified in [documentation.md](documentation.md); see
+its _Implementation status_ for which are live.
 
 ### Commands
 
@@ -2255,6 +2278,7 @@ The warning rules:
 | `thera run`        | Run a source file                                            |
 | `thera check`      | Type-check without running (defaults to the cwd)             |
 | `thera test`       | Run tests (defaults to the cwd; `--verbose` for full report) |
+| `… --docs`         | On `check`/`test`, also verify fenced examples in `*.md`     |
 | `thera fmt`        | Format source files in place (`--check` to only report)      |
 | `thera lint`       | Report non-idiomatic code shapes (defaults to the cwd)       |
 | `thera lint --fix` | Apply the safe lint rewrites (explicit target required)      |
@@ -2265,10 +2289,13 @@ The warning rules:
 
 `thera test [file|dir]` runs the `@test` functions in a `*_test.thera` file, or
 in every `*_test.thera` found under a directory (the current directory when no
-target is given). The default output is quiet: a block per **failing** test —
-its name, with the failure detail indented under it in the standard
-`path:line:column: message` diagnostic shape — then one summary line. A green
-run prints only the summary:
+target is given). It also runs the `@example` functions beside them and the
+oracle-bearing doc examples in the files under the target, counting each
+separately in the summary (`Ran 214 tests, 38 doc examples and 3 examples …`) —
+see [documentation.md § Verification](documentation.md#verification). The
+default output is quiet: a block per **failing** test — its name, with the
+failure detail indented under it in the standard `path:line:column: message`
+diagnostic shape — then one summary line. A green run prints only the summary:
 
 ```
 $ thera test src

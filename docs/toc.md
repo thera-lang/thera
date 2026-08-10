@@ -14,6 +14,11 @@ this is"; read top-down for progressive detail.
   primer — a compact orientation, the rules first-time writers get wrong, the
   canonical form for each common shape, and a one-screen stdlib map. Lives in
   `sdk/doc/` (not here) because it ships with the built SDK.
+- [documentation.md](documentation.md) — **documentation & examples**: the
+  doc-comment model in full (comment forms, the summary sentence, the Markdown
+  subset, `[Symbol]` references), the three tiers a code example comes in —
+  fenced blocks, `@example` fns, whole programs — and the tooling that verifies
+  every one of them. language.md carries the syntax; this carries the detail.
 - [grammar.md](grammar.md) — the **EBNF grammar**: the keyword set, the
   operator/precedence table, every production, and a parser-completeness
   checklist of what's not yet in the syntax.

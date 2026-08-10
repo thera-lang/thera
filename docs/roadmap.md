@@ -336,22 +336,31 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
   first-class-functions fix, and that did not compile when it was written. Both
   were caught by hand, which is exactly the thing that doesn't scale.
 
-  **Design settled (2026-07) — see [scale.md](scale.md) § item 6** for the full
-  treatment. The shape: three example tiers by size (fenced one-liners in doc
-  comments; `@example` fns in `foo_test.thera`, pulled into doc sites by
-  explicit `/// @file#fragment` references; whole programs in `examples/`);
-  **the fence tag is the contract** — `thera`-tagged blocks are verified
-  (attributes `sketch`/`no_run` for exceptions), untagged blocks are ignored,
-  which the existing corpus already conforms to (language.md's blocks all
-  tagged, stdlib.md's sketches all untagged); **compile-check is the universal
-  bar**, running is opt-in by shape (a `// => value` oracle or `// error:`
-  expectations — the `tests/lang` harness has the machinery). Implementation
-  phased: extraction + compile-check first (catches the rot class above),
-  `@example`/references with the doc generator, oracles and the `// =>`
-  migration sweep after.
+  **Spec'd in full — see [documentation.md](documentation.md)** (scaling frame
+  in [scale.md](scale.md) § item 6). The shape: three example tiers by size
+  (fenced one-liners in doc comments; `@example` fns in `foo_test.thera`, pulled
+  into doc sites by explicit `/// @file#fragment` references; whole programs in
+  `examples/`); **the fence tag is the contract** — `thera`-tagged blocks are
+  verified (attributes `sketch`/`no_run` for exceptions), untagged blocks are
+  ignored, which the existing corpus already conforms to; **compile-check is the
+  universal bar** and lands as a `doc-example` **warning** on `thera check`
+  (target-set files only, never the import closure — `bin/test.sh`'s
+  `--fatal-warnings` is what gates the repo), while running is opt-in by shape
+  (a `// => value` oracle, `// expect:` stdout, or `// expect error:` — the
+  `tests/lang` directive vocabulary verbatim) and belongs to `thera test`.
+  Markdown fences are opt-in behind `--docs`.
+
+  Phase 1 is **extraction + compile-check + the doc-example dialect**, and it
+  catches every bug above (all were statically wrong). The dialect ships with it
+  because it is what makes the corpus taggable: bare expression statements and
+  unused `Result`s are legal inside an example (REPL shape), and `...` elides a
+  body/expression/member list as a diverging hole. Then `--docs`,
+  `@example`/references with the doc generator, oracles, and the `// =>`
+  migration sweep.
 
 - **Doc-comment tooling — machinery pending.** The conventions
-  ([language.md](language.md#documentation)), the `sdk/std/` migration to
+  ([documentation.md](documentation.md), syntax in
+  [language.md](language.md#documentation)), the `sdk/std/` migration to
   `///`/`//!`, and the lexer's comment side-channel are done (see _Changelog_) —
   but every downstream consumer remains **pending** (the side channel is
   collected, then dropped: each `parse_tokens` call site passes only

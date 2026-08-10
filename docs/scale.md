@@ -62,9 +62,9 @@ hover surface.
 
 Aimed at **trustworthy prose**: the doc model — `///`/`//!`/`//` separated
 lexically, the standalone summary sentence, progressive disclosure as the stated
-design principle ([language.md § Documentation](language.md#documentation)); the
-strict formatter (one shape per construct); the _Choosing a form_ canonical
-idiom table.
+design principle ([documentation.md](documentation.md), with the syntax in
+[language.md § Documentation](language.md#documentation)); the strict formatter
+(one shape per construct); the _Choosing a form_ canonical idiom table.
 
 Aimed at **sweeps**: the landed `thera lint` / `lint --fix` / LSP code-action
 machinery (roadmap _Tools — refactorings_), which is the seed every enforcement
@@ -323,9 +323,11 @@ roadmap entry's motivating bugs (a doc teaching `loop { … }`, a sketch calling
 an API that never compiled) were both **statically** wrong — so the static bar
 alone catches the rot class that prompted this item.
 
-**Direction — settled (2026-07).** Examples come in three sizes, and size
-decides where they live. The principle: **minimize code that lives as strings**
-— only the smallest examples sit in comments; anything bigger is real code that
+**Direction — settled, and now spec'd in full.** The whole surface lives in
+[documentation.md](documentation.md): the three tiers below, the fence tag as
+the contract, compile-check as the universal bar with running opt-in by oracle,
+and the phasing. The principle: **minimize code that lives as strings** — only
+the smallest examples sit in comments; anything bigger is real code that
 participates in checking and refactors with no special tooling.
 
 1. **One-liners in doc comments** — fenced blocks in `///`/`//!`, REPL style
@@ -366,25 +368,48 @@ synthesis: implicit `fn main` + prelude + the documented library auto-imported
 under its own namespace (existing examples already assume this —
 `path.components(...)`).
 
-**Phasing.** Spec the whole surface now (fence attributes, `// =>`, `@example`,
-`@file#fragment` references) so examples get written in the final shape;
-implement in stages: (1) extraction + **compile-check** of tagged fences — the
-high-order bit; (2) `@example` + references + `thera doc`/hover inlining (lands
-with item 5's doc generator — the reference convention is only as good as its
-rendering); (3) `// =>` oracles and check-mode blocks; (4) the `lint --fix`
-sweep converting the ~99 stdlib blocks' trailing comments to `// =>` where they
-parse as values.
+**Phasing.** Spec the whole surface first, so examples get written in the final
+shape — done, in [documentation.md](documentation.md). Then implement in stages:
+(1) extraction + **compile-check** of tagged fences — the high-order bit; (2)
+Markdown fences behind `--docs`; (3) `@example` + references + `thera doc`/hover
+inlining (lands with item 5's doc generator — the reference convention is only
+as good as its rendering); (4) `// =>` oracles and check-mode blocks; (5) the
+`lint --fix` sweep converting the stdlib blocks' trailing comments to `// =>`
+where they parse as values.
 
-**Open questions.** (a) Do `// =>` runs get the `std.testing` deterministic
-doubles (fixed clock/env) ambiently, so `no_run` stays rare? (b) Doctest
-identity/reporting (`file:line` as the test name?). (c) Whether language.md's
-error-demonstrating blocks adopt `// expect error:` verbatim from `tests/lang`
-or keep the lighter `// error:` spelling.
+**What the write-up settled beyond the above**, recorded here because they are
+the decisions a reader of this doc would want:
 
-**Status:** direction settled; graduates to language.md § Documentation (fence
-tags, `// =>`, `@example`, references) as each phase lands. Sequencing:
-`sdk/std` doc comments first, language.md second, stdlib.md sketches stay
-untagged (or gain `thera sketch`) as their APIs land.
+- **The command split.** `thera check` compile-checks tagged fences;
+  `thera test` additionally runs the oracle-bearing ones. Compile-check is
+  deterministic and cheap, so it belongs in the edit loop.
+- **`doc-example` is a warning, not an error** — and fences are extracted only
+  from the files `check` was pointed at, never the import closure. A doc comment
+  is not the program: a stale example must never stop unrelated code from
+  running or emitting. The repo's own corpus is still gated, because
+  `bin/test.sh` runs `check --fatal-warnings`. The warning has **no `// ignore:`
+  form** — a `//` line inside a doc comment would end the doc run it sits in —
+  so the opt-out is the fence attribute, which the reader can see.
+- **Markdown is opt-in** (`check --docs docs/`), so a directory sweep never
+  tries to compile the fences in a README or a vendored document.
+- **A doc-example dialect**, which is what makes the existing corpus taggable at
+  all: bare expression statements and unused `Result`s are legal (REPL shape is
+  the point — otherwise `sdk/std`'s 109 fences all fail), and `...` elides a
+  body, expression, or member list as a diverging hole (otherwise 14 of
+  language.md's most illustrative blocks degrade to `sketch`). This is language
+  surface and wants conformance IDs when it lands.
+
+The three open questions are closed: `// =>` runs get pinned ambient
+capabilities (fixed clock/env/RNG), so `no_run` stays rare; a doc example's
+identity is `path:line`; and the directive vocabulary is `tests/lang`'s verbatim
+— `// expect error:`, not a second lighter spelling.
+
+**Status:** spec'd in [documentation.md](documentation.md) (which also absorbed
+language.md's doc-model section); implementation pending, with phase 1 the arc
+to run first — it catches every bug that motivated the item, all of which were
+statically wrong. Tracked as
+[issue #165](https://github.com/thera-lang/thera/issues/165) (the arc) and
+[#126](https://github.com/thera-lang/thera/issues/126) (phase 1).
 
 ### 7. Doc-reference integrity, promoted to errors
 

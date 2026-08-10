@@ -47,8 +47,9 @@ whitespace = ' ' | '\t' | '\r' | '\n'
 
 There are **no block comments** (`/* … */`). The `///` and `//!` forms are **doc
 comments** — lexically still line comments, but carrying documentation that
-tooling extracts; see [language.md](language.md#documentation) for the
-conventions. `//` is an ordinary comment and is never extracted.
+tooling extracts; see [language.md](language.md#documentation) for the syntax
+and [documentation.md](documentation.md) for the conventions. `//` is an
+ordinary comment and is never extracted.
 
 ### Keywords
 
