@@ -129,9 +129,9 @@ there at runtime)
   where to put anything whose line breaks matter.
 - Perform work in new branches (no commits to main).
 - Each PR should be focused on a single task, feature, or arc of work.
-- Work items live in the GitHub issue tracker; label issues and PRs per
-  [docs/tracker.md](docs/tracker.md) (one `area-*` each; issues also get a
-  `type-*`, a `P1`–`P3`, and state labels as they apply). The roadmap holds
-  direction and decision records, not work items.
-- PR descriptions should be brief; a summary sentence or two, the main items in
-  bullet points, and an optional summary of caveats or things to be aware of.
+- **PR descriptions should be brief**; a summary sentence or two, the main items
+  in bullet points, and an optional summary of caveats or things to be aware of.
+- Work items live in the GitHub issue tracker; label issues per
+  [docs/tracker.md](docs/tracker.md) (one `area-*` each; issues get a `type-*`,
+  a `P1`–`P3`, and state labels as they apply). The roadmap holds direction and
+  decision records, not work items.
