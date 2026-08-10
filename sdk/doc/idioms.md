@@ -28,14 +28,14 @@ enum Shape {
     Rect(Double, Double),
 }
 
-fn area(_ s: Shape) -> Double {           // `_` = positional parameter; labeled is the default
+fn area(s: Shape) -> Double {             // parameters are positional; `named x:` labels one
     return match s {                      // match arms use bare patterns
         Circle(r) => 3.14159 * r * r,
         Rect(w, h) => w * h,
     };
 }
 
-fn load(_ path: String) -> Result<Config, Error> {
+fn load(path: String) -> Result<Config, Error> {
     let text = fs.read_text(path)?;       // `?` propagates the Err
     if text.is_empty() {
         throw error('empty config: ${path}');   // throw = return Result.Err(…)
@@ -157,13 +157,13 @@ Each of these is a real first-contact error, most-frequent first.
     as a field, struct-literal field, `x.member` access, or call-site label
     (`let in: String;`, `f(match: v)`). What a keyword cannot be is a _binding_
     read bare in a body — and a **parameter is a binding**, since its label is
-    its name. So `fn f(match: Int)` and `let match = …` are both errors; rename
-    the parameter, or make it positional (`fn f(_ m: Int)`). Reserved names
-    still exist at the type tier: user code may not declare types named
-    `Result`, `Option`, `List`, `Error`, `Display`, … (the list is in
-    [language.md](../../docs/language.md) §Reserved type names). And one name
-    per scope: a second `let x` in the same block, or a top-level `fn` shadowing
-    a prelude name, is an error.
+    its name. So `fn f(match: Int)` and `let match = …` are both errors, and
+    renaming is the only way out (positional is already the default, and the
+    name would still be a keyword). Reserved names still exist at the type tier:
+    user code may not declare types named `Result`, `Option`, `List`, `Error`,
+    `Display`, … (the list is in [language.md](../../docs/language.md) §Reserved
+    type names). And one name per scope: a second `let x` in the same block, or
+    a top-level `fn` shadowing a prelude name, is an error.
 
 14. **The unit type is `Void`, written `void`.** Function types spell it:
     `() -> Void`, `(Int) -> Void` — not `()` or `-> ()`. A function with nothing

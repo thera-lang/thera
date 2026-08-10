@@ -130,13 +130,13 @@ pub struct Bytes { let /* opaque; let runtime-backed */; }
 
 impl Bytes {
     pub fn len(self) -> Int;
-    pub fn get(self, _ i: Int) -> Option<Int>;        // 0..=255
-    pub fn slice(self, _ start: Int, _ end: Int) -> Bytes;   // clamps to range
-    pub fn concat(self, _ other: Bytes) -> Bytes;
+    pub fn get(self, i: Int) -> Option<Int>;        // 0..=255
+    pub fn slice(self, start: Int, end: Int) -> Bytes;   // clamps to range
+    pub fn concat(self, other: Bytes) -> Bytes;
     pub fn to_string(self) -> Result<String, Error>;  // validates UTF-8
     pub fn to_list(self) -> List<Int>;
     pub fn empty() -> Bytes;                           // static
-    pub fn from_list(_ values: List<Int>) -> Result<Bytes, Error>;  // static; 0..=255
+    pub fn from_list(values: List<Int>) -> Result<Bytes, Error>;  // static; 0..=255
 }
 
 // Accumulate bytes, then freeze (the binary-writer vocabulary; write_u8 masks
@@ -145,17 +145,17 @@ impl Bytes {
 pub struct BytesBuilder { let /* mutable */; }
 impl BytesBuilder {
     pub fn new() -> BytesBuilder;
-    pub fn write_u8(self, _ byte: Int) -> Void;
-    pub fn write_bytes(self, _ data: Bytes) -> Void;
-    pub fn write_str(self, _ s: String) -> Void;
+    pub fn write_u8(self, byte: Int) -> Void;
+    pub fn write_bytes(self, data: Bytes) -> Void;
+    pub fn write_str(self, s: String) -> Void;
     pub fn len(self) -> Int;
     pub fn finish(self) -> Bytes;
     // Fixed-width integers/floats, little- and big-endian:
-    pub fn write_u16_le / write_u32_le / write_u64_le (self, _ v: Int) -> Void;
-    pub fn write_u16_be / write_u32_be / write_u64_be (self, _ v: Int) -> Void;
-    pub fn write_f64_le / write_f64_be (self, _ d: Double) -> Void;
+    pub fn write_u16_le / write_u32_le / write_u64_le (self, v: Int) -> Void;
+    pub fn write_u16_be / write_u32_be / write_u64_be (self, v: Int) -> Void;
+    pub fn write_f64_le / write_f64_be (self, d: Double) -> Void;
     // LEB128 varints (mirror the runtime's serialize.rs):
-    pub fn write_uvarint / write_ivarint (self, _ v: Int) -> Void;
+    pub fn write_uvarint / write_ivarint (self, v: Int) -> Void;
 }
 
 // Read a Bytes back — the reader counterpart to BytesBuilder. A forward cursor
@@ -164,11 +164,11 @@ impl BytesBuilder {
 // the writers above (a written value round-trips). Pure Thera over Bytes.get.
 pub struct BytesReader { let /* mutable cursor over a Bytes */; }
 impl BytesReader {
-    pub fn new(_ data: Bytes) -> BytesReader;
+    pub fn new(data: Bytes) -> BytesReader;
     pub fn remaining(self) -> Int;
     pub fn is_empty(self) -> Bool;
     pub fn read_u8(self) -> Option<Int>;
-    pub fn read_bytes(self, _ n: Int) -> Option<Bytes>;
+    pub fn read_bytes(self, n: Int) -> Option<Bytes>;
     pub fn read_u32_le / read_u64_le (self) -> Option<Int>;
     pub fn read_uvarint / read_ivarint (self) -> Option<Int>;
 }
@@ -179,12 +179,12 @@ impl BytesReader {
 ```
 // Read up to `max` bytes. An empty `Bytes` result means end-of-stream (EOF).
 pub interface Reader {
-    fn read(self, max: Int) -> Result<Bytes, Error>;
+    fn read(self, named max: Int) -> Result<Bytes, Error>;
 }
 
 // Write all of `data`; returns the number of bytes written.
 pub interface Writer {
-    fn write(self, _ data: Bytes) -> Result<Int, Error>;
+    fn write(self, data: Bytes) -> Result<Int, Error>;
 }
 
 pub interface Closer {
@@ -207,7 +207,7 @@ A general-purpose error for the simple case is built with a **constructor**, not
 a named type (the Go `errors.New` / Rust `anyhow!` model):
 
 ```
-pub fn error(_ message: String) -> Error;   // the simple-case error / `throw` target
+pub fn error(message: String) -> Error;   // the simple-case error / `throw` target
 // return Result.Err(error('file not found'));   throw error('...');
 ```
 
@@ -247,23 +247,23 @@ interface-dispatch arc (the combinators take interface-typed parameters); small
 stream natives back stdin/stdout/stderr.
 
 ```
-pub interface Reader { fn read(self, max: Int) -> Result<Bytes, Error>; }   // empty = EOF
-pub interface Writer { fn write(self, _ data: Bytes) -> Result<Int, Error>; }
+pub interface Reader { fn read(self, named max: Int) -> Result<Bytes, Error>; }   // empty = EOF
+pub interface Writer { fn write(self, data: Bytes) -> Result<Int, Error>; }
 pub interface Closer { fn close(self) -> Result<Void, Error>; }
 pub enum SeekFrom { Start(Int), Current(Int), End(Int) }
-pub interface Seek { fn seek(self, _ to: SeekFrom) -> Result<Int, Error>; }   // new offset
+pub interface Seek { fn seek(self, to: SeekFrom) -> Result<Int, Error>; }   // new offset
 pub enum IoError { Eof, Other(String) }                       // implements Error
 
 // Standard streams (stdin: Reader, stdout/stderr: Writer).
 pub fn stdin() -> Reader;  pub fn stdout() -> Writer;  pub fn stderr() -> Writer;
 
 // Combinators over any Reader/Writer; line iteration over any Reader.
-pub fn read_all(_ src: Reader) -> Result<Bytes, Error>;
+pub fn read_all(src: Reader) -> Result<Bytes, Error>;
 pub fn copy(to dst: Writer, from src: Reader) -> Result<Int, Error>;
-pub fn lines(_ src: Reader) -> BufReader;   // BufReader: Iterator<String> (+ read_line/error)
+pub fn lines(src: Reader) -> BufReader;   // BufReader: Iterator<String> (+ read_line/error)
 
 // In-memory Reader/Writer (test doubles for any Reader/Writer).
-pub fn from_string(_ s: String) -> Reader;  pub fn from_bytes(_ data: Bytes) -> Reader;
+pub fn from_string(s: String) -> Reader;  pub fn from_bytes(data: Bytes) -> Reader;
 pub struct StringWriter { let /* wraps a BytesBuilder */; }
 impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into_bytes() -> Bytes; }
 ```
@@ -294,8 +294,8 @@ without an import, and `for x in it` drives any iterator. `std.iter` holds only
 the two sources:
 
 ```
-pub fn range(_ start: Int, _ end: Int) -> Iterator<Int>;   // [start, end)
-pub fn from_list<T>(_ items: List<T>) -> Iterator<T>;
+pub fn range(start: Int, end: Int) -> Iterator<Int>;   // [start, end)
+pub fn from_list<T>(items: List<T>) -> Iterator<T>;
 ```
 
 So `iter.range(0, 10).filter((n) => n % 2 == 0).map((n) => n * n).to_list()`
@@ -311,20 +311,20 @@ Purpose: files and directories. Whole-value reads for the common case; streaming
 
 ```
 // Whole-value (conveniences) — implemented.
-pub fn read_text(_ path: String) -> Result<String, FsError>;
-pub fn write_text(_ path: String, _ text: String) -> Result<Void, FsError>;
-pub fn read_bytes(_ path: String) -> Result<Bytes, FsError>;
-pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError>;
+pub fn read_text(path: String) -> Result<String, FsError>;
+pub fn write_text(path: String, text: String) -> Result<Void, FsError>;
+pub fn read_bytes(path: String) -> Result<Bytes, FsError>;
+pub fn write_bytes(path: String, data: Bytes) -> Result<Void, FsError>;
 
 // Existence, metadata & directories — implemented.
-pub fn exists(_ path: String) -> Bool;
-pub fn metadata(_ path: String) -> Result<Metadata, FsError>;          // follows symlinks
-pub fn symlink_metadata(_ path: String) -> Result<Metadata, FsError>;  // does not follow
-pub fn list_dir(_ path: String) -> Result<List<String>, FsError>; // entry basenames
-pub fn create_dir(_ path: String) -> Result<Void, FsError>;       // parent must exist
-pub fn create_dir_all(_ path: String) -> Result<Void, FsError>;   // mkdir -p
-pub fn remove(_ path: String) -> Result<Void, FsError>;           // file or empty dir
-pub fn remove_dir_all(_ path: String) -> Result<Void, FsError>;   // recursive
+pub fn exists(path: String) -> Bool;
+pub fn metadata(path: String) -> Result<Metadata, FsError>;          // follows symlinks
+pub fn symlink_metadata(path: String) -> Result<Metadata, FsError>;  // does not follow
+pub fn list_dir(path: String) -> Result<List<String>, FsError>; // entry basenames
+pub fn create_dir(path: String) -> Result<Void, FsError>;       // parent must exist
+pub fn create_dir_all(path: String) -> Result<Void, FsError>;   // mkdir -p
+pub fn remove(path: String) -> Result<Void, FsError>;           // file or empty dir
+pub fn remove_dir_all(path: String) -> Result<Void, FsError>;   // recursive
 pub fn rename(from src: String, to dst: String) -> Result<Void, FsError>;
 pub fn copy(from src: String, to dst: String) -> Result<Void, FsError>;   // file copy
 pub fn temp_dir() -> String;
@@ -338,12 +338,12 @@ pub enum FsError {                          // implements Error + Display
 }
 
 // Recursive traversal — implemented.
-pub fn walk(_ path: String) -> WalkIter;   // WalkIter: Iterator<String> of full descendant paths
+pub fn walk(path: String) -> WalkIter;   // WalkIter: Iterator<String> of full descendant paths
 
 // Streaming files — implemented.
-pub fn open(_ path: String) -> Result<File, FsError>;     // read handle
-pub fn create(_ path: String) -> Result<File, FsError>;   // write handle (truncates)
-pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError>;  // new, unique, read+write
+pub fn open(path: String) -> Result<File, FsError>;     // read handle
+pub fn create(path: String) -> Result<File, FsError>;   // write handle (truncates)
+pub fn temp_file(named prefix: String = 'tmp') -> Result<File, FsError>;  // new, unique, read+write
 // File: Reader + Writer + Seek + Closer over a runtime handle, plus `path()`;
 // close it when done.
 ```
@@ -378,17 +378,17 @@ entirely in Thera** (the worked example of stdlib-in-Thera; one native,
 `from_native`).
 
 ```
-pub fn join(_ base: String, _ part: String) -> String;  // absolute `part` wins
-pub fn join_all(_ segments: List<String>) -> String;    // n-ary join (no variadics)
-pub fn components(_ path: String) -> List<String>;
-pub fn with_extension(_ path: String, _ ext: String) -> String;
-pub fn normalize(_ path: String) -> String;             // lexical clean (`.`/`..`/`//`)
+pub fn join(base: String, part: String) -> String;  // absolute `part` wins
+pub fn join_all(segments: List<String>) -> String;    // n-ary join (no variadics)
+pub fn components(path: String) -> List<String>;
+pub fn with_extension(path: String, ext: String) -> String;
+pub fn normalize(path: String) -> String;             // lexical clean (`.`/`..`/`//`)
 pub fn relative(from base: String, to target: String) -> Result<String, Error>;
 // + dirname / basename / stem / extension / is_absolute
 
 pub let separator: String;                  // host separator, computed once at load
-pub fn to_native(_ p: String) -> String;    // slash -> host form (for display/interop)
-pub fn from_native(_ p: String) -> String;  // host form -> slash
+pub fn to_native(p: String) -> String;    // slash -> host form (for display/interop)
+pub fn from_native(p: String) -> String;  // host form -> slash
 ```
 
 Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator, so
@@ -408,20 +408,20 @@ Purpose: environment variables, args, working directory, exit. (Spawning is
 `std.process`.)
 
 ```
-pub fn get(_ name: String) -> Option<String>;
-pub fn set(_ name: String, _ value: String) -> Void;
+pub fn get(name: String) -> Option<String>;
+pub fn set(name: String, value: String) -> Void;
 pub fn vars() -> Map<String, String>;
 pub fn args() -> List<String>;          // program arguments (also passed to main)
 pub fn current_dir() -> Result<String, Error>;
-pub fn set_current_dir(_ path: String) -> Result<Void, Error>;
-pub fn exit(_ code: Int) -> Void;       // does not return; typed Never once that lands
+pub fn set_current_dir(path: String) -> Result<Void, Error>;
+pub fn exit(code: Int) -> Void;       // does not return; typed Never once that lands
 pub fn os() -> String;                  // 'macos' | 'linux' | 'windows' | ...
 
 // The environment as an opt-in capability (§ Cross-cutting #7). The free
 // functions are the ambient form of `system_env().get(...)` / `.args()`; tests
 // pass `testing.fixed_env`.
 pub interface Env {
-    fn get(self, _ name: String) -> Option<String>;
+    fn get(self, name: String) -> Option<String>;
     fn args(self) -> List<String>;
 }
 pub fn system_env() -> Env;
@@ -444,9 +444,9 @@ returns just the exit code; `start` spawns and exposes the pipes through the
 child's streams.
 
 ```
-pub fn run(_ command: String, args: List<String> = [],
-           working_dir: Option<String> = Option.None,
-           env: Option<Map<String, String>> = Option.None)
+pub fn run(command: String, named args: List<String> = [],
+           named working_dir: Option<String> = Option.None,
+           named env: Option<Map<String, String>> = Option.None)
     -> Result<ProcessResult, ProcessError>;   // captured stdout/stderr/exit_code
 
 pub fn exec(...) -> Result<Int, ProcessError>;            // same args; inherits stdio, returns exit code
@@ -496,7 +496,7 @@ pub struct DateTime { let /* Unix milliseconds; let UTC */; }
 pub fn now_millis() -> Int;          // ambient wall clock, Unix millis
 pub fn now() -> DateTime;            // wall clock (UTC)
 pub fn monotonic() -> Instant;       // for elapsed measurement
-pub fn sleep(_ d: Duration) -> Void; // parks the fiber on a scheduler timer (other fibers run meanwhile)
+pub fn sleep(d: Duration) -> Void; // parks the fiber on a scheduler timer (other fibers run meanwhile)
 
 // The clock as an opt-in capability (§ Cross-cutting #7). `now*()` is the
 // ambient form of `system_clock().now*()`; tests pass `testing.fixed_clock`.
@@ -504,19 +504,19 @@ pub interface Clock { fn now_millis(self) -> Int; }
 pub fn system_clock() -> Clock;
 
 impl Duration {
-    pub fn nanos / millis / seconds / minutes / hours (_ n: Int) -> Duration;   // constructors
+    pub fn nanos / millis / seconds / minutes / hours (n: Int) -> Duration;   // constructors
     pub fn as_nanos / as_millis / as_seconds (self) -> Int;
-    pub fn plus(self, _ other: Duration) -> Duration;   // + minus
+    pub fn plus(self, other: Duration) -> Duration;   // + minus
 }
 impl Instant {
     pub fn elapsed(self) -> Duration;
-    pub fn duration_since(self, _ earlier: Instant) -> Duration;
+    pub fn duration_since(self, earlier: Instant) -> Duration;
 }
 impl DateTime {
-    pub fn from_unix_millis / from_unix_seconds (_ n: Int) -> DateTime;
+    pub fn from_unix_millis / from_unix_seconds (n: Int) -> DateTime;
     pub fn unix_millis / unix_seconds (self) -> Int;
     pub fn format_rfc3339(self) -> String;                          // UTC, '...Z'
-    pub fn parse_rfc3339(_ s: String) -> Result<DateTime, Error>;   // accepts Z and ±HH:MM
+    pub fn parse_rfc3339(s: String) -> Result<DateTime, Error>;   // accepts Z and ±HH:MM
 }
 ```
 
@@ -536,16 +536,16 @@ Purpose: explicit concurrency on the single thread.
 
 ```
 pub struct Fiber<T> { let /* handle */; }            // implemented
-pub fn spawn<T>(_ work: () -> T) -> Fiber<T>;    // implemented
+pub fn spawn<T>(work: () -> T) -> Fiber<T>;    // implemented
 pub fn yield() -> Void;                          // implemented — cede the thread
 
 impl Fiber<T> { pub fn join(self) -> T; }   // implemented — the only way to get the result out
 
 // Channels for fiber-to-fiber handoff — implemented (buffered).
 pub struct Channel<T> { let /* handle */; }
-pub fn channel<T>(capacity: Int = 1) -> Channel<T>;   // buffer size, clamped to >= 1
+pub fn channel<T>(named capacity: Int = 1) -> Channel<T>;   // buffer size, clamped to >= 1
 impl Channel<T> {
-    pub fn send(self, _ value: T) -> Void;     // blocks while full; traps if closed
+    pub fn send(self, value: T) -> Void;     // blocks while full; traps if closed
     pub fn receive(self) -> Option<T>;          // None when closed & drained
     pub fn close(self) -> Void;
 }
@@ -615,13 +615,13 @@ n.to_double()   x.to_int()   // truncates toward zero
 ```
 pub const PI: Double; pub const E: Double; pub const TAU: Double;
 pub let INFINITY: Double; pub let NAN: Double;   // module initializers (no literal form)
-pub fn sqrt(_ x: Double) -> Double;   pub fn pow(_ base: Double, _ exp: Double) -> Double;
-pub fn floor(_ x: Double) -> Double;  pub fn ceil(_ x: Double) -> Double;
-pub fn round(_ x: Double) -> Double;  pub fn trunc(_ x: Double) -> Double;
-pub fn exp(_ x: Double) -> Double;    pub fn ln(_ x: Double) -> Double;  pub fn log10(_ x: Double) -> Double;
-pub fn sin(_ x: Double) -> Double;    pub fn cos(_ x: Double) -> Double; pub fn tan(_ x: Double) -> Double;
-pub fn asin(_ x: Double) -> Double;   pub fn acos(_ x: Double) -> Double; pub fn atan(_ x: Double) -> Double;
-pub fn atan2(_ y: Double, _ x: Double) -> Double;   pub fn hypot(_ x: Double, _ y: Double) -> Double;
+pub fn sqrt(x: Double) -> Double;   pub fn pow(base: Double, exp: Double) -> Double;
+pub fn floor(x: Double) -> Double;  pub fn ceil(x: Double) -> Double;
+pub fn round(x: Double) -> Double;  pub fn trunc(x: Double) -> Double;
+pub fn exp(x: Double) -> Double;    pub fn ln(x: Double) -> Double;  pub fn log10(x: Double) -> Double;
+pub fn sin(x: Double) -> Double;    pub fn cos(x: Double) -> Double; pub fn tan(x: Double) -> Double;
+pub fn asin(x: Double) -> Double;   pub fn acos(x: Double) -> Double; pub fn atan(x: Double) -> Double;
+pub fn atan2(y: Double, x: Double) -> Double;   pub fn hypot(x: Double, y: Double) -> Double;
 ```
 
 Notes: feed an `Int` to a `std.math` function via `n.to_double()`; rounding
@@ -636,14 +636,14 @@ they were the driving use case for that feature.
 
 ```
 pub struct Rng { let state: Int; }   // seedable, state is a visible value
-pub fn seeded(_ seed: Int) -> Rng;
+pub fn seeded(seed: Int) -> Rng;
 pub fn from_entropy() -> Rng;
 impl Rng {
-    pub fn int(self, low: Int, high: Int) -> Int;   // [low, high)
+    pub fn int(self, named low: Int, named high: Int) -> Int;   // [low, high)
     pub fn double(self) -> Double;                   // [0, 1)
     pub fn bool(self) -> Bool;
-    pub fn choice<T>(self, _ items: List<T>) -> Option<T>;
-    pub fn shuffle<T>(self, _ items: List<T>) -> List<T>;
+    pub fn choice<T>(self, items: List<T>) -> Option<T>;
+    pub fn shuffle<T>(self, items: List<T>) -> List<T>;
 }
 ```
 
@@ -662,10 +662,10 @@ Purpose: order a `List<T>` and pick extrema, generic over the `Ord` interface
 `Ord.compare`.
 
 ```
-pub fn sorted<T: Ord>(_ xs: List<T>) -> List<T>;        // ascending, stable
-pub fn sorted_desc<T: Ord>(_ xs: List<T>) -> List<T>;   // descending
-pub fn min<T: Ord>(_ xs: List<T>) -> Option<T>;         // None if empty
-pub fn max<T: Ord>(_ xs: List<T>) -> Option<T>;
+pub fn sorted<T: Ord>(xs: List<T>) -> List<T>;        // ascending, stable
+pub fn sorted_desc<T: Ord>(xs: List<T>) -> List<T>;   // descending
+pub fn min<T: Ord>(xs: List<T>) -> Option<T>;         // None if empty
+pub fn max<T: Ord>(xs: List<T>) -> Option<T>;
 ```
 
 These are the `Ord`-driven counterparts to `List.sorted_by(less)` (which takes
@@ -688,15 +688,15 @@ pub enum Json {
 
 // Lowercase constructors (the building API):
 pub fn null() / bool(b) / int(n) / double(x) / str(s) / arr(items) -> Json;
-pub fn obj(_ fields: Map<String, Json>, omit_nulls: Bool = false) -> Json;
-pub fn opt<T>(_ value: Option<T>, _ encode: (T) -> Json) -> Json;   // None -> Null
+pub fn obj(fields: Map<String, Json>, named omit_nulls: Bool = false) -> Json;
+pub fn opt<T>(value: Option<T>, encode: (T) -> Json) -> Json;   // None -> Null
 
-pub fn parse(_ text: String) -> Result<Json, JsonError>;
-pub fn stringify(_ value: Json, pretty: Bool = false) -> String;
+pub fn parse(text: String) -> Result<Json, JsonError>;
+pub fn stringify(value: Json, named pretty: Bool = false) -> String;
 
 impl Json {
-    pub fn get(self, _ key: String) -> Json;       // Object field, else Null (chainable)
-    pub fn at(self, _ index: Int) -> Json;          // Array element, else Null
+    pub fn get(self, key: String) -> Json;       // Object field, else Null (chainable)
+    pub fn at(self, index: Int) -> Json;          // Array element, else Null
     pub fn as_bool / as_int / as_double / as_string (self) -> Option<...>;
     pub fn as_array(self) -> Option<List<Json>>;    // + as_object
     pub fn is_null(self) -> Bool;
@@ -733,11 +733,11 @@ pub enum DecodeError {            // implements Error + Display
 }
 
 pub struct Cursor { let value: Json; let path: String; let present: Bool; }
-pub fn cursor(_ value: Json) -> Cursor;              // a root cursor, path `$`
+pub fn cursor(value: Json) -> Cursor;              // a root cursor, path `$`
 
 impl Cursor {
     // navigating never fails — a missing key gives an absent cursor at the path
-    pub fn field(self, _ key: String) -> Cursor;      // + index(i) for arrays
+    pub fn field(self, key: String) -> Cursor;      // + index(i) for arrays
     pub fn is_null(self) -> Bool;
 
     // reading does: absent is Missing, the wrong kind is Shape
@@ -750,14 +750,14 @@ impl Cursor {
     pub fn opt_string / opt_int / opt_double / opt_bool (self) -> Result<Option<...>, …>;
     pub fn opt_object / opt_list (self) -> Result<Option<...>, DecodeError>;
 
-    pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError>;
+    pub fn unexpected<T>(self, expected: String) -> Result<T, DecodeError>;
 }
 ```
 
 So a decoder is one line per field, and its body is the type's own shape:
 
 ```thera
-fn usage_from_json(_ at: json.Cursor) -> Result<Usage, json.DecodeError> {
+fn usage_from_json(at: json.Cursor) -> Result<Usage, json.DecodeError> {
     return Result.Ok(Usage {
         input_tokens: at.field('input_tokens').int()?,
         cache_read: at.field('cache_read_input_tokens').opt_int()?,
@@ -866,24 +866,24 @@ there is no sentinel to chain through): `get` takes the whole path in the
 format's own spelling, and typed `get_*` helpers compose it with one `as_*`:
 
 ```
-pub fn parse(_ text: String) -> Result<Toml, TomlError>;  // root is always a Table
+pub fn parse(text: String) -> Result<Toml, TomlError>;  // root is always a Table
 
 impl Toml {
-    pub fn get(self, _ path: String) -> Option<Toml>;     // doc.get('server.port')
-    pub fn at(self, _ index: Int) -> Option<Toml>;
+    pub fn get(self, path: String) -> Option<Toml>;     // doc.get('server.port')
+    pub fn at(self, index: Int) -> Option<Toml>;
     pub fn as_bool/as_int/as_double/as_string/as_datetime/as_array/as_table(self) -> Option<…>;
-    pub fn get_bool/get_int/get_double/get_string/get_array/get_table(self, _ path: String) -> Option<…>;
+    pub fn get_bool/get_int/get_double/get_string/get_array/get_table(self, path: String) -> Option<…>;
     pub fn kind(self) -> String;                          // 'integer', 'table', … for messages
 }
 
-pub fn cursor(_ value: Toml) -> Cursor;                   // the strict reader
+pub fn cursor(value: Toml) -> Cursor;                   // the strict reader
 
 impl Cursor {
-    pub fn field(self, _ key: String) -> Cursor;          // navigating never fails …
-    pub fn index(self, _ i: Int) -> Cursor;
+    pub fn field(self, key: String) -> Cursor;          // navigating never fails …
+    pub fn index(self, i: Int) -> Cursor;
     pub fn string/int/double/bool/datetime/table/list/raw(self) -> Result<…, DecodeError>;
     pub fn opt_string/opt_int/opt_double/opt_bool/opt_datetime/opt_table/opt_list(self) -> Result<Option<…>, DecodeError>;
-    pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError>;
+    pub fn unexpected<T>(self, expected: String) -> Result<T, DecodeError>;
 }
 ```
 
@@ -921,12 +921,12 @@ codec works on text. Decoding is fallible — malformed input is a `Result.Err`,
 never a trap.
 
 ```
-pub fn base64_encode(_ data: Bytes) -> String;          // RFC 4648, `+/`, `=`-padded
-pub fn base64_decode(_ s: String) -> Result<Bytes, Error>;
-pub fn hex_encode(_ data: Bytes) -> String;             // lowercase
-pub fn hex_decode(_ s: String) -> Result<Bytes, Error>; // case-insensitive
-pub fn url_encode(_ s: String) -> String;               // RFC 3986 percent-encoding
-pub fn url_decode(_ s: String) -> Result<String, Error>;
+pub fn base64_encode(data: Bytes) -> String;          // RFC 4648, `+/`, `=`-padded
+pub fn base64_decode(s: String) -> Result<Bytes, Error>;
+pub fn hex_encode(data: Bytes) -> String;             // lowercase
+pub fn hex_decode(s: String) -> Result<Bytes, Error>; // case-insensitive
+pub fn url_encode(s: String) -> String;               // RFC 3986 percent-encoding
+pub fn url_decode(s: String) -> Result<String, Error>;
 ```
 
 Notes: pure Thera over `Bytes`/`String` + the bitwise operators (no natives, no
@@ -942,10 +942,10 @@ addition.
 ### `std.hash` — common digests + checksum _(implemented, native)_
 
 ```
-pub fn sha256(_ data: Bytes) -> Bytes;   // 32 bytes; the secure default
-pub fn sha1(_ data: Bytes) -> Bytes;     // 20 bytes; legacy/checksum only
-pub fn md5(_ data: Bytes) -> Bytes;      // 16 bytes; legacy/checksum only
-pub fn crc32(_ data: Bytes) -> Int;      // CRC-32 (IEEE 802.3), 0..=2^32-1
+pub fn sha256(data: Bytes) -> Bytes;   // 32 bytes; the secure default
+pub fn sha1(data: Bytes) -> Bytes;     // 20 bytes; legacy/checksum only
+pub fn md5(data: Bytes) -> Bytes;      // 16 bytes; legacy/checksum only
+pub fn crc32(data: Bytes) -> Int;      // CRC-32 (IEEE 802.3), 0..=2^32-1
 ```
 
 Notes: enough for checksums and content addressing (common agent tasks); render
@@ -1014,9 +1014,9 @@ pub struct Request { let method: String; let url: String;
                      let headers: Map<String, String>; let body: Bytes; }
 pub struct Response { let status: Int; let headers: Map<String, String>; let body: Bytes; }
 
-pub fn get(_ url: String, headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
-pub fn post(_ url: String, body: Bytes, headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
-pub fn send(_ request: Request) -> Result<Response, HttpError>;
+pub fn get(url: String, named headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
+pub fn post(url: String, named body: Bytes, named headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
+pub fn send(request: Request) -> Result<Response, HttpError>;
 
 // Streaming: return once the head is in, body still on the wire. `send` is this
 // plus a capped read plus the close, so the two paths cannot drift.
@@ -1026,9 +1026,9 @@ impl Stream {
     pub fn is_ok(self) -> Bool;
     pub fn close(self) -> Result<Void, Error>;   // caller's job; twice is an Err
 }
-pub fn stream(_ request: Request) -> Result<Stream, HttpError>;
+pub fn stream(request: Request) -> Result<Stream, HttpError>;
 // Leak-proof: closes on every path out, including an early `?` inside.
-pub fn with_stream<T>(_ request: Request,
+pub fn with_stream<T>(request: Request,
                       handle handler: (Stream) -> Result<T, Error>)
     -> Result<T, Error>;
 
@@ -1046,7 +1046,7 @@ pub enum HttpError { Connect(String), Timeout, Status(Int), Body(String),
 // Display-only: `Eq` stays structural, so redaction never changes comparison.
 pub let SENSITIVE_HEADERS: List<String>;   // authorization, proxy-authorization,
                                            // cookie, set-cookie, x-api-key
-pub fn redact_headers(_ headers: Map<String, String>) -> Map<String, String>;
+pub fn redact_headers(headers: Map<String, String>) -> Map<String, String>;
 ```
 
 **On redaction.** It is a floor, not a security boundary: a custom header
@@ -1075,26 +1075,26 @@ renders as 500.
 // Thera has no type aliases, so there is no `Handler` name. Pass a named `fn` or a
 // lambda — either is a function value.
 
-pub fn serve(_ addr: String, _ handler: …) -> Result<Void, HttpError>;  // blocks; accept loop
-pub fn serve_listener(_ listener: net.TcpListener, _ handler: …) -> Result<Void, HttpError>;
-pub fn serve_connection(_ conn: net.TcpStream, _ handler: …) -> Void;
+pub fn serve(addr: String, handler: …) -> Result<Void, HttpError>;  // blocks; accept loop
+pub fn serve_listener(listener: net.TcpListener, handler: …) -> Result<Void, HttpError>;
+pub fn serve_connection(conn: net.TcpStream, handler: …) -> Void;
 
 // Response constructors for the common cases. Free functions, since the client's
 // `Response.text()`/`.json()` are *readers* (Thera has no overloading), so
 // building a Response is named distinctly from reading one.
-pub fn text(_ status: Int, _ body: String) -> Response;
-pub fn json(_ status: Int, _ value: Json) -> Response;
-pub fn empty(_ status: Int) -> Response;             // a 204, or a 3xx whose `location` says it all
+pub fn text(status: Int, body: String) -> Response;
+pub fn json(status: Int, value: Json) -> Response;
+pub fn empty(status: Int) -> Response;             // a 204, or a 3xx whose `location` says it all
 
 // A tiny built-in matcher (method + path) so a webhook / health-check needs no
 // third-party router. Anything richer (path params, middleware) is ecosystem.
 pub struct Router { let /* method+path table */; }
 impl Router {
     pub fn new() -> Router;
-    pub fn route(self, _ method: String, _ path: String, _ handler: …) -> Router;
+    pub fn route(self, method: String, path: String, handler: …) -> Router;
     pub fn into_handler(self) -> …;           // fold the table into one handler for `serve`
 }
-pub fn path_of(_ url: String) -> String;      // `/a/b?q=1` -> `/a/b`
+pub fn path_of(url: String) -> String;      // `/a/b?q=1` -> `/a/b`
 ```
 
 Notes: depends on `std.fiber` (accept loop + one fiber per connection) and the
@@ -1141,12 +1141,12 @@ pub struct Event { let name: String;          // `event:`, or 'message' by defau
 
 pub struct Decoder { … }                      // impl Iterator<Event>
 impl Decoder {
-    pub fn new(_ src: io.Reader) -> Decoder;
+    pub fn new(src: io.Reader) -> Decoder;
     pub fn read_event(self) -> Result<Option<Event>, Error>;   // None at end of stream
     pub fn retry_ms(self) -> Option<Int>;      // the server's requested reconnect delay
     pub fn error(self) -> Option<Error>;       // what ended iteration, if a read failed
 }
-pub fn events(_ src: io.Reader) -> Decoder;
+pub fn events(src: io.Reader) -> Decoder;
 ```
 
 Three decisions worth knowing, each of them a place where the obvious
@@ -1193,12 +1193,12 @@ pub enum Level { Debug, Info, Warn, Error }   // Trace addable
 
 // The Logger a source-tagged logger hands back — all four levels as methods.
 pub interface Logger {
-    fn debug(self, _ msg: String) -> Void;   // + info / warn / error
+    fn debug(self, msg: String) -> Void;   // + info / warn / error
 }
 
 // Ambient — the zero-ceremony form: log through the process logger (an empty
 // source, gated only by the default level). `log.info('starting up')`.
-pub fn debug(_ msg: String) -> Void;   // + info / warn
+pub fn debug(msg: String) -> Void;   // + info / warn
 // `error` pending: a top-level `error` fn collides with the prelude `error()`
 // constructor; until that rule is relaxed (tracked in roadmap.md), log an
 // ambient error via `log.named('').error(...)`. Errors are methods on `Logger`,
@@ -1207,23 +1207,23 @@ pub fn debug(_ msg: String) -> Void;   // + info / warn
 // A source-tagged logger: `named(...)` tags records so levels tune per-source.
 // A pure constructor, so one-per-module is the idiom:
 //   let logger = log.named('myapp.db')    // an ordinary module-level `let`
-pub fn named(_ name: String) -> Logger;
+pub fn named(name: String) -> Logger;
 
 // A self-contained Logger you hold and pass — the capability form. Its own sink,
 // level, and format; ignores the global config. Point it at a `StringWriter` to
 // capture output in a test, or a file `Writer` to log elsewhere.
-pub fn to_writer(_ name: String, _ sink: io.Writer, _ min_level: Level, _ format: Format) -> Logger;
+pub fn to_writer(name: String, sink: io.Writer, min_level: Level, format: Format) -> Logger;
 
 // Would a record at `level` from `name` pass the global filter? Guards an
 // expensive message before building it.
-pub fn enabled(_ name: String, _ level: Level) -> Bool;
+pub fn enabled(name: String, level: Level) -> Bool;
 
 // Application-only configuration — call ONCE from `main`; a library MUST NOT.
 pub enum Format { Text, Json }              // Text for a TTY; Json = one object per line, for machines
-pub fn set_level(_ level: Level) -> Void;                        // default threshold (default Info)
-pub fn set_level_for(_ prefix: String, _ level: Level) -> Void;  // per-source override
-pub fn set_format(_ f: Format) -> Void;
-pub fn configure_from_env(_ var: String = 'THERA_LOG') -> Void;   // 'info,myapp.db=debug,http=warn'
+pub fn set_level(level: Level) -> Void;                        // default threshold (default Info)
+pub fn set_level_for(prefix: String, level: Level) -> Void;  // per-source override
+pub fn set_format(f: Format) -> Void;
+pub fn configure_from_env(var: String = 'THERA_LOG') -> Void;   // 'info,myapp.db=debug,http=warn'
 ```
 
 **Per-source filtering is the headline** (the coarse-toggle fix). A record from
@@ -1306,23 +1306,23 @@ Thera** (`sdk/std/cli/command.thera`).
 ```
 pub struct Command { name, about, flags, options, positionals, subcommands }   // field types elided
 impl Command {
-    pub fn new(_ name: String) -> Command;                  // auto-registers --help/-h
-    pub fn about(self, _ text: String) -> Command;
-    pub fn flag(self, _ name: String, help = '', abbr = '',
+    pub fn new(name: String) -> Command;                  // auto-registers --help/-h
+    pub fn about(self, text: String) -> Command;
+    pub fn flag(self, name: String, help = '', abbr = '',
                 negatable = false, default = false) -> Command;   // Bool
-    pub fn option(self, _ name: String, help = '', abbr = '') -> Command;  // String
-    pub fn positional(self, _ name: String, help = '') -> Command;
-    pub fn subcommand(self, _ cmd: Command) -> Command;
-    pub fn parse(self, _ args: List<String>) -> Result<Matches, CliError>;
-    pub fn run(self, _ argv: List<String>) -> Action;       // opinionated entry adapter
+    pub fn option(self, name: String, help = '', abbr = '') -> Command;  // String
+    pub fn positional(self, name: String, help = '') -> Command;
+    pub fn subcommand(self, cmd: Command) -> Command;
+    pub fn parse(self, args: List<String>) -> Result<Matches, CliError>;
+    pub fn run(self, argv: List<String>) -> Action;       // opinionated entry adapter
     pub fn help(self) -> String;                            // generated usage text
-    pub fn help_for(self, _ name: String) -> String;        // a subcommand's help
+    pub fn help_for(self, name: String) -> String;        // a subcommand's help
 }
 pub struct Matches { let /* typed accessors */; }
 impl Matches {
-    pub fn flag(self, _ name: String) -> Bool;              // resolves negation + default
-    pub fn option(self, _ name: String) -> Option<String>;
-    pub fn positional(self, _ index: Int) -> Option<String>;
+    pub fn flag(self, name: String) -> Bool;              // resolves negation + default
+    pub fn option(self, name: String) -> Option<String>;
+    pub fn positional(self, index: Int) -> Option<String>;
     pub fn positionals(self) -> List<String>;
     pub fn subcommand(self) -> Option<String>;              // selected subcommand
     pub fn matches(self) -> Option<Matches>;                // its parsed Matches
@@ -1371,8 +1371,8 @@ pub fn is_tty() -> Bool;                   // is stdout an interactive terminal?
 pub fn size() -> Option<TermSize>;         // None when stdout is not a terminal
 pub struct TermSize { let cols: Int; let rows: Int; }
 
-pub fn style(_ text: String, color: Color, bold: Bool = false) -> String;  // ANSI, TTY-gated
-pub fn paint(_ text: String, color: Color, bold: Bool = false) -> String;  // ANSI, always
+pub fn style(text: String, named color: Color, named bold: Bool = false) -> String;  // ANSI, TTY-gated
+pub fn paint(text: String, named color: Color, named bold: Bool = false) -> String;  // ANSI, always
 pub enum Color { Black, Red, Green, Yellow, Blue, Magenta, Cyan, White, Default }
 ```
 
@@ -1396,10 +1396,10 @@ plus a handful of ASCII-only predicates and case conversions over code points
 
 ```
 pub const SPACE: Int;  pub const LF: Int;  pub const DIGIT_0: Int;  // … the ASCII set
-pub fn is_digit(_ cp: Int) -> Bool;       // + is_hex_digit/is_alpha/is_alphanumeric
-pub fn is_whitespace(_ cp: Int) -> Bool;  // + is_upper/is_lower
-pub fn digit_value(_ cp: Int) -> Option<Int>;
-pub fn to_lowercase(_ cp: Int) -> Int;    // + to_uppercase; non-letters pass through
+pub fn is_digit(cp: Int) -> Bool;       // + is_hex_digit/is_alpha/is_alphanumeric
+pub fn is_whitespace(cp: Int) -> Bool;  // + is_upper/is_lower
+pub fn digit_value(cp: Int) -> Option<Int>;
+pub fn to_lowercase(cp: Int) -> Int;    // + to_uppercase; non-letters pass through
 ```
 
 Notes: ASCII only (U+0000..U+007F). Full Unicode classification and locale-aware
@@ -1425,13 +1425,13 @@ companion `String.byte_slice`.
 ```
 pub struct Regex { let /* opaque handle to the compiled pattern */; }
 impl Regex {
-    pub fn compile(_ pattern: String) -> Result<Regex, RegexError>;  // invalid pattern -> Err
-    pub fn is_match(self, _ text: String) -> Bool;
-    pub fn find(self, _ text: String) -> Option<Match>;              // first match
-    pub fn find_all(self, _ text: String) -> List<Match>;           // all, non-overlapping
-    pub fn captures(self, _ text: String) -> Option<Captures>;       // first match + groups
-    pub fn replace(self, _ text: String, with replacement: String) -> String;     // first
-    pub fn replace_all(self, _ text: String, with replacement: String) -> String; // all
+    pub fn compile(pattern: String) -> Result<Regex, RegexError>;  // invalid pattern -> Err
+    pub fn is_match(self, text: String) -> Bool;
+    pub fn find(self, text: String) -> Option<Match>;              // first match
+    pub fn find_all(self, text: String) -> List<Match>;           // all, non-overlapping
+    pub fn captures(self, text: String) -> Option<Captures>;       // first match + groups
+    pub fn replace(self, text: String, with replacement: String) -> String;     // first
+    pub fn replace_all(self, text: String, with replacement: String) -> String; // all
 }
 
 pub struct Match { let text: String; let start: Int; let end: Int; }   // start inclusive, end exclusive (bytes)
@@ -1439,7 +1439,7 @@ pub struct Match { let text: String; let start: Int; let end: Int; }   // start 
 pub struct Captures { let /* groups: List<Option<String>> */; }
 impl Captures {
     pub fn text(self) -> Option<String>;                 // group 0 (the whole match)
-    pub fn group(self, _ index: Int) -> Option<String>;  // None if absent / didn't participate
+    pub fn group(self, index: Int) -> Option<String>;  // None if absent / didn't participate
     pub fn len(self) -> Int;                             // group count, including group 0
 }
 

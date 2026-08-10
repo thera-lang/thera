@@ -796,7 +796,7 @@ outlier — the spike showed it is _not_ local, so it is deferred with its
 findings recorded.
 
 - **`TypeParameter` → concrete assignability** — _deferred; spiked 2026-07._
-  `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call: a
+  `fn f<T>(x: T) -> Int { return x; }` checks clean and traps at the call: a
   `T`-typed value flows into a concrete-typed position. The leniency is only
   needed concrete-→-`T` (instantiation, validated at call sites); a bare `T`
   source against a concrete target should be an error.
@@ -1596,11 +1596,11 @@ conformance specs. Newest first.
     - Cost, and the reason it landed on its own: the sweep goes from +2335/−927
       across 89 files to **+5156/−2106 across 103**. Reading the extra churn, it
       is almost entirely hand-wrapped parameter lists
-      (`fn check(_ program: Program, _ imports: …,⏎ …)` → one per line), which
-      is what the formatter already produces when the margin triggers the split
-      — so the sweep is what makes the corpus agree with the pass's own rule.
-      Two long string literals end up over the margin that were not before,
-      having gained an indent level from the call around them.
+      (`fn check(program: Program, imports: …,⏎ …)` → one per line), which is
+      what the formatter already produces when the margin triggers the split —
+      so the sweep is what makes the corpus agree with the pass's own rule. Two
+      long string literals end up over the margin that were not before, having
+      gained an indent level from the call around them.
   - **A join deletes every trailing comma it collapses**, not just the one last
     in the joined span. A span is the _outermost_ group that fits ([join_spans]
     drops the ones it contains), so its own closer is only the last of several,

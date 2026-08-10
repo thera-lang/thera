@@ -30,7 +30,7 @@ struct Counts {
     let bytes: Int;
 }
 
-fn count(_ text: String) -> Counts {
+fn count(text: String) -> Counts {
     return Counts {
         lines: text.lines().len(),
         words: text.split_whitespace().len(),
@@ -55,9 +55,9 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 Things worth noticing: `let` bindings are immutable unless you write `let mut`.
 Fallible calls return `Result<T, E>` and propagate with a postfix `?` — there
 are no exceptions, so every failure path is visible in the signature. Absence is
-`Option<T>`; there is no `null`. Parameters are labeled at the call site by
-default (`process.run('git', args: [...])`), and a leading `_` drops the label
-where a parameter's role is obvious. String interpolation (`${}`) renders any
+`Option<T>`; there is no `null`. Parameters are positional by default, and a
+leading `named` opts one into a call-site label where it earns its place
+(`process.run('git', args: [...])`). String interpolation (`${}`) renders any
 value: `Display` falls back to a derived `Debug`.
 
 More in [examples/](examples/) — closures, enums, structs, fibers, JSON, and a

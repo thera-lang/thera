@@ -54,7 +54,7 @@ enum Verdict {
     Fail(String),     // reason
 }
 
-fn main(named parameters: List<String>) -> Result<Int, Error> {
+fn main(parameters: List<String>) -> Result<Int, Error> {
     if parameters.len() < 2 {
         eprintln('usage: thera run tests/lang_runner.thera <thera-cmd> <test-root>');
         return Result.Ok(2);

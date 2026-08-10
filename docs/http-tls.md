@@ -267,10 +267,10 @@ interchangeable with `net.TcpStream` under the wire codec:
 pub struct TlsStream { let /* opaque handle to socket + rustls session */; }
 impl TlsStream {
     // Wrap a connected TcpStream, drive the handshake, verify the cert for `host`.
-    pub fn connect(_ stream: net.TcpStream, host: String) -> Result<TlsStream, Error>;
+    pub fn connect(stream: net.TcpStream, named host: String) -> Result<TlsStream, Error>;
 }
-impl Reader for TlsStream { fn read(self, max: Int) -> Result<Bytes, Error>; }
-impl Writer for TlsStream { fn write(self, _ data: Bytes) -> Result<Int, Error>; }
+impl Reader for TlsStream { fn read(self, named max: Int) -> Result<Bytes, Error>; }
+impl Writer for TlsStream { fn write(self, data: Bytes) -> Result<Int, Error>; }
 impl Closer for TlsStream { fn close(self) -> Result<Void, Error>; }
 ```
 

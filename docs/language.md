@@ -282,7 +282,7 @@ readable is not part of the value. Escapes and `${…}` work as they always do �
 only whitespace handling differs:
 
 ```thera
-fn usage(_ name: String) -> String {
+fn usage(name: String) -> String {
     return '''
         usage: ${name} [options] <command>
 
@@ -413,8 +413,8 @@ Functions with no meaningful return value omit the return type annotation; it
 defaults to `Void`. The two forms below are equivalent:
 
 ```thera
-fn log(_ msg: String) -> Void { println(msg); }
-fn log(_ msg: String)         { println(msg); }
+fn log(msg: String) -> Void { println(msg); }
+fn log(msg: String)         { println(msg); }
 ```
 
 **Definite return.** A function that declares a value-producing return type must
@@ -424,7 +424,7 @@ normally). A path that falls off the end of the body, or a bare `return;`, is a
 check error:
 
 ```thera
-fn pick(_ b: Bool) -> Int {
+fn pick(b: Bool) -> Int {
     if b { return 1; }
 }   // error: missing return: not every path through 'pick' returns a value
 ```
@@ -445,7 +445,7 @@ A function-typed value is written `(T1, T2) -> R` (the zero-argument form is
 `() -> R`), so lambdas can be passed to and returned from functions:
 
 ```thera
-fn apply(f: (Int) -> Int, _ x: Int) -> Int { return f(x); }
+fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }
 
 fn adder(by: Int) -> (Int) -> Int {
     return n => n + by;          // captures `by`; returned as a closure
@@ -554,7 +554,7 @@ A parameter may carry a **default value** — the expression a call that omits t
 argument uses instead:
 
 ```thera
-fn pad(_ s: String, width: Int = 80, fill: String = ' ') -> String { ... }
+fn pad(s: String, width: Int = 80, fill: String = ' ') -> String { ... }
 
 pad('x');             // width: 80, fill: ' '
 pad('x', width: 4);   // fill: ' '
@@ -571,7 +571,7 @@ the declaration's. That is how `std.testing` reports the failing assertion's
 line:
 
 ```thera
-pub fn assert(_ condition: Bool, at: SourceLoc = #loc) -> Result<Void, Error> { ... }
+pub fn assert(condition: Bool, named at: SourceLoc = #loc) -> Result<Void, Error> { ... }
 ```
 
 Defaults follow the **static type** of the call. A call through an
@@ -603,7 +603,7 @@ shared state.
 // fetch_user may park the fiber on a network call; double does not.
 // The caller treats them the same way.
 
-fn double(_ x: Int) -> Int {
+fn double(x: Int) -> Int {
     return x * 2;
 }
 
@@ -682,7 +682,7 @@ match read_port(args) {
 early-returns `None`:
 
 ```thera
-fn first_word(_ line: String) -> Option<String> {
+fn first_word(line: String) -> Option<String> {
     let word = line.split(' ').first()?;   // None short-circuits the function
     return Option.Some(word);
 }
@@ -709,7 +709,7 @@ are blamed for. Handle it (`?`, `match`, `if let Err`), or discard it
 explicitly:
 
 ```thera
-fn cleanup(_ path: String) {
+fn cleanup(path: String) {
     fs.remove(path);           // error: unused `Result`
     let _ = fs.remove(path);   // fine — explicitly discarded
 }
@@ -1276,8 +1276,8 @@ A top-level declaration (`fn`, `type`, `enum`, `const`, `interface`) is
 mutually visible; across files only `pub` symbols are, and only once imported.
 
 ```thera
-pub fn format_date(_ d: Date) -> String { ... }   // public API
-fn pad2(_ n: Int) -> String { ... }                // file-private helper
+pub fn format_date(d: Date) -> String { ... }   // public API
+fn pad2(n: Int) -> String { ... }                // file-private helper
 ```
 
 - **Types expose their fields.** Making a `type`/`enum` `pub` also exposes its
@@ -1419,11 +1419,12 @@ name, not a member position**. A `let`, a lambda parameter, or a parameter is
 read bare in the body, where a keyword cannot appear — so `fn f(match: Int)` is
 an error, and since a parameter's label is its name
 ([Named parameters](#named-parameters)) there is no label slot to escape into.
-Rename it, or make it positional (`fn f(_ m: Int)`), which drops the label. One
-edge resolves by one-token lookahead: in a field declaration `mut` is the
-modifier unless followed by `:` (`let mut: Bool;` is a field named `mut`). In a
-parameter list `self` is always the receiver. Declaration names (functions,
-types, variants) are not member positions and stay identifier-only.
+Rename it — that is the only way out, since positional is already the default
+and the name would still be a keyword. One edge resolves by one-token lookahead:
+in a field declaration `mut` is the modifier unless followed by `:`
+(`let mut: Bool;` is a field named `mut`). In a parameter list `self` is always
+the receiver. Declaration names (functions, types, variants) are not member
+positions and stay identifier-only.
 
 ### Resolution order
 
@@ -1492,7 +1493,7 @@ can extract one without scraping the other:
 ///
 /// **Errors:** returns `Err` if the file does not exist or is unreadable.
 @extern('fs_read_text')
-pub native fn read_text(_ path: String) -> Result<String, Error>
+pub native fn read_text(path: String) -> Result<String, Error>
 
 // internal: the native validates UTF-8 and maps errno → FsError  ← not a doc
 ```
@@ -1583,7 +1584,7 @@ set of **bold-label paragraphs** instead:
 /// xs.get(1);    // Some(20)
 /// xs.get(9);    // None
 /// ```
-pub fn get(self, _ index: Int) -> Option<T> { ... }
+pub fn get(self, index: Int) -> Option<T> { ... }
 ````
 
 ### Parameters
@@ -1598,7 +1599,7 @@ not in a separate tag.
 /// The substring of code points in the half-open range `[start, end)`.
 /// Indices are clamped to the string's length, so a reversed or out-of-range
 /// range yields a shorter or empty string.
-pub fn slice(self, _ start: Int, _ end: Int) -> String { ... }
+pub fn slice(self, start: Int, end: Int) -> String { ... }
 ```
 
 > **Enforcement status.** The conventions above are adoptable in source today:
@@ -1623,7 +1624,7 @@ function's own name.
 
 ```thera
 @extern('fs_read_text')
-pub native fn read_text(_ path: String) -> Result<String, Error>
+pub native fn read_text(path: String) -> Result<String, Error>
 ```
 
 Native functions are an implementation detail of stdlib libraries. User code
@@ -1820,8 +1821,8 @@ called on the type name rather than an instance:
 
 ```thera
 impl Regex {
-    fn compile(_ pattern: String) -> Result<Regex, Error> { ... }  // static
-    fn is_match(self, _ text: String) -> Bool { ... }              // instance
+    fn compile(pattern: String) -> Result<Regex, Error> { ... }  // static
+    fn is_match(self, text: String) -> Bool { ... }              // instance
 }
 
 let re = Regex.compile('[0-9]+')?;   // static call
@@ -1936,10 +1937,10 @@ enum MaybeBoth<T> {
 }
 
 interface Container<T> {
-    fn get(self, _ index: Int) -> Option<T>;
+    fn get(self, index: Int) -> Option<T>;
 }
 
-fn swap<A, B>(_ p: Pair<A, B>) -> Pair<B, A> {
+fn swap<A, B>(p: Pair<A, B>) -> Pair<B, A> {
     return Pair { first: p.second, second: p.first };
 }
 ```
@@ -1955,7 +1956,7 @@ supplied for a bounded struct/enum/interface parameter (a struct literal, an
 annotation, an explicit type argument):
 
 ```thera
-fn show_all<T: Display>(_ xs: List<T>) -> Void {
+fn show_all<T: Display>(xs: List<T>) -> Void {
     for x in xs {
         print(x.to_string());
     }
@@ -2017,7 +2018,7 @@ expected?** It holds when any of these applies, and nothing else converts:
    never produces a false error (see
    [the note above](#the-type-system-at-a-glance)). Either side is a type
    parameter — **looser than intended**: today this accepts `return x;` inside
-   `fn f<T>(_ x: T) -> Int`, which traps at runtime; tightening it is tracked in
+   `fn f<T>(x: T) -> Int`, which traps at runtime; tightening it is tracked in
    roadmap.md.
 3. **Interface conformance.** `T` is an interface and `S` `impl`s it, or `S` is
    an interface that extends `T` (transitively). The target's type arguments are

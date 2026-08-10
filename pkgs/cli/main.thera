@@ -171,7 +171,7 @@ Runs until stdin closes.
 - stderr: server logs''')));
 }
 
-fn main(named parameters: List<String>) -> Result<Int, Error> {
+fn main(parameters: List<String>) -> Result<Int, Error> {
     // `run` is the std.cli entry adapter: it parses, and on a parse error, a
     // `--help`, or a bare no-command invocation it prints the right (sub)command
     // help / message and hands back an exit code. We're left with just the dispatch

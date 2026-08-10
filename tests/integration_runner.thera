@@ -22,7 +22,7 @@ enum Verdict {
     Fail(String),     // reason
 }
 
-fn main(named parameters: List<String>) -> Result<Int, Error> {
+fn main(parameters: List<String>) -> Result<Int, Error> {
     if parameters.len() < 1 {
         eprintln('usage: thera run tests/integration_runner.thera <thera-cmd>');
         return Result.Ok(2);
