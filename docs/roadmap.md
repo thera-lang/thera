@@ -532,55 +532,103 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
   should consider the impact, pros, and cons of switching from field level
   mutability to instance level mutability.
 
-- **Calling convention — one canonical call form (tighten + enforce).** The
-  decided model (see [language.md](language.md) → Named parameters): the author
-  chooses each parameter's call form and the call site has exactly **one** —
-  **labeled by default**, **positional via `_`** (label forbidden). This
-  eliminates caller choice, so every call to a function reads the same (the
-  consistency the LLM-native goal wants), while the author still gets terse,
-  self-documenting call sites where each is warranted. The checker is currently
-  **permissive** (a labeled parameter also accepts a positional argument, and
-  labeled arguments may be reordered), so the model ships with an
-  enforcement-status caveat in the docs. Sequencing:
-  1. **Clarify the docs** — _done_ (language.md Named parameters + style rule).
-  2. **The lint** — _done_: `missing-argument-label`, a checker warning with a
-     mechanical fix (see _Tools — refactorings_).
-  3. **Fix existing code** — _done_: the corpus sweep, 597 sites in 22 files,
-     applied by `thera check --fix`. It was one pattern almost end to end —
-     `testing.assert_eq(actual:, expected:)` accounted for 546 of the 597 — with
-     a ~7-site tail in `examples/` where the better fix was `_` on the parameter
-     (a single "subject" arg: `area(_ s:)`, `apply(_ f:)`).
-  4. **Enforce** — the checker requires a labeled parameter's label and forbids
-     a positional argument for it. The remaining step: the corpus is now clean,
-     so the flip is a severity change plus whatever the sub-decision below
-     settles.
-  - **Open sub-decision:** whether to also require **source order** for labeled
-    arguments (forbid `f(b: 2, a: 1)`). The same one-form principle argues yes;
-    it's a separable call from the positional-vs-labeled tightening. Measured
-    during step 3: **3 sites corpus-wide**, one of which is the conformance test
-    pinning the permissive behaviour (`fn-labeled-reorder`) — so the migration
-    cost is not an argument either way. Decide at step 4.
-  - The style rule (`_` for the single obvious "subject" arg; labels for
-    booleans / multiple same-typed / non-obvious roles) belongs in the
-    agent-facing idioms guidance (see _Idioms & best-practices guidance_).
-  - **Longer-term — first-arg-positional default (investigate, not scheduled).**
-    If `_`-on-every-first-parameter proves a frequent irritant once the
-    convention tightens, reconsider making the **first ("subject") parameter
-    positional by default and the rest labeled**, with explicit overrides both
-    ways. It makes the common case need no marker, at the cost of
-    position-dependence and a two-way override (less "simple, one rule"). **Not
-    an immediate goal.** First measurement (step 3, over 3,678 declared
-    parameters): **97.6%** of first parameters are `_` (1,923 of 1,971) — but so
-    are **93.0%** of later ones (1,587 of 1,707), for **95.4% of all
-    parameters**. So the skew is not specific to slot one: a
-    first-arg-positional default would drop the marker from 55% of the
-    positional parameters while adding an override to 48 first parameters, and
-    the sharper reading of the data is that "labeled by default" is the minority
-    case everywhere. Re-measure after enforcement before acting on either.
-    (Keyword markers like `pos`/`positional` were considered and declined: too
-    verbose at this frequency, and `pos` collides with the ubiquitous `pos`
-    variable; `_` reads as "external label = none", consistent with the
-    `external internal` slot.)
+- **Calling convention — positional by default, `named` to opt in (decided
+  2026-08).** The invariant is unchanged and not up for revision: the author
+  chooses each parameter's call form and the call site has exactly **one**, so
+  every call to a function reads the same. What changed is the **default**, and
+  the marker that expresses the exception.
+
+  **Decision.** A parameter is **positional by default**. A named one is marked
+  with a leading `named` keyword, which is also the only place an external label
+  may appear:
+
+  ```thera
+  fn pad(s: String, named width: Int = 80, named fill: String = ' ');
+  pad('x', width: 4);
+  ```
+
+  Named parameters must form a **suffix** of the parameter list (once one is
+  named, the rest are), so positional arguments are always a prefix and a reader
+  counting positions never has to scan past a label. Call sites are unchanged by
+  this decision — only declarations move.
+
+  **Why the default flipped.** The original model was Swift's: labeled by
+  default, `_` to suppress. Two measurements retired it.
+
+  - Of **3,678 declared parameters, 95.4% are `_`** — and the skew is not about
+    the "subject" argument: 97.6% of first parameters are positional, but so are
+    93.0% of later ones. This is a **revealed** preference, not inertia. Writing
+    `_ x: T` costs more keystrokes than `x: T`, and authors paid that cost 3,510
+    times. A default that 95% of uses override is the wrong default.
+  - Of **1,974 functions, 1,879 (95.2%) have no named parameter at all**. The 95
+    that do are small: 63 have one, 18 have two, 9 have three, and the 4+ tail
+    is five API-client builders (`anthropic.create` at nine, `github.pulls` at
+    nine and eight). So the marker is paid rarely and, where it is paid, usually
+    once.
+
+  **Why not the first-arg-positional variant** (previously parked here as a
+  longer-term investigation): Swift ran that exact experiment. Swift 2 gave the
+  first parameter no label by default; [SE-0046][se46] removed it in Swift 3 for
+  uniformity — "ensuring that parameter declarations behave uniformly supports
+  Swift's goals of clarity and consistency." The position-dependence was the
+  cost the entry already named, and the language that shipped it took it back. A
+  uniform positional default keeps the consistency SE-0046 was buying. Item
+  closed, not deferred.
+
+  [se46]:
+    https://github.com/swiftlang/swift-evolution/blob/main/proposals/0046-first-label.md
+
+  **Why a marker keyword over the alternatives.** Four ways to mark the named
+  minority were weighed:
+
+  | Form                            | Example                                    | Verdict                                                                                                                                                                                                                                                                 |
+  | ------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Delimited group (Dart)          | `fn pad(s: String, {width: Int = 80})`     | Runner-up. One marker per function, and the suffix rule becomes structural rather than checked. Rejected on the cost of a second meaning for braces plus real formatter work (how to break a group inside a parameter list), for a win concentrated in five signatures. |
+  | Separator (Python `*`)          | `fn pad(s: String, *, width: Int = 80)`    | Lightest, but a lone token is easy to drop and easy to miss. Bad trade for a language optimizing for hard-to-get-wrong.                                                                                                                                                 |
+  | Per-parameter sigil (OCaml `~`) | `fn pad(s: String, ~width: Int = 80)`      | Same shape as the chosen form with a symbol instead of a word; `~` is already prefix bitwise-not.                                                                                                                                                                       |
+  | **Marker keyword**              | `fn pad(s: String, named width: Int = 80)` | **Chosen.** Minimal change to how a parameter list parses and formats, no new bracket meaning, and the cost falls only on the 4.8% of functions that have a named parameter.                                                                                            |
+
+  The marker is deliberately **per parameter, not a boundary**. Since named
+  parameters are a suffix, a boundary marker (the first `named` opening the
+  group) would be terser — that is Python's `*` with a word. It was declined
+  because a per-parameter marker is **locally readable**: a reader, or a model
+  generating a call, can tell whether parameter five is named without scanning
+  backward. Local readability is worth the repetition at this frequency; the
+  worst case in the corpus is `anthropic.create` carrying `named` nine times.
+
+  **Non-goal: `named` must not come to mean "optional."** That is Dart's actual
+  mistake — `{}` conflated named with optional, forcing `required` on top later.
+  Thera expresses optionality with `= default`, independently of the call form,
+  and the two must stay orthogonal.
+
+  **Consequences and open work.**
+
+  - `_` disappears from parameter lists entirely.
+  - `named` becomes a **contextual** keyword, valid only in leading-parameter
+    position — the treatment `type` already gets. It is live in the corpus as an
+    ordinary name (`std.log`'s `pub fn named(…)`, and locals), all of which keep
+    working.
+  - The **`external internal` two-name form** collides with the marker:
+    `named value: Bool` is two identifiers before the `:`, structurally
+    identical to today's "external label `named`, internal name `value`".
+    Resolvable by making the external-label slot exist only after the marker
+    (`named default value: Bool`, three identifiers) — but retiring the two-name
+    form outright removes the ambiguity instead of managing it, which is why the
+    two are tracked together (#158).
+  - Enforcement (the checker rejecting the non-canonical form rather than
+    warning — `missing-argument-label` today) and whether labeled arguments must
+    also appear in **declaration order** are the remaining calls.
+  - The style rule inverts with the default and stays in the agent-facing idioms
+    guidance (see _Idioms & best-practices guidance_): reach for `named` when
+    the label earns its place — booleans, several same-typed arguments whose
+    order is otherwise unclear, and any role the name and value don't already
+    make obvious — and leave the subject argument bare.
+
+  Tracked as #157 (the change) and #158 (retiring the two-name form); the
+  declaration-order question stays in #156. This decision supersedes issue #134,
+  whose lint and corpus sweep landed under the old default; the sweep's 590
+  call-site labels are unaffected, since the functions that took them are
+  named-parameter functions either way.
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
