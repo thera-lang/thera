@@ -6,7 +6,7 @@
 // `String` flows out where an `Int` is promised, so using it as one traps. The
 // message is an honest *runtime type error* (the checker was too lenient), not
 // an "internal error", and it names the types.
-fn identity<T>(_ x: T) -> Int { return x; }
+fn identity<T>(x: T) -> Int { return x; }
 
 fn main() -> Int {
     let n = identity('hello') + 0;   // expect trap: runtime type error: expected Int, found String

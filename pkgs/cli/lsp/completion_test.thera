@@ -17,7 +17,7 @@ import 'resolve' as _;
 
 // A hermetic ResolveCtx over `src` alone (no imports, no prelude), with
 // committed-type records from a hermetic check of the recovered tree.
-fn ctx_of(_ src: String) -> ResolveCtx {
+fn ctx_of(src: String) -> ResolveCtx {
     let toks = lexer.tokenize(src).tokens;
     let program = parser.parse_tokens(toks).program;
     let checked = checker.check(program, [], [:], [:]);
@@ -31,20 +31,20 @@ fn ctx_of(_ src: String) -> ResolveCtx {
     };
 }
 
-fn labels(_ src: String, _ offset: Int) -> List<String> {
+fn labels(src: String, offset: Int) -> List<String> {
     return complete_at(ctx_of(src), src, offset).map((it) => it.label);
 }
 
 // The offset `delta` code points past the first occurrence of `marker`.
-fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
+fn at(src: String, marker: String, delta: Int) -> Int {
     return src.find(marker).unwrap_or(0) + delta;
 }
 
-fn assert_has(_ ls: List<String>, _ name: String) -> Result<Void, Error> {
+fn assert_has(ls: List<String>, name: String) -> Result<Void, Error> {
     return testing.assert(ls.contains(name), message: 'expected `${name}` in [${ls.join(', ')}]');
 }
 
-fn assert_lacks(_ ls: List<String>, _ name: String) -> Result<Void, Error> {
+fn assert_lacks(ls: List<String>, name: String) -> Result<Void, Error> {
     return testing.assert(
         !ls.contains(name),
         message: 'expected no `${name}` in [${ls.join(', ')}]',
@@ -53,7 +53,7 @@ fn assert_lacks(_ ls: List<String>, _ name: String) -> Result<Void, Error> {
 
 const SELF_SRC: String = 'struct S { let count: Int; }\n'
     + 'impl S {\n'
-    + '    fn helper(self, _ n: Int) -> Int { return self.count + n; }\n'
+    + '    fn helper(self, n: Int) -> Int { return self.count + n; }\n'
     + '    fn go(self) -> Int { return self.; }\n'
     + '}\n';
 
@@ -123,7 +123,7 @@ fn test_member_completion_on_type_receiver() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-const SCOPE_SRC: String = 'fn compute(_ base: Int) -> Int {\n'
+const SCOPE_SRC: String = 'fn compute(base: Int) -> Int {\n'
     + '    let banana = 1;\n'
     + '    let cherry = 2;\n'
     + '    return ba\n'
@@ -197,7 +197,7 @@ fn test_member_completion_on_computed_receiver() -> Result<Void, Error> {
 fn test_member_completion_inside_broken_match_arm() -> Result<Void, Error> {
     let src = 'struct S { let count: Int; }\n'
         + 'impl S { pub fn helper(self) -> Int { return self.count; } }\n'
-        + 'fn f(_ n: Int) -> Int {\n'
+        + 'fn f(n: Int) -> Int {\n'
         + '    let s = S { count: 1 };\n'
         + '    let x = match n {\n'
         + '        1 => { let y = ; s. },\n'
@@ -215,12 +215,12 @@ fn test_member_completion_inside_broken_match_arm() -> Result<Void, Error> {
 
 // A stand-in core for `String` (see resolve_test's prim_ctx): methods on a bodyless
 // native type, attributed through the primary's bare surface.
-fn prim_ctx(_ src: String) -> ResolveCtx {
+fn prim_ctx(src: String) -> ResolveCtx {
     let core = testkit.parse_at('pub native type String\n'
         + 'impl String {\n'
         + '    pub native fn len(self) -> Int\n'
-        + '    pub native fn slice(self, _ start: Int, _ end: Int) -> String\n'
-        + '    pub native fn split(self, _ sep: String) -> List<String>\n'
+        + '    pub native fn slice(self, start: Int, end: Int) -> String\n'
+        + '    pub native fn split(self, sep: String) -> List<String>\n'
         + '}\n', '/libs/core.thera');
     let bare: Map<String, Map<String, String>> = [:];
     bare['/app/main.thera'] = ['String': '/libs/core.thera'];
@@ -271,8 +271,8 @@ fn test_member_completion_on_string_literal() -> Result<Void, Error> {
 // A one-import closure with hand-rolled loader maps (the resolve_test pattern):
 // `util` binds lib_a's public surface, and bare `width` rides the primary's bare
 // surface.
-fn cross_ctx(_ src: String) -> ResolveCtx {
-    let a = testkit.parse_at('pub fn helper(_ n: Int) -> Int { return n; }\n'
+fn cross_ctx(src: String) -> ResolveCtx {
+    let a = testkit.parse_at('pub fn helper(n: Int) -> Int { return n; }\n'
         + 'pub const width: Int = 4;\n'
         + 'pub enum Mode { Fast, Slow }\n'
         + 'fn hidden() -> Int { return 0; }\n', '/libs/a.thera');

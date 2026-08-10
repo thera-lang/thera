@@ -41,8 +41,8 @@ fn fake() -> Fake {
 /// Serve `handler` on loopback, filling in `state.base` before any request can
 /// arrive.
 fn serving(
-    _ state: Fake,
-    _ handler: (http.Request) -> Result<http.Response, Error>,
+    state: Fake,
+    handler: (http.Request) -> Result<http.Response, Error>,
 ) -> Result<Client, Error> {
     let listener = net.listen('127.0.0.1:0')?;
     let addr = listener.local_addr()?;
@@ -52,7 +52,7 @@ fn serving(
 }
 
 /// A minimal pull request, as JSON, with `number` the only thing that varies.
-fn pr_json(_ number: Int) -> String {
+fn pr_json(number: Int) -> String {
     return '{"number": ${number}, "title": "PR ${number}", "state": "open", ' +
         '"body": null, "user": null, ' +
         '"head": {"label": "o:f", "ref": "f", "sha": "abc"}, ' +
@@ -62,7 +62,7 @@ fn pr_json(_ number: Int) -> String {
         '"merge_commit_sha": null, "html_url": "https://github.com/o/r/pull/${number}"}';
 }
 
-fn issue_json(_ number: Int) -> String {
+fn issue_json(number: Int) -> String {
     return '{"number": ${number}, "title": "Issue ${number}", "state": "open", ' +
         '"body": null, "user": null, "assignee": null, "labels": ["bug"], ' +
         '"created_at": "2026-08-06T02:00:00Z", "updated_at": "2026-08-06T02:00:00Z", ' +
@@ -70,9 +70,9 @@ fn issue_json(_ number: Int) -> String {
 }
 
 fn json_response(
-    _ status: Int,
-    _ body: String,
-    link: Option<String> = Option.None,
+    status: Int,
+    body: String,
+    named link: Option<String> = Option.None,
 ) -> http.Response {
     let headers: Map<String, String> = ['content-type': 'application/json'];
     if let Some(value) = link {

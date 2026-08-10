@@ -18,20 +18,20 @@ impl Doubler for Int {
     }
 }
 
-fn apply_bound<T: Doubler>(_ d: T) -> Int {
+fn apply_bound<T: Doubler>(d: T) -> Int {
     return d.doubled();
 }
 
 // The impl itself is fine — a static call resolves directly, no dispatch.
-fn double_directly(_ n: Int) -> Int {
+fn double_directly(n: Int) -> Int {
     return n.doubled();
 }
 
 // The four built-in interfaces stay satisfiable by every primitive.
-fn need_eq<T: Eq>(_ x: T) { }
-fn need_debug<T: Debug>(_ x: T) { }
-fn need_display<T: Display>(_ x: T) { }
-fn need_ord<T: Ord>(_ x: T) { }
+fn need_eq<T: Eq>(x: T) { }
+fn need_debug<T: Debug>(x: T) { }
+fn need_display<T: Display>(x: T) { }
+fn need_ord<T: Ord>(x: T) { }
 
 fn fine() {
     need_eq(1);

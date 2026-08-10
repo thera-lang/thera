@@ -15,7 +15,7 @@ import 'positions';
 import 'resolve';
 
 // The `TextEdit[]` (as JSON) that replaces each of `spans` with `new_name`.
-pub fn edits_for(_ spans: List<SourceSpan>, _ new_name: String) -> json.Json {
+pub fn edits_for(spans: List<SourceSpan>, new_name: String) -> json.Json {
     let edits: List<json.Json> = [];
     for s in spans {
         edits.push(json.obj([
@@ -42,9 +42,9 @@ pub fn edits_for(_ spans: List<SourceSpan>, _ new_name: String) -> json.Json {
 // must be the target file's own resolution context (its `program` is the declaring
 // file), so bare `new_name` resolution answers "already bound in this file".
 pub fn collision(
-    _ ctx: resolve.ResolveCtx,
-    _ target: resolve.SymbolId,
-    _ new_name: String,
+    ctx: resolve.ResolveCtx,
+    target: resolve.SymbolId,
+    new_name: String,
 ) -> Option<String> {
     if !is_file_scope_kind(target.kind()) {
         return Option.None;
@@ -64,7 +64,7 @@ pub fn collision(
 
 // Whether `kind` names a file-scope (top-level) declaration — a symbol that
 // occupies the file's single top-level name space.
-fn is_file_scope_kind(_ kind: resolve.SymbolKind) -> Bool {
+fn is_file_scope_kind(kind: resolve.SymbolKind) -> Bool {
     return match kind {
         Function => true,
         Struct => true,
@@ -81,7 +81,7 @@ fn is_file_scope_kind(_ kind: resolve.SymbolKind) -> Bool {
 // characters. The lexer is the oracle: a valid identifier tokenizes to exactly one
 // `Identifier` token covering the whole string (a keyword lexes to its `Kw*` kind,
 // a number/operator to another kind, two words to two tokens).
-pub fn is_identifier(_ name: String) -> Bool {
+pub fn is_identifier(name: String) -> Bool {
     let toks = tokenize(name).tokens;
     return toks.len() == 2
         && toks[0].kind == TokenKind.Identifier

@@ -6,12 +6,12 @@
 // used before the filter moved to the server.
 
 // The code point of a one-character string — the glob metacharacters.
-fn cp(_ s: String) -> Int {
+fn cp(s: String) -> Int {
     return s.chars()[0];
 }
 
 // Whether `path` matches `pattern` (both `/`-separated, workspace-relative).
-pub fn matches(_ pattern: String, _ path: String) -> Bool {
+pub fn matches(pattern: String, path: String) -> Bool {
     return match_at(pattern.chars(), 0, path.chars(), 0);
 }
 
@@ -28,7 +28,7 @@ pub fn matches(_ pattern: String, _ path: String) -> Bool {
 // the subtree (`tests/**/*.thera` excludes every Thera file under `tests`, but
 // proving that in general means deciding the pattern language). A missed prune
 // costs a walk; a wrong one silently hides a file's diagnostics.
-pub fn prunes_dir(_ pattern: String, _ rel: String) -> Bool {
+pub fn prunes_dir(pattern: String, rel: String) -> Bool {
     let suffix = '/**';
     if !pattern.ends_with(suffix) {
         return false;
@@ -37,7 +37,7 @@ pub fn prunes_dir(_ pattern: String, _ rel: String) -> Bool {
 }
 
 // Match the pattern suffix `p[pi..]` against the path suffix `s[si..]`.
-fn match_at(_ p: List<Int>, _ pi: Int, _ s: List<Int>, _ si: Int) -> Bool {
+fn match_at(p: List<Int>, pi: Int, s: List<Int>, si: Int) -> Bool {
     if pi == p.len() {
         return si == s.len();
     }
@@ -63,7 +63,7 @@ fn match_at(_ p: List<Int>, _ pi: Int, _ s: List<Int>, _ si: Int) -> Bool {
 
 // Try matching `p[after..]` at every path position from `si` on. `cross` lets the
 // wildcard consume `/` (for `**`); otherwise it halts at the first `/` (for `*`).
-fn match_star(_ p: List<Int>, _ after: Int, _ s: List<Int>, _ si: Int, _ cross: Bool) -> Bool {
+fn match_star(p: List<Int>, after: Int, s: List<Int>, si: Int, cross: Bool) -> Bool {
     let mut k = si;
     while true {
         if match_at(p, after, s, k) {

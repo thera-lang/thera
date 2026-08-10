@@ -163,7 +163,7 @@ impl Display for GitHubError {
 /// sending `retry-after`. A plain 403 ("resource not accessible by integration") is
 /// a `Status`, because telling a caller to wait and retry a permission failure
 /// would turn one clear error into an infinite loop.
-pub fn error_of(_ status: Int, _ headers: Map<String, String>, _ body: String) -> GitHubError {
+pub fn error_of(status: Int, headers: Map<String, String>, body: String) -> GitHubError {
     if status == 403 || status == 429 {
         let retry_after = header_int(headers, 'retry-after');
         let remaining = header_int(headers, 'x-ratelimit-remaining');
@@ -189,7 +189,7 @@ pub fn error_of(_ status: Int, _ headers: Map<String, String>, _ body: String) -
 /// success path wants `Cursor` (a missing field is a bug, and its path is the
 /// news), here a missing field just means this server is not sending what the docs
 /// say, and the raw text is still worth handing to the caller.
-pub fn api_error_of(_ status: Int, _ body: String) -> ApiError {
+pub fn api_error_of(status: Int, body: String) -> ApiError {
     let doc = match json.parse(body) {
         Ok(d) => d,
         // Not JSON at all — a proxy's HTML error page, or an empty body on a 304.
@@ -223,11 +223,11 @@ pub fn api_error_of(_ status: Int, _ body: String) -> ApiError {
 }
 
 /// A header as an `Int`, absent if unset or unparseable.
-fn header_int(_ headers: Map<String, String>, _ name: String) -> Option<Int> {
+fn header_int(headers: Map<String, String>, name: String) -> Option<Int> {
     return http.header(headers, name).and_then(to_int);
 }
 
 /// `String.to_int` as a function value, for `Option.and_then`.
-fn to_int(_ s: String) -> Option<Int> {
+fn to_int(s: String) -> Option<Int> {
     return s.trim().to_int();
 }

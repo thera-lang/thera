@@ -10,7 +10,7 @@ import 'fs' as _;
 
 /// A fresh, empty workspace directory under the system temp dir. Pre-cleans any
 /// leftovers from an earlier run.
-fn workspace(_ name: String) -> Result<String, Error> {
+fn workspace(name: String) -> Result<String, Error> {
     let dir = path.join(fs.temp_dir(), name);
     match fs.remove_dir_all(dir) {
         Ok(_) => void,
@@ -20,7 +20,7 @@ fn workspace(_ name: String) -> Result<String, Error> {
     return Result.Ok(dir);
 }
 
-fn is_not_found(_ e: FsError) -> Bool {
+fn is_not_found(e: FsError) -> Bool {
     return match e {
         NotFound(_) => true,
         _ => false,
@@ -321,7 +321,7 @@ fn test_open_missing_is_not_found() -> Result<Void, Error> {
 // --- walk ---
 
 // Build dir/{a.txt, sub/{b.txt, deep/c.txt}} and return the dir.
-fn build_tree(_ name: String) -> Result<String, Error> {
+fn build_tree(name: String) -> Result<String, Error> {
     let dir = workspace(name)?;
     let sub = path.join(dir, 'sub');
     let deep = path.join(sub, 'deep');

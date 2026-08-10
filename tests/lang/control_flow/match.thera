@@ -8,7 +8,7 @@ enum Color {
 }
 
 // Construction is qualified (Color.Green); match patterns stay bare.
-fn name(_ c: Color) -> String {
+fn name(c: Color) -> String {
     return match c {
         Red => 'red',
         Green => 'green',

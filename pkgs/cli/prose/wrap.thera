@@ -28,7 +28,7 @@ import 'blocks';
 /// A whitespace run is a break point only outside every code span, `[…]`, and
 /// `](…)` link tail. `None` means the caller cannot reason about this text — emit
 /// the block unchanged rather than guess.
-pub fn atoms_of(_ text: String) -> Option<List<String>> {
+pub fn atoms_of(text: String) -> Option<List<String>> {
     let cps = text.chars();
     let out: List<String> = [];
     let mut cur: List<Int> = [];
@@ -94,7 +94,7 @@ pub fn atoms_of(_ text: String) -> Option<List<String>> {
 /// every lead form is decided by the line's first token — and conservative in the
 /// one case it is not (a bold label mid-paragraph), which costs a long line, never
 /// a wrong one.
-pub fn wrap_atoms(_ atoms: List<String>, _ avail: Int) -> List<String> {
+pub fn wrap_atoms(atoms: List<String>, avail: Int) -> List<String> {
     let lines: List<String> = [];
     let mut cur: List<String> = [];
     let mut col = 0;
@@ -122,6 +122,6 @@ pub fn wrap_atoms(_ atoms: List<String>, _ avail: Int) -> List<String> {
     return lines;
 }
 
-fn is_space(_ cp: Int) -> Bool {
+fn is_space(cp: Int) -> Bool {
     return cp == char.SPACE || cp == char.TAB;
 }

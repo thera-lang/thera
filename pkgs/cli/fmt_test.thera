@@ -12,7 +12,7 @@ import std.testing;
 import 'fmt' as _;
 
 // Lay out twice and assert the result equals `want` *and* is idempotent.
-fn check(_ src: String, _ want: String) -> Result<Void, Error> {
+fn check(src: String, want: String) -> Result<Void, Error> {
     let once = format_lines(src);
     testing.assert_eq(actual: once, expected: want)?;
     testing.assert_eq(actual: format_lines(once), expected: want)?;
@@ -54,8 +54,8 @@ fn continuation_indent_for_method_chain() -> Result<Void, Error> {
 fn wrapped_return_type_then_body() -> Result<Void, Error> {
     // The `-> T {` continuation is indented, but the body hangs from the `fn`.
     return check(
-        'fn f(_ x: Int)\n-> Int {\nreturn x;\n}\n',
-        'fn f(_ x: Int)\n    -> Int {\n    return x;\n}\n',
+        'fn f(x: Int)\n-> Int {\nreturn x;\n}\n',
+        'fn f(x: Int)\n    -> Int {\n    return x;\n}\n',
     );
 }
 
@@ -206,7 +206,7 @@ fn keeps_shift_operators_tight() -> Result<Void, Error> {
 // --- line breaking (the whole formatter) ---
 
 // Format at `width` and assert the result equals `want` *and* is idempotent.
-fn check_canonical(_ src: String, _ want: String, _ width: Int) -> Result<Void, Error> {
+fn check_canonical(src: String, want: String, width: Int) -> Result<Void, Error> {
     let once = format_source_at(src, width);
     testing.assert_eq(actual: once, expected: want)?;
     testing.assert_eq(actual: format_source_at(once, width), expected: want)?;
@@ -227,8 +227,8 @@ fn reflow_splits_an_over_width_call() -> Result<Void, Error> {
 @test
 fn reflow_splits_a_parameter_list() -> Result<Void, Error> {
     return check_canonical(
-        'fn some_function(_ a: Int, _ b: Int) -> Int {\n    return a;\n}\n',
-        'fn some_function(\n    _ a: Int,\n    _ b: Int,\n) -> Int {\n    return a;\n}\n',
+        'fn some_function(a: Int, b: Int) -> Int {\n    return a;\n}\n',
+        'fn some_function(\n    a: Int,\n    b: Int,\n) -> Int {\n    return a;\n}\n',
         30,
     );
 }

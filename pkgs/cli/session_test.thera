@@ -13,7 +13,7 @@ import 'session' as _;
 // A fixture tree under the OS temp dir: `files` are (name, source) pairs written
 // into a fresh `thera_session_<tag>_test` directory. Returns the canonical
 // directory path.
-fn fixture_dir(_ tag: String, _ files: Map<String, String>) -> Result<String, Error> {
+fn fixture_dir(tag: String, files: Map<String, String>) -> Result<String, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/thera_session_${tag}_test');
     match fs.remove_dir_all(dir) {
         Ok(_) => void,
@@ -26,7 +26,7 @@ fn fixture_dir(_ tag: String, _ files: Map<String, String>) -> Result<String, Er
     return Result.Ok(dir);
 }
 
-fn cleanup(_ dir: String) -> Void {
+fn cleanup(dir: String) -> Void {
     match fs.remove_dir_all(dir) {
         Ok(_) => void,
         Err(_) => void,
@@ -277,7 +277,7 @@ fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
 
 // ---- committed-type records / type_at (CH19) ----
 
-fn render(_ t: Option<element.Type>) -> String {
+fn render(t: Option<element.Type>) -> String {
     return match t {
         Some(ty) => element.type_to_string(ty),
         None => '<none>',
@@ -506,7 +506,7 @@ fn test_surface_edit_evicts_dependents() -> Result<Void, Error> {
 @test
 fn test_body_edit_still_rechecks_whitebox_sibling() -> Result<Void, Error> {
     let dir = fixture_dir('digest_whitebox', [
-        'foo.thera': 'pub fn ff() -> Int { return inner(1); }\nfn inner(_ n: Int) -> Int { return n; }\n',
+        'foo.thera': 'pub fn ff() -> Int { return inner(1); }\nfn inner(n: Int) -> Int { return n; }\n',
         'foo_test.thera': 'import \'foo\';\nfn probe() -> Int { return inner(2); }\n',
     ])?;
     let sess = new_session(Option.None);
@@ -519,7 +519,7 @@ fn test_body_edit_still_rechecks_whitebox_sibling() -> Result<Void, Error> {
     // Private signature change; public surface identical.
     sess.set_overlay(
         '${dir}/foo.thera',
-        'pub fn ff() -> Int { return inner(\'x\'); }\nfn inner(_ s: String) -> Int { return s.len(); }\n',
+        'pub fn ff() -> Int { return inner(\'x\'); }\nfn inner(s: String) -> Int { return s.len(); }\n',
     );
     testing.assert(!sess.checked.contains(t_key), message: 'the white-box sibling re-checks')?;
     let diags = sess.check(t_src, t_path);

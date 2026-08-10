@@ -9,7 +9,7 @@
 
 import std.testing;
 
-fn is_ok<T>(_ r: Result<T, Error>) -> Bool {
+fn is_ok<T>(r: Result<T, Error>) -> Bool {
     return match r {
         Ok(_) => true,
         Err(_) => false,
@@ -24,7 +24,7 @@ fn make_err() -> Result<Int, String> {
     return Result.Err('boom');
 }
 
-fn failure_message(_ r: Result<Void, Error>) -> String {
+fn failure_message(r: Result<Void, Error>) -> String {
     return match r {
         Ok(_) => '<no failure>',
         Err(e) => e.message(),

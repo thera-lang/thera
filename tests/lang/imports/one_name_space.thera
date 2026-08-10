@@ -11,7 +11,7 @@
 // ignore: unused-import
 import 'greeter';
 
-fn max_of(_ a: Int, _ b: Int) -> Int { return if a > b { a } else { b }; }
+fn max_of(a: Int, b: Int) -> Int { return if a > b { a } else { b }; }
 const max_of: Int = 3;   // expect error: duplicate name `max_of`: already bound as a function in this file
 
 struct Config {

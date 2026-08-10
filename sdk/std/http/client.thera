@@ -27,7 +27,7 @@ struct Url {
 
 /// Split an absolute `http://` or `https://` URL. The scheme decides both the
 /// default port (80 vs 443) and whether `send` wraps the connection in TLS.
-fn parse_url(_ url: String) -> Result<Url, common.HttpError> {
+fn parse_url(url: String) -> Result<Url, common.HttpError> {
     let scheme_end = match url.find('://') {
         Some(i) => i,
         None => {
@@ -89,7 +89,7 @@ fn parse_url(_ url: String) -> Result<Url, common.HttpError> {
 
 /// The host out of an authority, unwrapping an IPv6 literal's brackets —
 /// `[::1]:8080` is the host `::1`, which is what a resolver wants.
-fn host_of(_ authority: String) -> Result<String, common.HttpError> {
+fn host_of(authority: String) -> Result<String, common.HttpError> {
     if authority.starts_with('[') {
         return match authority.find(']') {
             Some(end) => Result.Ok(authority.slice(1, end)),
@@ -106,7 +106,7 @@ fn host_of(_ authority: String) -> Result<String, common.HttpError> {
 
 /// The port out of an authority, or `fallback`. The colon that matters is the one
 /// *after* an IPv6 literal's `]`, not the ones inside it.
-fn port_of(_ authority: String, _ fallback: Int) -> Result<Int, common.HttpError> {
+fn port_of(authority: String, fallback: Int) -> Result<Int, common.HttpError> {
     let tail = if authority.starts_with('[') {
         match authority.find(']') {
             Some(end) => authority.slice(end + 1, authority.len()),
@@ -145,17 +145,17 @@ fn port_of(_ authority: String, _ fallback: Int) -> Result<Int, common.HttpError
 
 /// GET `url`.
 pub fn get(
-    _ url: String,
-    headers: Map<String, String> = [:],
+    url: String,
+    named headers: Map<String, String> = [:],
 ) -> Result<common.Response, common.HttpError> {
     return send(common.Request { method: 'GET', url: url, headers: headers, body: Bytes.empty() });
 }
 
 /// POST `body` to `url`. Set `content-type` in `headers` to say what it is.
 pub fn post(
-    _ url: String,
-    body: Bytes,
-    headers: Map<String, String> = [:],
+    url: String,
+    named body: Bytes,
+    named headers: Map<String, String> = [:],
 ) -> Result<common.Response, common.HttpError> {
     return send(common.Request { method: 'POST', url: url, headers: headers, body: body });
 }
@@ -173,7 +173,7 @@ pub fn post(
 /// The body is read into memory, capped at `common.MAX_BODY_BYTES`. This is
 /// `stream` plus that read plus the close — so for a body that should not be held
 /// whole, use `stream` directly.
-pub fn send(_ request: common.Request) -> Result<common.Response, common.HttpError> {
+pub fn send(request: common.Request) -> Result<common.Response, common.HttpError> {
     let open = stream(request)?;
     // Written as one expression so there is a single `close` below, on every path,
     // rather than one per early return.
@@ -236,7 +236,7 @@ impl Stream {
 ///
 /// **The connection stays open until the returned `Stream` is closed**, and closing
 /// it is the caller's job. Prefer `with_stream`, which does it on every path out.
-pub fn stream(_ request: common.Request) -> Result<Stream, common.HttpError> {
+pub fn stream(request: common.Request) -> Result<Stream, common.HttpError> {
     let url = parse_url(request.url)?;
     // The scheme picks the stream type; `open` is generic over both, so each arm is
     // just "connect, then hand it over".
@@ -266,8 +266,8 @@ pub fn stream(_ request: common.Request) -> Result<Stream, common.HttpError> {
 /// })?;
 /// ```
 pub fn with_stream<T>(
-    _ request: common.Request,
-    handle: (Stream) -> Result<T, Error>,
+    request: common.Request,
+    named handle: (Stream) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let open = stream(request)?;
     let outcome = handle(open);
@@ -278,7 +278,7 @@ pub fn with_stream<T>(
 /// A failure to establish the connection, as an `HttpError`. Only the TLS cause
 /// survives as itself — it is the one that says "don't retry this" — and everything
 /// else is the `Connect` it already was.
-fn connect_error(_ e: net.NetError) -> common.HttpError {
+fn connect_error(e: net.NetError) -> common.HttpError {
     return match e {
         Tls(m) => common.HttpError.Tls(m),
         _ => common.HttpError.Connect(e.message()),
@@ -297,9 +297,9 @@ fn connect_error(_ e: net.NetError) -> common.HttpError {
 /// so that path closes it here. Leaking the descriptor when a request fails is
 /// exactly how a retry loop runs a process out of them.
 fn open<S: io.Reader + io.Writer + io.Closer>(
-    _ conn: S,
-    _ request: common.Request,
-    _ url: Url,
+    conn: S,
+    request: common.Request,
+    url: Url,
 ) -> Result<Stream, common.HttpError> {
     let sent = common.Request {
         method: request.method,
@@ -309,7 +309,7 @@ fn open<S: io.Reader + io.Writer + io.Closer>(
         headers: outbound_headers(request.headers, url),
         body: request.body,
     };
-    let head = match common.write_request(to: conn, sent) {
+    let head = match common.write_request(conn, sent) {
         // A HEAD response describes a body it does not send; nothing on the wire
         // says so, so the reader has to be told.
         Ok(_) => common.Wire
@@ -333,7 +333,7 @@ fn open<S: io.Reader + io.Writer + io.Closer>(
 
 /// The caller's headers plus the ones the transport owns. Caller-set values win,
 /// except for framing, which the codec derives from the body.
-fn outbound_headers(_ caller: Map<String, String>, _ url: Url) -> Map<String, String> {
+fn outbound_headers(caller: Map<String, String>, url: Url) -> Map<String, String> {
     let headers: Map<String, String> = [:];
     for key in caller.keys() {
         headers[key.to_lowercase()] = caller[key];

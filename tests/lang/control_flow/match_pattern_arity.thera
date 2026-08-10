@@ -12,7 +12,7 @@ enum Shape {
     Rect(Int, Int),
 }
 
-fn f(_ s: Shape) -> Int {
+fn f(s: Shape) -> Int {
     return match s {
         Rect(w) => w,   // expect error: variant `Rect` has 2 fields, but the pattern binds 1
         Circle => 0,   // expect error: variant `Circle` has 1 field, but the pattern binds 0
@@ -24,7 +24,7 @@ fn f(_ s: Shape) -> Int {
     };
 }
 
-fn g(_ s: Shape) -> Int {
+fn g(s: Shape) -> Int {
     return match s {
         Rect(a, a) => a,   // expect error: duplicate binding `a` in pattern
         _ => 0,
@@ -32,7 +32,7 @@ fn g(_ s: Shape) -> Int {
 }
 
 // Correct arities are clean; `_` counts as a bound position.
-fn h(_ s: Shape) -> Int {
+fn h(s: Shape) -> Int {
     return match s {
         Point => 0,
         Circle(r) => r,

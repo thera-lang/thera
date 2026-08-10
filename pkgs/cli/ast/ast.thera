@@ -178,7 +178,7 @@ pub struct BoundRef {
 }
 
 // The bound as written: `Name` or `ns.Name`.
-pub fn bound_text(_ b: BoundRef) -> String {
+pub fn bound_text(b: BoundRef) -> String {
     return match b.namespace {
         Some(ns) => '${ns}.${b.name}',
         None => b.name,
@@ -259,7 +259,7 @@ pub enum Stmt {
 // `target op rhs` Binary for a compound assignment (`x += y` stores `x + y`). Built
 // fresh per call — the transient node exists only inside the consumer
 // (checker/inference/codegen), never in the AST that walks see.
-pub fn assign_value(_ target: Expr, _ op: Option<String>, _ value: Expr) -> Expr {
+pub fn assign_value(target: Expr, op: Option<String>, value: Expr) -> Expr {
     return match op {
         Some(o) => Expr.Binary(expr_span(target).cover(expr_span(value)), target, o, value),
         None => value,
@@ -459,7 +459,7 @@ pub struct IfExpr {
 
 // --- Span accessors (Dart's `.span` getters, as free functions over the enums) ---
 
-pub fn expr_span(_ e: Expr) -> SourceSpan {
+pub fn expr_span(e: Expr) -> SourceSpan {
     return match e {
         Int(s, _) => s,
         Float(s, _) => s,
@@ -488,14 +488,14 @@ pub fn expr_span(_ e: Expr) -> SourceSpan {
     };
 }
 
-pub fn type_span(_ t: TypeRef) -> SourceSpan {
+pub fn type_span(t: TypeRef) -> SourceSpan {
     return match t {
         Named(x) => x.span,
         Function(x) => x.span,
     };
 }
 
-pub fn stmt_span(_ s: Stmt) -> SourceSpan {
+pub fn stmt_span(s: Stmt) -> SourceSpan {
     return match s {
         Let(x) => x.span,
         Return(sp, _) => sp,
@@ -510,7 +510,7 @@ pub fn stmt_span(_ s: Stmt) -> SourceSpan {
     };
 }
 
-pub fn pattern_span(_ p: Pattern) -> SourceSpan {
+pub fn pattern_span(p: Pattern) -> SourceSpan {
     return match p {
         Wildcard(s) => s,
         Ident(s, _) => s,
@@ -520,12 +520,12 @@ pub fn pattern_span(_ p: Pattern) -> SourceSpan {
 }
 
 // A block's span runs from its opening to its closing brace.
-pub fn block_span(_ b: Block) -> SourceSpan {
+pub fn block_span(b: Block) -> SourceSpan {
     return b.start_span.cover(b.end_span);
 }
 
 // The declared generic parameter names as a set.
-pub fn type_param_set(_ tps: List<TypeParam>) -> Set<String> {
+pub fn type_param_set(tps: List<TypeParam>) -> Set<String> {
     let s: Set<String> = Set.new();
     for tp in tps {
         s.add(tp.name);
@@ -534,7 +534,7 @@ pub fn type_param_set(_ tps: List<TypeParam>) -> Set<String> {
 }
 
 // Whether a parameter list leads with `self` (an instance method, vs. static).
-pub fn has_self_param(_ params: List<Param>) -> Bool {
+pub fn has_self_param(params: List<Param>) -> Bool {
     for p in params {
         if p.is_self {
             return true;

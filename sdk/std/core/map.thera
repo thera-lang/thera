@@ -22,12 +22,12 @@ impl Map<K, V> {
     // Indexing — `m[key]` and `m[key] = v` — is built-in operator syntax (lowered
     // by the compiler, not a method, so it has no declaration here). The read
     //
-    //   fn [](self, _ key: K) -> V          // traps if `key` is absent
+    //   fn [](self, key: K) -> V          // traps if `key` is absent
     //
     // returns the value for `key`, **trapping** on a missing key — use `get` below
     // for the checked `Option<V>` form. The write
     //
-    //   fn []=(self, _ key: K, _ v: V)      // insert or update; never traps
+    //   fn []=(self, key: K, v: V)      // insert or update; never traps
     //
     // inserts a new entry or replaces the existing one (the binding must be `mut`).
     // (Indexing isn't an overloadable interface yet; this documents the contract
@@ -44,11 +44,11 @@ impl Map<K, V> {
 
     /// True if `key` is present.
     @extern('map_has')
-    pub native fn has(self, _ key: K) -> Bool
+    pub native fn has(self, key: K) -> Bool
 
     /// Value for `key`, or None if absent — the checked alternative to indexing.
     @extern('map_get')
-    pub native fn get(self, _ key: K) -> Option<V>
+    pub native fn get(self, key: K) -> Option<V>
 
     /// Value for `key`, or `default` if absent — the unwrap-with-fallback form of
     /// `get`, so a missing key needs no `match`.
@@ -56,7 +56,7 @@ impl Map<K, V> {
     /// ```thera
     /// counts.get_or('x', 0)
     /// ```
-    pub fn get_or(self, _ key: K, _ default: V) -> V {
+    pub fn get_or(self, key: K, default: V) -> V {
         match self.get(key) {
             Some(v) => { return v; }
             None => { return default; }
@@ -65,7 +65,7 @@ impl Map<K, V> {
 
     /// Remove `key`, returning its previous value if it was present.
     @extern('map_remove')
-    pub native fn remove(self, _ key: K) -> Option<V>
+    pub native fn remove(self, key: K) -> Option<V>
 
     /// Remove every entry, in place (the map becomes empty; same reference).
     @extern('map_clear')

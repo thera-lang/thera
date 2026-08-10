@@ -26,7 +26,7 @@ import '../fmt';
 // replacement is formatted as a fragment at the match's own indentation, so the
 // edit is **localized** — only the rewritten span changes, the rest of the file is
 // untouched (no whole-file reformat).
-pub fn if_let_edit(_ site: lint.IfLetMatch) -> edit.TextEdit {
+pub fn if_let_edit(site: lint.IfLetMatch) -> edit.TextEdit {
     let pat = pattern_span(site.keep_pattern).text();
     let subj = expr_span(site.subject).text();
     let body = if_let_body_text(site.keep_body);
@@ -35,7 +35,7 @@ pub fn if_let_edit(_ site: lint.IfLetMatch) -> edit.TextEdit {
     return edit.span_edit(site.match_span, fmt.format_fragment(raw, indent));
 }
 
-fn if_let_body_text(_ body: Expr) -> String {
+fn if_let_body_text(body: Expr) -> String {
     return match body {
         Block(_, _) => expr_span(body).text(),
         // A bare *diverging* body must be a statement in the block
@@ -53,7 +53,7 @@ fn if_let_body_text(_ body: Expr) -> String {
 // evaluated eagerly by `unwrap_or`; anything else — a call, an index, arithmetic —
 // must stay lazy via `unwrap_or_else`, which the `match` only evaluated in the
 // fallback case. Threads the `Err(e)` binding into the closure when present.
-pub fn unwrap_or_edit(_ s: lint.UnwrapOrMatch) -> edit.TextEdit {
+pub fn unwrap_or_edit(s: lint.UnwrapOrMatch) -> edit.TextEdit {
     let subj = expr_span(s.subject).text();
     let fb = expr_span(s.fallback).text();
     let raw = if is_cheap_expr(s.fallback) && s.err_binding == Option.None {
@@ -70,7 +70,7 @@ pub fn unwrap_or_edit(_ s: lint.UnwrapOrMatch) -> edit.TextEdit {
 
 // A fallback that `unwrap_or` may evaluate eagerly with no observable difference: a
 // literal, an identifier, or a field access over such (`Option.None`, `self.x`).
-fn is_cheap_expr(_ e: Expr) -> Bool {
+fn is_cheap_expr(e: Expr) -> Bool {
     return match e {
         Int(_, _) => true,
         Float(_, _) => true,
@@ -83,7 +83,7 @@ fn is_cheap_expr(_ e: Expr) -> Bool {
     };
 }
 
-fn str_is_literal(_ parts: List<StringPart>) -> Bool {
+fn str_is_literal(parts: List<StringPart>) -> Bool {
     for p in parts {
         let text = match p {
             Text(_, _) => true,
@@ -101,7 +101,7 @@ fn str_is_literal(_ parts: List<StringPart>) -> Bool {
 // The scrutinee with a trailing `?`. `?` is a postfix operator (tighter than any
 // binary/unary), so a lower-precedence subject (`a + b`) is parenthesized to keep
 // the `?` applying to the whole thing.
-pub fn question_edit(_ s: lint.QuestionMatch) -> edit.TextEdit {
+pub fn question_edit(s: lint.QuestionMatch) -> edit.TextEdit {
     let inner = expr_span(s.subject).text();
     let subj = if question_needs_parens(s.subject) { '(${inner})' } else { inner };
     let indent = edit.line_indent_at(s.match_span.source, s.match_span.offset);
@@ -110,7 +110,7 @@ pub fn question_edit(_ s: lint.QuestionMatch) -> edit.TextEdit {
 
 // A subject `?` can follow directly: a primary or a postfix chain (`r`, `f()`,
 // `x.y`, `xs[i]`, `r?`). Anything looser (`a + b`, `-x`, `a..b`) needs parens.
-fn question_needs_parens(_ e: Expr) -> Bool {
+fn question_needs_parens(e: Expr) -> Bool {
     return match e {
         Ident(_, _) => false,
         Call(_) => false,
@@ -123,7 +123,7 @@ fn question_needs_parens(_ e: Expr) -> Bool {
 
 // --- match → map ---
 
-pub fn map_edit(_ s: lint.MapMatch) -> edit.TextEdit {
+pub fn map_edit(s: lint.MapMatch) -> edit.TextEdit {
     let subj = expr_span(s.subject).text();
     let mapped = expr_span(s.mapped).text();
     let raw = '${subj}.map((${s.bind}) => ${mapped})';
@@ -136,7 +136,7 @@ pub fn map_edit(_ s: lint.MapMatch) -> edit.TextEdit {
 // Replaces the whole `let` statement (its span covers the trailing `;`). The
 // diverging arm's body becomes the `else` block, sliced verbatim (a bare diverge is
 // wrapped in braces).
-pub fn let_else_edit(_ s: lint.LetElseMatch) -> edit.TextEdit {
+pub fn let_else_edit(s: lint.LetElseMatch) -> edit.TextEdit {
     let subj = expr_span(s.subject).text();
     let els = let_else_body_text(s.else_body);
     let raw = 'let ${s.ctor}(${s.name}) = ${subj} else ${els};';
@@ -144,7 +144,7 @@ pub fn let_else_edit(_ s: lint.LetElseMatch) -> edit.TextEdit {
     return edit.span_edit(s.let_span, fmt.format_fragment(raw, indent));
 }
 
-fn let_else_body_text(_ e: Expr) -> String {
+fn let_else_body_text(e: Expr) -> String {
     return match e {
         Block(_, _) => expr_span(e).text(),
         _ => '{ ${expr_span(e).text()}; }',
@@ -166,7 +166,7 @@ pub struct FixSite {
 }
 
 // Keep only the sites whose rule is in `only`; an empty `only` keeps them all.
-fn sites_matching(_ sites: List<FixSite>, _ only: List<String>) -> List<FixSite> {
+fn sites_matching(sites: List<FixSite>, only: List<String>) -> List<FixSite> {
     if only.len() == 0 {
         return sites;
     }
@@ -181,7 +181,7 @@ fn sites_matching(_ sites: List<FixSite>, _ only: List<String>) -> List<FixSite>
 
 // Every available rewrite in `program`, in source order. At most one per `match`
 // (the rules partition — see `lint`); `let … else` anchors on its whole `let`.
-pub fn fix_sites(_ p: Program) -> List<FixSite> {
+pub fn fix_sites(p: Program) -> List<FixSite> {
     let out: List<FixSite> = [];
     for d in p.decls {
         fs_decl(d, out);
@@ -192,7 +192,7 @@ pub fn fix_sites(_ p: Program) -> List<FixSite> {
 // The edits every available rewrite would make to `source`, in source order —
 // restricted to the rules in `only` (all rules when `only` is empty). Empty for
 // unparseable source (fixes require a valid tree).
-pub fn fix_edits(_ source: String, only: List<String> = []) -> List<edit.TextEdit> {
+pub fn fix_edits(source: String, named only: List<String> = []) -> List<edit.TextEdit> {
     let edits: List<edit.TextEdit> = [];
     for site in sites_matching(parse_fix_sites(source), only) {
         edits.push(site.edit);
@@ -201,7 +201,7 @@ pub fn fix_edits(_ source: String, only: List<String> = []) -> List<edit.TextEdi
 }
 
 // Parse `source` and collect its fix sites; empty on any lex/parse error.
-pub fn parse_fix_sites(_ source: String) -> List<FixSite> {
+pub fn parse_fix_sites(source: String) -> List<FixSite> {
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
         return [];
@@ -223,7 +223,7 @@ pub fn parse_fix_sites(_ source: String) -> List<FixSite> {
 // non-overlapping batch and repeats: rewriting the outer match leaves the inner one
 // verbatim in the result, where the next pass converts it. This converges — every
 // pass turns a `Source` match into an `IfLet`, which never re-fires.
-pub fn fix_source(_ source: String, only: List<String> = []) -> String {
+pub fn fix_source(source: String, named only: List<String> = []) -> String {
     let mut cur = source;
     let mut guard = 0;
     while guard < 1000 {
@@ -239,7 +239,7 @@ pub fn fix_source(_ source: String, only: List<String> = []) -> String {
 
 // Greedily drop edits that overlap an earlier-start (outer) one; the dropped
 // (nested) edits are applied on a later `fix_source` pass.
-fn non_overlapping(_ edits: List<edit.TextEdit>) -> List<edit.TextEdit> {
+fn non_overlapping(edits: List<edit.TextEdit>) -> List<edit.TextEdit> {
     let out: List<edit.TextEdit> = [];
     let mut last_end = -1;
     for e in edits.sorted_by((a, b) => a.start < b.start) {
@@ -260,7 +260,7 @@ pub struct FixLocation {
 
 // The located fixes in `source` (parallel to `fix_edits`), restricted to `only`
 // (all rules when empty), for preview output.
-pub fn fix_locations(_ source: String, only: List<String> = []) -> List<FixLocation> {
+pub fn fix_locations(source: String, named only: List<String> = []) -> List<FixLocation> {
     let out: List<FixLocation> = [];
     for site in sites_matching(parse_fix_sites(source), only) {
         let pos = edit.offset_to_line_col(source, site.edit.start);
@@ -280,7 +280,7 @@ pub fn fix_locations(_ source: String, only: List<String> = []) -> List<FixLocat
 // `match` (e.g. inside a `let … else` body) yields an overlapping edit that
 // `non_overlapping` defers to a later pass, so the walk need not prune.
 
-fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
+fn fs_decl(d: Decl, out: List<FixSite>) -> Void {
     match d {
         Fn(f) => { fs_fn(f, out); },
         Impl(i) => {
@@ -301,14 +301,14 @@ fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
     }
 }
 
-fn fs_fn(_ f: FnDecl, _ out: List<FixSite>) -> Void {
+fn fs_fn(f: FnDecl, out: List<FixSite>) -> Void {
     for p in f.params {
         if let Some(e) = p.default_value { fs_expr(e, out); }
     }
     if let Some(b) = f.body { fs_block(b, out); }
 }
 
-fn fs_block(_ b: Block, _ out: List<FixSite>) -> Void {
+fn fs_block(b: Block, out: List<FixSite>) -> Void {
     for s in b.stmts {
         fs_stmt(s, out);
     }
@@ -328,7 +328,7 @@ fn fs_block(_ b: Block, _ out: List<FixSite>) -> Void {
 // expression position (an arm body, an initializer, an argument) — offers only the
 // value-preserving rules; see there. The rules partition, so the follow-on
 // `fs_expr` walk never adds a second site for the same match.
-fn fs_if_let(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
+fn fs_if_let(m: MatchExpr, out: List<FixSite>) -> Void {
     if let Some(site) = lint.match_if_let(m) {
         out.push(FixSite {
             rule: 'match-to-if-let',
@@ -340,7 +340,7 @@ fn fs_if_let(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
     }
 }
 
-fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
+fn fs_stmt(s: Stmt, out: List<FixSite>) -> Void {
     match s {
         Let(l) => {
             if let Some(site) = lint.match_let_else(l) {
@@ -394,7 +394,7 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
 // into an else-less `if let`, which does not parse in value position). `let … else`
 // is handled at the `let` (it needs the binding), so a diverging-arm match here
 // matches no rule.
-fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
+fn fs_match(m: MatchExpr, out: List<FixSite>) -> Void {
     if let Some(site) = lint.match_question(m) {
         out.push(FixSite {
             rule: 'match-to-question',
@@ -422,7 +422,7 @@ fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
     }
 }
 
-fn fs_expr(_ e: Expr, _ out: List<FixSite>) -> Void {
+fn fs_expr(e: Expr, out: List<FixSite>) -> Void {
     match e {
         Str(_, parts) => {
             for part in parts {
@@ -492,10 +492,10 @@ fn fs_expr(_ e: Expr, _ out: List<FixSite>) -> Void {
     }
 }
 
-fn fs_opt_expr(_ e: Option<Expr>, _ out: List<FixSite>) -> Void {
+fn fs_opt_expr(e: Option<Expr>, out: List<FixSite>) -> Void {
     if let Some(inner) = e { fs_expr(inner, out); }
 }
 
-fn fs_opt_block(_ b: Option<Block>, _ out: List<FixSite>) -> Void {
+fn fs_opt_block(b: Option<Block>, out: List<FixSite>) -> Void {
     if let Some(inner) = b { fs_block(inner, out); }
 }

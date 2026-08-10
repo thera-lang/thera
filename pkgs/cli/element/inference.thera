@@ -62,9 +62,9 @@ pub struct TypeRecord {
 
 // A context for inferring at the top level (no enclosing generics/self/return).
 pub fn new_ctx(
-    _ library: LibraryElement,
-    types: Map<Int, Type> = [:],
-    record_sink: List<TypeRecord> = [],
+    library: LibraryElement,
+    named types: Map<Int, Type> = [:],
+    named record_sink: List<TypeRecord> = [],
 ) -> InferCtx {
     return InferCtx {
         library: library,
@@ -81,7 +81,7 @@ pub fn new_ctx(
 // `ctx` with its `return_type` replaced — used to check a lambda body, where a
 // `return` returns from the lambda (its own result type), not the enclosing
 // function.
-pub fn with_return_type(_ ctx: InferCtx, _ ret: Type) -> InferCtx {
+pub fn with_return_type(ctx: InferCtx, ret: Type) -> InferCtx {
     return InferCtx {
         library: ctx.library,
         type_params: ctx.type_params,
@@ -98,19 +98,19 @@ pub fn with_return_type(_ ctx: InferCtx, _ ret: Type) -> InferCtx {
 // (collision-free within a file for nodes under 2MB; allocation-free, unlike a
 // string key). Synthesized desugar nodes carry zero-length spans (no real token has
 // length 0) and are never recorded.
-pub fn span_key(_ s: SourceSpan) -> Int {
+pub fn span_key(s: SourceSpan) -> Int {
     return s.offset * 2097152 + s.length;
 }
 
 // The per-file resolution scope of the function being inferred — the static tier
 // (file top-level, imports, prelude, built-ins) that bare/qualified names resolve
 // against. The lexical `scope: Map<String, Type>` is consulted separately, first.
-fn ctx_scope(_ ctx: InferCtx) -> FileScope {
+fn ctx_scope(ctx: InferCtx) -> FileScope {
     return file_scope(ctx.library, ctx.current_file);
 }
 
 // Infer an expression's type in `scope`, with no contextual expectation.
-pub fn infer_in(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+pub fn infer_in(expr: Expr, scope: Map<String, Type>, ctx: InferCtx) -> Type {
     return infer_expr(expr, scope, ctx, Option.None);
 }
 
@@ -120,10 +120,10 @@ pub fn infer_in(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Ty
 // (bidirectional inference) — used to type an un-annotated lambda's parameters from
 // the surrounding signature.
 pub fn infer_expr(
-    _ expr: Expr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    expr: Expr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     // Committed-type memo (CH19): a node the checker's walk has already settled
     // keeps that answer — the re-inference the checker's diagnostic helpers do (and
@@ -172,7 +172,7 @@ pub fn infer_expr(
 // despite the flat lookup (EL6): every name passed here is *reserved*
 // (language.md), and the resolver pins a reserved name's registry entry to its core
 // registration — so the stamped owner is always the core identity.
-fn iface(_ ctx: InferCtx, _ name: String, _ args: List<Type>) -> Type {
+fn iface(ctx: InferCtx, name: String, args: List<Type>) -> Type {
     return named_type(ctx.library.type_defs, name, args);
 }
 
@@ -182,10 +182,10 @@ fn iface(_ ctx: InferCtx, _ name: String, _ args: List<Type>) -> Type {
 // leaning on covariance — `List` is invariant, so a `List<Dog>` would not widen.
 // Element fitness against that type is enforced by the checker's homogeneity check.
 fn infer_list(
-    _ items: List<Expr>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    items: List<Expr>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     if let Some(e) = expected_arg(expected, 'List', 0, ctx) {
         return iface(ctx, 'List', [e]);
@@ -199,10 +199,10 @@ fn infer_list(
 }
 
 fn infer_map(
-    _ entries: List<MapEntry>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    entries: List<MapEntry>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     // Same bidirectional rule as `infer_list`, for both key and value.
     let exp_key = expected_arg(expected, 'Map', 0, ctx);
@@ -223,12 +223,7 @@ fn infer_map(
 // Type argument `idx` of an expected `name<…>` (`List`/`Map`), when the context
 // supplies such a type — the element type a collection literal adopts. None when
 // there is no matching expectation (fall back to inferring from the elements).
-fn expected_arg(
-    _ expected: Option<Type>,
-    _ name: String,
-    _ idx: Int,
-    _ ctx: InferCtx,
-) -> Option<Type> {
+fn expected_arg(expected: Option<Type>, name: String, idx: Int, ctx: InferCtx) -> Option<Type> {
     if let Some(t) = expected {
         if let Interface(id, args) = t {
             if is_core_id(ctx.library, id, name) && args.len() > idx {
@@ -250,7 +245,7 @@ pub struct StructDefRef {
     let element: TypeDefElement;
 }
 
-pub fn resolve_struct_literal(_ fs: FileScope, _ x: StructExpr) -> Option<StructDefRef> {
+pub fn resolve_struct_literal(fs: FileScope, x: StructExpr) -> Option<StructDefRef> {
     let id = TypeId { owner: fs.resolve_type_owner(x.type_name, x.namespace), name: x.type_name };
     if let Some(element) = fs.resolve_type_def(id) {
         if element.kind == TypeDefKind.Struct {
@@ -267,10 +262,10 @@ pub fn resolve_struct_literal(_ fs: FileScope, _ x: StructExpr) -> Option<Struct
 // whole literal — each field is inferred once (memo-hit after the checker's own
 // field walk) and unified into the struct's type parameters.
 pub fn struct_type_args(
-    _ element: TypeDefElement,
-    _ fields: List<FieldInit>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    element: TypeDefElement,
+    fields: List<FieldInit>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> List<Type> {
     let bindings: Map<String, Type> = [:];
     for fi in fields {
@@ -282,14 +277,14 @@ pub fn struct_type_args(
     return element.type_parameters.map((tp) => bindings.get(tp).unwrap_or(Type.Unknown));
 }
 
-fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn infer_struct(x: StructExpr, scope: Map<String, Type>, ctx: InferCtx) -> Type {
     return match resolve_struct_literal(ctx_scope(ctx), x) {
         Some(sd) => Type.Interface(sd.id, struct_type_args(sd.element, x.fields, scope, ctx)),
         None => Type.Unknown,
     };
 }
 
-fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn infer_ident(name: String, scope: Map<String, Type>, ctx: InferCtx) -> Type {
     if let Some(t) = scope.get(name) { return t; }
     if let Some(c) = ctx_scope(ctx).resolve_const(name) { return c.ty; }
     // A free function named in value position is a function-typed value —
@@ -311,7 +306,7 @@ fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> T
 // Left `Unknown` (as before) rather than guessed at: leniency keeps it compiling,
 // which is the status quo, and narrowing it wants the same expected-type threading
 // the rest of the generic surface uses.
-fn function_value_type(_ fn_el: FunctionElement) -> Option<Type> {
+fn function_value_type(fn_el: FunctionElement) -> Option<Type> {
     if fn_el.type_parameters.len() > 0 { return Option.None; }
     let params: List<Type> = [];
     for p in fn_el.parameters {
@@ -334,7 +329,7 @@ fn function_value_type(_ fn_el: FunctionElement) -> Option<Type> {
 // `Unknown` for anything it can't resolve, so no global is ever worse-typed than
 // before). Only reads other globals' element types — it never triggers nested
 // global inference — so it cannot loop.
-pub fn infer_program_globals(_ library: LibraryElement, _ program: Program) -> Void {
+pub fn infer_program_globals(library: LibraryElement, program: Program) -> Void {
     let ctx = new_ctx(library);
     ctx.current_file = program.file_path;
     let scope: Map<String, Type> = [:];
@@ -348,13 +343,13 @@ pub fn infer_program_globals(_ library: LibraryElement, _ program: Program) -> V
 }
 
 fn fill_global(
-    _ library: LibraryElement,
-    _ p: Program,
-    _ name: String,
-    _ type_ann: Option<TypeRef>,
-    _ value: Expr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    library: LibraryElement,
+    p: Program,
+    name: String,
+    type_ann: Option<TypeRef>,
+    value: Expr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Void {
     if type_ann.is_some() {
         return; // annotated: the resolver already recorded the declared type
@@ -368,11 +363,11 @@ fn fill_global(
 }
 
 fn infer_binary(
-    _ left: Expr,
-    _ op: String,
-    _ right: Expr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    left: Expr,
+    op: String,
+    right: Expr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Type {
     if is_comparison(op) || op == '&&' || op == '||' {
         return Type.Primitive(Primitive.Bool);
@@ -384,14 +379,14 @@ fn infer_binary(
     };
 }
 
-fn infer_unary(_ op: String, _ operand: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn infer_unary(op: String, operand: Expr, scope: Map<String, Type>, ctx: InferCtx) -> Type {
     if op == '!' {
         return Type.Primitive(Primitive.Bool);
     }
     return infer_expr(operand, scope, ctx, Option.None);
 }
 
-fn infer_propagate(_ inner: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn infer_propagate(inner: Expr, scope: Map<String, Type>, ctx: InferCtx) -> Type {
     let t = infer_expr(inner, scope, ctx, Option.None);
     return match t {
         Interface(id, args) => if (is_core_id(ctx.library, id, 'Result')
@@ -408,10 +403,10 @@ fn infer_propagate(_ inner: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -
 // in a match arm types its parameters bidirectionally (CH16: dropping it here left
 // the value type Unknown while the checker accepted the arm).
 fn infer_match(
-    _ x: MatchExpr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    x: MatchExpr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
     let mut result: Type = Type.Unknown;
@@ -425,10 +420,10 @@ fn infer_match(
 }
 
 fn infer_lambda(
-    _ x: LambdaExpr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    x: LambdaExpr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     let lambda_scope = copy_scope(scope);
     let expected_params = expected_function_params(expected);
@@ -449,10 +444,10 @@ fn infer_lambda(
 // the two passes can't drift (CH21) — the checker layers its own annotation
 // validation and cannot-infer diagnostics over the same result.
 pub fn lambda_param_type(
-    _ p: LambdaParam,
-    _ index: Int,
-    _ expected_params: Option<List<Type>>,
-    _ ctx: InferCtx,
+    p: LambdaParam,
+    index: Int,
+    expected_params: Option<List<Type>>,
+    ctx: InferCtx,
 ) -> Type {
     return match p.type_ann {
         Some(ref) => resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type),
@@ -470,10 +465,10 @@ pub fn lambda_param_type(
 // what makes `() => { …; return x; }` infer `() -> typeof(x)` rather than the
 // `Unit` a tail-only reading would give.
 pub fn lambda_body_type(
-    _ body: Expr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    body: Expr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     return match body {
         Block(_, block) => match block.tail {
@@ -495,10 +490,10 @@ pub fn lambda_body_type(
 // returns). `Unknown` when the block has no `return`. First-known wins on a
 // disagreement — the checker flags an inconsistent one against the chosen type.
 fn collect_block_returns(
-    _ block: Block,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    block: Block,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     let s = copy_scope(scope);
     let mut result = Type.Unknown;
@@ -512,10 +507,10 @@ fn collect_block_returns(
 }
 
 fn stmt_return_type(
-    _ stmt: Stmt,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    stmt: Stmt,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     return match stmt {
         Return(_, value) => match value {
@@ -544,7 +539,7 @@ fn stmt_return_type(
 // (`Never`) or unresolved (`Unknown`) one, and a diverging branch (`Never`) beats
 // `Unknown`. So `if c { throw } else { 5 }` unifies to `Int` and a two-throw `if`
 // stays `Never` rather than decaying to `Unknown`.
-fn first_known(_ a: Type, _ b: Type) -> Type {
+fn first_known(a: Type, b: Type) -> Type {
     return match a {
         Unknown => b,
         Never => match b {
@@ -555,7 +550,7 @@ fn first_known(_ a: Type, _ b: Type) -> Type {
     };
 }
 
-pub fn expected_function_params(_ expected: Option<Type>) -> Option<List<Type>> {
+pub fn expected_function_params(expected: Option<Type>) -> Option<List<Type>> {
     return match expected {
         Some(t) => match t {
             Function(params, _) => Option.Some(params),
@@ -565,7 +560,7 @@ pub fn expected_function_params(_ expected: Option<Type>) -> Option<List<Type>> 
     };
 }
 
-pub fn expected_function_return(_ expected: Option<Type>) -> Option<Type> {
+pub fn expected_function_return(expected: Option<Type>) -> Option<Type> {
     return match expected {
         Some(t) => match t {
             Function(_, ret) => Option.Some(ret),
@@ -575,12 +570,7 @@ pub fn expected_function_return(_ expected: Option<Type>) -> Option<Type> {
     };
 }
 
-fn infer_if(
-    _ x: IfExpr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
-) -> Type {
+fn infer_if(x: IfExpr, scope: Map<String, Type>, ctx: InferCtx, expected: Option<Type>) -> Type {
     // Each branch is a tail-valued block; the `if`'s type is their unified tail
     // type. With no `else` the value is Unit (only valid as a discarded statement —
     // the checker rejects an else-less `if` in value position).
@@ -595,10 +585,10 @@ fn infer_if(
 // `expected`), or `Unit` when there's no tail. Only `let` statements are processed
 // — they alone bind names the tail can refer to.
 pub fn infer_block(
-    _ block: Block,
-    _ outer: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    block: Block,
+    outer: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     let scope = copy_scope(outer);
     for p in block.stmts.enumerate() {
@@ -614,18 +604,18 @@ pub fn infer_block(
 // following tail expression sees; every other statement is typed by the checker
 // directly, so inference skips it here. (No forward-flow context — used where a
 // statement is processed in isolation; block walkers use `infer_stmt_fwd`.)
-fn infer_stmt(_ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+fn infer_stmt(stmt: Stmt, scope: Map<String, Type>, ctx: InferCtx) -> Void {
     if let Let(x) = stmt { scope[x.name] = let_bound_type(x, [], 0, scope, ctx); }
 }
 
 // As `infer_stmt`, but with the binding's block context (`stmts[index]` is this
 // statement) so a `let` can refine an underdetermined type by forward-flow.
 fn infer_stmt_fwd(
-    _ stmt: Stmt,
-    _ stmts: List<Stmt>,
-    _ index: Int,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    stmt: Stmt,
+    stmts: List<Stmt>,
+    index: Int,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Void {
     if let Let(x) = stmt { scope[x.name] = let_bound_type(x, stmts, index + 1, scope, ctx); }
 }
@@ -634,11 +624,11 @@ fn infer_stmt_fwd(
 // initializer's inferred type — refined by forward-flow against the binding's later
 // uses in `stmts[start..]` (see `refine_binding_type`).
 pub fn let_bound_type(
-    _ x: LetStmt,
-    _ stmts: List<Stmt>,
-    _ start: Int,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    x: LetStmt,
+    stmts: List<Stmt>,
+    start: Int,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Type {
     // A type annotation on the binding is the expected type for its value.
     let annotated = x.type_ann.map(
@@ -665,12 +655,12 @@ pub fn let_bound_type(
 // statements following the binding in its block). Returns `inferred` unchanged when
 // it is already fully known or nothing in scope pins it.
 pub fn refine_binding_type(
-    _ name: String,
-    _ inferred: Type,
-    _ stmts: List<Stmt>,
-    _ start: Int,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    name: String,
+    inferred: Type,
+    stmts: List<Stmt>,
+    start: Int,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Type {
     if !has_unknown_component(inferred) {
         return inferred;
@@ -700,11 +690,11 @@ pub fn refine_binding_type(
 // reassignment still pins the binding's type (it holds that type when the branch
 // runs). None when the statement doesn't constrain `name`.
 fn pinning_candidate(
-    _ name: String,
-    _ stmt: Stmt,
-    _ current: Type,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    name: String,
+    stmt: Stmt,
+    current: Type,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<Type> {
     return match stmt {
         Assign(_, target, op, rhs) => match target {
@@ -756,12 +746,12 @@ fn pinning_candidate(
 // The first pinning use of `name` in an `if`'s branches — its `then` block, then
 // its `else`. Shared by the statement and expression-statement `if` forms.
 fn pinning_in_if(
-    _ name: String,
-    _ then_block: Block,
-    _ else_block: Option<Block>,
-    _ current: Type,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    name: String,
+    then_block: Block,
+    else_block: Option<Block>,
+    current: Type,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<Type> {
     return match pinning_in_block(name, then_block, current, scope, ctx) {
         Some(t) => Option.Some(t),
@@ -776,11 +766,11 @@ fn pinning_in_if(
 // itself descending into nested blocks). Grows a local scope across intervening
 // `let`s so a pinning value that references one types correctly.
 fn pinning_in_block(
-    _ name: String,
-    _ block: Block,
-    _ current: Type,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    name: String,
+    block: Block,
+    current: Type,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<Type> {
     let s = copy_scope(scope);
     for p in block.stmts.enumerate() {
@@ -794,11 +784,11 @@ fn pinning_in_block(
 // `name[k] = v` as a candidate: a `Map`'s key/value from `k`/`v`, a `List`'s
 // element from `v`. None for any other receiver type.
 fn indexed_assign_candidate(
-    _ current: Type,
-    _ key: Expr,
-    _ value: Expr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    current: Type,
+    key: Expr,
+    value: Expr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<Type> {
     let v = infer_expr(value, scope, ctx, Option.None);
     return match current {
@@ -815,10 +805,10 @@ fn indexed_assign_candidate(
 
 // `name.push(v)` as a `List<typeof(v)>` candidate. None otherwise.
 fn push_candidate(
-    _ name: String,
-    _ call: CallExpr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    name: String,
+    call: CallExpr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<Type> {
     if let Field(_, obj, m) = call.callee { let method = m.name; if let Ident(_, n) = obj {
         if n == name && method == 'push' && call.args.len() == 1 {
@@ -835,7 +825,7 @@ fn push_candidate(
 // Fill `a`'s `Unknown` slots from `b`, structurally — same-named interfaces of
 // equal arity merge element-wise; an `Unknown` is replaced wholesale. Used to graft
 // a forward-flow candidate onto an underdetermined binding type.
-fn merge_known(_ a: Type, _ b: Type) -> Type {
+fn merge_known(a: Type, b: Type) -> Type {
     return match a {
         Unknown => b,
         Interface(an, aargs) => match b {
@@ -856,7 +846,7 @@ fn merge_known(_ a: Type, _ b: Type) -> Type {
 
 // Whether `t` has an `Unknown` anywhere in its structure — the signal that a
 // binding is underdetermined and worth refining by forward-flow.
-fn has_unknown_component(_ t: Type) -> Bool {
+fn has_unknown_component(t: Type) -> Bool {
     return match t {
         Unknown => true,
         Interface(_, args) => {
@@ -882,10 +872,10 @@ fn has_unknown_component(_ t: Type) -> Bool {
 // --- calls ---
 
 fn infer_call(
-    _ x: CallExpr,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ expected: Option<Type>,
+    x: CallExpr,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Type {
     let callee = x.callee;
     let args = x.args;
@@ -931,12 +921,12 @@ fn infer_call(
 }
 
 fn infer_call_ident(
-    _ name: String,
-    _ arg_types: List<Type>,
-    _ type_args: List<TypeRef>,
-    _ expected: Option<Type>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    name: String,
+    arg_types: List<Type>,
+    type_args: List<TypeRef>,
+    expected: Option<Type>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Type {
     // A function-typed local/parameter called directly: `f(x)`.
     if let Some(local) = scope.get(name) {
@@ -949,14 +939,14 @@ fn infer_call_ident(
 }
 
 fn infer_call_field(
-    _ obj: Expr,
-    _ field: String,
-    _ arg_types: List<Type>,
-    _ type_args: List<TypeRef>,
-    _ recv_type_args: List<TypeRef>,
-    _ expected: Option<Type>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    obj: Expr,
+    field: String,
+    arg_types: List<Type>,
+    type_args: List<TypeRef>,
+    recv_type_args: List<TypeRef>,
+    expected: Option<Type>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Type {
     // Enum construction: `(ns.)?Enum.Variant(payload...)`.
     if let Some(t) = enum_variant_type(obj, field, arg_types, expected, scope, ctx) { return t; }
@@ -1053,11 +1043,11 @@ pub enum CalleeKind {
 // `infer_call_field` walks to produce a type, returning only which *kind* of callee
 // it is. `arg_count` distinguishes the enum `e.name()` form.
 pub fn infer_callee_kind(
-    _ obj: Expr,
-    _ field: String,
-    _ arg_count: Int,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    obj: Expr,
+    field: String,
+    arg_count: Int,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> CalleeKind {
     // Type-name receiver: enum construction (its type needs the payload, so it is
     // classified directly off the variant) or a static method / namespace function
@@ -1123,7 +1113,7 @@ pub fn infer_callee_kind(
 // Whether a method call on `recv` lowers to dynamic dispatch: the receiver is an
 // interface type, or a generic parameter with an interface bound. Mirrors codegen's
 // `dispatch_interfaces`.
-fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
+fn dispatches_virtually(recv: Type, ctx: InferCtx) -> Bool {
     return match recv {
         Interface(id, _) => is_interface_id(ctx.library, id),
         TypeParameter(tpname) => match ctx.type_param_bounds.get(tpname) {
@@ -1147,10 +1137,10 @@ fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
 // from the non-lambda arguments (inferred first), so a later lambda argument sees
 // them bound.
 pub fn expected_arg_types(
-    _ callee: Expr,
-    _ args: List<CallArg>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    callee: Expr,
+    args: List<CallArg>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<List<Type>> {
     let bindings: Map<String, Type> = [:];
     return match callee_params(callee, args, scope, ctx, bindings) {
@@ -1170,10 +1160,10 @@ pub fn expected_arg_types(
 // reordered labeled lambda argument compiles with its own parameter's type.
 // Instantiation as in `expected_arg_types`.
 pub fn expected_param_types(
-    _ callee: Expr,
-    _ args: List<CallArg>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    callee: Expr,
+    args: List<CallArg>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<List<Type>> {
     let bindings: Map<String, Type> = [:];
     return match callee_params(callee, args, scope, ctx, bindings) {
@@ -1191,11 +1181,11 @@ pub fn expected_param_types(
 // callee (a local `let f: (Int) -> Int`, a function-valued field) has plain types —
 // synthesized as label-less parameters so both views above apply uniformly.
 fn callee_params(
-    _ callee: Expr,
-    _ args: List<CallArg>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ bindings: Map<String, Type>,
+    callee: Expr,
+    args: List<CallArg>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    bindings: Map<String, Type>,
 )
     -> Option<List<ParameterElement>> {
     let mut params: Option<List<ParameterElement>> = Option.None;
@@ -1272,7 +1262,7 @@ fn callee_params(
 
 // Plain types as label-less parameter elements (a function-typed callee has no
 // labels or defaults — every argument is positional).
-fn plain_params(_ types: List<Type>) -> List<ParameterElement> {
+fn plain_params(types: List<Type>) -> List<ParameterElement> {
     return types.map((t) => ParameterElement {
         label: Option.None,
         is_self: false,
@@ -1286,11 +1276,11 @@ fn plain_params(_ types: List<Type>) -> List<ParameterElement> {
 // each against the parameter its label/position targets), so a lambda argument's
 // expected type is fully instantiated.
 fn bind_from_args(
-    _ positional: List<ParameterElement>,
-    _ args: List<CallArg>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
-    _ bindings: Map<String, Type>,
+    positional: List<ParameterElement>,
+    args: List<CallArg>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    bindings: Map<String, Type>,
 ) -> Void {
     let matched = params_for_args(positional, args);
     for a in args.enumerate() {
@@ -1310,11 +1300,11 @@ fn bind_from_args(
 // --- fields ---
 
 fn infer_field(
-    _ object: Expr,
-    _ field: String,
-    _ expected: Option<Type>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    object: Expr,
+    field: String,
+    expected: Option<Type>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Type {
     // Bare enum variant: `(ns.)?Enum.Variant` (no payload).
     if let Some(t) = enum_variant_type(object, field, [], expected, scope, ctx) { return t; }
@@ -1331,10 +1321,10 @@ fn infer_field(
 // --- pattern binding ---
 
 pub fn bind_match_pattern(
-    _ pattern: Pattern,
-    _ subject: Type,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    pattern: Pattern,
+    subject: Type,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Void {
     match pattern {
         Ident(_, name) => { scope[name] = subject; },
@@ -1356,11 +1346,11 @@ pub fn bind_match_pattern(
 // drives this when type-checking a loop body; inference doesn't walk statement
 // bodies itself.)
 pub fn bind_for_pattern(
-    _ pattern: Pattern,
-    _ iterable: Expr,
-    _ iter_type: Type,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    pattern: Pattern,
+    iterable: Expr,
+    iter_type: Type,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Void {
     let element = for_element_type(iterable, iter_type, ctx);
     if let Ident(_, name) = pattern { scope[name] = element; }
@@ -1370,7 +1360,7 @@ pub fn bind_for_pattern(
 // subject's type arguments substituted in (`Some(x)` on an `Option<Shape>` fields
 // as `[Shape]`). Result/Option are ordinary enums here, handled by this generic
 // path. Also codegen's source for nested-pattern payload types (CG7).
-pub fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> List<Type> {
+pub fn variant_field_types(subject: Type, name: String, ctx: InferCtx) -> List<Type> {
     if let Interface(sname, sargs) = subject {
         if let Some(element) = ctx_scope(ctx).resolve_type_def(sname) {
             if element.kind == TypeDefKind.Enum {
@@ -1392,7 +1382,7 @@ pub fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> 
 // its element from an `Unknown` type — which is why an unresolved iterable now
 // honestly yields `Unknown` rather than a fabricated `Int` (which would cascade
 // into misleading "no method X on Int" errors on a real hole).
-pub fn for_element_type(_ iterable: Expr, _ iter_type: Type, _ ctx: InferCtx) -> Type {
+pub fn for_element_type(iterable: Expr, iter_type: Type, ctx: InferCtx) -> Type {
     if let Range(_, _, _) = iterable {
         return Type.Primitive(Primitive.Int);
     }
@@ -1410,7 +1400,7 @@ pub fn for_element_type(_ iterable: Expr, _ iter_type: Type, _ ctx: InferCtx) ->
 // The element type of an iterable that is (or conforms to) `Iterator<T>`: the
 // payload of its `next()` method's `Option` return, with the receiver's type
 // arguments applied. None if not an iterator.
-fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
+fn iterator_element(t: Type, ctx: InferCtx) -> Option<Type> {
     if let Interface(name, args) = t {
         if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
             if !is_core_id(
@@ -1439,11 +1429,11 @@ fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
 // binding annotation, the enclosing return type, a surrounding argument). `unify`
 // only fills an as-yet-unbound parameter, so the priority order holds.
 pub fn call_bindings(
-    _ fn_el: FunctionElement,
-    _ type_args: List<TypeRef>,
-    _ arg_types: List<Type>,
-    _ expected: Option<Type>,
-    _ ctx: InferCtx,
+    fn_el: FunctionElement,
+    type_args: List<TypeRef>,
+    arg_types: List<Type>,
+    expected: Option<Type>,
+    ctx: InferCtx,
 ) -> Map<String, Type> {
     return call_bindings_into([:], fn_el, type_args, arg_types, expected, ctx);
 }
@@ -1453,12 +1443,12 @@ pub fn call_bindings(
 // receiver type args) before the method's own parameters, arguments, and expected
 // type fill in the rest. `unify` only fills an unbound parameter, so the seed wins.
 fn call_bindings_into(
-    _ bindings: Map<String, Type>,
-    _ fn_el: FunctionElement,
-    _ type_args: List<TypeRef>,
-    _ arg_types: List<Type>,
-    _ expected: Option<Type>,
-    _ ctx: InferCtx,
+    bindings: Map<String, Type>,
+    fn_el: FunctionElement,
+    type_args: List<TypeRef>,
+    arg_types: List<Type>,
+    expected: Option<Type>,
+    ctx: InferCtx,
 ) -> Map<String, Type> {
     let tps = fn_el.type_parameters;
     let mut t = 0;
@@ -1485,9 +1475,9 @@ fn call_bindings_into(
 // args (`Set<String>.new()` -> {T: String}). Excess args are ignored (the checker
 // reports an arity mismatch separately).
 fn owner_bindings_from(
-    _ recv_type_args: List<TypeRef>,
-    _ owner_params: List<String>,
-    _ ctx: InferCtx,
+    recv_type_args: List<TypeRef>,
+    owner_params: List<String>,
+    ctx: InferCtx,
 ) -> Map<String, Type> {
     let bindings: Map<String, Type> = [:];
     let mut i = 0;
@@ -1508,13 +1498,13 @@ fn owner_bindings_from(
 // parameters / arguments / expected type. Shared by inference (to instantiate the
 // return type) and the checker (to know whether the owner parameter is pinned).
 pub fn static_call_bindings(
-    _ method: FunctionElement,
-    _ owner_params: List<String>,
-    _ recv_type_args: List<TypeRef>,
-    _ type_args: List<TypeRef>,
-    _ arg_types: List<Type>,
-    _ expected: Option<Type>,
-    _ ctx: InferCtx,
+    method: FunctionElement,
+    owner_params: List<String>,
+    recv_type_args: List<TypeRef>,
+    type_args: List<TypeRef>,
+    arg_types: List<Type>,
+    expected: Option<Type>,
+    ctx: InferCtx,
 ) -> Map<String, Type> {
     return call_bindings_into(
         owner_bindings_from(recv_type_args, owner_params, ctx),
@@ -1532,17 +1522,17 @@ pub fn static_call_bindings(
 // namespace functions; static methods seed owner params first
 // (`static_call_bindings`).
 fn instantiate_return_ctx(
-    _ fn_el: FunctionElement,
-    _ type_args: List<TypeRef>,
-    _ arg_types: List<Type>,
-    _ expected: Option<Type>,
-    _ ctx: InferCtx,
+    fn_el: FunctionElement,
+    type_args: List<TypeRef>,
+    arg_types: List<Type>,
+    expected: Option<Type>,
+    ctx: InferCtx,
 ) -> Type {
     return substitute(fn_el.return_type, call_bindings(fn_el, type_args, arg_types, expected, ctx));
 }
 
 // Whether `name` (a type parameter) occurs anywhere in `ty`.
-pub fn type_mentions_param(_ ty: Type, _ name: String) -> Bool {
+pub fn type_mentions_param(ty: Type, name: String) -> Bool {
     return match ty {
         TypeParameter(n) => n == name,
         Interface(_, args) => {
@@ -1567,7 +1557,7 @@ pub fn type_mentions_param(_ ty: Type, _ name: String) -> Bool {
 
 // Result of `object[index]`: a core `List<T>`'s element, a core `Map<K, V>`'s value
 // (by identity, not spelling — X1).
-fn index_result(_ recv: Type, _ ctx: InferCtx) -> Type {
+fn index_result(recv: Type, ctx: InferCtx) -> Type {
     if let Interface(name, args) = recv {
         if is_core_id(ctx.library, name, 'List') {
             return arg_at(args, 0);
@@ -1580,7 +1570,7 @@ fn index_result(_ recv: Type, _ ctx: InferCtx) -> Type {
 }
 
 // Type of `recv.field` for a struct receiver (with generic args applied).
-fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
+fn field_type(recv: Type, field: String, ctx: InferCtx) -> Type {
     if let Interface(name, args) = recv {
         if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
             if def.kind == TypeDefKind.Struct {
@@ -1595,7 +1585,7 @@ fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
 
 // Whether `name` refers to an import namespace here (a known namespace not shadowed
 // by a local).
-pub fn is_namespace(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Bool {
+pub fn is_namespace(name: String, scope: Map<String, Type>, ctx: InferCtx) -> Bool {
     return !scope.has(name) && ctx_scope(ctx).is_namespace(name);
 }
 
@@ -1603,7 +1593,7 @@ pub fn is_namespace(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx)
 // `Type` or `ns.Type` — to its element, through the file's scope (Phase 2e makes
 // the qualified form owner-correct; today the flat table resolves both to the same
 // element).
-fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx)
+fn type_def_for_expr(object: Expr, scope: Map<String, Type>, ctx: InferCtx)
     -> Option<TypeDefElement> {
     match object {
         Ident(_, name) => {
@@ -1633,12 +1623,12 @@ fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx
 // one of its variants, the constructed enum type (with type args recovered from
 // `arg_types`).
 fn enum_variant_type(
-    _ object: Expr,
-    _ variant: String,
-    _ arg_types: List<Type>,
-    _ expected: Option<Type>,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    object: Expr,
+    variant: String,
+    arg_types: List<Type>,
+    expected: Option<Type>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<Type> {
     match type_def_for_expr(object, scope, ctx) {
         Some(element) => {
@@ -1683,7 +1673,7 @@ fn enum_variant_type(
 
 // The type arguments of `expected` when it is the enum named `name`, else empty —
 // so an enum construction can recover parameters its payload didn't determine.
-fn enum_expected_args(_ name: String, _ expected: Option<Type>) -> List<Type> {
+fn enum_expected_args(name: String, expected: Option<Type>) -> List<Type> {
     return match expected {
         Some(t) => match t {
             Interface(ename, eargs) => if ename.name == name { eargs } else { [] },
@@ -1697,7 +1687,7 @@ fn enum_expected_args(_ name: String, _ expected: Option<Type>) -> List<Type> {
 // receivers (structs, enums, `List`/`Map`/…) and primitive receivers, which look
 // through to their built-in element (`Int` etc.). This is the bridge that lets
 // primitives host methods uniformly.
-fn type_def_for(_ ty: Type, _ ctx: InferCtx) -> Option<TypeDefElement> {
+fn type_def_for(ty: Type, ctx: InferCtx) -> Option<TypeDefElement> {
     return match ty {
         Interface(name, _) => ctx_scope(ctx).resolve_type_def(name),
         Primitive(p) => match primitive_type_name(p) {
@@ -1711,7 +1701,7 @@ fn type_def_for(_ ty: Type, _ ctx: InferCtx) -> Option<TypeDefElement> {
 // The core declaration a primitive's members live on (`Int`, `String`, …) — `Unit`
 // hosts none. Shared with the LSP's resolve layer, which bridges a `Primitive`
 // receiver the same way `type_def_for` does.
-pub fn primitive_type_name(_ p: Primitive) -> Option<String> {
+pub fn primitive_type_name(p: Primitive) -> Option<String> {
     return match p {
         Int => Option.Some('Int'),
         Double => Option.Some('Double'),
@@ -1727,7 +1717,7 @@ pub fn primitive_type_name(_ p: Primitive) -> Option<String> {
 // -- the signal the checker uses to flag a bad field access. False (no error) for
 // any receiver that isn't a resolved struct, so only a definitive miss on a known
 // struct value is reported.
-pub fn struct_field_missing(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Bool {
+pub fn struct_field_missing(recv: Type, field: String, ctx: InferCtx) -> Bool {
     return match type_def_for(recv, ctx) {
         Some(element) => element.kind == TypeDefKind.Struct && !element.fields.has(field),
         None => false,
@@ -1738,7 +1728,7 @@ pub fn struct_field_missing(_ recv: Type, _ field: String, _ ctx: InferCtx) -> B
 // assigning to it is an immutability error. False for non-structs, missing fields,
 // `mut` fields, and unresolved receivers (conservative — no false positives on
 // inference gaps).
-pub fn struct_field_immutable(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Bool {
+pub fn struct_field_immutable(recv: Type, field: String, ctx: InferCtx) -> Bool {
     return match type_def_for(recv, ctx) {
         Some(element) => element.kind == TypeDefKind.Struct
             && element.fields.has(field)
@@ -1763,12 +1753,7 @@ pub enum MethodLookup {
     Missing, // a definitive miss
 }
 
-pub fn lookup_method(
-    _ recv: Type,
-    _ field: String,
-    _ arg_count: Int,
-    _ ctx: InferCtx,
-) -> MethodLookup {
+pub fn lookup_method(recv: Type, field: String, arg_count: Int, ctx: InferCtx) -> MethodLookup {
     match type_def_for(recv, ctx) {
         Some(element) => {
             if let Some(method) = find_method(element, field) {
@@ -1845,9 +1830,9 @@ pub struct MethodResolution {
 // type parameters to the receiver element's recorded conformance arguments
 // (`impl Iterator<Int>` -> {T: Int}).
 fn default_method_bindings(
-    _ element: TypeDefElement,
-    _ iface: TypeId,
-    _ iface_def: TypeDefElement,
+    element: TypeDefElement,
+    iface: TypeId,
+    iface_def: TypeDefElement,
 ) -> Map<String, Type> {
     let bindings: Map<String, Type> = [:];
     if let Some(args) = element.interface_args.get(id_key(iface)) {
@@ -1865,7 +1850,7 @@ fn default_method_bindings(
 // itself declare `field` — the case of a *concrete* receiver whose `impl` omits a
 // defaulted method. The bindings map the providing interface's type parameters to
 // this conformance's arguments, so the method's signature instantiates.
-fn find_default_method(_ element: TypeDefElement, _ field: String, _ ctx: InferCtx)
+fn find_default_method(element: TypeDefElement, field: String, ctx: InferCtx)
     -> Option<MethodResolution> {
     for iface in element.interfaces {
         if let Some(iface_def) = ctx_scope(ctx).resolve_type_def(iface) {
@@ -1882,7 +1867,7 @@ fn find_default_method(_ element: TypeDefElement, _ field: String, _ ctx: InferC
     return Option.None;
 }
 
-pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<MethodResolution> {
+pub fn resolve_method(recv: Type, field: String, ctx: InferCtx) -> Option<MethodResolution> {
     // The arg-checkable half of `lookup_method` (arg count is immaterial: the
     // enum-`name()` case is lenient, i.e. None, at every arity).
     return match lookup_method(recv, field, 0, ctx) {
@@ -1904,10 +1889,10 @@ pub enum StaticReceiver {
 }
 
 pub fn resolve_static_receiver(
-    _ obj: Expr,
-    _ field: String,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    obj: Expr,
+    field: String,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<StaticReceiver> {
     // A type-name receiver with a static method (`Set.new`, `provider.Type.make`).
     if let Some(type_def) = type_def_for_expr(obj, scope, ctx) {
@@ -1943,10 +1928,10 @@ pub struct StaticCall {
 // method. None for a value-receiver method (use `resolve_method`), an enum
 // constructor, or an unresolved callee.
 pub fn resolve_ns_or_static_call(
-    _ recv: Expr,
-    _ field: String,
-    _ scope: Map<String, Type>,
-    _ ctx: InferCtx,
+    recv: Expr,
+    field: String,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
 ) -> Option<StaticCall> {
     return match resolve_static_receiver(recv, field, scope, ctx) {
         Some(sr) => match sr {
@@ -1965,7 +1950,7 @@ pub fn resolve_ns_or_static_call(
 
 // `a` followed by the members of `b` not already in `a` — the static-method
 // type-parameter set (the method's own, then the owner's).
-fn combined_type_params(_ a: List<String>, _ b: List<String>) -> List<String> {
+fn combined_type_params(a: List<String>, b: List<String>) -> List<String> {
     let out: List<String> = [];
     for n in a {
         out.push(n);
@@ -1988,7 +1973,7 @@ fn combined_type_params(_ a: List<String>, _ b: List<String>) -> List<String> {
 // `String`) and then compiled into the builtin, so the method's body never ran. A
 // check-clean program with a silently wrong answer, which is the worst shape a
 // front-end bug comes in.
-fn uses_enum_name_builtin(_ recv_type: Type, _ ctx: InferCtx) -> Bool {
+fn uses_enum_name_builtin(recv_type: Type, ctx: InferCtx) -> Bool {
     if !is_enum_type(recv_type, ctx) {
         return false;
     }
@@ -2000,7 +1985,7 @@ fn uses_enum_name_builtin(_ recv_type: Type, _ ctx: InferCtx) -> Bool {
     return true;
 }
 
-fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
+fn is_enum_type(ty: Type, ctx: InferCtx) -> Bool {
     return match ty {
         Interface(name, _) => match ctx_scope(ctx).resolve_type_def(name) {
             Some(def) => def.kind == TypeDefKind.Enum,
@@ -2014,7 +1999,7 @@ fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
 // resolved arguments, for instantiating members. Resolves the receiver's def by its
 // owner-qualified `TypeId` (CH6) — a wrong owner misses rather than binding against
 // a same-named type from another library.
-fn receiver_bindings(_ id: TypeId, _ args: List<Type>, _ ctx: InferCtx) -> Map<String, Type> {
+fn receiver_bindings(id: TypeId, args: List<Type>, ctx: InferCtx) -> Map<String, Type> {
     let bindings: Map<String, Type> = [:];
     if let Some(def) = ctx_scope(ctx).resolve_type_def(id) {
         let params = def.type_parameters;
@@ -2029,7 +2014,7 @@ fn receiver_bindings(_ id: TypeId, _ args: List<Type>, _ ctx: InferCtx) -> Map<S
 
 // --- small helpers ---
 
-pub fn non_self_params(_ params: List<ParameterElement>) -> List<ParameterElement> {
+pub fn non_self_params(params: List<ParameterElement>) -> List<ParameterElement> {
     let out: List<ParameterElement> = [];
     for p in params {
         if !p.is_self {
@@ -2040,8 +2025,8 @@ pub fn non_self_params(_ params: List<ParameterElement>) -> List<ParameterElemen
 }
 
 pub fn param_by_label(
-    _ params: List<ParameterElement>,
-    _ label: String,
+    params: List<ParameterElement>,
+    label: String,
 ) -> Option<ParameterElement> {
     for p in params {
         if let Some(l) = p.label {
@@ -2059,7 +2044,7 @@ pub fn param_by_label(
 // disagree, so a reordered labeled call fed the wrong expected types into
 // lambda-parameter inference). One entry per argument; None when the argument has
 // no parameter (unknown label, or beyond the parameter list).
-pub fn params_for_args(_ params: List<ParameterElement>, _ args: List<CallArg>)
+pub fn params_for_args(params: List<ParameterElement>, args: List<CallArg>)
     -> List<Option<ParameterElement>> {
     let out: List<Option<ParameterElement>> = [];
     for a in args.enumerate() {
@@ -2071,14 +2056,14 @@ pub fn params_for_args(_ params: List<ParameterElement>, _ args: List<CallArg>)
     return out;
 }
 
-fn arg_at(_ args: List<Type>, _ i: Int) -> Type {
+fn arg_at(args: List<Type>, i: Int) -> Type {
     if i < args.len() {
         return args[i];
     }
     return Type.Unknown;
 }
 
-fn is_comparison(_ op: String) -> Bool {
+fn is_comparison(op: String) -> Bool {
     return op == '==' || op == '!=' || op == '<' || op == '<=' || op == '>' || op == '>=';
 }
 
@@ -2087,13 +2072,13 @@ fn empty_bindings() -> Map<String, Type> {
     return m;
 }
 
-fn merge_into(_ dst: Map<String, Type>, _ src: Map<String, Type>) -> Void {
+fn merge_into(dst: Map<String, Type>, src: Map<String, Type>) -> Void {
     for k in src.keys() {
         if let Some(v) = src.get(k) { dst[k] = v; }
     }
 }
 
-pub fn copy_scope(_ m: Map<String, Type>) -> Map<String, Type> {
+pub fn copy_scope(m: Map<String, Type>) -> Map<String, Type> {
     let out: Map<String, Type> = [:];
     for k in m.keys() {
         if let Some(v) = m.get(k) { out[k] = v; }

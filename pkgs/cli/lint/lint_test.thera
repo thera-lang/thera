@@ -11,14 +11,14 @@ import 'lint' as _;
 // Parse `src` and collect its suggestions. (A parse error yields no tokens-level
 // failure here — the per-test count assertions catch a snippet that didn't parse,
 // since it would produce zero suggestions.)
-fn lint(_ src: String) -> List<Suggestion> {
+fn lint(src: String) -> List<Suggestion> {
     let lex = lexer.tokenize(src);
     let parsed = parser.parse_tokens(lex.tokens);
     return lint_program(parsed.program);
 }
 
 // How many fired suggestions carry `rule`.
-fn count_rule(_ sugs: List<Suggestion>, _ rule: String) -> Int {
+fn count_rule(sugs: List<Suggestion>, rule: String) -> Int {
     let mut n = 0;
     for s in sugs {
         if s.rule == rule {
@@ -28,8 +28,8 @@ fn count_rule(_ sugs: List<Suggestion>, _ rule: String) -> Int {
     return n;
 }
 
-fn wrap(_ body: String) -> String {
-    return 'fn f(_ o: Option<Int>) -> Int {\n${body}\n    return 0;\n}\n';
+fn wrap(body: String) -> String {
+    return 'fn f(o: Option<Int>) -> Int {\n${body}\n    return 0;\n}\n';
 }
 
 @test
@@ -64,7 +64,7 @@ fn ignores_when_both_arms_act() -> Result<Void, Error> {
 
 @test
 fn ignores_three_arm_match() -> Result<Void, Error> {
-    let src = 'fn g(_ r: Result<Int, Int>) -> Int {\n'
+    let src = 'fn g(r: Result<Int, Int>) -> Int {\n'
         + '    match r { Ok(v) => { return v; }, Err(e) => { return e; }, _ => {} }\n'
         + '    return 0;\n}\n';
     let sugs = lint(src);
@@ -92,7 +92,7 @@ fn does_not_refire_on_desugared_if_let() -> Result<Void, Error> {
 @test
 fn flags_nested_match() -> Result<Void, Error> {
     // A convertible match nested inside another expression is still found.
-    let src = 'fn h(_ o: Option<Int>) -> Int {\n'
+    let src = 'fn h(o: Option<Int>) -> Int {\n'
         + '    let x = match o { Some(v) => { v }, None => {} };\n'
         + '    return 0;\n}\n';
     let sugs = lint(src);
@@ -102,8 +102,8 @@ fn flags_nested_match() -> Result<Void, Error> {
 
 // --- match → ? ---
 
-fn wrap_res(_ body: String) -> String {
-    return 'fn f(_ r: Result<Int, Error>) -> Result<Int, Error> {\n${body}\n    return Result.Ok(0);\n}\n';
+fn wrap_res(body: String) -> String {
+    return 'fn f(r: Result<Int, Error>) -> Result<Int, Error> {\n${body}\n    return Result.Ok(0);\n}\n';
 }
 
 @test
@@ -119,7 +119,7 @@ fn flags_result_propagation() -> Result<Void, Error> {
 
 @test
 fn flags_option_propagation() -> Result<Void, Error> {
-    let src = 'fn f(_ o: Option<Int>) -> Option<Int> {\n'
+    let src = 'fn f(o: Option<Int>) -> Option<Int> {\n'
         + '    let x = match o { Some(v) => v, None => return Option.None };\n'
         + '    return Option.Some(x);\n}\n';
     let sugs = lint(src);
@@ -151,7 +151,7 @@ fn flags_let_else() -> Result<Void, Error> {
 @test
 fn ignores_let_else_when_not_in_let() -> Result<Void, Error> {
     // A diverging match not bound to a `let` is not a `let … else` site.
-    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let src = 'fn f(o: Option<Int>) -> Int {\n'
         + '    match o { Some(v) => { return v; }, None => { return 0; } }\n'
         + '    return 0;\n}\n';
     let sugs = lint(src);
@@ -194,7 +194,7 @@ fn flags_map() -> Result<Void, Error> {
 fn flags_empty_block_arm() -> Result<Void, Error> {
     // A three-arm match keeps its empty arm (no `if let` rewrite), so the style
     // rule fires on the `{}`.
-    let src = 'fn g(_ r: Result<Int, Int>) -> Int {\n'
+    let src = 'fn g(r: Result<Int, Int>) -> Int {\n'
         + '    match r { Ok(v) => { return v; }, Err(e) => { return e; }, _ => {} }\n'
         + '    return 0;\n}\n';
     let sugs = lint(src);
@@ -205,7 +205,7 @@ fn flags_empty_block_arm() -> Result<Void, Error> {
 @test
 fn ignores_void_arm_spelling() -> Result<Void, Error> {
     // The suggested spelling itself doesn't fire.
-    let src = 'fn g(_ r: Result<Int, Int>) -> Int {\n'
+    let src = 'fn g(r: Result<Int, Int>) -> Int {\n'
         + '    match r { Ok(v) => { return v; }, Err(e) => { return e; }, _ => void }\n'
         + '    return 0;\n}\n';
     let sugs = lint(src);
@@ -236,7 +236,7 @@ fn void_arm_ignores_desugared_if_let() -> Result<Void, Error> {
 
 @test
 fn flags_while_index() -> Result<Void, Error> {
-    let src = 'fn f(_ xs: List<Int>) -> Int {\n'
+    let src = 'fn f(xs: List<Int>) -> Int {\n'
         + '    let mut i = 0;\n'
         + '    while i < xs.len() {\n        i = i + 1;\n    }\n'
         + '    return i;\n}\n';
@@ -247,7 +247,7 @@ fn flags_while_index() -> Result<Void, Error> {
 
 @test
 fn ignores_while_non_index() -> Result<Void, Error> {
-    let src = 'fn f(_ n: Int) -> Int {\n'
+    let src = 'fn f(n: Int) -> Int {\n'
         + '    let mut i = 0;\n'
         + '    while i < n {\n        i = i + 1;\n    }\n'
         + '    return i;\n}\n';

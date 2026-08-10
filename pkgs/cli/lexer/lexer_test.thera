@@ -12,7 +12,7 @@ import '../source' as _;
 import 'lexer' as _;
 
 // The token kinds for `src` (including the trailing Eof).
-fn kinds(_ src: String) -> List<TokenKind> {
+fn kinds(src: String) -> List<TokenKind> {
     return tokenize(src).tokens.map((t) => t.kind);
 }
 
@@ -149,7 +149,7 @@ fn test_raw_string() -> Result<Void, Error> {
 
 // A text block's source, assembled from lines so the test reads like the code it
 // lexes rather than like one long escape run.
-fn block(_ lines: List<String>) -> String {
+fn block(lines: List<String>) -> String {
     return lines.join('\n');
 }
 

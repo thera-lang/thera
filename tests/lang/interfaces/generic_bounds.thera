@@ -3,7 +3,7 @@
 
 // The bound `<T: Display>` is enforced at call sites; inside, `x` may be used
 // where a Display is required (here, string interpolation).
-fn describe<T: Display>(_ x: T) -> String {
+fn describe<T: Display>(x: T) -> String {
     return 'val=${x}';
 }
 

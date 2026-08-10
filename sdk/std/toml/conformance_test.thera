@@ -64,7 +64,7 @@ fn case_list() -> Result<List<String>, Error> {
 
 /// One valid case: parse the .toml, decode the sibling .json, compare. None on
 /// success, a description on failure.
-fn run_valid_case(_ rel: String) -> Option<String> {
+fn run_valid_case(rel: String) -> Option<String> {
     let read = fs.read_text('${base}/${rel}');
     if read.is_err() {
         return Option.Some('${rel}: unreadable');
@@ -99,7 +99,7 @@ fn run_valid_case(_ rel: String) -> Option<String> {
 /// Structural comparison between a parsed `Toml` and toml-test's tagged-JSON
 /// encoding: tables are plain objects, arrays plain arrays, and every scalar a
 /// `{"type": …, "value": …}` pair with the value carried as a string.
-fn matches(_ ours: Toml, _ theirs: json.Json) -> Bool {
+fn matches(ours: Toml, theirs: json.Json) -> Bool {
     let kind = ours.kind();
     if kind == 'table' {
         let table = match ours.as_table() {
@@ -155,7 +155,7 @@ fn matches(_ ours: Toml, _ theirs: json.Json) -> Bool {
     return leaf_matches(ours, ttype.unwrap_or(''), tvalue.unwrap_or(''));
 }
 
-fn leaf_matches(_ ours: Toml, _ ttype: String, _ tvalue: String) -> Bool {
+fn leaf_matches(ours: Toml, ttype: String, tvalue: String) -> Bool {
     let kind = ours.kind();
     if kind == 'bool' {
         return ttype == 'bool' && '${ours.as_bool().unwrap_or(false)}' == tvalue;
@@ -202,7 +202,7 @@ fn leaf_matches(_ ours: Toml, _ ttype: String, _ tvalue: String) -> Bool {
 }
 
 /// The expected side spells inf as a word; everything else `to_double` reads.
-fn float_value(_ s: String) -> Option<Double> {
+fn float_value(s: String) -> Option<Double> {
     if s == 'inf' || s == '+inf' {
         return Option.Some(math.INFINITY);
     }
@@ -215,7 +215,7 @@ fn float_value(_ s: String) -> Option<Double> {
 /// Normalize a date-time string for comparison: uppercase T/Z, the space delimiter
 /// to T, and the fractional part stripped of trailing zeros (an all-zero fraction
 /// drops entirely) — the spellings RFC 3339 treats as one.
-fn norm_datetime(_ s: String) -> String {
+fn norm_datetime(s: String) -> String {
     let cps = s.chars();
     let mut out: List<Int> = [];
     let mut i = 0;

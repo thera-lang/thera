@@ -43,7 +43,7 @@ pub struct GlobalInit {
     let file: Option<String>;
 }
 
-pub fn field_index_of(_ info: StructInfo, _ name: String) -> Int {
+pub fn field_index_of(info: StructInfo, name: String) -> Int {
     for p in info.field_names.enumerate() {
         if p.value == name {
             return p.index;
@@ -61,7 +61,7 @@ pub struct EnumInfo {
 }
 
 // The tag (variant index) of `name`, or -1 if it isn't a variant.
-pub fn tag_of(_ info: EnumInfo, _ name: String) -> Int {
+pub fn tag_of(info: EnumInfo, name: String) -> Int {
     for p in info.variants.enumerate() {
         if p.value.name == name {
             return p.index;
@@ -70,7 +70,7 @@ pub fn tag_of(_ info: EnumInfo, _ name: String) -> Int {
     return -1;
 }
 
-pub fn field_count_of(_ info: EnumInfo, _ name: String) -> Int {
+pub fn field_count_of(info: EnumInfo, name: String) -> Int {
     for v in info.variants {
         if v.name == name {
             return v.fields.len();
@@ -113,7 +113,7 @@ pub struct IfaceMethodSig {
 // module global's init-order node) in codegen's string-keyed tables. `name` is an
 // identifier (never contains `#`), so the join is unambiguous. Type and interface
 // tables no longer use this — they key by `TypeId` directly (CG-D2).
-pub fn type_key(_ owner: String, _ name: String) -> String {
+pub fn type_key(owner: String, name: String) -> String {
     return owner + '#' + name;
 }
 
@@ -195,7 +195,7 @@ pub struct ModuleScope {
     let library: element.LibraryElement;
 }
 
-pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
+pub fn new_module_scope(library: element.LibraryElement) -> ModuleScope {
     return ModuleScope {
         units: [],
         unit_names: [],
@@ -233,10 +233,10 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
 impl ModuleScope {
     fn add_unit(
         self,
-        _ decl: FnDecl,
-        _ name: String,
-        _ self_type: Option<String>,
-        _ file: Option<String>,
+        decl: FnDecl,
+        name: String,
+        self_type: Option<String>,
+        file: Option<String>,
     ) -> Void {
         self.units.push(decl);
         self.unit_names.push(name);
@@ -244,7 +244,7 @@ impl ModuleScope {
         self.unit_files.push(file);
     }
 
-    pub fn add_function(self, _ decl: FnDecl, _ file: Option<String>) -> Void {
+    pub fn add_function(self, decl: FnDecl, file: Option<String>) -> Void {
         let index = self.units.len();
         let key = element.file_key(file);
         if !self.file_functions.has(key) {
@@ -261,7 +261,7 @@ impl ModuleScope {
     // (prelude / `as _` imports) attributes to its owning file. No global fallback
     // — the same owner-correct resolution the checker's `FileScope` performs, so a
     // bare call that passed the checker resolves to the same function here.
-    pub fn resolve_function(self, _ file: Option<String>, _ name: String) -> Option<Int> {
+    pub fn resolve_function(self, file: Option<String>, name: String) -> Option<Int> {
         let key = element.file_key(file);
         if let Some(m) = self.file_functions.get(key) {
             if let Some(i) = m.get(name) {
@@ -280,7 +280,7 @@ impl ModuleScope {
     // — the owner-correct lookup behind a qualified call (`ns.fn`), where `owner`
     // is the file the namespace's surface attributes `name` to. No global fallback,
     // so two libraries' same-named functions resolve to distinct units.
-    pub fn function_in_file(self, _ owner: String, _ name: String) -> Option<Int> {
+    pub fn function_in_file(self, owner: String, name: String) -> Option<Int> {
         return match self.file_functions.get(owner) {
             Some(m) => m.get(name),
             None => Option.None,
@@ -290,13 +290,13 @@ impl ModuleScope {
     // Whether `name` is an import namespace visible in `file` — its own imports.
     // Resolved through the shared element-model FileScope (the single namespace
     // authority), not a codegen-local copy of the per-file namespace sets.
-    pub fn file_has_namespace(self, _ file: Option<String>, _ name: String) -> Bool {
+    pub fn file_has_namespace(self, file: Option<String>, name: String) -> Bool {
         return file_scope(self.library, file).is_namespace(name);
     }
 
     // A top-level `native fn`: its name binds to the runtime native named by its
     // `@extern('<symbol>')` decorator (or its own name).
-    pub fn add_native(self, _ decl: FnDecl, _ file: Option<String>) -> Void {
+    pub fn add_native(self, decl: FnDecl, file: Option<String>) -> Void {
         let owner = element.file_key(file);
         if !self.native_fns.has(owner) {
             self.native_fns[owner] = [:];
@@ -308,7 +308,7 @@ impl ModuleScope {
 
     // The runtime symbol of native fn `name` declared in file `owner` (a file key)
     // — the owner-correct lookup behind a qualified `ns.fn(...)`.
-    pub fn native_in_file(self, _ owner: String, _ name: String) -> Option<String> {
+    pub fn native_in_file(self, owner: String, name: String) -> Option<String> {
         return match self.native_fns.get(owner) {
             Some(m) => m.get(name),
             None => Option.None,
@@ -319,7 +319,7 @@ impl ModuleScope {
     // file's own native if it has one, else the one its bare surface (prelude /
     // `as _` imports) attributes to its owning file. No global fallback — mirrors
     // `resolve_function`.
-    pub fn resolve_native(self, _ file: Option<String>, _ name: String) -> Option<String> {
+    pub fn resolve_native(self, file: Option<String>, name: String) -> Option<String> {
         let key = element.file_key(file);
         if let Some(m) = self.native_fns.get(key) {
             if let Some(sym) = m.get(name) {
@@ -334,7 +334,7 @@ impl ModuleScope {
         return Option.None;
     }
 
-    pub fn add_struct(self, _ decl: TypeDecl, _ file: Option<String>) -> Void {
+    pub fn add_struct(self, decl: TypeDecl, file: Option<String>) -> Void {
         let owner = element.file_key(file);
         let field_names = decl.fields.map((f) => f.name);
         if !self.structs.has(owner) {
@@ -350,7 +350,7 @@ impl ModuleScope {
         });
     }
 
-    pub fn add_enum(self, _ decl: EnumDecl, _ file: Option<String>) -> Void {
+    pub fn add_enum(self, decl: EnumDecl, file: Option<String>) -> Void {
         let owner = element.file_key(file);
         // The fixed runtime type ids (shared with the runtime's value model) attach
         // to the *core* enums by identity, not name (X1/CG6): this declaration gets
@@ -387,14 +387,14 @@ impl ModuleScope {
 
     // The struct/enum layout for an owner-qualified type id — the runtime analogue
     // of `FileScope.resolve_type_def`. No global fallback: a wrong owner misses.
-    pub fn resolve_struct(self, _ owner: String, _ name: String) -> Option<StructInfo> {
+    pub fn resolve_struct(self, owner: String, name: String) -> Option<StructInfo> {
         return match self.structs.get(owner) {
             Some(m) => m.get(name),
             None => Option.None,
         };
     }
 
-    pub fn resolve_enum(self, _ owner: String, _ name: String) -> Option<EnumInfo> {
+    pub fn resolve_enum(self, owner: String, name: String) -> Option<EnumInfo> {
         return match self.enums.get(owner) {
             Some(m) => m.get(name),
             None => Option.None,
@@ -406,7 +406,7 @@ impl ModuleScope {
     // is T4). Used to owner-qualify a *source* type name (a struct literal, a
     // static `Enum.Variant`) whose owner isn't already carried on a resolved
     // `Type`.
-    pub fn type_owner(self, _ name: String) -> String {
+    pub fn type_owner(self, name: String) -> String {
         return match self.library.type_defs.get(name) {
             Some(d) => d.owner_file,
             None => '',
@@ -415,7 +415,7 @@ impl ModuleScope {
 
     // `name` owner-qualified via the registry — the `TypeId` for a bare source
     // name.
-    pub fn type_id_for(self, _ name: String) -> TypeId {
+    pub fn type_id_for(self, name: String) -> TypeId {
         return TypeId { owner: self.type_owner(name), name: name };
     }
 
@@ -423,13 +423,13 @@ impl ModuleScope {
     // (own file / bare import / built-in), so a method registered from an `impl` in
     // one library binds to the type that library declares, and a call site keying
     // the method table by the receiver's owner reaches the same entry.
-    pub fn owner_of(self, _ name: String, _ file: Option<String>) -> String {
+    pub fn owner_of(self, name: String, file: Option<String>) -> String {
         return file_scope(self.library, file).resolve_type_owner(name, Option.None);
     }
 
     // Whether `name` is a registered user struct or enum, in any library — the
     // existence half of type-name recognition (built-ins handled separately).
-    pub fn has_struct_or_enum(self, _ name: String) -> Bool {
+    pub fn has_struct_or_enum(self, name: String) -> Bool {
         for owner in self.structs.keys() {
             if self.structs[owner].has(name) {
                 return true;
@@ -443,7 +443,7 @@ impl ModuleScope {
         return false;
     }
 
-    pub fn add_const(self, _ decl: ConstDecl, _ file: Option<String>) -> Void {
+    pub fn add_const(self, decl: ConstDecl, file: Option<String>) -> Void {
         let owner = element.file_key(file);
         if !self.consts.has(owner) {
             self.consts[owner] = [:];
@@ -455,7 +455,7 @@ impl ModuleScope {
 
     // The initializer of const `name` declared in file `owner` (a file key) — the
     // owner-correct lookup behind a qualified `ns.NAME`. No global fallback.
-    pub fn const_in_file(self, _ owner: String, _ name: String) -> Option<Expr> {
+    pub fn const_in_file(self, owner: String, name: String) -> Option<Expr> {
         return match self.consts.get(owner) {
             Some(m) => m.get(name),
             None => Option.None,
@@ -466,7 +466,7 @@ impl ModuleScope {
     // file's own const if it has one, else the one its bare surface (prelude /
     // `as _` imports) attributes to its owning file. No global fallback — mirrors
     // `resolve_function`.
-    pub fn resolve_const_owner(self, _ file: Option<String>, _ name: String) -> Option<String> {
+    pub fn resolve_const_owner(self, file: Option<String>, name: String) -> Option<String> {
         let key = element.file_key(file);
         if let Some(m) = self.consts.get(key) {
             if m.has(name) {
@@ -487,7 +487,7 @@ impl ModuleScope {
 
     // Assign a module global its slot and record its initializer for the `<init>`
     // thunk. Declaration order for now; a later pass reorders by dependency.
-    pub fn add_global(self, _ decl: LetDecl, _ file: Option<String>) -> Void {
+    pub fn add_global(self, decl: LetDecl, file: Option<String>) -> Void {
         let slot = self.next_global_slot;
         self.next_global_slot = slot + 1;
         let owner = element.file_key(file);
@@ -508,7 +508,7 @@ impl ModuleScope {
 
     // The slot of global `name` declared in file `owner` (a file key) — the
     // owner-correct lookup behind a qualified `ns.NAME`. No global fallback.
-    pub fn global_in_file(self, _ owner: String, _ name: String) -> Option<Int> {
+    pub fn global_in_file(self, owner: String, name: String) -> Option<Int> {
         return match self.globals.get(owner) {
             Some(m) => m.get(name),
             None => Option.None,
@@ -519,7 +519,7 @@ impl ModuleScope {
     // the file's own global if it has one, else the one its bare surface (prelude /
     // `as _` imports) attributes to its owning file. No global fallback — mirrors
     // `resolve_const_owner`.
-    pub fn resolve_global_owner(self, _ file: Option<String>, _ name: String) -> Option<String> {
+    pub fn resolve_global_owner(self, file: Option<String>, name: String) -> Option<String> {
         let key = element.file_key(file);
         if let Some(m) = self.globals.get(key) {
             if m.has(name) {
@@ -538,7 +538,7 @@ impl ModuleScope {
         return Option.None;
     }
 
-    pub fn add_native_static_method(self, _ type_name: String, _ method: FnDecl) -> Void {
+    pub fn add_native_static_method(self, type_name: String, method: FnDecl) -> Void {
         if !self.native_static_methods.has(type_name) {
             self.native_static_methods[type_name] = [:];
         }
@@ -547,7 +547,7 @@ impl ModuleScope {
         }
     }
 
-    pub fn add_native_instance_method(self, _ type_name: String, _ method: FnDecl) -> Void {
+    pub fn add_native_instance_method(self, type_name: String, method: FnDecl) -> Void {
         if !self.native_instance_methods.has(type_name) {
             self.native_instance_methods[type_name] = [:];
         }
@@ -556,11 +556,11 @@ impl ModuleScope {
         }
     }
 
-    pub fn add_native_display_symbol(self, _ type_name: String, _ method: FnDecl) -> Void {
+    pub fn add_native_display_symbol(self, type_name: String, method: FnDecl) -> Void {
         self.native_display_symbols[type_name] = extern_symbol(method);
     }
 
-    pub fn add_interface_impl(self, _ owner: String, _ type_name: String, _ iface: TypeId) -> Void {
+    pub fn add_interface_impl(self, owner: String, type_name: String, iface: TypeId) -> Void {
         let key = TypeId { owner: owner, name: type_name };
         if !self.interface_impls.has(key) {
             self.interface_impls[key] = ImplInfo {
@@ -581,10 +581,10 @@ impl ModuleScope {
     // name and its `self` type, resolved owner-correct at compile time.
     pub fn add_method(
         self,
-        _ key: TypeId,
-        _ type_name: String,
-        _ method: FnDecl,
-        _ file: Option<String>,
+        key: TypeId,
+        type_name: String,
+        method: FnDecl,
+        file: Option<String>,
     ) -> Void {
         let self_type = if has_self_param(method.params) {
             Option.Some(type_name)
@@ -600,7 +600,7 @@ impl ModuleScope {
         self.add_unit(method, type_name + '.' + method.name, self_type, file);
     }
 
-    pub fn add_interface(self, _ decl: InterfaceDecl, _ file: Option<String>) -> Void {
+    pub fn add_interface(self, decl: InterfaceDecl, file: Option<String>) -> Void {
         let key = TypeId { owner: element.file_key(file), name: decl.name };
         let names: Set<String> = Set.new();
         let sigs: Map<String, IfaceMethodSig> = [:];
@@ -620,10 +620,10 @@ impl ModuleScope {
 
     pub fn add_dispatch(
         self,
-        _ owner: String,
-        _ type_name: String,
-        _ selector: String,
-        _ span: SourceSpan,
+        owner: String,
+        type_name: String,
+        selector: String,
+        span: SourceSpan,
     ) -> Void {
         self.pending_dispatch.push(
             PendingDispatch { owner: owner, type_name: type_name, selector: selector, span: span }
@@ -636,11 +636,11 @@ impl ModuleScope {
     // be inferred when compiled.
     pub fn add_lambda(
         self,
-        _ decl: FnDecl,
-        _ boxed: Set<String>,
-        _ param_types: Map<String, Type>,
-        _ bounds: Map<String, List<TypeId>>,
-        _ file: Option<String>,
+        decl: FnDecl,
+        boxed: Set<String>,
+        param_types: Map<String, Type>,
+        bounds: Map<String, List<TypeId>>,
+        file: Option<String>,
     ) -> Int {
         let index = self.units.len();
         self.add_unit(decl, '__lambda_${index}', Option.None, file);
@@ -755,10 +755,10 @@ impl ModuleScope {
     // the type already provides (overrides) that method. The type is owner-keyed.
     fn wire_one_default(
         self,
-        _ owner: String,
-        _ type_name: String,
-        _ method: String,
-        _ unit: Option<Int>,
+        owner: String,
+        type_name: String,
+        method: String,
+        unit: Option<Int>,
     ) -> Void {
         if let Some(idx) = unit {
             let key = TypeId { owner: owner, name: type_name };
@@ -828,7 +828,7 @@ pub struct DispatchBuild {
 
 // The runtime native symbol a `native fn` binds to: its `@extern('<symbol>')`
 // decorator argument, or its own name when unannotated.
-pub fn extern_symbol(_ decl: FnDecl) -> String {
+pub fn extern_symbol(decl: FnDecl) -> String {
     for d in decl.decorators {
         if d.name == 'extern' && d.args.len() > 0 {
             if let Some(s) = string_literal(d.args[0]) {
@@ -840,7 +840,7 @@ pub fn extern_symbol(_ decl: FnDecl) -> String {
 }
 
 // The plain text of a non-interpolated string-literal expression, or None.
-pub fn string_literal(_ e: Expr) -> Option<String> {
+pub fn string_literal(e: Expr) -> Option<String> {
     return match e {
         Str(_, parts) => if parts.len() == 1 {
             match parts[0] {

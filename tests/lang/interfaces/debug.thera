@@ -14,7 +14,7 @@ impl Debug for Point {
     }
 }
 
-fn dbg(_ d: Debug) -> String {
+fn dbg(d: Debug) -> String {
     return d.debug();
 }
 

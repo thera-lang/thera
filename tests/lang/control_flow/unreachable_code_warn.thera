@@ -20,7 +20,7 @@ fn after_break() -> Int {
     return i;
 }
 
-fn after_exiting_if(_ b: Bool) -> Int {
+fn after_exiting_if(b: Bool) -> Int {
     if b {
         return 1;
     } else {
@@ -30,7 +30,7 @@ fn after_exiting_if(_ b: Bool) -> Int {
 }
 
 // An else-less `if` falls through: the return after it is live.
-fn fall_through(_ b: Bool) -> Int {
+fn fall_through(b: Bool) -> Int {
     if b {
         return 1;
     }

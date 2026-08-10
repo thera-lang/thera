@@ -60,9 +60,9 @@ fn main() -> Result<Void, Error> {
 
 /// The whole of the API usage: one call, then read the page.
 fn show_open_pulls(
-    _ gh: github.Client,
-    owner: String,
-    repo: String,
+    gh: github.Client,
+    named owner: String,
+    named repo: String,
 ) -> Result<Void, github.GitHubError> {
     let page = gh.pulls().list(owner: owner, repo: repo, state: 'open', per_page: PER_PAGE)?;
 
@@ -89,7 +89,7 @@ fn show_open_pulls(
 /// which is the part of the shape worth looking at. `user` is a deleted account,
 /// `body` is a description nobody wrote, and `draft` is a field GitHub always sends
 /// but does not promise to.
-fn describe(_ pr: github.PullRequest) -> String {
+fn describe(pr: github.PullRequest) -> String {
     let author = pr.user.map((u) => u.login).unwrap_or('(deleted account)');
     let draft = if pr.draft.unwrap_or(false) { ' [draft]' } else { '' };
     let head = '  #${pr.number}${draft} ${pr.title}';
@@ -98,7 +98,7 @@ fn describe(_ pr: github.PullRequest) -> String {
     return head + '\n' + detail + labels_of(pr);
 }
 
-fn labels_of(_ pr: github.PullRequest) -> String {
+fn labels_of(pr: github.PullRequest) -> String {
     if pr.labels.is_empty() {
         return '';
     }
@@ -111,7 +111,7 @@ fn labels_of(_ pr: github.PullRequest) -> String {
 
 /// Why the error type has one variant per *kind* of failure rather than per status:
 /// each arm knows what to tell the user to do, and a status code alone does not.
-fn report(_ e: github.GitHubError) -> Void {
+fn report(e: github.GitHubError) -> Void {
     match e {
         // The exchange never happened, so re-sending it is not a duplicate.
         Transport(cause) => {

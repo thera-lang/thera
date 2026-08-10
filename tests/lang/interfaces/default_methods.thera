@@ -37,7 +37,7 @@ impl Animal for Cat {
 }
 
 // interface-typed receiver → virtual dispatch to the default (or its override)
-fn announce(_ a: Animal) -> String {
+fn announce(a: Animal) -> String {
     return a.greet();
 }
 
@@ -46,7 +46,7 @@ fn announce(_ a: Animal) -> String {
 interface Seq<T> {
     fn next(self) -> Option<T>;
 
-    fn map<U>(self, _ f: (T) -> U) -> Seq<U> {
+    fn map<U>(self, f: (T) -> U) -> Seq<U> {
         return MapSeq { source: self, transform: f };
     }
 
@@ -93,7 +93,7 @@ impl Seq<U> for MapSeq<T, U> {
     }
 }
 
-fn range(_ start: Int, _ end: Int) -> Seq<Int> {
+fn range(start: Int, end: Int) -> Seq<Int> {
     return RangeSeq { current: start, end: end };
 }
 

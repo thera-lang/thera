@@ -6,8 +6,8 @@
 // conflicting argument. Leniency is unchanged: an undetermined binding (`[]`
 // infers `List<Unknown>`) and cross-direction assignability never conflict.
 
-fn pick<T>(_ a: T, _ b: T) -> T { return a; }
-fn firsts<T>(_ xs: List<T>, _ ys: List<T>) -> List<T> { return xs; }
+fn pick<T>(a: T, b: T) -> T { return a; }
+fn firsts<T>(xs: List<T>, ys: List<T>) -> List<T> { return xs; }
 
 fn main() -> Void {
     let bad = pick(

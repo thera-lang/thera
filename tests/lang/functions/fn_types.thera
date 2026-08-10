@@ -2,7 +2,7 @@
 //! mode: run
 
 // A function-typed parameter `(Int) -> Int`.
-fn apply(_ f: (Int) -> Int, _ x: Int) -> Int {
+fn apply(f: (Int) -> Int, x: Int) -> Int {
     return f(x);
 }
 

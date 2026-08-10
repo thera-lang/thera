@@ -12,7 +12,7 @@ import std.json as _;
 import '../source' as _; // SourceSpan
 
 // The UTF-16 length of `s`: one unit per code point, two for astral ones.
-pub fn utf16_len(_ s: String) -> Int {
+pub fn utf16_len(s: String) -> Int {
     let mut units = 0;
     for cp in s.chars() {
         units = units + (if cp >= 0x10000 { 2 } else { 1 });
@@ -25,7 +25,7 @@ pub fn utf16_len(_ s: String) -> Int {
 // a line past the last line is the end of the document (previously one past it), a
 // character past the line end is the line end, and a character landing
 // mid-surrogate-pair rounds down.
-pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int {
+pub fn position_to_offset(text: String, line: Int, character: Int) -> Int {
     let lines = text.split('\n');
     if line >= lines.len() {
         return text.len();
@@ -59,7 +59,7 @@ pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int 
 // Characters convert to UTF-16 by measuring the text between each line's start and
 // the position (a span with no source keeps its code-point columns — there is no
 // text to measure).
-pub fn span_to_range(_ span: SourceSpan) -> Json {
+pub fn span_to_range(span: SourceSpan) -> Json {
     // Walk the spanned text: the end line, and where the end line starts.
     let line_start = span.offset - (span.column - 1);
     let mut end_line = span.line;
@@ -85,6 +85,6 @@ pub fn span_to_range(_ span: SourceSpan) -> Json {
     ]);
 }
 
-fn position(_ line: Int, _ character: Int) -> Json {
+fn position(line: Int, character: Int) -> Json {
     return json.obj(['line': json.int(line), 'character': json.int(character)]);
 }

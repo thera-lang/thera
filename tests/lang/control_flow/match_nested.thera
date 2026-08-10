@@ -13,7 +13,7 @@ enum Expr {
 
 // Patterns nest to any depth and bind at the leaves: `Bin(Add, l, r)` tests the
 // `Bin` tag and the nested zero-arg `Add`/`Sub` tag, binding `l` and `r`.
-fn eval(_ e: Expr) -> Int {
+fn eval(e: Expr) -> Int {
     return match e {
         Num(n) => n,
         Bin(Add, l, r) => eval(l) + eval(r),
@@ -25,7 +25,7 @@ fn eval(_ e: Expr) -> Int {
 // against the instantiated payload type (`Some(Num(...))` on an `Option<Expr>`
 // substitutes the subject's type argument), previously an 'unknown variant'
 // compile error.
-fn eval_opt(_ e: Option<Expr>) -> Int {
+fn eval_opt(e: Option<Expr>) -> Int {
     return match e {
         Some(Num(n)) => n * 2,
         Some(other) => eval(other),

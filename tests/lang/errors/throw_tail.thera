@@ -6,13 +6,13 @@
 // merge takes the *other* arm's concrete type — `if c { n } else { throw … }`
 // is an `Int`. Both the `if` tail and the `match`-arm block tail are covered.
 
-fn must_pos(_ n: Int) -> Result<Int, Error> {
+fn must_pos(n: Int) -> Result<Int, Error> {
     // The `else` tail is `throw` (Never); the `if` is therefore `Int`.
     let checked = if n > 0 { n } else { throw error('not positive') };
     return Result.Ok(checked * 2);
 }
 
-fn unwrap(_ o: Option<Int>) -> Result<Int, Error> {
+fn unwrap(o: Option<Int>) -> Result<Int, Error> {
     // Block-form arm tail: `{ throw … }` is the arm's value, still `Never`.
     let v = match o {
         Some(x) => x,

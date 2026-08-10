@@ -8,7 +8,7 @@ import std.testing;
 import 'reflow' as _;
 
 // The offsets `break_edits` picks for `src` at `width`.
-fn breaks_for(_ src: String, _ width: Int) -> List<Int> {
+fn breaks_for(src: String, width: Int) -> List<Int> {
     let out: List<Int> = [];
     for e in break_edits(src, width) {
         out.push(e.offset);

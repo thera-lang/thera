@@ -50,9 +50,9 @@ pub enum Type {
 // correct). Re-wrapping an already-resolved `Interface(id, _)` reuses its `id`
 // instead (the owner is already known); only *fresh from a name* goes here.
 pub fn named_type(
-    _ type_defs: Map<String, TypeDefElement>,
-    _ name: String,
-    _ args: List<Type>,
+    type_defs: Map<String, TypeDefElement>,
+    name: String,
+    args: List<Type>,
 ) -> Type {
     let owner = match type_defs.get(name) {
         Some(d) => d.owner_file,
@@ -62,7 +62,7 @@ pub fn named_type(
 }
 
 // The displayed form of a type (Dart's `toString`).
-pub fn type_to_string(_ t: Type) -> String {
+pub fn type_to_string(t: Type) -> String {
     return match t {
         Primitive(p) => primitive_to_string(p),
         Interface(id, args) => if args.len() == 0 {
@@ -78,7 +78,7 @@ pub fn type_to_string(_ t: Type) -> String {
     };
 }
 
-fn primitive_to_string(_ p: Primitive) -> String {
+fn primitive_to_string(p: Primitive) -> String {
     return match p {
         Int => 'Int',
         Double => 'Double',
@@ -88,14 +88,14 @@ fn primitive_to_string(_ p: Primitive) -> String {
     };
 }
 
-fn join_type_strings(_ ts: List<Type>) -> String {
+fn join_type_strings(ts: List<Type>) -> String {
     return ts.map((t) => type_to_string(t)).join(', ');
 }
 
 // The `Type` a type name denotes if it is a primitive, else None. Shared by the
 // resolver/inference so `self` in `impl Int` (etc.) gets the primitive type the
 // value has, rather than an interface wrapper.
-pub fn primitive_type(_ name: String) -> Option<Type> {
+pub fn primitive_type(name: String) -> Option<Type> {
     if name == 'Int' {
         return Option.Some(Type.Primitive(Primitive.Int));
     }
@@ -117,7 +117,7 @@ pub fn primitive_type(_ name: String) -> Option<Type> {
 // A `Map` key for a `TypeId` (a real owner key never contains `#`). For tables that
 // pair interface identity with data (`interface_args`, codegen's method tables) —
 // lookups always hold the `TypeId`, so the key never needs decoding.
-pub fn id_key(_ id: TypeId) -> String {
+pub fn id_key(id: TypeId) -> String {
     return id.owner + '#' + id.name;
 }
 
@@ -126,7 +126,7 @@ pub fn id_key(_ id: TypeId) -> String {
 // floor's owner) falls through to the flat registry, mirroring
 // `FileScope.resolve_type_def`; None when the owner is unknown (`''`) or the owner
 // file doesn't declare the name.
-pub fn def_by_id(_ lib: LibraryElement, _ id: TypeId) -> Option<TypeDefElement> {
+pub fn def_by_id(lib: LibraryElement, id: TypeId) -> Option<TypeDefElement> {
     if id.owner == BUILTIN_OWNER {
         return lib.type_defs.get(id.name);
     }
@@ -137,7 +137,7 @@ pub fn def_by_id(_ lib: LibraryElement, _ id: TypeId) -> Option<TypeDefElement> 
 }
 
 // Whether `xs` contains `id` (`List<TypeId>` analogue of `str_list_has`).
-pub fn id_list_has(_ xs: List<TypeId>, _ id: TypeId) -> Bool {
+pub fn id_list_has(xs: List<TypeId>, id: TypeId) -> Bool {
     for x in xs {
         if x == id {
             return true;
@@ -153,7 +153,7 @@ pub fn id_list_has(_ xs: List<TypeId>, _ id: TypeId) -> Bool {
 // types must match structurally — same element and assignable arguments — with
 // interface and super-interface subtyping resolved by element *identity* (`TypeId`
 // → `def_by_id`), so two libraries' same-named interfaces stay distinct.
-pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> Bool {
+pub fn is_assignable(source: Type, target: Type, lib: LibraryElement) -> Bool {
     match source {
         Unknown => {
             return true;
@@ -286,10 +286,10 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
 // elsewhere), and a bare-interface target (no args) or an interface with no type
 // parameters imposes no constraint.
 fn conformance_args_match(
-    _ sdef: TypeDefElement,
-    _ tid: TypeId,
-    _ targs: List<Type>,
-    _ lib: LibraryElement,
+    sdef: TypeDefElement,
+    tid: TypeId,
+    targs: List<Type>,
+    lib: LibraryElement,
 ) -> Bool {
     if targs.len() == 0 {
         return true;
@@ -316,14 +316,14 @@ fn conformance_args_match(
 // mutable containers and user generics — is invariant. Variance inference (deriving
 // this from a user type's own methods) is a possible future step; for now the safe
 // default is invariant. See docs/language.md § Variance.
-fn is_covariant_constructor(_ lib: LibraryElement, _ id: TypeId) -> Bool {
+fn is_covariant_constructor(lib: LibraryElement, id: TypeId) -> Bool {
     return is_core_id(lib, id, 'Result')
         || is_core_id(lib, id, 'Option')
         || is_core_id(lib, id, 'Iterator');
 }
 
 // Whether `id` names an interface definition (owner-correct lookup).
-pub fn is_interface_id(_ lib: LibraryElement, _ id: TypeId) -> Bool {
+pub fn is_interface_id(lib: LibraryElement, id: TypeId) -> Bool {
     return match def_by_id(lib, id) {
         Some(d) => d.kind == TypeDefKind.Interface,
         None => false,
@@ -332,7 +332,7 @@ pub fn is_interface_id(_ lib: LibraryElement, _ id: TypeId) -> Bool {
 
 // Replace the `TypeParameter`s named in `bindings` throughout `type`. Used to
 // instantiate a generic member (substituting `{T: Int}` into `List<T>`).
-pub fn substitute(_ ty: Type, _ bindings: Map<String, Type>) -> Type {
+pub fn substitute(ty: Type, bindings: Map<String, Type>) -> Type {
     return match ty {
         TypeParameter(name) => bindings.get(name).unwrap_or(ty),
         Interface(id, args) => if args.len() == 0 {
@@ -353,7 +353,7 @@ pub fn substitute(_ ty: Type, _ bindings: Map<String, Type>) -> Type {
 // Best-effort unification: when `param` is (or contains) a type parameter, record
 // what `actual` binds it to in `bindings` (mutated in place). Recovers generic type
 // arguments from call/constructor argument types.
-pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Void {
+pub fn unify(param: Type, actual: Type, bindings: Map<String, Type>) -> Void {
     match param {
         TypeParameter(name) => {
             let is_unknown = match actual {

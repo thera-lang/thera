@@ -17,7 +17,7 @@ struct Links {
     let self: String;
 }
 
-fn find(_ loc: String, _ cond: Bool) -> String {
+fn find(loc: String, cond: Bool) -> String {
     return if cond { loc } else { 'none' };
 }
 

@@ -3,7 +3,7 @@
 
 // std.core is the prelude: println, Result, Option, Error are available
 // unqualified with no import (variants stay qualified: Option.Some/None).
-fn pick(_ b: Bool) -> Option<Int> {
+fn pick(b: Bool) -> Option<Int> {
     if b {
         return Option.Some(1);
     }

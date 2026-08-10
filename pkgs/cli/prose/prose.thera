@@ -56,7 +56,7 @@ pub struct ProseOutcome {
 /// Expects source that has already been line-laid-out (see the file header on
 /// ordering). Idempotent. Never changes the token stream, and never changes any
 /// line's indentation.
-pub fn reflow_prose(_ source: String, _ width: Int) -> ProseOutcome {
+pub fn reflow_prose(source: String, width: Int) -> ProseOutcome {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
         return ProseOutcome { text: source, fell_back: false };
@@ -97,7 +97,7 @@ pub fn reflow_prose(_ source: String, _ width: Int) -> ProseOutcome {
 // copied. A block whose atoms cannot be scanned (an unbalanced backtick or bracket)
 // is copied too — the caller cannot reason about that text, so it does not touch
 // it.
-fn render(_ bs: List<blocks.Block>, _ avail: Int) -> List<String> {
+fn render(bs: List<blocks.Block>, avail: Int) -> List<String> {
     let out: List<String> = [];
     for b in bs {
         if b.kind == blocks.BlockKind.Prose {
@@ -118,7 +118,7 @@ fn render(_ bs: List<blocks.Block>, _ avail: Int) -> List<String> {
 // The replacement text for a run: its content lines behind the marker, with every
 // line after the first carrying the run's indent (the first one's is already in the
 // source, before `run.start`).
-fn join_lines(_ r: runs.CommentRun, _ lines: List<String>) -> String {
+fn join_lines(r: runs.CommentRun, lines: List<String>) -> String {
     let parts: List<String> = [];
     for line in lines {
         // A bare marker, never `'// '` — a trailing space would survive to disk and
@@ -135,7 +135,7 @@ fn join_lines(_ r: runs.CommentRun, _ lines: List<String>) -> String {
 // output must produce the same block sequence. That catches a wrap that
 // accidentally manufactured a list item or a fence — the failure the other two are
 // blind to, since the words would be identical either way.
-fn guard_ok(_ before: List<blocks.Block>, _ rendered: List<String>) -> Bool {
+fn guard_ok(before: List<blocks.Block>, rendered: List<String>) -> Bool {
     for line in rendered {
         if line != line.trim_end() {
             return false; // would break the fixpoint; see [join_lines]
@@ -169,7 +169,7 @@ fn guard_ok(_ before: List<blocks.Block>, _ rendered: List<String>) -> Bool {
 
 // Whether re-reading `text` finds the same runs, in the same places, as `found`.
 // Line counts move; markers, indents and run boundaries must not.
-fn same_frame(_ found: List<runs.CommentRun>, _ text: String) -> Bool {
+fn same_frame(found: List<runs.CommentRun>, text: String) -> Bool {
     let lex = tokenize(text);
     if lex.errors.len() > 0 {
         return false;
@@ -188,11 +188,11 @@ fn same_frame(_ found: List<runs.CommentRun>, _ text: String) -> Bool {
     return true;
 }
 
-fn normalize(_ lines: List<String>) -> String {
+fn normalize(lines: List<String>) -> String {
     return lines.join(' ').split_whitespace().join(' ');
 }
 
-fn same_lines(_ a: List<String>, _ b: List<String>) -> Bool {
+fn same_lines(a: List<String>, b: List<String>) -> Bool {
     if a.len() != b.len() {
         return false;
     }

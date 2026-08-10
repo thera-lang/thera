@@ -12,12 +12,12 @@ import 'element' as _;
 import 'resolver' as _;
 import 'scope' as _;
 
-fn lib_of(_ src: String) -> LibraryElement {
+fn lib_of(src: String) -> LibraryElement {
     return build_library(parse_tokens(tokenize(src).tokens).program, [], [:], [:]);
 }
 
 // A LibraryElement whose anonymous file binds namespace `ns` exposing `names`.
-fn lib_with_namespace(_ src: String, _ ns: String, _ names: List<String>) -> LibraryElement {
+fn lib_with_namespace(src: String, ns: String, names: List<String>) -> LibraryElement {
     let surface: Set<String> = Set.new();
     for n in names {
         surface.add(n);

@@ -8,18 +8,18 @@ import std.io;
 import 'common' as _;
 
 /// Parse `raw` as a request, as if it had arrived on a connection.
-fn parse_request(_ raw: String) -> Result<Option<common.Request>, common.HttpError> {
+fn parse_request(raw: String) -> Result<Option<common.Request>, common.HttpError> {
     return common.Wire.new(io.from_bytes(raw.bytes())).read_request();
 }
 
 /// Parse `raw` as a response.
-fn parse_response(_ raw: String) -> Result<common.Response, common.HttpError> {
+fn parse_response(raw: String) -> Result<common.Response, common.HttpError> {
     return common.Wire.new(io.from_bytes(raw.bytes())).read_response();
 }
 
 /// Whether parsing `raw` as a request fails with `Protocol` — the "the peer is not
 /// speaking HTTP" verdict, as opposed to a body or I/O failure.
-fn is_protocol_error(_ raw: String) -> Bool {
+fn is_protocol_error(raw: String) -> Bool {
     return match parse_request(raw) {
         Ok(_) => false,
         Err(e) => match e {
@@ -275,7 +275,7 @@ fn a_chunked_body_may_carry_trailers() -> Result<Void, Error> {
 // --- streaming bodies ---
 
 /// Parse `raw` far enough to have its head, leaving the body unread.
-fn stream(_ raw: String) -> Result<common.ResponseStream, common.HttpError> {
+fn stream(raw: String) -> Result<common.ResponseStream, common.HttpError> {
     return common.Wire.new(io.from_bytes(raw.bytes())).stream_response();
 }
 
@@ -288,7 +288,7 @@ struct SlowReader {
 }
 
 impl io.Reader for SlowReader {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         let n = self.data.len();
         if self.pos >= n {
             return Result.Ok(Bytes.empty());
@@ -473,7 +473,7 @@ fn writes_a_request() -> Result<Void, Error> {
         headers: ['content-type': 'application/json'],
         body: '{"a":1}'.bytes(),
     };
-    common.write_request(to: out, req)?;
+    common.write_request(out, req)?;
     let expected = 'POST /things HTTP/1.1\r\n'
         + 'content-type: application/json\r\n'
         + 'content-length: 7\r\n'
@@ -486,7 +486,7 @@ fn writes_a_request() -> Result<Void, Error> {
 fn writes_a_response_with_its_reason_phrase() -> Result<Void, Error> {
     let out = io.StringWriter.new();
     let resp = common.Response { status: 404, headers: [:], body: 'gone'.bytes() };
-    common.write_response(to: out, resp)?;
+    common.write_response(out, resp)?;
     let expected = 'HTTP/1.1 404 Not Found\r\n'
         + 'content-length: 4\r\n'
         + '\r\n'
@@ -506,7 +506,7 @@ fn a_caller_set_content_length_is_overridden() -> Result<Void, Error> {
         headers: ['content-length': '999'],
         body: 'four'.bytes(),
     };
-    common.write_request(to: out, req)?;
+    common.write_request(out, req)?;
     let text = out.into_string()?;
     testing.assert(text.contains('content-length: 4'), message: 'real length')?;
     return testing.assert(!text.contains('999'), message: 'the bogus length is dropped');
@@ -520,7 +520,7 @@ fn set_cookie_is_unfolded_into_one_line_each() -> Result<Void, Error> {
         headers: ['set-cookie': 'a=1\nb=2'],
         body: Bytes.empty(),
     };
-    common.write_response(to: out, resp)?;
+    common.write_response(out, resp)?;
     let text = out.into_string()?;
     testing.assert(text.contains('set-cookie: a=1\r\n'), message: 'first cookie on its own line')?;
     return testing.assert(text.contains('set-cookie: b=2\r\n'), message: 'second cookie too');
@@ -539,7 +539,7 @@ fn a_request_round_trips() -> Result<Void, Error> {
         headers: ['host': 'example.com', 'x-trace': 'abc123'],
         body: 'payload'.bytes(),
     };
-    common.write_request(to: out, sent)?;
+    common.write_request(out, sent)?;
 
     let back = match common.Wire.new(io.from_bytes(out.into_bytes())).read_request()? {
         Some(r) => r,
@@ -560,7 +560,7 @@ fn a_response_round_trips() -> Result<Void, Error> {
         headers: ['location': '/things/1'],
         body: 'created'.bytes(),
     };
-    common.write_response(to: out, sent)?;
+    common.write_response(out, sent)?;
 
     let back = common.Wire.new(io.from_bytes(out.into_bytes())).read_response()?;
     testing.assert_eq(actual: back.status, expected: 201)?;

@@ -208,12 +208,16 @@ typeParam   = IDENT ( ':' IDENT ('+' IDENT)* )?        // bounds: T: Eq + Debug
 
 paramList   = param (',' param)*
 param       = 'self'
-            | '_' IDENT (':' type)? ('=' expr)?         // suppressed label
-            | IDENT (':' type)? ('=' expr)?             // name (label == name)
-            // A parameter's label is its name — there is no two-name
-            // `label name` form (retired 2026-08), so the name is IDENT in
-            // both cases and a keyword cannot label a parameter. `self` in a
-            // parameter list is always the receiver.
+            | IDENT (':' type)? ('=' expr)?             // positional (default)
+            | 'named' IDENT (':' type)? ('=' expr)?     // labeled; label == name
+            // `named` is contextual — an ordinary identifier, recognized here
+            // only when another name follows (`named: Int` is a parameter
+            // *called* `named`). A parameter's label is its name: there is no
+            // two-name `label name` form and no `_` marker (both retired
+            // 2026-08), so the name is IDENT either way and a keyword cannot
+            // label a parameter. `self` is always the receiver. Labeled
+            // parameters must be a suffix of the list — a check rule, not a
+            // grammatical one.
 
 structDecl  = 'struct' IDENT typeParams? '{' field* '}'
 field       = 'let' 'mut'? MEMBER ':' type ';'

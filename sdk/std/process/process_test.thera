@@ -6,7 +6,7 @@ import std.io;
 
 import 'process' as _;
 
-fn is_not_found(_ e: ProcessError) -> Bool {
+fn is_not_found(e: ProcessError) -> Bool {
     return match e {
         NotFound(_) => true,
         _ => false,

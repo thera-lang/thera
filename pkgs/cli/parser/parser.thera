@@ -24,6 +24,11 @@ import '../source' as _; // SourceSpan, synthetic spans
 import '../ast/ast' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error
 
+// The contextual keyword marking a labeled parameter (`fn f(named width: Int)`).
+// Contextual, not reserved: it is an ordinary identifier everywhere else, and even
+// here only when followed by the parameter's name.
+const NAMED_MARKER: String = 'named';
+
 pub struct ParseResult {
     let program: Program;
     let errors: List<diagnostic.Diagnostic>;
@@ -77,7 +82,7 @@ struct Parser {
 // Parse a token stream into a Program (plus any recovered errors). (Named
 // `parse_tokens`, not `parse`, so it doesn't collide with `std.json`'s `parse` in a
 // closure that imports both — top-level fn names are global.)
-pub fn parse_tokens(_ tokens: List<Token>) -> ParseResult {
+pub fn parse_tokens(tokens: List<Token>) -> ParseResult {
     let p = Parser {
         tokens: tokens,
         pos: 0,
@@ -92,7 +97,7 @@ pub fn parse_tokens(_ tokens: List<Token>) -> ParseResult {
 
 // Parse a single expression from a token stream — used for string-interpolation
 // segments (mirrors the Dart parser's internal `_parseExpr` re-entry).
-pub fn parse_expression(_ tokens: List<Token>) -> Expr {
+pub fn parse_expression(tokens: List<Token>) -> Expr {
     let p = Parser {
         tokens: tokens,
         pos: 0,
@@ -155,7 +160,7 @@ impl Parser {
     }
 
     // The token `n` positions ahead of the cursor (clamped to the last token).
-    fn peek_tok(self, _ n: Int) -> Token {
+    fn peek_tok(self, n: Int) -> Token {
         if self.pos + n < self.tokens.len() {
             return self.tokens[self.pos + n];
         }
@@ -165,7 +170,7 @@ impl Parser {
     // Whether the token `n` positions ahead is the contextual keyword `type` — an
     // ordinary identifier (`type` is not reserved) that only `native type` gives
     // meaning.
-    fn peek_is_type_kw(self, _ n: Int) -> Bool {
+    fn peek_is_type_kw(self, n: Int) -> Bool {
         let t = self.peek_tok(n);
         return t.kind == TokenKind.Identifier && t.lexeme() == 'type';
     }
@@ -186,11 +191,11 @@ impl Parser {
         return t;
     }
 
-    fn check(self, _ kind: TokenKind) -> Bool {
+    fn check(self, kind: TokenKind) -> Bool {
         return self.current().kind == kind;
     }
 
-    fn match_kind(self, _ kind: TokenKind) -> Bool {
+    fn match_kind(self, kind: TokenKind) -> Bool {
         if self.panicking {
             return false;
         }
@@ -214,7 +219,7 @@ impl Parser {
     // nothing) must force one token of progress; see `parse_impl` and the loop
     // guards. Most loops get progress for free — a comma separator, a required
     // starter keyword, or `parse_primary`'s `fail` on an unstartable token.
-    fn expect(self, _ kind: TokenKind, _ description: String) -> Token {
+    fn expect(self, kind: TokenKind, description: String) -> Token {
         if self.check(kind) {
             return self.advance();
         }
@@ -232,12 +237,22 @@ impl Parser {
         return self.check(TokenKind.Identifier) || is_keyword(self.current().kind);
     }
 
+    // Whether the parameter about to be parsed opens with the `named` marker.
+    // `named` is **contextual** — reserved nowhere, recognized only here, and only
+    // when another identifier follows it (`named width: Int`). A parameter that is
+    // itself called `named` is `named: Int` — one identifier then `:`, so the
+    // lookahead excludes it; `named named: Int` marks a parameter called `named`.
+    fn check_named_marker(self) -> Bool {
+        return self.check(TokenKind.Identifier) && self.current().lexeme() == NAMED_MARKER
+            && self.peek_tok(1).kind == TokenKind.Identifier;
+    }
+
     // Consume a member name: an identifier or — member positions are grammatically
     // closed, so nothing else can appear there — any keyword used as an ordinary
     // name (`x.self`, `let in: String;`, `f(match: v)`; see docs/language.md
     // §Keywords as member names). Recovers exactly like
     // `expect(TokenKind.Identifier, …)`.
-    fn expect_member_name(self, _ description: String) -> Token {
+    fn expect_member_name(self, description: String) -> Token {
         if self.check_member_name() {
             return self.advance();
         }
@@ -259,7 +274,7 @@ impl Parser {
     // text is empty (`lexeme()` == ''), so an `obj.` field or a missing type name
     // reads as the empty-name recovery hole; its span is zero-length, so span-keyed
     // consumers skip it (PA6).
-    fn synthetic_token(self, _ kind: TokenKind) -> Token {
+    fn synthetic_token(self, kind: TokenKind) -> Token {
         let anchor = if self.pos > 0 {
             synthetic_span_after(self.prev_span())
         } else {
@@ -271,11 +286,11 @@ impl Parser {
     // Records an error and enters panic mode, to be unwound at the declaration
     // boundary. Only the first error of a panic is recorded (mirroring the
     // throw-unwind, which records once then stops parsing).
-    fn fail(self, _ message: String) -> Void {
+    fn fail(self, message: String) -> Void {
         self.fail_at(message, self.current().span);
     }
 
-    fn fail_at(self, _ message: String, _ span: SourceSpan) -> Void {
+    fn fail_at(self, message: String, span: SourceSpan) -> Void {
         if self.record_error(message, span) {
             self.panicking = true;
         }
@@ -285,7 +300,7 @@ impl Parser {
     // panic episode — the dedup `fail` has always had). Returns whether it was
     // recorded, so `fail_at` knows whether to enter panic mode. `expect` uses this
     // directly to note a *known hole* without unwinding (docs/frontend.md).
-    fn record_error(self, _ message: String, _ span: SourceSpan) -> Bool {
+    fn record_error(self, message: String, span: SourceSpan) -> Bool {
         if self.panicking {
             return false;
         }
@@ -333,7 +348,7 @@ impl Parser {
     // a nested block the broken statement opened) doesn't end the outer statement
     // early — only a boundary back at `target_depth` does. The caller has already
     // cleared `panicking`, so `advance` consumes normally. §4.
-    fn sync_to_stmt(self, _ target_depth: Int) -> Void {
+    fn sync_to_stmt(self, target_depth: Int) -> Void {
         while !self.at_end() {
             // A stray top-level decl keyword means we've overrun the block (a hole
             // already ate its `}`); stop at *any* depth so decl-level recovery
@@ -367,7 +382,7 @@ impl Parser {
     // match interior's `brace_depth`; a `,` or `}` deeper than it sits inside
     // braces the broken arm opened and is consumed on the way. The caller has
     // already cleared `panicking`, so `advance` consumes normally.
-    fn sync_to_arm(self, _ target_depth: Int) -> Void {
+    fn sync_to_arm(self, target_depth: Int) -> Void {
         while !self.at_end() {
             // As in sync_to_stmt: a stray top-level decl keyword means a hole
             // already ate the closing braces — stop so decl-level recovery reclaims
@@ -389,7 +404,7 @@ impl Parser {
         }
     }
 
-    fn starts_decl(self, _ k: TokenKind) -> Bool {
+    fn starts_decl(self, k: TokenKind) -> Bool {
         return k == TokenKind.KwFn
             || k == TokenKind.KwStruct
             || k == TokenKind.KwImpl
@@ -615,7 +630,7 @@ impl Parser {
         return Decorator { span: start.span.cover(end), name: name_tok.lexeme(), args: args };
     }
 
-    fn parse_import(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+    fn parse_import(self, is_pub: Bool, start: SourceSpan) -> Decl {
         self.advance(); // 'import'
         let mut path = '';
         let mut path_span = self.current().span;
@@ -670,10 +685,10 @@ impl Parser {
 
     fn parse_fn_decl(
         self,
-        _ decorators: List<Decorator>,
-        _ is_native: Bool,
-        _ is_pub: Bool,
-        _ start: SourceSpan,
+        decorators: List<Decorator>,
+        is_native: Bool,
+        is_pub: Bool,
+        start: SourceSpan,
     ) -> FnDecl {
         if is_native {
             self.advance(); // 'native'
@@ -749,7 +764,7 @@ impl Parser {
 
     // An interface name in a bound position: `Name` or `ns.Name` (one level of
     // qualification, like a `ns.T` annotation).
-    fn parse_bound_ref(self, _ what: String) -> BoundRef {
+    fn parse_bound_ref(self, what: String) -> BoundRef {
         let first = self.expect(TokenKind.Identifier, what);
         if self.check(TokenKind.Dot) {
             self.advance();
@@ -793,41 +808,51 @@ impl Parser {
         }
 
         // Label/name forms:
-        //   _ name        → suppressed label (positional)
-        //   name          → label == name
-        // There is no two-name `label name` form: a parameter's external label *is*
-        // its internal name. (It existed until 2026-08 and was used 12 times across
-        // ~2k functions; retiring it costs only a keyword label — see the tracker.)
-        // So the name is an identifier in both forms, never a keyword: it is read
-        // bare in the body, where a keyword cannot appear.
+        //   name          → positional (the default)
+        //   named name    → labeled; the label *is* the name
+        // There is no two-name `label name` form and no `_` marker: a parameter's
+        // external label is its internal name, and positional needs no marker
+        // because it is the default. So the name is an identifier in both forms,
+        // never a keyword — it is read bare in the body, where a keyword cannot
+        // appear.
         let mut label = Option.None;
         let mut name = '';
         let mut name_span = self.current().span;
 
-        if self.check(TokenKind.Underscore) {
-            self.advance(); // _
-            let name_tok = self.expect(TokenKind.Identifier, 'parameter name');
-            name = name_tok.lexeme();
-            name_span = name_tok.span;
-        } else if self.check(TokenKind.Identifier) {
+        if self.check_named_marker() {
+            self.advance(); // `named`
             let name_tok = self.advance();
             label = Option.Some(name_tok.lexeme());
             name = name_tok.lexeme();
             name_span = name_tok.span;
+        } else if self.check(TokenKind.Identifier) {
+            let name_tok = self.advance();
+            name = name_tok.lexeme();
+            name_span = name_tok.span;
+        } else if self.check(TokenKind.Underscore) {
+            // `_ name: T` was the positional marker until 2026-08. Positional is
+            // the default now, so the marker is redundant — and silently accepting
+            // it would leave two spellings of one thing.
+            let us = self.current();
+            self.fail_at(
+                '`_` is no longer a parameter marker: parameters are positional by '
+                + 'default — drop the `_`, or write `named name: T` for a labeled '
+                + 'one',
+                us.span,
+            );
+            return self.err_param();
         } else if self.check_member_name() {
-            // A keyword here reads as an attempted label. Both ways out are worth
-            // naming: rename it, or make the parameter positional (`_ name: T`),
-            // which drops the label entirely.
+            // A keyword here reads as an attempted name. It cannot be one, and
+            // there is no label slot to escape into.
             let kw = self.current();
             self.fail_at(
                 'a parameter name cannot be a keyword: `${kw.lexeme()}` is reserved, '
-                + 'and a parameter\'s label is its name — rename it, or make it '
-                + 'positional (`_ name: T`)',
+                + 'and a parameter\'s label is its name — rename it',
                 kw.span,
             );
             return self.err_param();
         } else {
-            self.fail('expected parameter name or _');
+            self.fail('expected a parameter name');
             return self.err_param();
         }
 
@@ -861,7 +886,7 @@ impl Parser {
     // `native type Name<params>` — a bodyless opaque type whose representation
     // lives in the runtime; an optional trailing `;` closes it. (The struct form is
     // `parse_struct_decl`; a plain `type Name = …` is no longer a struct.)
-    fn parse_native_type_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+    fn parse_native_type_decl(self, is_pub: Bool, start: SourceSpan) -> Decl {
         self.advance(); // 'type'
         let name_tok = self.expect(TokenKind.Identifier, 'type name');
         let type_params = self.parse_type_params();
@@ -880,7 +905,7 @@ impl Parser {
     // `struct Name<params> { field, … }` — a nominal record. Produces the same
     // `TypeDecl` an opaque `native type` / the (now-removed) `type Name = { … }`
     // form produced; the surface is the `struct` keyword and a brace body, no `=`.
-    fn parse_struct_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+    fn parse_struct_decl(self, is_pub: Bool, start: SourceSpan) -> Decl {
         self.advance(); // 'struct'
         let name_tok = self.expect(TokenKind.Identifier, 'struct name');
         let type_params = self.parse_type_params();
@@ -943,7 +968,7 @@ impl Parser {
 
     // A possibly-qualified type/interface name (`Clock` or `time.Clock`); the
     // namespace is dropped (lookup is by base name).
-    fn parse_qualified_type_name(self, _ role: String) -> Token {
+    fn parse_qualified_type_name(self, role: String) -> Token {
         let mut tok = self.expect(TokenKind.Identifier, role);
         if self.match_kind(TokenKind.Dot) {
             tok = self.expect(TokenKind.Identifier, '${role} after "${tok.lexeme()}."');
@@ -951,7 +976,7 @@ impl Parser {
         return tok;
     }
 
-    fn parse_impl_decl(self, _ start: SourceSpan) -> Decl {
+    fn parse_impl_decl(self, start: SourceSpan) -> Decl {
         self.advance(); // 'impl'
         // Parse `Name` or `ns.Name`, keeping the qualifier: for
         // `impl ns.Iface for T` the interface resolves through `ns` (an inherent
@@ -1063,7 +1088,7 @@ impl Parser {
     // applies once it knows whether this is `impl Iface<…> for T` or `impl T<…>`. A
     // bare name (`T`) is valid as both; nesting is interface-only and bounds are
     // param-only, but malformed mixes are someone else's invalid input.
-    fn parse_impl_generics(self, _ args: List<TypeRef>, _ param_decls: List<TypeParam>) -> Void {
+    fn parse_impl_generics(self, args: List<TypeRef>, param_decls: List<TypeParam>) -> Void {
         if !self.check(TokenKind.Lt) {
             return;
         }
@@ -1099,7 +1124,7 @@ impl Parser {
         self.close_generic();
     }
 
-    fn parse_interface_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+    fn parse_interface_decl(self, is_pub: Bool, start: SourceSpan) -> Decl {
         self.advance(); // 'interface'
         let name_tok = self.expect(TokenKind.Identifier, 'interface name');
         let type_params = self.parse_type_params();
@@ -1139,7 +1164,7 @@ impl Parser {
         });
     }
 
-    fn parse_const_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+    fn parse_const_decl(self, is_pub: Bool, start: SourceSpan) -> Decl {
         self.advance(); // 'const'
         let name_tok = self.expect(TokenKind.Identifier, 'constant name');
         let mut type_ann = Option.None;
@@ -1163,7 +1188,7 @@ impl Parser {
     // A top-level `let NAME[: Type] = expr;` (a module global). Mirrors
     // `parse_const_decl`, but rejects `let mut`: module-level bindings are
     // immutable by design (see docs/language.md).
-    fn parse_let_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+    fn parse_let_decl(self, is_pub: Bool, start: SourceSpan) -> Decl {
         self.advance(); // 'let'
         if self.check(TokenKind.KwMut) {
             self.fail('top-level `let mut` is not allowed; module-level bindings '
@@ -1189,7 +1214,7 @@ impl Parser {
         });
     }
 
-    fn parse_enum_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+    fn parse_enum_decl(self, is_pub: Bool, start: SourceSpan) -> Decl {
         self.advance(); // 'enum'
         let name_tok = self.expect(TokenKind.Identifier, 'enum name');
         let type_params = self.parse_type_params();
@@ -1408,7 +1433,7 @@ impl Parser {
     // each is a value-producing expression (an `IfExpr`; a `throw` has the bottom
     // type `Never`), so a trailing `else { throw … }` becomes the block's tail —
     // parsed via the expression path in parse_expr_block.
-    fn is_stmt_keyword(self, _ k: TokenKind) -> Bool {
+    fn is_stmt_keyword(self, k: TokenKind) -> Bool {
         return k == TokenKind.KwLet
             || k == TokenKind.KwConst
             || k == TokenKind.KwReturn
@@ -1420,7 +1445,7 @@ impl Parser {
 
     // Finish an already-parsed leading `expr` (at `start`) as an assignment or an
     // expression statement, consuming the terminating `;`.
-    fn finish_expr_stmt(self, _ start: SourceSpan, _ expr: Expr) -> Stmt {
+    fn finish_expr_stmt(self, start: SourceSpan, expr: Expr) -> Stmt {
         let compound = self.compound_assign_op(self.current().kind);
         let is_compound = match compound {
             Some(_) => true,
@@ -1534,7 +1559,7 @@ impl Parser {
     }
 
     // The arithmetic operator a compound-assignment token applies, or None.
-    fn compound_assign_op(self, _ k: TokenKind) -> Option<String> {
+    fn compound_assign_op(self, k: TokenKind) -> Option<String> {
         if k == TokenKind.PlusEq {
             return Option.Some('+');
         }
@@ -1556,7 +1581,7 @@ impl Parser {
     // Parse an integer literal lexeme, decimal or 0x/0X hex. Hex wraps an unsigned
     // 64-bit pattern to a signed Int (via to_int_radix), matching the runtime's
     // two's-complement arithmetic.
-    fn parse_int_literal(self, _ text: String, _ span: SourceSpan) -> Int {
+    fn parse_int_literal(self, text: String, span: SourceSpan) -> Int {
         if text.len() > 2 && text.slice(0, 1) == '0'
             && (text.slice(1, 2) == 'x' || text.slice(1, 2) == 'X') {
             match text.slice(2, text.len()).to_int_radix(16) {
@@ -1656,7 +1681,7 @@ impl Parser {
     // pattern yields `let v = match …`; a no-binding pattern (an assertion, e.g.
     // `let Ok(_) = r else …`) yields a bare `match` statement. (v1: at most one
     // binding; use `match` for multiple.) `start` is the consumed `let` token.
-    fn parse_let_else(self, _ start: Token) -> Stmt {
+    fn parse_let_else(self, start: Token) -> Stmt {
         let pattern = self.parse_pattern();
         self.expect(TokenKind.Eq, '=');
         let subject = self.parse_expr();
@@ -1817,7 +1842,7 @@ impl Parser {
     // Parse `if` in expression position (docs/language.md). `require_else` is set
     // where the `if`'s value is used (a primary `if`), so a missing `else` is a
     // parse error; cleared where the `if` may be a discarded statement.
-    fn parse_if_expr(self, _ require_else: Bool) -> Expr {
+    fn parse_if_expr(self, require_else: Bool) -> Expr {
         let start = self.advance(); // 'if'
         if self.check(TokenKind.KwLet) {
             return self.parse_if_let(start, require_else);
@@ -1862,7 +1887,7 @@ impl Parser {
     // `else` (an empty Unit block when omitted, like a statement `if` with no
     // `else`). `require_else` (value position) makes a missing `else` the same
     // error a value `if` raises. `start` is the already-consumed `if` token.
-    fn parse_if_let(self, _ start: Token, _ require_else: Bool) -> Expr {
+    fn parse_if_let(self, start: Token, require_else: Bool) -> Expr {
         self.advance(); // 'let'
         let pattern = self.parse_pattern();
         self.expect(TokenKind.Eq, '=');
@@ -2013,7 +2038,7 @@ impl Parser {
     // (`<<`/`>>`/`>>>` recognized by combining adjacent `<`/`>`), `range` (`..`,
     // non-associative), then `+`/`-` and `*`/`/`/`%`. Replaces seven near-identical
     // `parse_*` levels.
-    fn parse_binary(self, _ level: Int, _ allow_struct: Bool) -> Expr {
+    fn parse_binary(self, level: Int, allow_struct: Bool) -> Expr {
         if level > 6 {
             return self.parse_shift(allow_struct);
         }
@@ -2029,7 +2054,7 @@ impl Parser {
     // Whether the cursor is a binary operator at precedence `level` (see
     // `parse_binary`). The precedence ladder, as a `match` rather than an allocated
     // table so the hot descent never materializes a list.
-    fn binary_op_at(self, _ level: Int) -> Bool {
+    fn binary_op_at(self, level: Int) -> Bool {
         let k = self.current().kind;
         return match level {
             0 => k == TokenKind.PipePipe,
@@ -2046,7 +2071,7 @@ impl Parser {
     // Shift precedence. `<< >> >>>` aren't lexer tokens — they're recognized by
     // combining *adjacent* `<`/`>` tokens, so nested generics still close with
     // single `>` tokens.
-    fn parse_shift(self, _ allow_struct: Bool) -> Expr {
+    fn parse_shift(self, allow_struct: Bool) -> Expr {
         let mut left = self.parse_range(allow_struct);
         let mut going = true;
         while going && !self.panicking {
@@ -2086,7 +2111,7 @@ impl Parser {
         return Option.None;
     }
 
-    fn parse_range(self, _ allow_struct: Bool) -> Expr {
+    fn parse_range(self, allow_struct: Bool) -> Expr {
         let left = self.parse_addition(allow_struct);
         if self.check(TokenKind.DotDot) {
             self.advance();
@@ -2096,7 +2121,7 @@ impl Parser {
         return left;
     }
 
-    fn parse_addition(self, _ allow_struct: Bool) -> Expr {
+    fn parse_addition(self, allow_struct: Bool) -> Expr {
         let mut left = self.parse_multiplication(allow_struct);
         while !self.panicking && (self.check(TokenKind.Plus) || self.check(TokenKind.Minus)) {
             let op = self.advance().span.text();
@@ -2106,7 +2131,7 @@ impl Parser {
         return left;
     }
 
-    fn parse_multiplication(self, _ allow_struct: Bool) -> Expr {
+    fn parse_multiplication(self, allow_struct: Bool) -> Expr {
         let mut left = self.parse_unary(allow_struct);
         while !self.panicking && (self.check(TokenKind.Star) || self.check(TokenKind.Slash)
             || self.check(TokenKind.Percent)) {
@@ -2117,7 +2142,7 @@ impl Parser {
         return left;
     }
 
-    fn parse_unary(self, _ allow_struct: Bool) -> Expr {
+    fn parse_unary(self, allow_struct: Bool) -> Expr {
         if self.check(TokenKind.Bang) || self.check(
             TokenKind.Minus
         ) || self.check(TokenKind.Tilde) {
@@ -2128,7 +2153,7 @@ impl Parser {
         return self.parse_postfix(allow_struct);
     }
 
-    fn parse_postfix(self, _ allow_struct: Bool) -> Expr {
+    fn parse_postfix(self, allow_struct: Bool) -> Expr {
         let mut expr = self.parse_primary(allow_struct);
         let mut going = true;
         while going && !self.panicking {
@@ -2309,7 +2334,7 @@ impl Parser {
         return args;
     }
 
-    fn parse_primary(self, _ allow_struct: Bool) -> Expr {
+    fn parse_primary(self, allow_struct: Bool) -> Expr {
         // During error recovery the cursor is frozen — `advance` consumes nothing
         // until `sync_to_decl` clears `panicking`. A primary that recurses into
         // `parse_expr` (e.g. `return`/`throw`, which parse an operand) would then
@@ -2553,7 +2578,7 @@ impl Parser {
 
     // The rest of a bracket map literal, after `[` and the first key — the cursor
     // is on the committing `:`.
-    fn parse_bracket_map(self, _ start: Token, _ first_key: Expr) -> Expr {
+    fn parse_bracket_map(self, start: Token, first_key: Expr) -> Expr {
         self.advance(); // :
         let entries: List<MapEntry> = [];
         entries.push(MapEntry { key: first_key, value: self.parse_expr() });
@@ -2569,9 +2594,9 @@ impl Parser {
 
     fn parse_struct_literal(
         self,
-        _ namespace: Option<String>,
-        _ type_name: String,
-        _ start: SourceSpan,
+        namespace: Option<String>,
+        type_name: String,
+        start: SourceSpan,
     ) -> Expr {
         self.advance(); // {
         let fields: List<FieldInit> = [];
@@ -2666,7 +2691,7 @@ impl Parser {
 
     // The string-literal content captured by the lexer (None defensively maps to
     // empty, though string tokens always carry a value).
-    fn value_of(self, _ t: Token) -> String {
+    fn value_of(self, t: Token) -> String {
         return t.value.unwrap_or('');
     }
 
@@ -2682,7 +2707,7 @@ impl Parser {
     // the file (PA2). Sub-lex and sub-parse errors — including an empty `${}` and
     // unconsumed trailing tokens — surface into this parser's errors instead of
     // being dropped (PA1).
-    fn split_string_parts(self, _ t: Token) -> List<StringPart> {
+    fn split_string_parts(self, t: Token) -> List<StringPart> {
         let raw = self.value_of(t);
         let parent = t.span;
         let cps = raw.chars();
@@ -2777,7 +2802,7 @@ impl Parser {
 // recorded file span, `text` its source. The region text is the file text verbatim
 // (the lexer captures interpolations raw), so only the offset shifts; line/column
 // are recovered by counting the region's newlines.
-fn rebase_span(_ sp: SourceSpan, _ text: String, _ region: SourceSpan) -> SourceSpan {
+fn rebase_span(sp: SourceSpan, text: String, region: SourceSpan) -> SourceSpan {
     let cps = text.chars();
     let stop = if sp.offset < cps.len() { sp.offset } else { cps.len() };
     let mut line = region.line;
@@ -2806,7 +2831,7 @@ fn rebase_span(_ sp: SourceSpan, _ text: String, _ region: SourceSpan) -> Source
 // A nested string literal inside the interpolation carries its own interpolation
 // marks in mini coordinates — rebased too, so a nested `'${...}'` splits against
 // the file as well.
-fn rebase_tokens(_ tokens: List<Token>, _ text: String, _ region: SourceSpan) -> List<Token> {
+fn rebase_tokens(tokens: List<Token>, text: String, region: SourceSpan) -> List<Token> {
     return tokens.map((t) => Token {
         kind: t.kind,
         span: rebase_span(t.span, text, region),
@@ -2818,7 +2843,7 @@ fn rebase_tokens(_ tokens: List<Token>, _ text: String, _ region: SourceSpan) ->
 // --- free helpers over the AST ---
 
 // An assignment target must be a simple lvalue: identifier, field, or index.
-fn is_lvalue(_ e: Expr) -> Bool {
+fn is_lvalue(e: Expr) -> Bool {
     return match e {
         Ident(_, _) => true,
         Field(_, _, _) => true,
@@ -2828,7 +2853,7 @@ fn is_lvalue(_ e: Expr) -> Bool {
 }
 
 // A bare `match`/`if` expression statement ends in `}`, so it needs no `;`.
-fn is_block_terminated(_ e: Expr) -> Bool {
+fn is_block_terminated(e: Expr) -> Bool {
     return match e {
         Match(_) => true,
         If(_) => true,
@@ -2839,7 +2864,7 @@ fn is_block_terminated(_ e: Expr) -> Bool {
 // Collect a pattern's binding (Ident) leaves — the variables it introduces.
 // Constructor args recurse; wildcards, literals, and zero-arg constructors bind
 // nothing. Used by `let … else` to find the single bound variable.
-fn collect_binding_idents(_ p: Pattern, _ out: List<Pattern>) -> Void {
+fn collect_binding_idents(p: Pattern, out: List<Pattern>) -> Void {
     match p {
         Ident(_, _) => { out.push(p); },
         Constructor(_, _, args) => {
@@ -2856,7 +2881,7 @@ fn collect_binding_idents(_ p: Pattern, _ out: List<Pattern>) -> Void {
 // `return` or `throw`. Conservative: a block that diverges only through nested
 // branches isn't recognized (end the `else` in `return`/`throw`). Backs the
 // `let … else` requirement that the `else` diverge.
-fn block_diverges(_ b: Block) -> Bool {
+fn block_diverges(b: Block) -> Bool {
     if b.stmts.len() == 0 {
         return false;
     }
@@ -2869,6 +2894,6 @@ fn block_diverges(_ b: Block) -> Bool {
 
 // Whether `b` immediately follows `a` with no gap — tells the shift `>>` from two
 // separate `>` tokens.
-fn adjacent(_ a: Token, _ b: Token) -> Bool {
+fn adjacent(a: Token, b: Token) -> Bool {
     return b.span.offset == a.span.offset + a.span.length;
 }

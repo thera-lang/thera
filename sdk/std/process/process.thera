@@ -56,7 +56,7 @@ impl Display for ProcessError {
 }
 
 /// Native errors arrive as "<kind>\u{1}<message>"; map the kind to a variant.
-fn to_process_error(_ raw: String) -> ProcessError {
+fn to_process_error(raw: String) -> ProcessError {
     let parts = raw.split('\u{1}');
     let kind = parts.get(0).unwrap_or('io');
     let msg = parts.get(1).unwrap_or(raw);
@@ -70,52 +70,52 @@ fn to_process_error(_ raw: String) -> ProcessError {
 
 @extern('process_run')
 native fn _run(
-    _ command: String,
-    _ args: List<String>,
-    _ working_dir: Option<String>,
-    _ env: Option<Map<String, String>>,
+    command: String,
+    args: List<String>,
+    working_dir: Option<String>,
+    env: Option<Map<String, String>>,
 ) -> Result<ProcessResult, String>
 
 @extern('process_exec')
 native fn _exec(
-    _ command: String,
-    _ args: List<String>,
-    _ working_dir: Option<String>,
-    _ env: Option<Map<String, String>>,
+    command: String,
+    args: List<String>,
+    working_dir: Option<String>,
+    env: Option<Map<String, String>>,
 ) -> Result<Int, String>
 
 @extern('process_start')
 native fn _start(
-    _ command: String,
-    _ args: List<String>,
-    _ working_dir: Option<String>,
-    _ env: Option<Map<String, String>>,
+    command: String,
+    args: List<String>,
+    working_dir: Option<String>,
+    env: Option<Map<String, String>>,
 ) -> Result<Process, String>
 
 @extern('process_wait')
-native fn _wait(_ proc: Process) -> Result<Int, String>
+native fn _wait(proc: Process) -> Result<Int, String>
 
 @extern('process_kill')
-native fn _kill(_ proc: Process) -> Result<Void, String>
+native fn _kill(proc: Process) -> Result<Void, String>
 
 @extern('process_stdin_write')
-native fn _stdin_write(_ id: Int, _ data: Bytes) -> Result<Int, String>
+native fn _stdin_write(id: Int, data: Bytes) -> Result<Int, String>
 
 @extern('process_stdin_close')
-native fn _stdin_close(_ id: Int) -> Result<Void, String>
+native fn _stdin_close(id: Int) -> Result<Void, String>
 
 @extern('process_stdout_read')
-native fn _stdout_read(_ id: Int, _ max: Int) -> Result<Bytes, String>
+native fn _stdout_read(id: Int, max: Int) -> Result<Bytes, String>
 
 @extern('process_stderr_read')
-native fn _stderr_read(_ id: Int, _ max: Int) -> Result<Bytes, String>
+native fn _stderr_read(id: Int, max: Int) -> Result<Bytes, String>
 
 // --- child pipes as std.io streams ---
 
 /// A child's stdin, as a `Writer`. Each write is flushed.
 struct ProcessStdin { let id: Int; }
 impl io.Writer for ProcessStdin {
-    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+    pub fn write(self, data: Bytes) -> Result<Int, Error> {
         return match _stdin_write(self.id, data) {
             Ok(n) => Result.Ok(n),
             Err(e) => Result.Err(to_process_error(e)),
@@ -126,7 +126,7 @@ impl io.Writer for ProcessStdin {
 /// A child's stdout, as a `Reader`. An empty read is EOF.
 struct ProcessStdout { let id: Int; }
 impl io.Reader for ProcessStdout {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         return match _stdout_read(self.id, max) {
             Ok(b) => Result.Ok(b),
             Err(e) => Result.Err(to_process_error(e)),
@@ -137,7 +137,7 @@ impl io.Reader for ProcessStdout {
 /// A child's stderr, as a `Reader`. An empty read is EOF.
 struct ProcessStderr { let id: Int; }
 impl io.Reader for ProcessStderr {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         return match _stderr_read(self.id, max) {
             Ok(b) => Result.Ok(b),
             Err(e) => Result.Err(to_process_error(e)),
@@ -197,10 +197,10 @@ impl Process {
 /// - `working_dir`: directory to run in (defaults to the current one).
 /// - `env`: environment variables (defaults to the parent's).
 pub fn run(
-    _ command: String,
-    args: List<String> = [],
-    working_dir: Option<String> = Option.None,
-    env: Option<Map<String, String>> = Option.None,
+    command: String,
+    named args: List<String> = [],
+    named working_dir: Option<String> = Option.None,
+    named env: Option<Map<String, String>> = Option.None,
 ) -> Result<ProcessResult, ProcessError> {
     return match _run(command, args, working_dir, env) {
         Ok(result) => Result.Ok(result),
@@ -214,10 +214,10 @@ pub fn run(
 /// child whose console you want to share (a REPL, a pager, a subcommand whose
 /// output should appear as it happens). Same arguments as `run`.
 pub fn exec(
-    _ command: String,
-    args: List<String> = [],
-    working_dir: Option<String> = Option.None,
-    env: Option<Map<String, String>> = Option.None,
+    command: String,
+    named args: List<String> = [],
+    named working_dir: Option<String> = Option.None,
+    named env: Option<Map<String, String>> = Option.None,
 ) -> Result<Int, ProcessError> {
     return match _exec(command, args, working_dir, env) {
         Ok(code) => Result.Ok(code),
@@ -228,10 +228,10 @@ pub fn exec(
 /// Start a command, returning a `Process` handle immediately (stdin/stdout/stderr
 /// are piped). Same arguments as `run`.
 pub fn start(
-    _ command: String,
-    args: List<String> = [],
-    working_dir: Option<String> = Option.None,
-    env: Option<Map<String, String>> = Option.None,
+    command: String,
+    named args: List<String> = [],
+    named working_dir: Option<String> = Option.None,
+    named env: Option<Map<String, String>> = Option.None,
 ) -> Result<Process, ProcessError> {
     return match _start(command, args, working_dir, env) {
         Ok(proc) => Result.Ok(proc),

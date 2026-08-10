@@ -2,7 +2,7 @@
 //! mode: run
 
 // `throw e` is sugar for `return Result.Err(e)` in a Result-returning function.
-fn check(_ n: Int) -> Result<Int, Error> {
+fn check(n: Int) -> Result<Int, Error> {
     if n < 0 {
         throw error('negative');
     }

@@ -8,11 +8,11 @@ struct Block {
     let type: String;
 }
 
-fn describe(type: String) -> String {
+fn describe(named type: String) -> String {
     return 'kind=${type}';
 }
 
-fn labeled(_ type: String) -> String {
+fn labeled(type: String) -> String {
     return 'label=${type}';
 }
 

@@ -6,7 +6,7 @@ import 'regex' as _;
 
 // Compile a pattern for a test, surfacing an unexpected compile failure as the
 // test's own error (so a typo in a test pattern is reported, not silently true).
-fn compiled(_ pattern: String) -> Result<Regex, Error> {
+fn compiled(pattern: String) -> Result<Regex, Error> {
     return match Regex.compile(pattern) {
         Ok(r) => Result.Ok(r),
         Err(e) => Result.Err(error('unexpected compile error: ${e.message()}')),

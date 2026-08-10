@@ -13,7 +13,7 @@ fn f() -> Int {
     return x;
 }
 
-fn ok(_ x: Int) -> Int {
+fn ok(x: Int) -> Int {
     let x = x + 1;   // param shadow: the body is an inner scope
     let y = 1;
     if x > 0 {

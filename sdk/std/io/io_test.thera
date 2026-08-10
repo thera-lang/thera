@@ -14,7 +14,7 @@ struct MemReader {
 }
 
 impl Reader for MemReader {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         let remaining = self.data.len() - self.pos;
         if remaining == 0 {
             return Result.Ok(Bytes.empty()); // EOF
@@ -26,7 +26,7 @@ impl Reader for MemReader {
     }
 }
 
-fn mem_reader(_ text: String, _ chunk: Int) -> MemReader {
+fn mem_reader(text: String, chunk: Int) -> MemReader {
     return MemReader { data: text.bytes(), pos: 0, chunk: chunk };
 }
 
@@ -156,7 +156,7 @@ fn test_read_line_primitive() -> Result<Void, Error> {
 struct FailReader {}
 
 impl Reader for FailReader {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         return Result.Err(IoError.Other('boom'));
     }
 }

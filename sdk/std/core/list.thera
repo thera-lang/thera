@@ -26,12 +26,12 @@ impl List<T> {
     // Indexing — `xs[i]` and `xs[i] = v` — is built-in operator syntax (lowered by
     // the compiler, not a method, so it has no declaration here). The read
     //
-    //   fn [](self, _ i: Int) -> T          // traps if `i` is out of range
+    //   fn [](self, i: Int) -> T          // traps if `i` is out of range
     //
     // returns the element at `i`, **trapping** on an out-of-range index — use `get`
     // below for the checked `Option<T>` form. The write
     //
-    //   fn []=(self, _ i: Int, _ v: T)      // traps if `i` is out of range
+    //   fn []=(self, i: Int, v: T)      // traps if `i` is out of range
     //
     // replaces `xs[i]` in place; it cannot extend the list (use `push`), so an
     // out-of-range index traps. (Indexing isn't an overloadable interface yet; this
@@ -44,15 +44,15 @@ impl List<T> {
     /// The element at `i`, or None if out of range — the checked alternative to
     /// indexing with `[]`.
     @extern('list_get')
-    pub native fn get(self, _ i: Int) -> Option<T>
+    pub native fn get(self, i: Int) -> Option<T>
 
     /// Join the elements (rendered via Display) with `sep` between them.
     @extern('list_join')
-    pub native fn join(self, _ sep: String) -> String
+    pub native fn join(self, sep: String) -> String
 
     /// Append `item` to the end, in place.
     @extern('list_push')
-    pub native fn push(self, _ item: T) -> Void
+    pub native fn push(self, item: T) -> Void
 
     /// Remove and return the last element, in place — `None` if the list is empty.
     /// The mutating companion of `last()`.
@@ -79,7 +79,7 @@ impl List<T> {
     }
 
     /// True if `item` is equal (`==`) to some element.
-    pub fn contains(self, _ item: T) -> Bool {
+    pub fn contains(self, item: T) -> Bool {
         for x in self {
             if x == item {
                 return true;
@@ -89,7 +89,7 @@ impl List<T> {
     }
 
     /// The index of the first element equal to `item`, or None if absent.
-    pub fn index_of(self, _ item: T) -> Option<Int> {
+    pub fn index_of(self, item: T) -> Option<Int> {
         let mut i = 0;
         let n = self.len();
         while i < n {
@@ -103,7 +103,7 @@ impl List<T> {
 
     /// True if `pred` returns true for at least one element (false for an empty
     /// list); stops at the first match. The predicate form of [contains].
-    pub fn any(self, _ pred: (T) -> Bool) -> Bool {
+    pub fn any(self, pred: (T) -> Bool) -> Bool {
         for x in self {
             if pred(x) {
                 return true;
@@ -114,7 +114,7 @@ impl List<T> {
 
     /// True if `pred` returns true for every element (vacuously true for an empty
     /// list); stops at the first counterexample.
-    pub fn all(self, _ pred: (T) -> Bool) -> Bool {
+    pub fn all(self, pred: (T) -> Bool) -> Bool {
         for x in self {
             if !pred(x) {
                 return false;
@@ -124,7 +124,7 @@ impl List<T> {
     }
 
     /// The first element for which `pred` returns true, or None if there is none.
-    pub fn find(self, _ pred: (T) -> Bool) -> Option<T> {
+    pub fn find(self, pred: (T) -> Bool) -> Option<T> {
         for x in self {
             if pred(x) {
                 return Option.Some(x);
@@ -135,7 +135,7 @@ impl List<T> {
 
     /// The index of the first element for which `pred` returns true, or None if
     /// there is none — the predicate form of [index_of].
-    pub fn find_index(self, _ pred: (T) -> Bool) -> Option<Int> {
+    pub fn find_index(self, pred: (T) -> Bool) -> Option<Int> {
         let mut i = 0;
         let n = self.len();
         while i < n {
@@ -150,7 +150,7 @@ impl List<T> {
     /// Insert `item` at index `at`, in place, shifting later elements one slot
     /// toward the end. `at` may be any index in `[0, len]` — `insert(len, v)` is
     /// `push(v)`; anything outside that range traps (the indexing contract).
-    pub fn insert(self, _ at: Int, _ item: T) -> Void {
+    pub fn insert(self, at: Int, item: T) -> Void {
         if at == self.len() {
             self.push(item);
             return;
@@ -175,7 +175,7 @@ impl List<T> {
     /// elements one slot toward the front; traps if `i` is out of range (the
     /// indexing contract). The positional companion of `pop` (which is
     /// `remove_at(len - 1)` with a checked `Option` result).
-    pub fn remove_at(self, _ i: Int) -> T {
+    pub fn remove_at(self, i: Int) -> T {
         let removed = self[i];
         let mut j = i;
         let last = self.len() - 1;
@@ -189,7 +189,7 @@ impl List<T> {
 
     /// Append every element of `other` to this list, in place (like `push`, a
     /// mutation of this list; the returns-new form is [concat]).
-    pub fn extend(self, _ other: List<T>) -> Void {
+    pub fn extend(self, other: List<T>) -> Void {
         // Iterate to a pre-captured length so `xs.extend(xs)` doubles the list
         // rather than chasing its own growth.
         let n = other.len();
@@ -202,7 +202,7 @@ impl List<T> {
 
     /// A new list of this list's elements followed by `other`'s; neither input
     /// changes (the in-place form is [extend]).
-    pub fn concat(self, _ other: List<T>) -> List<T> {
+    pub fn concat(self, other: List<T>) -> List<T> {
         let result = [];
         result.extend(self);
         result.extend(other);
@@ -244,7 +244,7 @@ impl List<T> {
     /// nums.sort((a, b) => b < a);           // descending
     /// people.sort((a, b) => a.age < b.age); // by a field
     /// ```
-    pub fn sort(self, _ less: (T, T) -> Bool) -> Void {
+    pub fn sort(self, less: (T, T) -> Bool) -> Void {
         let out = self.sorted_by(less);
         let mut i = 0;
         while i < out.len() {
@@ -261,7 +261,7 @@ impl List<T> {
     /// ```thera
     /// let ordered = edits.sorted_by((a, b) => a.start < b.start);
     /// ```
-    pub fn sorted_by(self, _ less: (T, T) -> Bool) -> List<T> {
+    pub fn sorted_by(self, less: (T, T) -> Bool) -> List<T> {
         // Bottom-up merge sort over a working copy; `less` decides order and a
         // `!less(right, left)` tie-break (take the left first) keeps it stable.
         let mut src = [];
@@ -341,7 +341,7 @@ impl List<T> {
     }
 
     /// A new list with `f` applied to each element, in order.
-    pub fn map<U>(self, _ f: (T) -> U) -> List<U> {
+    pub fn map<U>(self, f: (T) -> U) -> List<U> {
         let result = [];
         for item in self {
             result.push(f(item));
@@ -350,7 +350,7 @@ impl List<T> {
     }
 
     /// A new list of the elements for which `keep` returns true, in order.
-    pub fn filter(self, _ keep: (T) -> Bool) -> List<T> {
+    pub fn filter(self, keep: (T) -> Bool) -> List<T> {
         let result = [];
         for item in self {
             if keep(item) {
@@ -366,7 +366,7 @@ impl List<T> {
     /// ```thera
     /// [1, 2, 3].flat_map(n => [n, n * 10])   // [1, 10, 2, 20, 3, 30]
     /// ```
-    pub fn flat_map<U>(self, _ f: (T) -> List<U>) -> List<U> {
+    pub fn flat_map<U>(self, f: (T) -> List<U>) -> List<U> {
         let result = [];
         for item in self {
             result.extend(f(item));
@@ -380,7 +380,7 @@ impl List<T> {
     /// ```thera
     /// let sum = nums.fold(0, (acc, n) => acc + n);
     /// ```
-    pub fn fold<A>(self, _ initial: A, _ combine: (A, T) -> A) -> A {
+    pub fn fold<A>(self, initial: A, combine: (A, T) -> A) -> A {
         let mut acc = initial;
         for item in self {
             acc = combine(acc, item);
@@ -395,7 +395,7 @@ impl List<T> {
     /// ```thera
     /// [10, 20, 30, 40].slice(1, 3)   // [20, 30]
     /// ```
-    pub fn slice(self, _ start: Int, _ end: Int) -> List<T> {
+    pub fn slice(self, start: Int, end: Int) -> List<T> {
         let lo = start.clamp(0, self.len());
         let hi = end.clamp(0, self.len());
         let result = [];

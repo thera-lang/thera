@@ -6,5 +6,5 @@
 const BANG: String = '!';
 
 pub interface Exclaimer {
-    fn exclaim(self, punct: String = BANG) -> String;
+    fn exclaim(self, named punct: String = BANG) -> String;
 }

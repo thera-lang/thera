@@ -35,13 +35,13 @@ pub fn discard_outbox() -> Outbox {
 
 // A synchronous outbox: `send` frames and writes on the calling fiber. Used by
 // `handle` (tests / one-shot), which drives the server without a scheduler.
-pub fn direct_outbox(_ writer: io.Writer) -> Outbox {
+pub fn direct_outbox(writer: io.Writer) -> Outbox {
     return Outbox { ch: Option.None, writer: Option.Some(writer), pump: Option.None };
 }
 
 // An asynchronous outbox: a writer fiber drains the channel and does the writes, so
 // concurrent producers only enqueue and their output never interleaves.
-pub fn async_outbox(_ writer: io.Writer) -> Outbox {
+pub fn async_outbox(writer: io.Writer) -> Outbox {
     let ch: fiber.Channel<Json> = fiber.channel(capacity: 64);
     let pump = fiber.spawn(() => {
         let mut going = true;
@@ -58,7 +58,7 @@ pub fn async_outbox(_ writer: io.Writer) -> Outbox {
 impl Outbox {
     // Emit one framed JSON-RPC message. Async: enqueue (blocks only when the buffer
     // is full, ceding to the writer fiber). Direct: write inline. Discard: drop.
-    pub fn send(self, _ message: Json) -> Void {
+    pub fn send(self, message: Json) -> Void {
         match self.ch {
             Some(c) => c.send(message),
             None => {

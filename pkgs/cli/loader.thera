@@ -62,7 +62,7 @@ pub struct LoadedImports {
 // The stdlib directory under an SDK root, or None if there's no stdlib there. The
 // two layouts diverge only here: a distributed SDK keeps it at `<root>/std`, the
 // in-repo checkout at `<root>/sdk/std`.
-pub fn std_root(_ root: String) -> Option<String> {
+pub fn std_root(root: String) -> Option<String> {
     if is_dir(path.join(root, 'std')) {
         return Option.Some(path.join(root, 'std'));
     }
@@ -96,7 +96,7 @@ pub fn find_sdk_root() -> Option<String> {
 // Walk upward from `start` (inclusive), returning the first ancestor whose stdlib
 // `std_root` can locate, or None within the depth bound. The bound keeps a rootless
 // path (no SDK anywhere above) from walking to the filesystem root.
-fn walk_up_for_std(_ start: String) -> Option<String> {
+fn walk_up_for_std(start: String) -> Option<String> {
     let mut dir = start;
     let mut i = 0;
     while i < 12 {
@@ -121,7 +121,7 @@ fn walk_up_for_std(_ start: String) -> Option<String> {
 // *within* that root's std (not merely a sibling of one), so ordinary project files
 // — which may have an unrelated SDK somewhere above — keep resolving against the
 // configured SDK.
-fn own_std_dir(_ base_dir: String) -> Option<String> {
+fn own_std_dir(base_dir: String) -> Option<String> {
     if base_dir == '' {
         return Option.None;
     }
@@ -154,7 +154,7 @@ fn own_std_dir(_ base_dir: String) -> Option<String> {
 // every table key, `TypeId.owner`, and `Diagnostic.file` carries this form
 // (`element.file_key` bridges `Program.file_path`'s Option; `display_path` is the
 // printing inverse). Don't stamp identity from a raw/relative path.
-pub fn canonical_path(_ p: String) -> String {
+pub fn canonical_path(p: String) -> String {
     if path.is_absolute(p) {
         return path.normalize(p);
     }
@@ -169,7 +169,7 @@ pub fn canonical_path(_ p: String) -> String {
 // The display inverse of [canonical_path]: a canonical (absolute) path shown
 // relative to the current directory when it lies under it, else unchanged. Identity
 // stays canonical everywhere; only the printing edge relativizes.
-pub fn display_path(_ path: String) -> String {
+pub fn display_path(path: String) -> String {
     if let Ok(cwd) = env.current_dir() {
         let prefix = cwd + '/';
         if path.starts_with(prefix) {
@@ -188,7 +188,7 @@ pub fn source_exts() -> List<String> {
 
 // Resolve a library base path (no extension) to its source file: `<base>.thera`,
 // or, when `<base>` is a directory, its barrel `<base>/<name>.thera`.
-fn resolve_library_file(_ base: String) -> Option<String> {
+fn resolve_library_file(base: String) -> Option<String> {
     for ext in source_exts() {
         let file = base + ext;
         if is_file(file) {
@@ -231,7 +231,7 @@ pub struct ParsedFile {
 // unreadable) so the caller can attribute the root cause instead of degrading to a
 // downstream "undefined name". Stamps `file_path` so cycle detection and
 // diagnostics can key on it.
-fn parse_file(_ path: String) -> Result<ParsedFile, String> {
+fn parse_file(path: String) -> Result<ParsedFile, String> {
     match fs.read_text(path) {
         Ok(source) => { return Result.Ok(parse_source(path, source)); },
         Err(e) => { return Result.Err(e.message()); },
@@ -241,7 +241,7 @@ fn parse_file(_ path: String) -> Result<ParsedFile, String> {
 // Lex + parse `source` as the content of `path` (best-effort recovery; errors
 // collected, stamped with `path`). `path` must be canonical — it becomes the
 // program's identity (the session's cached-parse entry point relies on this).
-pub fn parse_source(_ path: String, _ source: String) -> ParsedFile {
+pub fn parse_source(path: String, source: String) -> ParsedFile {
     let diagnostics: List<diagnostic.Diagnostic> = [];
     let lex = lexer.tokenize(source, file: path);
     for e in lex.errors {
@@ -259,7 +259,7 @@ pub fn parse_source(_ path: String, _ source: String) -> ParsedFile {
 // Lex and parse `path`, or None if it can't be read or has lex/parse errors. Stamps
 // the program's `file_path`. (A strict wrapper over [parse_file] for callers that
 // only want a clean parse.)
-pub fn parse_file_or_null(_ path: String) -> Option<Program> {
+pub fn parse_file_or_null(path: String) -> Option<Program> {
     return match parse_file(path) {
         Ok(pf) => {
             if pf.diagnostics.len() == 0 {
@@ -301,7 +301,7 @@ impl Loader {
     // Resolve an import path to a source file. `std.*` anchors at an SDK std root
     // (dots become separators); any other path is relative to the importing file's
     // directory.
-    fn resolve(self, _ import_path: String, _ base_dir: String) -> Option<String> {
+    fn resolve(self, import_path: String, base_dir: String) -> Option<String> {
         if import_path.starts_with(STD_PREFIX) {
             let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
             // Per-file SDK: if the importing file lives *inside* an SDK's std tree,
@@ -339,7 +339,7 @@ impl Loader {
     // Resolve `file` to a library source, recursively linking its imports. Cached
     // before recursing (to terminate cycles); each program is added to the flat
     // list exactly once. Err carries the read failure's message.
-    fn source_for(self, _ file: String) -> Result<LibrarySource, String> {
+    fn source_for(self, file: String) -> Result<LibrarySource, String> {
         if let Some(cached) = self.cache.get(file) { return Result.Ok(cached); }
         // Parse best-effort: even a file with lex/parse errors yields a recovered
         // program that we still link (its good decls resolve) — and its diagnostics
@@ -362,7 +362,7 @@ impl Loader {
     }
 
     // The memoized public surface of `lib` — computed once per file per load.
-    fn surface_of(self, _ lib: LibrarySource) -> element.LibraryNamespace {
+    fn surface_of(self, lib: LibrarySource) -> element.LibraryNamespace {
         let key = element.file_key(lib.program.file_path);
         if let Some(s) = self.surfaces.get(key) {
             return s;
@@ -376,7 +376,7 @@ impl Loader {
     // closures (the prelude) is lexed+parsed once per run. A cache miss parses —
     // from the file's overlay when one is open, else from disk — and stores; the
     // cached `ParsedFile` is reused as-is (the AST is immutable).
-    fn parsed_file(self, _ file: String) -> Result<ParsedFile, String> {
+    fn parsed_file(self, file: String) -> Result<ParsedFile, String> {
         if let Some(cached) = self.parse_cache.get(file) { return Result.Ok(cached); }
         if let Some(text) = self.overlays.get(file) {
             let pf = parse_source(file, text);
@@ -397,7 +397,7 @@ impl Loader {
     // can't be read — is a diagnostic at the import's span, attributed to the
     // importer: the root cause, not a downstream "undefined name" (and an unused
     // broken import no longer passes silently).
-    fn link_imports(self, _ prog: Program, _ base_dir: String, _ into: LibrarySource) -> Void {
+    fn link_imports(self, prog: Program, base_dir: String, into: LibrarySource) -> Void {
         let importer = element.file_key(prog.file_path);
         for decl in prog.decls {
             if let Import(x) = decl {
@@ -441,7 +441,7 @@ impl Loader {
     // Why an import path failed to resolve: a `std.*` path either has no SDK to
     // anchor at or names a module the SDK doesn't have; any other path found
     // neither `<base>.thera` nor a `<base>/` barrel.
-    fn unresolved_message(self, _ import_path: String) -> String {
+    fn unresolved_message(self, import_path: String) -> String {
         if import_path.starts_with(STD_PREFIX) {
             let has_sdk = match self.sdk_root {
                 Some(root) => match std_root(root) { Some(_) => true, None => false },
@@ -467,12 +467,12 @@ impl Loader {
 // pre-canonical `dirname('root.thera')` was `''`, which sent imports to the
 // filesystem root).
 pub fn load_imports(
-    _ entry: String,
-    _ program: Program,
-    _ sdk_root: Option<String>,
-    parse_cache: Map<String, ParsedFile> = [:],
-    overlays: Map<String, String> = [:],
-    surface_cache: Map<String, FileSurface> = [:],
+    entry: String,
+    program: Program,
+    sdk_root: Option<String>,
+    named parse_cache: Map<String, ParsedFile> = [:],
+    named overlays: Map<String, String> = [:],
+    named surface_cache: Map<String, FileSurface> = [:],
 ) -> LoadedImports {
     let canon = canonical_path(entry);
     program.file_path = Option.Some(canon);
@@ -588,11 +588,7 @@ pub struct FileSurface {
 // `file_imports`. Powers the LSP's workspace edge index — the references/rename
 // dependency cone — without paying for every file's closure. `entry` is the
 // importing file's path; a specifier that resolves to no file is dropped.
-pub fn import_edges(
-    _ entry: String,
-    _ program: Program,
-    _ sdk_root: Option<String>,
-) -> List<String> {
+pub fn import_edges(entry: String, program: Program, sdk_root: Option<String>) -> List<String> {
     let probe = Loader {
         sdk_root: sdk_root,
         order: [],
@@ -621,7 +617,7 @@ pub fn import_edges(
 // The canonical keys `source`'s imports resolved to — one graph node's outgoing
 // edges, deduped, in declaration order (`source.imports` is keyed by the import
 // path as written; two spellings of one file collapse to one edge).
-fn import_edges_of(_ source: LibrarySource) -> List<String> {
+fn import_edges_of(source: LibrarySource) -> List<String> {
     let seen: Set<String> = Set.new();
     let edges: List<String> = [];
     for decl in source.program.decls {
@@ -646,8 +642,8 @@ impl Loader {
     // `Loader` method for the surface memo.
     fn bare_surface_of(
         self,
-        _ root: LibrarySource,
-        _ core_names: Map<String, String>,
+        root: LibrarySource,
+        core_names: Map<String, String>,
     ) -> Map<String, String> {
         // name -> owning file (key). The prelude names own to std.core; an `as _`
         // import's public names own to that import's file; a `foo_test.thera`'s
@@ -705,11 +701,7 @@ impl Loader {
 // *own* declarations may shadow the prelude (soft-reserved), and the existing
 // insertion order implements that precedence.
 impl Loader {
-    fn collect_collisions(
-        self,
-        _ src: LibrarySource,
-        _ diags: List<diagnostic.Diagnostic>,
-    ) -> Void {
+    fn collect_collisions(self, src: LibrarySource, diags: List<diagnostic.Diagnostic>) -> Void {
         let file = element.file_key(src.program.file_path);
         // name -> origin file, for the barrel (public) and bare (`as _`) surfaces.
         let exposed: Map<String, String> = [:];
@@ -769,7 +761,7 @@ impl Loader {
 
     // The namespaces bound by `root`'s own imports — the memoized twin of the free
     // `namespaces_for` (which stays for surface-shape callers/tests).
-    fn namespaces_of(self, _ root: LibrarySource) -> Map<String, element.LibraryNamespace> {
+    fn namespaces_of(self, root: LibrarySource) -> Map<String, element.LibraryNamespace> {
         let result: Map<String, element.LibraryNamespace> = [:];
         for decl in root.program.decls {
             if let Import(x) = decl {
@@ -783,7 +775,7 @@ impl Loader {
 }
 
 // `<base>` for a `<base>_test.thera` source file, else None.
-fn test_base_name(_ file: Option<String>) -> Option<String> {
+fn test_base_name(file: Option<String>) -> Option<String> {
     let base = basename_no_ext(file);
     let suffix = '_test';
     if base.len() > suffix.len()
@@ -794,7 +786,7 @@ fn test_base_name(_ file: Option<String>) -> Option<String> {
 }
 
 // A source file's basename without its source extension.
-fn basename_no_ext(_ file: Option<String>) -> String {
+fn basename_no_ext(file: Option<String>) -> String {
     let seg = path.basename(file.unwrap_or(''));
     for ext in source_exts() {
         if seg.len() > ext.len() && seg.slice(seg.len() - ext.len(), seg.len()) == ext {
@@ -806,7 +798,7 @@ fn basename_no_ext(_ file: Option<String>) -> String {
 
 // Every top-level name a library declares — public and private — for white-box test
 // access.
-fn all_top_names(_ source: LibrarySource) -> Set<String> {
+fn all_top_names(source: LibrarySource) -> Set<String> {
     let names: Set<String> = Set.new();
     for decl in source.program.decls {
         if let Some(n) = any_top_name(decl) { names.add(n); }
@@ -816,7 +808,7 @@ fn all_top_names(_ source: LibrarySource) -> Set<String> {
 
 // The top-level name a declaration introduces (regardless of `pub`), or None for
 // the nameless declarations (`impl` blocks, `import`s).
-fn any_top_name(_ decl: Decl) -> Option<String> {
+fn any_top_name(decl: Decl) -> Option<String> {
     return match decl {
         Fn(x) => Option.Some(x.name),
         Type(x) => Option.Some(x.name),
@@ -833,7 +825,7 @@ fn any_top_name(_ decl: Decl) -> Option<String> {
 
 // The namespaces bound by `root`'s own imports: import namespace (alias, or the
 // trailing path segment) -> the imported library's public surface.
-pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNamespace> {
+pub fn namespaces_for(root: LibrarySource) -> Map<String, element.LibraryNamespace> {
     let result: Map<String, element.LibraryNamespace> = [:];
     for decl in root.program.decls {
         if let Import(x) = decl {
@@ -847,7 +839,7 @@ pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNames
 
 // The public surface of `lib`: its own `pub` declarations plus the flattened public
 // surfaces of its `pub import`s.
-pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
+pub fn public_surface_of(lib: LibrarySource) -> element.LibraryNamespace {
     let names: Set<String> = Set.new();
     let collisions: Set<String> = Set.new();
     let origin: Map<String, String> = [:];
@@ -858,11 +850,11 @@ pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
 
 // Cycle detection keys on the program's `file_path` (Thera has no object identity).
 fn collect_surface(
-    _ source: LibrarySource,
-    _ names: Set<String>,
-    _ collisions: Set<String>,
-    _ origin: Map<String, String>,
-    _ visited: Set<String>,
+    source: LibrarySource,
+    names: Set<String>,
+    collisions: Set<String>,
+    origin: Map<String, String>,
+    visited: Set<String>,
 ) -> Void {
     let key = element.file_key(source.program.file_path);
     if visited.contains(key) {
@@ -895,20 +887,20 @@ fn collect_surface(
 
 // The namespace an import binds: its explicit alias, or the trailing segment of its
 // path (`std.fs` -> `fs`, `util/strings` -> `strings`).
-fn namespace_of(_ decl: ImportDecl) -> String {
+fn namespace_of(decl: ImportDecl) -> String {
     return decl.alias.unwrap_or_else(() => last_dot_segment(path.basename(decl.path)));
 }
 
 // The last `.`-separated segment (`std.fs` -> `fs`) — a namespace derivation, not a
 // path operation (extensions don't apply to import paths).
-fn last_dot_segment(_ s: String) -> String {
+fn last_dot_segment(s: String) -> String {
     let parts = s.split('.');
     return parts[parts.len() - 1];
 }
 
 // The public top-level name a declaration contributes, or None when private or
 // nameless (impl blocks, imports).
-fn public_name(_ decl: Decl) -> Option<String> {
+fn public_name(decl: Decl) -> Option<String> {
     return match decl {
         Fn(x) => if x.is_pub { Option.Some(x.name) } else { Option.None },
         Type(x) => if x.is_pub { Option.Some(x.name) } else { Option.None },
@@ -934,7 +926,7 @@ fn public_name(_ decl: Decl) -> Option<String> {
 
 // Whether `dir` is a directory library — its barrel `<dir>/<name>.thera` exists on
 // disk. Memoized per pass in `dir_cache`.
-fn is_library_dir(_ dir: String, _ dir_cache: Map<String, Bool>) -> Bool {
+fn is_library_dir(dir: String, dir_cache: Map<String, Bool>) -> Bool {
     return match dir_cache.get(dir) {
         Some(b) => b,
         None => {
@@ -946,20 +938,20 @@ fn is_library_dir(_ dir: String, _ dir_cache: Map<String, Bool>) -> Bool {
 }
 
 // The barrel file that fronts `dir` (whether or not it exists).
-fn barrel_path(_ dir: String) -> String {
+fn barrel_path(dir: String) -> String {
     return path.join(dir, path.basename(dir) + source_exts()[0]);
 }
 
 // The acyclicity unit for a canonical file key: its directory when that directory
 // is a library, else the file itself.
-fn unit_of(_ key: String, _ dir_cache: Map<String, Bool>) -> String {
+fn unit_of(key: String, dir_cache: Map<String, Bool>) -> String {
     let dir = path.dirname(key);
     return if is_library_dir(dir, dir_cache) { dir } else { key };
 }
 
 // A unit rendered for the cycle message: a directory library with a trailing '/', a
 // single-file unit as its display path.
-fn unit_display(_ unit: String) -> String {
+fn unit_display(unit: String) -> String {
     if unit.ends_with(source_exts()[0]) {
         return display_path(unit);
     }
@@ -967,7 +959,7 @@ fn unit_display(_ unit: String) -> String {
 }
 
 // Append `to` to `from`'s adjacency list, creating the list on first use.
-fn push_edge(_ adj: Map<String, List<String>>, _ from: String, _ to: String) -> Void {
+fn push_edge(adj: Map<String, List<String>>, from: String, to: String) -> Void {
     match adj.get(from) {
         Some(xs) => { xs.push(to); },
         None => { adj[from] = [to]; },
@@ -976,7 +968,7 @@ fn push_edge(_ adj: Map<String, List<String>>, _ from: String, _ to: String) -> 
 }
 
 // Record `u` once, preserving first-seen order (the deterministic DFS order).
-fn add_unit(_ u: String, _ units: List<String>, _ seen: Set<String>) -> Void {
+fn add_unit(u: String, units: List<String>, seen: Set<String>) -> Void {
     if !seen.contains(u) {
         seen.add(u);
         units.push(u);
@@ -989,7 +981,7 @@ fn add_unit(_ u: String, _ units: List<String>, _ seen: Set<String>) -> Void {
 // unit -> component id; two units share an id exactly when each can reach the other
 // (a cycle: same-unit edges are excluded upstream, so a single-unit component is
 // acyclic).
-fn scc_ids(_ units: List<String>, _ adj: Map<String, List<String>>) -> Map<String, Int> {
+fn scc_ids(units: List<String>, adj: Map<String, List<String>>) -> Map<String, Int> {
     // Pass 1: DFS post-order ("finish order") over the forward graph.
     let finished: List<String> = [];
     let visited: Set<String> = Set.new();
@@ -1058,10 +1050,10 @@ fn scc_ids(_ units: List<String>, _ adj: Map<String, List<String>>) -> Map<Strin
 // shortest path from `to` back to `from` inside their shared component (BFS
 // restricted to it) — `a → b/ → a`. Same component ⇒ the path exists.
 fn cycle_path(
-    _ from: String,
-    _ to: String,
-    _ adj: Map<String, List<String>>,
-    _ comp: Map<String, Int>,
+    from: String,
+    to: String,
+    adj: Map<String, List<String>>,
+    comp: Map<String, Int>,
 ) -> String {
     let cid = comp.get(from).unwrap_or(-1);
     let parent: Map<String, String> = [:];
@@ -1111,9 +1103,9 @@ fn cycle_path(
 // graph pass is linear in the closure's edges; `thera check`'s printed-line dedupe
 // collapses the repeats across a multi-file run.
 fn detect_import_cycles(
-    _ cache: Map<String, LibrarySource>,
-    _ file_imports: Map<String, List<String>>,
-    _ diags: List<diagnostic.Diagnostic>,
+    cache: Map<String, LibrarySource>,
+    file_imports: Map<String, List<String>>,
+    diags: List<diagnostic.Diagnostic>,
 ) -> Void {
     // The unit graph: cross-unit edges from non-test files, deduped.
     let dir_cache: Map<String, Bool> = [:];
@@ -1182,8 +1174,8 @@ fn detect_import_cycles(
 // the importer is not itself in. Runs per closure load, beside the cycle pass;
 // `thera check`'s printed-line dedupe collapses multi-run repeats.
 fn detect_deep_imports(
-    _ cache: Map<String, LibrarySource>,
-    _ diags: List<diagnostic.Diagnostic>,
+    cache: Map<String, LibrarySource>,
+    diags: List<diagnostic.Diagnostic>,
 ) -> Void {
     let dir_cache: Map<String, Bool> = [:];
     for file in cache.keys() {
@@ -1212,20 +1204,20 @@ fn detect_deep_imports(
 
 // --- path / fs helpers ---
 
-fn is_file(_ path: String) -> Bool {
+fn is_file(path: String) -> Bool {
     return match fs.metadata(path) {
         Ok(m) => m.kind == fs.FileKind.File,
         Err(_) => false,
     };
 }
 
-fn is_dir(_ path: String) -> Bool {
+fn is_dir(path: String) -> Bool {
     return match fs.metadata(path) {
         Ok(m) => m.kind == fs.FileKind.Dir,
         Err(_) => false,
     };
 }
 
-fn canonical_resolved(_ o: Option<String>) -> Option<String> {
+fn canonical_resolved(o: Option<String>) -> Option<String> {
     return o.map((f) => canonical_path(f));
 }

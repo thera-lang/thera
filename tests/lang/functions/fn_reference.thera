@@ -16,15 +16,15 @@
 // "unsupported call target", equally so for a lambda (see roadmap.md → Language,
 // "Only an identifier or a field may be a call target"). Bind, then call.
 
-fn double(_ n: Int) -> Int {
+fn double(n: Int) -> Int {
     return n * 2;
 }
 
-fn stringify_it(_ n: Int) -> String {
+fn stringify_it(n: Int) -> String {
     return 'n=' + n.to_string();
 }
 
-fn apply(_ f: (Int) -> Int, _ n: Int) -> Int {
+fn apply(f: (Int) -> Int, n: Int) -> Int {
     return f(n);
 }
 

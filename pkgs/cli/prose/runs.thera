@@ -40,7 +40,7 @@ pub struct CommentRun {
 }
 
 /// Every rewritable comment run in `source`, in source order and disjoint.
-pub fn comment_runs(_ source: String, _ lex: LexResult) -> List<CommentRun> {
+pub fn comment_runs(source: String, lex: LexResult) -> List<CommentRun> {
     let chars = source.chars();
     let busy = occupied_lines(chars, lex.tokens);
 
@@ -97,13 +97,13 @@ struct CommentPart {
 
 // Whether `b` continues the run `a` is in: the next line down, same marker, same
 // indent.
-fn continues(_ a: CommentPart, _ b: CommentPart) -> Bool {
+fn continues(a: CommentPart, b: CommentPart) -> Bool {
     return b.line == a.line + 1 && b.marker == a.marker && b.indent == a.indent;
 }
 
 // Split one comment into marker, indent and content, or `None` if it is not a shape
 // this pass rewrites.
-fn split_comment(_ chars: List<Int>, _ c: Comment) -> Option<CommentPart> {
+fn split_comment(chars: List<Int>, c: Comment) -> Option<CommentPart> {
     let Some(indent) = space_indent(chars, c.span.offset) else {
         return Option.None; // a tab indent, or something before it on the line
     };
@@ -131,7 +131,7 @@ fn split_comment(_ chars: List<Int>, _ c: Comment) -> Option<CommentPart> {
 
 // The comment's marker: `//!`, `///`, or `//`. `None` for `////`+ — a run of
 // slashes is a divider, and reflowing one would make it a sentence.
-fn marker_of(_ text: String) -> Option<String> {
+fn marker_of(text: String) -> Option<String> {
     if text.starts_with('//!') {
         return Option.Some('//!');
     }
@@ -149,7 +149,7 @@ fn marker_of(_ text: String) -> Option<String> {
 
 // The width of the all-spaces indent ending at `offset`, or `None` if anything else
 // precedes the comment on its line.
-fn space_indent(_ chars: List<Int>, _ offset: Int) -> Option<Int> {
+fn space_indent(chars: List<Int>, offset: Int) -> Option<Int> {
     let mut i = offset;
     while i > 0 && chars[i - 1] == char.SPACE {
         i = i - 1;
@@ -162,7 +162,7 @@ fn space_indent(_ chars: List<Int>, _ offset: Int) -> Option<Int> {
 
 // Every 1-based line any token occupies, a multi-line string's interior included.
 // See the file header: this must be a range, not a start-line index.
-fn occupied_lines(_ chars: List<Int>, _ tokens: List<Token>) -> Set<Int> {
+fn occupied_lines(chars: List<Int>, tokens: List<Token>) -> Set<Int> {
     let out: Set<Int> = Set.new();
     for t in tokens {
         if t.kind == TokenKind.Eof {
@@ -182,7 +182,7 @@ fn occupied_lines(_ chars: List<Int>, _ tokens: List<Token>) -> Set<Int> {
     return out;
 }
 
-fn count_newlines(_ chars: List<Int>, _ start: Int, _ end: Int) -> Int {
+fn count_newlines(chars: List<Int>, start: Int, end: Int) -> Int {
     let mut n = 0;
     let mut i = start;
     while i < end && i < chars.len() {

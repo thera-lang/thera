@@ -78,7 +78,7 @@ struct Counts {
     let bytes: Int;
 }
 
-fn count(_ text: String) -> Counts {
+fn count(text: String) -> Counts {
     return Counts {
         lines: text.lines().len(),
         words: text.split_whitespace().len(),
@@ -108,11 +108,13 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
   public members.
 - **Lines 4–8:** `struct Counts { ... }` declares a nominal struct. Struct
   fields in Thera are immutable by default, preventing unexpected side-effects.
-- **Line 10:** `fn count(_ text: String) -> Counts` defines a function. The
-  leading underscore `_` in the parameter signature suppresses the call-site
-  argument label. By default, Thera parameters are named at call sites (e.g.,
-  `greet(name: 'alice')`). Using `_` allows natural-reading unqualified
-  arguments where the context makes the role obvious.
+- **Line 10:** `fn count(text: String) -> Counts` defines a function. Parameters
+  are **positional by default**, so `count(text)` reads without ceremony. The
+  author opts a parameter into a call-site label with a leading `named`
+  (`fn greet(named name: String)`, called `greet(name: 'alice')`) — worth it for
+  booleans and same-typed arguments whose order is otherwise unclear. Either way
+  the call site has exactly one valid form, so every call to a given function
+  looks the same.
 - **Line 18:** `fn main(parameters: List<String>) -> Result<Int, Error>` is the
   program's entry point. It receives arguments as a `List<String>` and returns a
   `Result` containing either the exit code (`Int`) or a structured `Error`.
@@ -142,8 +144,8 @@ top-level declaration (`fn`, `type`, `enum`, `const`, `interface`) is private to
 its source file unless prefixed with the `pub` keyword:
 
 ```thera
-pub fn format_date(_ d: Date) -> String { ... }   // Visible to importers
-fn pad2(_ n: Int) -> String { ... }               // Private to this file
+pub fn format_date(d: Date) -> String { ... }   // Visible to importers
+fn pad2(n: Int) -> String { ... }               // Private to this file
 ```
 
 To aggregate a directory of related files into a single importable namespace,

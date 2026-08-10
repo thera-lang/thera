@@ -8,12 +8,12 @@
 // rejected this program with swapped expected types, and parameter-ordered
 // emission read a call-ordered expected list.)
 
-fn apply(first: (Int) -> Int, second: (String) -> String, _ n: Int) -> Int {
+fn apply(n: Int, named first: (Int) -> Int, named second: (String) -> String) -> Int {
     println(second('x')); // expect: x!
     return first(n);
 }
 
 fn main() -> Void {
-    let r = apply(second: (s) => s + '!', first: (i) => i + 1, 3);
+    let r = apply(3, second: (s) => s + '!', first: (i) => i + 1);
     println('${r}'); // expect: 4
 }

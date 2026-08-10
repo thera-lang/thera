@@ -9,7 +9,7 @@
 struct NoShow { let n: Int; }
 struct Box<T: Display> { let v: T; }
 
-fn use_it(_ b: Box<NoShow>) -> Int {   // expect error: does not implement `Display`
+fn use_it(b: Box<NoShow>) -> Int {   // expect error: does not implement `Display`
     return b.v.n;
 }
 

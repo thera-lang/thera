@@ -14,11 +14,11 @@
 import 'ast' as _;
 import 'describe' as _;
 
-pub fn dump_program(_ p: Program) -> String {
+pub fn dump_program(p: Program) -> String {
     return p.decls.map((d) => dump_decl(d, 0)).join('\n');
 }
 
-pub fn dump_decl(_ d: Decl, _ depth: Int) -> String {
+pub fn dump_decl(d: Decl, depth: Int) -> String {
     return match d {
         Import(x) => pad(depth) + 'import ' + x.path + dump_alias(x.alias),
         Fn(x) => dump_fn(x, depth),
@@ -35,7 +35,7 @@ pub fn dump_decl(_ d: Decl, _ depth: Int) -> String {
     };
 }
 
-pub fn dump_block(_ b: Block, _ depth: Int) -> String {
+pub fn dump_block(b: Block, depth: Int) -> String {
     let mut lines = [pad(depth) + 'block'];
     for s in b.stmts {
         lines.push(dump_stmt(s, depth + 1));
@@ -46,7 +46,7 @@ pub fn dump_block(_ b: Block, _ depth: Int) -> String {
     return lines.join('\n');
 }
 
-pub fn dump_stmt(_ s: Stmt, _ depth: Int) -> String {
+pub fn dump_stmt(s: Stmt, depth: Int) -> String {
     return match s {
         Let(x) => pad(depth) + 'let ' + dump_mut(x.is_mut) + x.name + dump_ann(x.type_ann)
             + ' = ' + describe_expr(x.value),
@@ -67,7 +67,7 @@ pub fn dump_stmt(_ s: Stmt, _ depth: Int) -> String {
 
 // --- helpers ---
 
-fn dump_fn(_ x: FnDecl, _ depth: Int) -> String {
+fn dump_fn(x: FnDecl, depth: Int) -> String {
     let sig = pad(depth) + 'fn ' + x.name + '(' + dump_params(x.params) + ')' + dump_ret(
         x.return_type
     );
@@ -77,7 +77,7 @@ fn dump_fn(_ x: FnDecl, _ depth: Int) -> String {
     };
 }
 
-fn dump_type(_ x: TypeDecl, _ depth: Int) -> String {
+fn dump_type(x: TypeDecl, depth: Int) -> String {
     let head = pad(depth) + 'type ' + x.name;
     if x.fields.len() == 0 {
         return head;
@@ -87,7 +87,7 @@ fn dump_type(_ x: TypeDecl, _ depth: Int) -> String {
     return head + '\n' + body;
 }
 
-fn dump_enum(_ x: EnumDecl, _ depth: Int) -> String {
+fn dump_enum(x: EnumDecl, depth: Int) -> String {
     let head = pad(depth) + 'enum ' + x.name;
     if x.variants.len() == 0 {
         return head;
@@ -96,7 +96,7 @@ fn dump_enum(_ x: EnumDecl, _ depth: Int) -> String {
     return head + '\n' + body;
 }
 
-fn dump_impl(_ x: ImplDecl, _ depth: Int) -> String {
+fn dump_impl(x: ImplDecl, depth: Int) -> String {
     let iface = match x.interface_name {
         Some(n) => n + ' for ',
         None => '',
@@ -109,7 +109,7 @@ fn dump_impl(_ x: ImplDecl, _ depth: Int) -> String {
     return head + '\n' + body;
 }
 
-fn dump_interface(_ x: InterfaceDecl, _ depth: Int) -> String {
+fn dump_interface(x: InterfaceDecl, depth: Int) -> String {
     let head = pad(depth) + 'interface ' + x.name;
     if x.methods.len() == 0 {
         return head;
@@ -118,7 +118,7 @@ fn dump_interface(_ x: InterfaceDecl, _ depth: Int) -> String {
     return head + '\n' + body;
 }
 
-fn dump_if_stmt(_ x: IfStmt, _ depth: Int) -> String {
+fn dump_if_stmt(x: IfStmt, depth: Int) -> String {
     let mut out = pad(depth) + 'if ' + describe_expr(x.condition) + '\n'
         + dump_block(x.then_block, depth + 1);
     if let Some(eb) = x.else_block {
@@ -127,57 +127,57 @@ fn dump_if_stmt(_ x: IfStmt, _ depth: Int) -> String {
     return out;
 }
 
-fn dump_params(_ ps: List<Param>) -> String {
+fn dump_params(ps: List<Param>) -> String {
     return ps.map((p) => dump_param(p)).join(', ');
 }
 
-fn dump_param(_ p: Param) -> String {
+fn dump_param(p: Param) -> String {
     return match p.type_ann {
         Some(t) => p.name + ': ' + describe_type(t),
         None => p.name,
     };
 }
 
-fn dump_ret(_ t: Option<TypeRef>) -> String {
+fn dump_ret(t: Option<TypeRef>) -> String {
     return match t {
         Some(ty) => ' -> ' + describe_type(ty),
         None => '',
     };
 }
 
-fn dump_ann(_ t: Option<TypeRef>) -> String {
+fn dump_ann(t: Option<TypeRef>) -> String {
     return match t {
         Some(ty) => ': ' + describe_type(ty),
         None => '',
     };
 }
 
-fn dump_alias(_ a: Option<String>) -> String {
+fn dump_alias(a: Option<String>) -> String {
     return match a {
         Some(n) => ' as ' + n,
         None => '',
     };
 }
 
-fn dump_opt_expr(_ v: Option<Expr>) -> String {
+fn dump_opt_expr(v: Option<Expr>) -> String {
     return match v {
         Some(e) => ' ' + describe_expr(e),
         None => '',
     };
 }
 
-fn dump_op(_ op: Option<String>) -> String {
+fn dump_op(op: Option<String>) -> String {
     return match op {
         Some(o) => o,
         None => '',
     };
 }
 
-fn dump_mut(_ is_mut: Bool) -> String {
+fn dump_mut(is_mut: Bool) -> String {
     return if is_mut { 'mut ' } else { '' };
 }
 
-fn pad(_ depth: Int) -> String {
+fn pad(depth: Int) -> String {
     let mut s = '';
     let mut i = 0;
     while i < depth {

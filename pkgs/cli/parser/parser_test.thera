@@ -9,15 +9,15 @@ import '../ast/ast' as _;
 import 'parser' as _;
 
 // Parse `src` as a single expression and render it canonically.
-fn expr_str(_ src: String) -> String {
+fn expr_str(src: String) -> String {
     return describe_expr(parse_expression(tokenize(src).tokens));
 }
 
-fn parse_src(_ src: String) -> ParseResult {
+fn parse_src(src: String) -> ParseResult {
     return parse_tokens(tokenize(src).tokens);
 }
 
-fn decl_name(_ d: Decl) -> String {
+fn decl_name(d: Decl) -> String {
     return match d {
         Import(x) => x.path,
         Fn(x) => x.name,
@@ -30,7 +30,7 @@ fn decl_name(_ d: Decl) -> String {
     };
 }
 
-fn decl_has(_ r: ParseResult, _ name: String) -> Bool {
+fn decl_has(r: ParseResult, name: String) -> Bool {
     for d in r.program.decls {
         if decl_name(d) == name {
             return true;
@@ -44,7 +44,7 @@ fn decl_has(_ r: ParseResult, _ name: String) -> Bool {
 // recovery loop would hang (or a stray index would trap) instead — exactly the
 // mid-edit input the LSP feeds the parser on every keystroke. In-process, so a few
 // hundred prefixes cost microseconds.
-fn parse_all_prefixes(_ src: String) -> Int {
+fn parse_all_prefixes(src: String) -> Int {
     let toks = tokenize(src).tokens;
     let eof = toks[toks.len() - 1]; // tokenize always ends with an EOF token
     let mut count = 0;
@@ -63,7 +63,7 @@ fn parse_all_prefixes(_ src: String) -> Int {
 
 // The code-point offset of the first `needle` in `src` (or -1). Tests use it to
 // name the `<`/`>` token they expect the parser to have classified.
-fn offset_of(_ src: String, _ needle: String) -> Int {
+fn offset_of(src: String, needle: String) -> Int {
     return src.find(needle).unwrap_or(-1);
 }
 
@@ -83,7 +83,7 @@ fn test_generic_delims_type_annotation() -> Result<Void, Error> {
 @test
 fn test_generic_delims_ignores_comparison() -> Result<Void, Error> {
     // `a < b` is a comparison, not a generic — its `<` must not be recorded.
-    let src = 'fn f(_ a: Int, _ b: Int) -> Bool { return a < b; }';
+    let src = 'fn f(a: Int, b: Int) -> Bool { return a < b; }';
     let d = parse_src(src).generic_delims;
     testing.assert(
         !d.opens.contains(offset_of(src, '<')),
@@ -107,9 +107,9 @@ fn test_generic_delims_nested_closes_are_separate() -> Result<Void, Error> {
 @test
 fn test_generic_delims_type_params_and_generic_call() -> Result<Void, Error> {
     // Type parameters (`<T>`) and a generic static call (`Set<String>.new()`).
-    let params = parse_src('fn f<T>(_ x: T) -> T { return x; }').generic_delims;
+    let params = parse_src('fn f<T>(x: T) -> T { return x; }').generic_delims;
     testing.assert(
-        params.opens.contains(offset_of('fn f<T>(_ x: T) -> T { return x; }', '<')),
+        params.opens.contains(offset_of('fn f<T>(x: T) -> T { return x; }', '<')),
         message: 'type-param `<` recorded',
     )?;
     testing.assert_eq(actual: params.opens.len(), expected: 1)?;
@@ -215,7 +215,7 @@ fn test_brace_map_rejected_with_hint() -> Result<Void, Error> {
         lit.errors[0].message.contains('[k: v]'),
         message: 'the error points at the bracket form',
     )?;
-    let vkey = parse_src('fn f(_ k: String) -> Void { let m = {k: 1}; }');
+    let vkey = parse_src('fn f(k: String) -> Void { let m = {k: 1}; }');
     testing.assert(vkey.has_errors(), message: 'variable-key brace map is rejected')?;
     testing.assert(
         vkey.errors[0].message.contains('[k: v]'),
@@ -259,7 +259,7 @@ fn test_string_interpolation() -> Result<Void, Error> {
 
 // Render a parsed string's parts, tagging each as text (`T:`) or interpolation
 // (`I:`) so a literal `${…}` (text) is distinguishable from a real one.
-fn parts_desc(_ src: String) -> String {
+fn parts_desc(src: String) -> String {
     let parts = match parse_expression(tokenize(src).tokens) {
         Str(_, ps) => ps,
         _ => [],
@@ -267,7 +267,7 @@ fn parts_desc(_ src: String) -> String {
     return parts.map((p) => part_tag(p)).join('|');
 }
 
-fn part_tag(_ p: StringPart) -> String {
+fn part_tag(p: StringPart) -> String {
     return match p {
         Text(_, t) => 'T:' + t,
         Interp(_, e) => 'I:' + describe_expr(e),
@@ -336,7 +336,7 @@ fn test_parse_each_declaration_kind() -> Result<Void, Error> {
         + 'struct Point { let x: Int; let y: Int; }\n'
         + 'enum Color { Red, Green, Blue }\n'
         + 'interface Shape { fn area(self) -> Double; }\n'
-        + 'fn area(_ s: Shape) -> Double { return s.area(); }\n'
+        + 'fn area(s: Shape) -> Double { return s.area(); }\n'
         + 'impl Point { pub fn origin() -> Point { return Point { x: 0, y: 0 }; } }';
     let r = parse_src(src);
     testing.assert(!r.has_errors(), message: 'unexpected parse errors')?;
@@ -391,14 +391,14 @@ fn test_parse_enum_requires_variant() -> Result<Void, Error> {
 @test
 fn test_match_arm_comma_required_after_expr_arm() -> Result<Void, Error> {
     // The `,` after an expression-bodied arm is required…
-    let r = parse_src("fn f(_ x: Int) -> String { return match x { 1 => 'one' _ => 'other' }; }");
+    let r = parse_src("fn f(x: Int) -> String { return match x { 1 => 'one' _ => 'other' }; }");
     testing.assert(r.has_errors(), message: 'comma-less expression arms are rejected')?;
     // …but optional after a `{…}` block arm and before the closing `}`.
     let ok = parse_src(
-        "fn f(_ x: Int) -> String { return match x { 1 => { 'one' } _ => 'other' }; }"
+        "fn f(x: Int) -> String { return match x { 1 => { 'one' } _ => 'other' }; }"
     );
     testing.assert(!ok.has_errors(), message: 'a block arm needs no comma')?;
-    let last = parse_src("fn f(_ x: Int) -> String { return match x { _ => 'other' }; }");
+    let last = parse_src("fn f(x: Int) -> String { return match x { _ => 'other' }; }");
     testing.assert(!last.has_errors(), message: 'the last arm needs no trailing comma')?;
     return Result.Ok(void);
 }
@@ -412,7 +412,7 @@ fn test_generic_call_nested_type_args() -> Result<Void, Error> {
     let recv = parse_src('fn f() -> Void { let m = Map<String, List<Int>>.new(); }');
     testing.assert(!recv.has_errors(), message: 'nested receiver type args should parse')?;
     // A comparison chain is still comparisons — no `<` classified as generic.
-    let cmp = parse_src('fn f(_ a: Int, _ b: Int, _ c: Int) -> Void { let x = a < b > c; }');
+    let cmp = parse_src('fn f(a: Int, b: Int, c: Int) -> Void { let x = a < b > c; }');
     testing.assert(!cmp.has_errors(), message: 'comparison chain should parse')?;
     testing.assert_eq(actual: cmp.generic_delims.opens.len(), expected: 0)?;
     return Result.Ok(void);
@@ -449,7 +449,7 @@ fn test_parse_qualified_bounds_and_supers() -> Result<Void, Error> {
     // interface of an `impl ns.I for T` — the three positions resolve the same way,
     // so they parse the same way.
     let src = 'import std.io;\n'
-        + 'fn f<S: io.Reader + io.Writer>(_ s: S) -> Int { return 1; }\n'
+        + 'fn f<S: io.Reader + io.Writer>(s: S) -> Int { return 1; }\n'
         + 'struct Box<T: io.Reader> { let v: T; }\n'
         + 'impl Box<T: io.Reader> { pub fn go(self) -> Int { return 1; } }\n'
         + 'interface Duplex : io.Reader + Display { fn id(self) -> Int; }';
@@ -474,7 +474,7 @@ fn test_parse_qualified_bounds_and_supers() -> Result<Void, Error> {
     }
     // A dangling qualifier (`S: io.`) is a syntax error, not a silent bare bound.
     testing.assert(
-        parse_src('fn f<S: io.>(_ s: S) -> Int { return 1; }').has_errors(),
+        parse_src('fn f<S: io.>(s: S) -> Int { return 1; }').has_errors(),
         message: 'expected a parse error for a dangling bound qualifier',
     )?;
     return Result.Ok(void);
@@ -548,7 +548,7 @@ fn test_trailing_semicolon_after_block_statement() -> Result<Void, Error> {
     // block expressions already parse it. (Regression: this used to be a hard error
     // only in statement blocks, which — in an imported file — silently dropped the
     // file's declarations.)
-    let r = parse_src('fn f(_ x: Int) -> Int {\n'
+    let r = parse_src('fn f(x: Int) -> Int {\n'
         + '  let mut a = 0;\n'
         + '  for i in 0..x {\n'
         + '    if i > 0 { match i { _ => { a = a + i; } } };\n'
@@ -738,7 +738,7 @@ fn test_name_spans_recorded() -> Result<Void, Error> {
 
 // The first statement of `fn f() { ... }`'s body in `src` — for the
 // desugar-fidelity tests.
-fn first_body_stmt(_ src: String) -> Option<Stmt> {
+fn first_body_stmt(src: String) -> Option<Stmt> {
     let r = parse_src(src);
     if let Fn(f) = r.program.decls[0] {
         if let Some(b) = f.body {
@@ -759,7 +759,7 @@ fn test_compound_assign_keeps_shape() -> Result<Void, Error> {
         Some(_) => void,
         None => { return Result.Err(error('no body stmt')); },
     }
-    let r = parse_src('fn f(_ m: Int) { m += 2; }');
+    let r = parse_src('fn f(m: Int) { m += 2; }');
     testing.assert_eq(actual: r.errors.len(), expected: 0)?;
     if let Fn(f) = r.program.decls[0] {
         if let Some(b) = f.body {
@@ -778,7 +778,7 @@ fn test_compound_assign_keeps_shape() -> Result<Void, Error> {
 // A plain assignment carries no operator.
 @test
 fn test_plain_assign_has_no_op() -> Result<Void, Error> {
-    if let Some(s) = first_body_stmt('fn f(_ m: Int) { m = 2; }') {
+    if let Some(s) = first_body_stmt('fn f(m: Int) { m = 2; }') {
         if let Assign(_, _, op, _) = s {
             testing.assert_eq(actual: op, expected: Option.None)?;
             return Result.Ok(void);
@@ -792,7 +792,7 @@ fn test_plain_assign_has_no_op() -> Result<Void, Error> {
 // the block is marked synthetic (PA6).
 @test
 fn test_if_let_desugar_spans_are_synthetic() -> Result<Void, Error> {
-    if let Some(s) = first_body_stmt('fn f(_ o: Option<Int>) { if let Some(v) = o { g(v); } }') {
+    if let Some(s) = first_body_stmt('fn f(o: Option<Int>) { if let Some(v) = o { g(v); } }') {
         if let Expr(_, e) = s {
             if let Match(m) = e {
                 testing.assert_eq(actual: m.arms.len(), expected: 2)?;
@@ -814,7 +814,7 @@ fn test_if_let_desugar_spans_are_synthetic() -> Result<Void, Error> {
 @test
 fn test_let_else_desugar_spans_are_synthetic() -> Result<Void, Error> {
     if let Some(s) = first_body_stmt(
-        'fn f(_ o: Option<Int>) -> Int { let Some(v) = o else { return 0; }; return v; }') {
+        'fn f(o: Option<Int>) -> Int { let Some(v) = o else { return 0; }; return v; }') {
         if let Let(l) = s {
             if let Match(m) = l.value {
                 if let Ident(is, name) = m.arms[0].body {
@@ -834,7 +834,7 @@ fn test_let_else_desugar_spans_are_synthetic() -> Result<Void, Error> {
 // is not (PA8 — the marker replaces span sniffing).
 @test
 fn test_else_if_wrapper_is_synthetic() -> Result<Void, Error> {
-    if let Some(s) = first_body_stmt('fn f(_ a: Bool, _ b: Bool) { if a { } else if b { } }') {
+    if let Some(s) = first_body_stmt('fn f(a: Bool, b: Bool) { if a { } else if b { } }') {
         if let If(x) = s {
             testing.assert_eq(
                 actual: x.else_block.map((b) => b.synthetic),
@@ -844,7 +844,7 @@ fn test_else_if_wrapper_is_synthetic() -> Result<Void, Error> {
             return Result.Err(error('expected an If stmt'));
         }
     }
-    if let Some(s) = first_body_stmt('fn f(_ a: Bool, _ b: Bool) { if a { } else { if b { } } }') {
+    if let Some(s) = first_body_stmt('fn f(a: Bool, b: Bool) { if a { } else { if b { } } }') {
         if let If(x) = s {
             testing.assert_eq(
                 actual: x.else_block.map((b) => b.synthetic),
@@ -863,7 +863,7 @@ fn test_else_if_wrapper_is_synthetic() -> Result<Void, Error> {
 @test
 fn test_keywords_as_member_names() -> Result<Void, Error> {
     let r = parse_src('struct P { let in: String; let mut: Bool; let mut match: Int; }\n'
-        + 'fn f(_ loc: String, _ cond: Bool) -> Int {\n'
+        + 'fn f(loc: String, cond: Bool) -> Int {\n'
         + '    let p = P { in: loc, mut: cond, match: 1 };\n'
         + '    return p.match;\n'
         + '}\n');
@@ -885,7 +885,7 @@ fn test_keywords_as_member_names() -> Result<Void, Error> {
 // rather than a parameter labeled `self`.
 @test
 fn test_self_is_always_the_receiver() -> Result<Void, Error> {
-    let r = parse_src('impl P { fn near(self, _ other: P) -> Bool { return true; } }');
+    let r = parse_src('impl P { fn near(self, other: P) -> Bool { return true; } }');
     testing.assert(!r.has_errors(), message: 'receiver + positional param should parse')?;
     if let Impl(im) = r.program.decls[0] {
         let ps = im.methods[0].params;
@@ -898,16 +898,16 @@ fn test_self_is_always_the_receiver() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A parameter name may not be a keyword, and with the two-name form retired there
-// is no label slot to escape into — so the message prescribes the two real ways out
-// (rename it, or make it positional).
+// A parameter name may not be a keyword, and there is no label slot to escape into
+// (a parameter's label is its name), so the message prescribes the one way out:
+// rename it.
 @test
 fn test_keyword_param_name_rejected() -> Result<Void, Error> {
     let r = parse_src('fn f(match: Int) -> Int { return 1; }');
     testing.assert(r.has_errors(), message: 'keyword param name should error')?;
     testing.assert(
         r.errors[0].message.contains('cannot be a keyword')
-        && r.errors[0].message.contains('_ name: T'),
+        && r.errors[0].message.contains('rename it'),
         message: 'prescriptive message, got: ${r.errors[0].message}',
     )?;
     return Result.Ok(void);
@@ -918,7 +918,7 @@ fn test_keyword_param_name_rejected() -> Result<Void, Error> {
 // dot's own line).
 @test
 fn test_dangling_dot_keeps_next_line_keyword() -> Result<Void, Error> {
-    let r = parse_src('fn f(_ p: P) -> Int {\n    p.\n    return 0;\n}');
+    let r = parse_src('fn f(p: P) -> Int {\n    p.\n    return 0;\n}');
     testing.assert(r.has_errors(), message: 'dangling dot should hole')?;
     if let Fn(fd) = r.program.decls[0] {
         if let Some(b) = fd.body {
@@ -930,4 +930,47 @@ fn test_dangling_dot_keeps_next_line_keyword() -> Result<Void, Error> {
         return Result.Err(error('the return statement should survive'));
     }
     return Result.Err(error('expected a fn decl'));
+}
+
+// `named` marks a labeled parameter and is contextual everywhere else: it is
+// recognized only at the head of a parameter, and only when another name follows.
+@test
+fn test_named_parameter_marker() -> Result<Void, Error> {
+    let r = parse_src('fn f(a: Int, named b: Int) -> Int { return a + b; }');
+    testing.assert(!r.has_errors(), message: '`named` should parse')?;
+    if let Fn(fd) = r.program.decls[0] {
+        testing.assert_eq(actual: fd.params[0].label, expected: Option.None)?;
+        testing.assert_eq(actual: fd.params[0].name, expected: 'a')?;
+        testing.assert_eq(actual: fd.params[1].label, expected: Option.Some('b'))?;
+        testing.assert_eq(actual: fd.params[1].name, expected: 'b')?;
+    }
+    // `named: Int` is a parameter *called* `named` — the marker needs a name after
+    // it, so one identifier then `:` is just a name.
+    let plain = parse_src('fn f(named: Int) -> Int { return named; }');
+    testing.assert(!plain.has_errors(), message: '`named` as a name should parse')?;
+    if let Fn(fd) = plain.program.decls[0] {
+        testing.assert_eq(actual: fd.params[0].label, expected: Option.None)?;
+        testing.assert_eq(actual: fd.params[0].name, expected: 'named')?;
+    }
+    // And `named named: Int` is a labeled parameter called `named`.
+    let both = parse_src('fn f(named named: Int) -> Int { return named; }');
+    testing.assert(!both.has_errors(), message: '`named named` should parse')?;
+    if let Fn(fd) = both.program.decls[0] {
+        testing.assert_eq(actual: fd.params[0].label, expected: Option.Some('named'))?;
+        testing.assert_eq(actual: fd.params[0].name, expected: 'named')?;
+    }
+    return Result.Ok(void);
+}
+
+// `_ name: T` was the positional marker until the default flipped; positional is
+// the default now, so the marker is rejected rather than silently accepted.
+@test
+fn test_underscore_parameter_marker_rejected() -> Result<Void, Error> {
+    let r = parse_src('fn f(_ a: Int) -> Int { return a; }');
+    testing.assert(r.has_errors(), message: '`_` marker should error')?;
+    testing.assert(
+        r.errors[0].message.contains('no longer a parameter marker'),
+        message: 'prescriptive message, got: ${r.errors[0].message}',
+    )?;
+    return Result.Ok(void);
 }

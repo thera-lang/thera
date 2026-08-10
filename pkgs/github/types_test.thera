@@ -126,7 +126,7 @@ const ISSUE_THAT_IS_A_PR: String = '''
 
 // --- helpers ---
 
-fn pr(_ text: String) -> Result<PullRequest, Error> {
+fn pr(text: String) -> Result<PullRequest, Error> {
     let doc = json.parse(text)?;
     return match pull_request_from_json(json.cursor(doc)) {
         Ok(value) => Result.Ok(value),
@@ -134,7 +134,7 @@ fn pr(_ text: String) -> Result<PullRequest, Error> {
     };
 }
 
-fn issue(_ text: String) -> Result<Issue, Error> {
+fn issue(text: String) -> Result<Issue, Error> {
     let doc = json.parse(text)?;
     return match issue_from_json(json.cursor(doc)) {
         Ok(value) => Result.Ok(value),
@@ -143,14 +143,14 @@ fn issue(_ text: String) -> Result<Issue, Error> {
 }
 
 /// The message a failing decode produced, so a test can assert on the path.
-fn failure<T>(_ outcome: Result<T, json.DecodeError>) -> Result<String, Error> {
+fn failure<T>(outcome: Result<T, json.DecodeError>) -> Result<String, Error> {
     return match outcome {
         Ok(_) => Result.Err(error('expected the decode to fail')),
         Err(e) => Result.Ok(e.message()),
     };
 }
 
-fn decode_pr(_ text: String) -> Result<PullRequest, json.DecodeError> {
+fn decode_pr(text: String) -> Result<PullRequest, json.DecodeError> {
     // A parse failure would be a bug in the fixture, so it is not the interesting
     // outcome here; `Json.Null` decodes to the same "expected an object" error.
     let doc = json.parse(text).unwrap_or(json.null());

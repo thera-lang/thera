@@ -39,9 +39,9 @@ struct TestCounts {
 // passing `program_args` through to the program's `main`. Returns the child's exit
 // code (or a non-zero code if compilation or spawning failed).
 pub fn run_file(
-    _ file: String,
-    _ program_args: List<String>,
-    _ sdk_root: Option<String>,
+    file: String,
+    program_args: List<String>,
+    sdk_root: Option<String>,
 ) -> Result<Int, Error> {
     match compile_or_report(file, sdk_root) {
         None => {
@@ -78,10 +78,10 @@ pub fn run_file(
 // output on) restores the per-file/per-test report. Returns 0 when every file
 // passed, 1 otherwise.
 pub fn test_paths(
-    _ targets: List<String>,
-    _ sdk_root: Option<String>,
-    show_output: Bool = false,
-    verbose: Bool = false,
+    targets: List<String>,
+    sdk_root: Option<String>,
+    named show_output: Bool = false,
+    named verbose: Bool = false,
 ) -> Result<Int, Error> {
     match find_runtime_binary(sdk_root) {
         None => {
@@ -144,11 +144,11 @@ pub fn test_paths(
 // failure (or always, when `show_output`). Returns the counts, or None if the file
 // failed to read/parse/compile (already reported).
 fn run_test_file(
-    _ path_str: String,
-    _ runtime: String,
-    _ show_output: Bool,
-    _ verbose: Bool,
-    _ sess: session.Session,
+    path_str: String,
+    runtime: String,
+    show_output: Bool,
+    verbose: Bool,
+    sess: session.Session,
 ) -> Option<TestCounts> {
     let source = match fs.read_text(path_str) {
         Ok(s) => s,
@@ -239,7 +239,7 @@ struct DriverOutput {
     let failed: Option<Int>;
 }
 
-fn split_trailer(_ stdout: String) -> DriverOutput {
+fn split_trailer(stdout: String) -> DriverOutput {
     let body: List<String> = [];
     let mut failed: Option<Int> = Option.None;
     for line in stdout.lines() {
@@ -254,7 +254,7 @@ fn split_trailer(_ stdout: String) -> DriverOutput {
 }
 
 // The names of the `@test`-decorated functions in `program`, in source order.
-fn test_names(_ program: ast.Program) -> List<String> {
+fn test_names(program: ast.Program) -> List<String> {
     let names: List<String> = [];
     for decl in program.decls {
         if let Fn(f) = decl {
@@ -266,7 +266,7 @@ fn test_names(_ program: ast.Program) -> List<String> {
     return names;
 }
 
-fn has_test_decorator(_ f: ast.FnDecl) -> Bool {
+fn has_test_decorator(f: ast.FnDecl) -> Bool {
     for d in f.decorators {
         if d.name == 'test' {
             return true;
@@ -289,7 +289,7 @@ fn has_test_decorator(_ f: ast.FnDecl) -> Bool {
 // passing-test line to hang it on). The capture natives are declared here, not in
 // the stdlib: they're a runner-internal concern, and `native fn` is usable in any
 // module.
-fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> String {
+fn test_driver(tests: List<String>, show_output: Bool, verbose: Bool) -> String {
     let show = if show_output { 'true' } else { 'false' };
     // Quiet failure blocks indent by two; the verbose report's column is ten.
     let indent = if verbose { '          ' } else { '  ' };
@@ -306,7 +306,7 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
         s = '${s}@extern(\'time_now_millis\')\n';
         s = '${s}native fn __thera_now() -> Int\n';
         // Right-pad a test name to the duration column (long names just overflow).
-        s = '${s}fn __thera_pad(_ text: String, _ width: Int) -> String {\n';
+        s = '${s}fn __thera_pad(text: String, width: Int) -> String {\n';
         s = '${s}    let mut __thera_p = text;\n';
         s = '${s}    while __thera_p.len() < width { __thera_p = __thera_p + \' \'; }\n';
         s = '${s}    return __thera_p;\n';
@@ -315,13 +315,13 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
     // Print `text` with every line indented under the report column — so a
     // multi-line assertion message (or captured output) stays aligned, not just its
     // first line.
-    s = '${s}fn __thera_indent(_ text: String) -> Void {\n';
+    s = '${s}fn __thera_indent(text: String) -> Void {\n';
     s = '${s}    for __thera_line in text.lines() {\n';
     s = '${s}        println(\'${indent}\' + __thera_line);\n';
     s = '${s}    }\n';
     s = '${s}}\n';
     // Print a test's captured output under an `--- output ---` header.
-    s = '${s}fn __thera_show(_ captured: String) -> Void {\n';
+    s = '${s}fn __thera_show(captured: String) -> Void {\n';
     s = '${s}    if captured == \'\' { return; }\n';
     s = '${s}    println(\'${indent}--- output ---\');\n';
     s = '${s}    __thera_indent(captured);\n';
@@ -331,9 +331,9 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
     // `message()`. A failing test always shows its captured output. Verbose mode
     // takes the test's duration (ms) and renders it as a trailing column.
     if verbose {
-        s = '${s}fn __thera_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool, _ ms: Int) -> Int {\n';
+        s = '${s}fn __thera_report(name: String, r: Result<Void, Error>, captured: String, show: Bool, ms: Int) -> Int {\n';
     } else {
-        s = '${s}fn __thera_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool) -> Int {\n';
+        s = '${s}fn __thera_report(name: String, r: Result<Void, Error>, captured: String, show: Bool) -> Int {\n';
     }
     s = '${s}    return match r {\n';
     s = '${s}        Ok(_) => {\n';
@@ -397,10 +397,10 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
 // stdin/stdout/stderr (output streams live), and we return its exit code. The temp
 // dir is removed afterwards.
 fn run_bytecode(
-    _ runtime: String,
-    _ bytes: Bytes,
-    _ entry: Option<String>,
-    _ program_args: List<String>,
+    runtime: String,
+    bytes: Bytes,
+    entry: Option<String>,
+    program_args: List<String>,
 ) -> Result<Int, Error> {
     let dir = temp_dir_unique('thera')?;
     let out = path.join(dir, 'out.thera-bc');
@@ -430,7 +430,7 @@ fn run_bytecode(
 // `process.run`) rather than inherited — the test path needs the stdout to strip
 // the driver's machine trailer before forwarding. Test children don't read
 // interactive input, so losing the shared console costs nothing.
-fn run_bytecode_captured(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>)
+fn run_bytecode_captured(runtime: String, bytes: Bytes, entry: Option<String>)
     -> Result<process.ProcessResult, Error> {
     let dir = temp_dir_unique('thera')?;
     let out = path.join(dir, 'out.thera-bc');
@@ -456,7 +456,7 @@ fn run_bytecode_captured(_ runtime: String, _ bytes: Bytes, _ entry: Option<Stri
 // checkout that's `<root>/runtime/target/debug/thera-rt`; in a distributed SDK the
 // launcher (`bin/thera`) *is* the runtime, so we hand back our own executable —
 // invoked on a `.thera-bc` it runs it directly. None if neither resolves.
-pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
+pub fn find_runtime_binary(sdk_root: Option<String>) -> Option<String> {
     // The runtime already executing us runs a `.thera-bc` path directly (see the
     // runtime CLI), so it is the right binary to run compiled tests on — and it
     // matches our own build profile, whether the dev front-end (release/debug via
@@ -488,7 +488,7 @@ fn runtime_missing_message() -> String {
 
 // Compile `file` to bytecode bytes, printing any read error or diagnostics. Returns
 // None on any failure (the caller then reports a non-zero exit).
-fn compile_or_report(_ file: String, _ sdk_root: Option<String>) -> Option<Bytes> {
+fn compile_or_report(file: String, sdk_root: Option<String>) -> Option<Bytes> {
     let source = match fs.read_text(file) {
         Ok(s) => s,
         Err(e) => {
@@ -507,7 +507,7 @@ fn compile_or_report(_ file: String, _ sdk_root: Option<String>) -> Option<Bytes
 
 // Collect `*_test.thera` paths from `targets` — files used directly, directories
 // searched recursively — sorted and de-duplicated for stable output.
-fn collect_test_files(_ targets: List<String>) -> List<String> {
+fn collect_test_files(targets: List<String>) -> List<String> {
     let found: List<String> = [];
     for target in targets {
         match fs.metadata(target) {
@@ -535,7 +535,7 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
 // read itself, so a walk costs no `metadata` call per entry (which, over a tree
 // with a build directory in it, is the whole cost of the walk). A symlink needs the
 // call to learn what it points at; nothing else does.
-pub fn collect_from_dir(_ dir: String, _ suffixes: List<String>, _ found: List<String>) -> Void {
+pub fn collect_from_dir(dir: String, suffixes: List<String>, found: List<String>) -> Void {
     if let Ok(entries) = fs.read_dir(dir) {
         for e in entries {
             let full = path.join(dir, e.name);
@@ -564,7 +564,7 @@ pub fn collect_from_dir(_ dir: String, _ suffixes: List<String>, _ found: List<S
 }
 
 // Selection-sort the paths (no `List.sort` yet), then drop adjacent duplicates.
-pub fn sort_dedup(_ items: List<String>) -> List<String> {
+pub fn sort_dedup(items: List<String>) -> List<String> {
     let n = items.len();
     let mut i = 0;
     while i < n {
@@ -595,7 +595,7 @@ pub fn sort_dedup(_ items: List<String>) -> List<String> {
 }
 
 // Lexicographic `a < b` by Unicode code point (String has no `<` yet).
-fn str_less(_ a: String, _ b: String) -> Bool {
+fn str_less(a: String, b: String) -> Bool {
     let ca = a.chars();
     let cb = b.chars();
     let na = ca.len();
@@ -618,7 +618,7 @@ fn str_less(_ a: String, _ b: String) -> Bool {
 // deleted under each other), and its errors were swallowed. Same-stamp candidates
 // differ by the attempt counter; a run that can't create any candidate reports the
 // failure instead of limping on.
-fn temp_dir_unique(_ prefix: String) -> Result<String, Error> {
+fn temp_dir_unique(prefix: String) -> Result<String, Error> {
     let base = fs.temp_dir();
     let stamp = time.now_millis();
     let mut attempt = 0;
@@ -632,7 +632,7 @@ fn temp_dir_unique(_ prefix: String) -> Result<String, Error> {
     return Result.Err(error('cannot create a temp directory under ${base}'));
 }
 
-fn cleanup_dir(_ dir: String) -> Void {
+fn cleanup_dir(dir: String) -> Void {
     match fs.remove_dir_all(dir) {
         Ok(_) => void,
         Err(_) => void,
@@ -640,7 +640,7 @@ fn cleanup_dir(_ dir: String) -> Void {
 }
 
 // `word` or its plural (`word` + 's'), matching `n` — for summary lines.
-pub fn plural(_ n: Int, _ word: String) -> String {
+pub fn plural(n: Int, word: String) -> String {
     if n == 1 {
         return word;
     }

@@ -27,7 +27,7 @@ impl Display for Point {
     }
 }
 
-pub fn sum(_ p: Point) -> Int {
+pub fn sum(p: Point) -> Int {
     return p.x + p.y + p.label.a_id;
 }
 

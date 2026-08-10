@@ -6,7 +6,7 @@
 // divergence no longer rides on `Unknown` leniency. Value agreement still binds
 // the non-diverging arms (they must all produce that concrete type).
 
-fn unwrap_or_throw(_ o: Option<Int>) -> Result<Int, Error> {
+fn unwrap_or_throw(o: Option<Int>) -> Result<Int, Error> {
     // The `None` arm is `Never`, so the match is `Int` and `n` binds as `Int`
     // (used arithmetically below — an `Unknown` here would silently allow anything).
     let n = match o {

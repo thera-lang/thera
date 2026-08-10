@@ -13,7 +13,7 @@ impl Display for Point {
 }
 
 // An interface-typed parameter dispatches dynamically.
-fn show(_ d: Display) -> String {
+fn show(d: Display) -> String {
     return d.to_string();
 }
 

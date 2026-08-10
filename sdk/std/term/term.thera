@@ -59,7 +59,7 @@ pub enum Color {
 /// ```thera
 /// print(term.style('error: not found', color: Color.Red, bold: true));
 /// ```
-pub fn style(_ text: String, color: Color, bold: Bool = false) -> String {
+pub fn style(text: String, named color: Color, named bold: Bool = false) -> String {
     if !is_tty() {
         return text;
     }
@@ -69,13 +69,13 @@ pub fn style(_ text: String, color: Color, bold: Bool = false) -> String {
 /// Wrap `text` in an ANSI foreground color (and optional bold) unconditionally —
 /// the mechanism behind `style`, without the TTY check. Use when the caller has
 /// already decided to colorize (e.g. a forced `--color` flag).
-pub fn paint(_ text: String, color: Color, bold: Bool = false) -> String {
+pub fn paint(text: String, named color: Color, named bold: Bool = false) -> String {
     let codes = if bold { '1;${fg_code(color)}' } else { fg_code(color) };
     return '\x1b[${codes}m${text}\x1b[0m';
 }
 
 // The SGR foreground-color parameter for `color` (30..37, or 39 for the default).
-fn fg_code(_ color: Color) -> String {
+fn fg_code(color: Color) -> String {
     return match color {
         Black => '30',
         Red => '31',

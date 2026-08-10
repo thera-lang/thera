@@ -22,12 +22,12 @@ impl Shape for CircleA {
 }
 
 // An interface-typed param: admits exactly the conformers to *this* Shape.
-pub fn a_area(_ s: Shape) -> Int {
+pub fn a_area(s: Shape) -> Int {
     return s.area();
 }
 
 // A bound on *this* Shape: satisfied only by its own conformers (see
 // bound_identity.thera).
-pub fn a_bounded<T: Shape>(_ x: T) -> Int {
+pub fn a_bounded<T: Shape>(x: T) -> Int {
     return x.area();
 }

@@ -11,11 +11,11 @@ import '../element' as _;
 import '../diagnostic' as _; // Diagnostic
 import 'checker' as _;
 
-fn errors_of(_ src: String) -> List<Diagnostic> {
+fn errors_of(src: String) -> List<Diagnostic> {
     return check(testkit.parse(src), [], [:], [:]).errors;
 }
 
-fn first_message(_ errs: List<Diagnostic>) -> String {
+fn first_message(errs: List<Diagnostic>) -> String {
     if errs.len() == 0 {
         return '<no errors>';
     }
@@ -24,7 +24,7 @@ fn first_message(_ errs: List<Diagnostic>) -> String {
 
 // Reserved-name diagnostics from a full closure check (`check_files`, the path that
 // runs the reserved-name check — `check` alone does not).
-fn reserved_errors(_ primary: Program, _ imports: List<Program>) -> List<Diagnostic> {
+fn reserved_errors(primary: Program, imports: List<Program>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in check_files(primary, imports, [:], [:]).errors {
         if e.message.contains('is a reserved type name') {
@@ -36,7 +36,7 @@ fn reserved_errors(_ primary: Program, _ imports: List<Program>) -> List<Diagnos
 
 @test
 fn test_clean_program_has_no_errors() -> Result<Void, Error> {
-    let errs = errors_of('fn add(_ a: Int, _ b: Int) -> Int { return a + b; }');
+    let errs = errors_of('fn add(a: Int, b: Int) -> Int { return a + b; }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -88,7 +88,7 @@ fn test_undefined_name() -> Result<Void, Error> {
 
 @test
 fn test_unknown_type() -> Result<Void, Error> {
-    let errs = errors_of('fn f(_ x: Foo) -> Int { return 0; }');
+    let errs = errors_of('fn f(x: Foo) -> Int { return 0; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: 'unknown type: Foo')?;
     return Result.Ok(void);
@@ -178,7 +178,7 @@ fn test_condition_not_bool() -> Result<Void, Error> {
 
 @test
 fn test_call_arity() -> Result<Void, Error> {
-    let errs = errors_of('fn g(_ a: Int) { }\n' + 'fn f() { g(); }');
+    let errs = errors_of('fn g(a: Int) { }\n' + 'fn f() { g(); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: '"g" expects 1 argument, got 0')?;
     return Result.Ok(void);
@@ -186,7 +186,7 @@ fn test_call_arity() -> Result<Void, Error> {
 
 @test
 fn test_unknown_argument_label() -> Result<Void, Error> {
-    let errs = errors_of('fn g(_ a: Int) { }\n' + 'fn f() { g(b: 1); }');
+    let errs = errors_of('fn g(a: Int) { }\n' + 'fn f() { g(b: 1); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: 'unknown argument label "b" for "g"')?;
     return Result.Ok(void);
@@ -194,7 +194,7 @@ fn test_unknown_argument_label() -> Result<Void, Error> {
 
 @test
 fn test_argument_type_mismatch() -> Result<Void, Error> {
-    let errs = errors_of('fn g(_ a: Int) { }\n' + 'fn f() { g(true); }');
+    let errs = errors_of('fn g(a: Int) { }\n' + 'fn f() { g(true); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(
         actual: first_message(errs),
@@ -219,8 +219,8 @@ fn test_lambda_param_not_inferable() -> Result<Void, Error> {
 fn test_elseless_if_tail_unit_is_clean() -> Result<Void, Error> {
     // A side-effecting else-less `if` as a block tail yields Unit — no `else`
     // required (the relaxed tail-expression rule).
-    let errs = errors_of('fn log(_ s: String) { }\n'
-        + 'fn f(_ c: Bool) -> Int { let _u = { if c { log("hi") } }; return 0; }');
+    let errs = errors_of('fn log(s: String) { }\n'
+        + 'fn f(c: Bool) -> Int { let _u = { if c { log("hi") } }; return 0; }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -229,7 +229,7 @@ fn test_elseless_if_tail_unit_is_clean() -> Result<Void, Error> {
 fn test_elseless_if_tail_with_value_needs_else() -> Result<Void, Error> {
     // But an else-less `if` whose then-branch yields a real value still needs an
     // `else` — the missing branch can't supply that value.
-    let errs = errors_of('fn f(_ c: Bool) -> Int { let _u = { if c { 5 } }; return 0; }');
+    let errs = errors_of('fn f(c: Bool) -> Int { let _u = { if c { 5 } }; return 0; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(
         actual: first_message(errs),
@@ -291,7 +291,7 @@ fn test_default_method_override_signature_checked() -> Result<Void, Error> {
 fn test_generic_bound_violation() -> Result<Void, Error> {
     let errs = errors_of('interface Show { fn show(self) -> String; }\n'
         + 'struct P { let v: Int; }\n'
-        + 'fn need<T: Show>(_ x: T) { }\n'
+        + 'fn need<T: Show>(x: T) { }\n'
         + 'fn f() { need(P { v: 1 }); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(
@@ -311,7 +311,7 @@ fn test_primitive_bound_rejects_user_interface() -> Result<Void, Error> {
     // static calls).
     let errs = errors_of('interface Doubler { fn doubled(self) -> Int; }\n'
         + 'impl Doubler for Int { pub fn doubled(self) -> Int { return self * 2; } }\n'
-        + 'fn need<T: Doubler>(_ x: T) -> Int { return x.doubled(); }\n'
+        + 'fn need<T: Doubler>(x: T) -> Int { return x.doubled(); }\n'
         + 'fn f() -> Int { return need(21); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(
@@ -329,10 +329,10 @@ fn test_primitive_bounds_allow_the_core_interfaces() -> Result<Void, Error> {
     // The four dispatchable core interfaces stay satisfiable by primitives —
     // `Eq`/`Debug` intrinsically, `Display`/`Ord` via the (floor-seeded) declared
     // core impls.
-    let errs = errors_of('fn need_eq<T: Eq>(_ x: T) { }\n'
-        + 'fn need_debug<T: Debug>(_ x: T) { }\n'
-        + 'fn need_display<T: Display>(_ x: T) { }\n'
-        + 'fn need_ord<T: Ord>(_ x: T) { }\n'
+    let errs = errors_of('fn need_eq<T: Eq>(x: T) { }\n'
+        + 'fn need_debug<T: Debug>(x: T) { }\n'
+        + 'fn need_display<T: Display>(x: T) { }\n'
+        + 'fn need_ord<T: Ord>(x: T) { }\n'
         + 'fn f() {\n'
         + '    need_eq(1);\n'
         + '    need_debug(true);\n'
@@ -367,7 +367,7 @@ fn test_rich_generic_program_is_clean() -> Result<Void, Error> {
     let errs = errors_of('enum Opt<T> { Some(T), Nope }\n'
         + 'struct Box<T> { let value: T; }\n'
         + 'impl Box<T> { fn get(self) -> T { return self.value; } }\n'
-        + 'fn map_opt<T, U>(_ o: Opt<T>, _ f: (T) -> U) -> Opt<U> {\n'
+        + 'fn map_opt<T, U>(o: Opt<T>, f: (T) -> U) -> Opt<U> {\n'
         + '  return match o { Some(v) => Opt.Some(f(v)), Nope => Opt.Nope };\n'
         + '}\n'
         + 'fn main() -> Int {\n'
@@ -382,7 +382,7 @@ fn test_rich_generic_program_is_clean() -> Result<Void, Error> {
 @test
 fn test_generic_bound_satisfied_by_primitive_is_clean() -> Result<Void, Error> {
     // Primitives satisfy the built-in Display/Eq/Debug bounds.
-    let errs = errors_of('fn need<T: Display>(_ x: T) { }\n' + 'fn f() { need(5); }');
+    let errs = errors_of('fn need<T: Display>(x: T) { }\n' + 'fn f() { need(5); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -392,7 +392,7 @@ fn test_generic_bound_satisfied_by_primitive_is_clean() -> Result<Void, Error> {
 @test
 fn test_method_arg_type_mismatch() -> Result<Void, Error> {
     let errs = errors_of('struct Counter { let n: Int; }\n'
-        + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
+        + 'impl Counter { fn bump(self, by: Int) -> Int { return self.n + by; } }\n'
         + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(\'x\'); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(
@@ -405,7 +405,7 @@ fn test_method_arg_type_mismatch() -> Result<Void, Error> {
 @test
 fn test_method_arg_valid_is_clean() -> Result<Void, Error> {
     let errs = errors_of('struct Counter { let n: Int; }\n'
-        + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
+        + 'impl Counter { fn bump(self, by: Int) -> Int { return self.n + by; } }\n'
         + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(5); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
@@ -414,7 +414,7 @@ fn test_method_arg_valid_is_clean() -> Result<Void, Error> {
 @test
 fn test_method_wrong_arity() -> Result<Void, Error> {
     let errs = errors_of('struct Counter { let n: Int; }\n'
-        + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
+        + 'impl Counter { fn bump(self, by: Int) -> Int { return self.n + by; } }\n'
         + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(1, 2); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: '"bump" expects 1 argument, got 2')?;
@@ -426,7 +426,7 @@ fn test_generic_method_arg_substitutes_receiver() -> Result<Void, Error> {
     // `put`'s parameter is the receiver's `T`; on a `Box<Int>` a `String` argument
     // is a mismatch (receiver generics are made concrete first).
     let errs = errors_of('struct Box<T> { let value: T; }\n'
-        + 'impl Box<T> { fn put(self, _ v: T) -> T { return v; } }\n'
+        + 'impl Box<T> { fn put(self, v: T) -> T { return v; } }\n'
         + 'fn f() -> Int { let b = Box { value: 1 }; return b.put(\'x\'); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(
@@ -439,7 +439,7 @@ fn test_generic_method_arg_substitutes_receiver() -> Result<Void, Error> {
 @test
 fn test_generic_method_arg_matching_is_clean() -> Result<Void, Error> {
     let errs = errors_of('struct Box<T> { let value: T; }\n'
-        + 'impl Box<T> { fn put(self, _ v: T) -> T { return v; } }\n'
+        + 'impl Box<T> { fn put(self, v: T) -> T { return v; } }\n'
         + 'fn f() -> Int { let b = Box { value: 1 }; return b.put(7); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
@@ -449,7 +449,7 @@ fn test_generic_method_arg_matching_is_clean() -> Result<Void, Error> {
 
 @test
 fn test_match_arms_incompatible_value_types() -> Result<Void, Error> {
-    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+    let errs = errors_of('fn f(n: Int) -> Int {\n'
         + '  let _x = match n { 0 => \'a\', _ => 1 };\n'
         + '  return n;\n'
         + '}');
@@ -463,7 +463,7 @@ fn test_match_arms_incompatible_value_types() -> Result<Void, Error> {
 
 @test
 fn test_match_arms_consistent_is_clean() -> Result<Void, Error> {
-    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+    let errs = errors_of('fn f(n: Int) -> Int {\n'
         + '  let x = match n { 0 => 10, _ => 20 };\n'
         + '  return x;\n'
         + '}');
@@ -476,7 +476,7 @@ fn test_match_later_arm_violates_expected_type() -> Result<Void, Error> {
     // Under an annotated context (the function's return type), a wrong *later* arm
     // is caught even though the first arm matches — the old whole-match inference
     // (first arm wins) missed this.
-    let errs = errors_of('fn f(_ n: Int) -> String {\n'
+    let errs = errors_of('fn f(n: Int) -> String {\n'
         + '  return match n { 0 => \'zero\', _ => 1 };\n'
         + '}');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -491,7 +491,7 @@ fn test_match_later_arm_violates_expected_type() -> Result<Void, Error> {
 fn test_match_void_arm_in_value_match_is_flagged() -> Result<Void, Error> {
     // A non-diverging `Void` arm in a value-producing match flows its unit value
     // out and traps only at the use site — a check error, both spellings.
-    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+    let errs = errors_of('fn f(n: Int) -> Int {\n'
         + '  let _x = match n { 0 => 1, _ => {} };\n'
         + '  return n;\n'
         + '}');
@@ -500,7 +500,7 @@ fn test_match_void_arm_in_value_match_is_flagged() -> Result<Void, Error> {
         first_message(errs).contains('produces no value'),
         message: 'the void-arm diagnostic names the problem',
     )?;
-    let errs2 = errors_of('fn f(_ n: Int) -> Int {\n'
+    let errs2 = errors_of('fn f(n: Int) -> Int {\n'
         + '  let _x = match n { 0 => 1, _ => void };\n'
         + '  return n;\n'
         + '}');
@@ -513,7 +513,7 @@ fn test_match_all_void_arms_is_clean() -> Result<Void, Error> {
     // A side-effecting match whose arms all produce nothing stays clean — the match
     // produces no value, so there is nothing a `Void` arm can corrupt.
     let errs = errors_of('fn g() -> Void {}\n'
-        + 'fn f(_ n: Int) -> Int {\n'
+        + 'fn f(n: Int) -> Int {\n'
         + '  match n { 0 => g(), _ => void }\n'
         + '  return n;\n'
         + '}');
@@ -525,7 +525,7 @@ fn test_match_all_void_arms_is_clean() -> Result<Void, Error> {
 fn test_match_diverging_block_arm_is_exempt() -> Result<Void, Error> {
     // A block-bodied diverging arm infers `Unit` (a tail-less block), but it exits
     // the function — the syntactic always-exits view keeps it exempt.
-    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+    let errs = errors_of('fn f(n: Int) -> Int {\n'
         + '  let x = match n { 0 => 1, _ => { return 0; } };\n'
         + '  return x;\n'
         + '}');
@@ -539,7 +539,7 @@ fn test_if_let_discarded_value_is_clean() -> Result<Void, Error> {
     // a match with a fabricated Unit wildcard arm — never flagged (the diagnostic
     // is Source-origin only).
     let errs = errors_of('enum E { A(Int), B }\n'
-        + 'fn f(_ e: E) -> Int {\n'
+        + 'fn f(e: E) -> Int {\n'
         + '  if let A(v) = e { v }\n'
         + '  return 0;\n'
         + '}');
@@ -551,7 +551,7 @@ fn test_if_let_discarded_value_is_clean() -> Result<Void, Error> {
 fn test_match_return_arm_is_exempt() -> Result<Void, Error> {
     // An arm that is a bare `return` is `Unknown`-typed and exempt from unification
     // (it diverges rather than producing the match's value).
-    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+    let errs = errors_of('fn f(n: Int) -> Int {\n'
         + '  let x = match n { 0 => 1, _ => return 0 };\n'
         + '  return x;\n'
         + '}');
@@ -603,7 +603,7 @@ fn test_generic_call_pinned_by_return_context_is_clean() -> Result<Void, Error> 
 @test
 fn test_generic_call_pinned_by_argument_is_clean() -> Result<Void, Error> {
     // `T` also appears in a parameter, so the argument pins it — never reported.
-    let errs = errors_of('fn id<T>(_ x: T) -> T { return x; }\n' + 'fn f() { let _v = id(5); }');
+    let errs = errors_of('fn id<T>(x: T) -> T { return x; }\n' + 'fn f() { let _v = id(5); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -613,7 +613,7 @@ fn test_generic_call_pinned_by_surrounding_argument_is_clean() -> Result<Void, E
     // Passed where a `List<Int>` is expected: the argument context pins T. (The
     // callee body avoids prelude methods, which don't resolve in this harness.)
     let errs = errors_of('fn mk<T>() -> List<T> { return []; }\n'
-        + 'fn take(_ xs: List<Int>) -> Int { return 0; }\n'
+        + 'fn take(xs: List<Int>) -> Int { return 0; }\n'
         + 'fn f() -> Int { return take(mk()); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
@@ -685,12 +685,12 @@ fn test_index_assignment_target_pins_generic() -> Result<Void, Error> {
 
 // --- duplicate top-level definitions ---
 
-fn program_at(_ src: String, _ path: String) -> Program {
+fn program_at(src: String, path: String) -> Program {
     return testkit.parse_at(src, path);
 }
 
 // Whether any diagnostic mentions `needle`.
-fn any_message_contains(_ errs: List<Diagnostic>, _ needle: String) -> Bool {
+fn any_message_contains(errs: List<Diagnostic>, needle: String) -> Bool {
     for e in errs {
         if e.message.contains(needle) {
             return true;
@@ -787,13 +787,13 @@ fn test_redefinition_in_same_file_is_flagged() -> Result<Void, Error> {
 
 // ---- the committed-type record (CH19) ----
 
-fn records_of(_ src: String) -> List<TypeRecord> {
+fn records_of(src: String) -> List<TypeRecord> {
     return check(testkit.parse(src), [], [:], [:]).records;
 }
 
 // The rendered committed type of the first occurrence of `text` in `src`. Scans the
 // whole record; a later entry supersedes (the refinement override).
-fn record_for(_ rec: List<TypeRecord>, _ src: String, _ text: String) -> String {
+fn record_for(rec: List<TypeRecord>, src: String, text: String) -> String {
     return match src.find(text) {
         Some(off) => {
             let mut found = '<no record>';
@@ -845,7 +845,7 @@ fn test_record_compound_assign_is_first_write_wins() -> Result<Void, Error> {
 fn test_record_skips_synthesized_desugar_nodes() -> Result<Void, Error> {
     // The if-let desugar fabricates zero-length-span nodes (PA6); none of them may
     // be recorded (no real token has length 0).
-    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let src = 'fn f(o: Option<Int>) -> Int {\n'
         + '    if let Some(x) = o { return x; }\n'
         + '    return 0;\n'
         + '}';
@@ -872,14 +872,14 @@ fn test_param_needs_type_annotation() -> Result<Void, Error> {
 @test
 fn test_self_and_typed_params_are_clean() -> Result<Void, Error> {
     let errs = errors_of('struct S { let n: Int; }\n'
-        + 'impl S { fn add(self, _ k: Int) -> Int { return self.n + k; } }');
+        + 'impl S { fn add(self, k: Int) -> Int { return self.n + k; } }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
 
 @test
 fn test_value_return_needs_return_type() -> Result<Void, Error> {
-    let errs = errors_of('fn f(_ x: Int) { return x; }');
+    let errs = errors_of('fn f(x: Int) { return x; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(
         actual: first_message(errs),
@@ -891,7 +891,7 @@ fn test_value_return_needs_return_type() -> Result<Void, Error> {
 @test
 fn test_value_return_reported_once_per_function() -> Result<Void, Error> {
     // Two value-returns, one omitted return type — a single diagnostic.
-    let errs = errors_of('fn f(_ x: Int) { if x > 0 { return x; } else { return 0 - x; } }');
+    let errs = errors_of('fn f(x: Int) { if x > 0 { return x; } else { return 0 - x; } }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     return Result.Ok(void);
 }
@@ -899,7 +899,7 @@ fn test_value_return_reported_once_per_function() -> Result<Void, Error> {
 @test
 fn test_missing_return_on_a_path() -> Result<Void, Error> {
     // Definite return: a value-returning fn whose body can fall off the end.
-    let errs = errors_of('fn f(_ b: Bool) -> Int { if b { return 1; } }');
+    let errs = errors_of('fn f(b: Bool) -> Int { if b { return 1; } }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(
         actual: first_message(errs),
@@ -930,9 +930,9 @@ fn test_bare_return_in_value_fn() -> Result<Void, Error> {
 fn test_all_paths_exit_is_clean() -> Result<Void, Error> {
     // Every path returns or throws; `while true` without a break never completes
     // normally (and with a break, the fall-through is back).
-    let errs = errors_of('fn f(_ b: Bool) -> Int { if b { return 1; } else { return 2; } }\n'
+    let errs = errors_of('fn f(b: Bool) -> Int { if b { return 1; } else { return 2; } }\n'
         + 'fn g() -> Int { while true { return 1; } }\n'
-        + 'fn t(_ b: Bool) -> Int { if b { throw 0 - 1; } else { return 2; } }');
+        + 'fn t(b: Bool) -> Int { if b { throw 0 - 1; } else { return 2; } }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     let breaks = errors_of('fn f() -> Int { while true { break; } }');
     testing.assert_eq(actual: breaks.len(), expected: 1)?;
@@ -942,7 +942,7 @@ fn test_all_paths_exit_is_clean() -> Result<Void, Error> {
 @test
 fn test_void_returns_are_clean() -> Result<Void, Error> {
     // Bare `return;`, `return void;`, and no return at all all stay `Void`.
-    let errs = errors_of('fn a(_ x: Int) { if x > 0 { return; } }\n'
+    let errs = errors_of('fn a(x: Int) { if x > 0 { return; } }\n'
         + 'fn b() { return void; }\n'
         + 'fn c() { }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
@@ -1034,7 +1034,7 @@ fn test_conformance_type_args_must_match() -> Result<Void, Error> {
     let src = 'interface Box<T> { fn get(self) -> T; }\n'
         + 'struct IntBox { let v: Int; }\n'
         + 'impl Box<Int> for IntBox { fn get(self) -> Int { return self.v; } }\n'
-        + 'fn wants(_ b: Box<String>) -> Int { return 0; }\n'
+        + 'fn wants(b: Box<String>) -> Int { return 0; }\n'
         + 'fn use_it() -> Int { return wants(IntBox { v: 1 }); }';
     let errs = errors_of(src);
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -1050,7 +1050,7 @@ fn test_conformance_matching_type_args_clean() -> Result<Void, Error> {
     let src = 'interface Box<T> { fn get(self) -> T; }\n'
         + 'struct IntBox { let v: Int; }\n'
         + 'impl Box<Int> for IntBox { fn get(self) -> Int { return self.v; } }\n'
-        + 'fn wants(_ b: Box<Int>) -> Int { return 0; }\n'
+        + 'fn wants(b: Box<Int>) -> Int { return 0; }\n'
         + 'fn use_it() -> Int { return wants(IntBox { v: 1 }); }';
     testing.assert_eq(actual: errors_of(src).len(), expected: 0)?;
     return Result.Ok(void);
@@ -1061,7 +1061,7 @@ fn test_conformance_matching_type_args_clean() -> Result<Void, Error> {
 @test
 fn test_bounded_type_param_bad_method_errors() -> Result<Void, Error> {
     let errs = errors_of('interface W { fn weight(self) -> Int; }\n'
-        + 'fn f<T: W>(_ x: T) -> Int { return x.nope(); }');
+        + 'fn f<T: W>(x: T) -> Int { return x.nope(); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: 'no method "nope" on T')?;
     return Result.Ok(void);
@@ -1070,7 +1070,7 @@ fn test_bounded_type_param_bad_method_errors() -> Result<Void, Error> {
 @test
 fn test_bounded_type_param_good_method_clean() -> Result<Void, Error> {
     let errs = errors_of('interface W { fn weight(self) -> Int; }\n'
-        + 'fn f<T: W>(_ x: T) -> Int { return x.weight(); }');
+        + 'fn f<T: W>(x: T) -> Int { return x.weight(); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -1080,7 +1080,7 @@ fn test_unbounded_type_param_method_is_a_definitive_miss() -> Result<Void, Error
     // An unbounded `T` has no methods, so a (non-universal) method call on it is a
     // definitive miss — `check` catches it, matching codegen (which used to be the
     // only phase to reject it).
-    let errs = errors_of('fn f<T>(_ x: T) -> Int { return x.anything(); }');
+    let errs = errors_of('fn f<T>(x: T) -> Int { return x.anything(); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: 'no method "anything" on T')?;
     return Result.Ok(void);
@@ -1093,9 +1093,9 @@ fn test_unbounded_type_param_method_is_a_definitive_miss() -> Result<Void, Error
 // surface/origin maps built by hand, the hermetic analogue of a real
 // `import 'helper';`.
 fn cross_lib_errors(
-    _ main_src: String,
-    _ helper_src: String,
-    _ names: List<String>,
+    main_src: String,
+    helper_src: String,
+    names: List<String>,
 ) -> List<Diagnostic> {
     let surface: Set<String> = Set.new();
     let origin: Map<String, String> = [:];
@@ -1122,7 +1122,7 @@ fn test_qualified_bound_cross_library() -> Result<Void, Error> {
     let errs = cross_lib_errors(
         'struct R { let v: Int; }\n'
         + 'impl helper.Reader for R { pub fn read(self) -> Int { return self.v; } }\n'
-        + 'fn f<S: helper.Reader>(_ s: S) -> Int { return s.read(); }\n'
+        + 'fn f<S: helper.Reader>(s: S) -> Int { return s.read(); }\n'
         + 'fn go() -> Int { return f(R { v: 1 }); }',
         READER_LIB,
         ['Reader'],
@@ -1130,7 +1130,7 @@ fn test_qualified_bound_cross_library() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     // A method the bound doesn't declare is still a definitive miss.
     let bad = cross_lib_errors(
-        'fn f<S: helper.Reader>(_ s: S) -> Int { return s.nope(); }',
+        'fn f<S: helper.Reader>(s: S) -> Int { return s.nope(); }',
         READER_LIB,
         ['Reader'],
     );
@@ -1143,7 +1143,7 @@ fn test_qualified_bound_violation_cross_library() -> Result<Void, Error> {
     // A non-conforming argument violates a qualified bound like a bare one.
     let errs = cross_lib_errors(
         'struct N { let v: Int; }\n'
-        + 'fn f<S: helper.Reader>(_ s: S) -> Int { return s.read(); }\n'
+        + 'fn f<S: helper.Reader>(s: S) -> Int { return s.read(); }\n'
         + 'fn go() -> Int { return f(N { v: 1 }); }',
         READER_LIB,
         ['Reader'],
@@ -1185,12 +1185,12 @@ fn test_universal_method_on_type_param_is_clean() -> Result<Void, Error> {
     // `to_string`/`debug` are universal — callable on any parameter, bounded or not
     // (total rendering resolves impl-or-fallback at runtime).
     testing.assert_eq(
-        actual: errors_of('fn f<T>(_ x: T) -> String { return x.debug(); }').len(),
+        actual: errors_of('fn f<T>(x: T) -> String { return x.debug(); }').len(),
         expected: 0,
     )?;
     testing.assert_eq(
         actual: errors_of('interface W { fn wt(self) -> Int; }\n'
-            + 'fn f<T: W>(_ x: T) -> String { return x.to_string(); }').len(),
+            + 'fn f<T: W>(x: T) -> String { return x.to_string(); }').len(),
         expected: 0,
     )?;
     return Result.Ok(void);
@@ -1210,7 +1210,7 @@ fn test_duplicate_members_are_errors() -> Result<Void, Error> {
         expected: 'duplicate variant `Red`',
     )?;
     testing.assert_eq(
-        actual: first_message(errors_of('fn f<T, T>(_ x: Int) -> Int { return x; }')),
+        actual: first_message(errors_of('fn f<T, T>(x: Int) -> Int { return x; }')),
         expected: 'duplicate type parameter `T`',
     )?;
     testing.assert_eq(
@@ -1233,7 +1233,7 @@ fn test_duplicate_params_and_labels() -> Result<Void, Error> {
     // A label *is* the name, so a duplicate label is a duplicate name — one error,
     // and it reports as the name (there is no separate label check to double it).
     testing.assert_eq(
-        actual: errors_of('fn f(_ a: Int, a: Int, a: Int) -> Int { return a; }').len(),
+        actual: errors_of('fn f(a: Int, a: Int, a: Int) -> Int { return a; }').len(),
         expected: 2,
     )?;
     // Distinct names: clean.
@@ -1259,22 +1259,22 @@ fn test_pattern_arity_is_checked() -> Result<Void, Error> {
     // Too few, bare (0 args), too many; correct arity is clean.
     testing.assert_eq(
         actual: first_message(errors_of(src
-            + 'fn f(_ e: E) -> Int { return match e { Two(a) => a, _ => 0 }; }')),
+            + 'fn f(e: E) -> Int { return match e { Two(a) => a, _ => 0 }; }')),
         expected: 'variant `Two` has 2 fields, but the pattern binds 1; match it as `Two(_, _)`',
     )?;
     testing.assert_eq(
         actual: first_message(errors_of(src
-            + 'fn f(_ e: E) -> Int { return match e { Two => 1, _ => 0 }; }')),
+            + 'fn f(e: E) -> Int { return match e { Two => 1, _ => 0 }; }')),
         expected: 'variant `Two` has 2 fields, but the pattern binds 0; match it as `Two(_, _)`',
     )?;
     testing.assert_eq(
         actual: first_message(errors_of(src
-            + 'fn f(_ e: E) -> Int { return match e { None(x) => x, _ => 0 }; }')),
+            + 'fn f(e: E) -> Int { return match e { None(x) => x, _ => 0 }; }')),
         expected: 'variant `None` has 0 fields, but the pattern binds 1; match it as `None`',
     )?;
     testing.assert_eq(
         actual: errors_of(src
-            + 'fn f(_ e: E) -> Int { return match e { Two(a, b) => a + b, _ => 0 }; }').len(),
+            + 'fn f(e: E) -> Int { return match e { Two(a, b) => a + b, _ => 0 }; }').len(),
         expected: 0,
     )?;
     return Result.Ok(void);
@@ -1283,13 +1283,13 @@ fn test_pattern_arity_is_checked() -> Result<Void, Error> {
 @test
 fn test_duplicate_pattern_binding() -> Result<Void, Error> {
     let errs = errors_of('enum E { Two(Int, Int) }\n'
-        + 'fn f(_ e: E) -> Int { return match e { Two(a, a) => a }; }');
+        + 'fn f(e: E) -> Int { return match e { Two(a, a) => a }; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs), expected: 'duplicate binding `a` in pattern')?;
     // The same name in *different* arms is fine.
     testing.assert_eq(
         actual: errors_of('enum E { L(Int), R(Int) }\n'
-            + 'fn f(_ e: E) -> Int { return match e { L(a) => a, R(a) => a }; }').len(),
+            + 'fn f(e: E) -> Int { return match e { L(a) => a, R(a) => a }; }').len(),
         expected: 0,
     )?;
     return Result.Ok(void);
@@ -1342,7 +1342,7 @@ fn test_param_default_is_checked_at_the_declaration() -> Result<Void, Error> {
     // Signature-only declarations are checked too (no body to hang it on).
     testing.assert_eq(
         actual: first_message(
-            errors_of('native fn wrap(_ s: String, w: Int = missing) -> String;')
+            errors_of('native fn wrap(s: String, w: Int = missing) -> String;')
         ),
         expected: 'undefined name: missing',
     )?;
@@ -1494,7 +1494,7 @@ fn test_same_block_rebinding_is_an_error() -> Result<Void, Error> {
 fn test_inner_scope_shadowing_is_legal() -> Result<Void, Error> {
     // A nested block/arm/loop is its own scope; a param may be shadowed by a body
     // `let`; `_` binds nothing so repeating it never collides.
-    let errs = errors_of('fn f(_ x: Int) -> Int {\n'
+    let errs = errors_of('fn f(x: Int) -> Int {\n'
         + '    let x = x + 1;\n'
         + '    let y = 1;\n'
         + '    if x > 0 { let y = 2; return y; }\n'
@@ -1510,7 +1510,7 @@ fn test_inner_scope_shadowing_is_legal() -> Result<Void, Error> {
 
 // The error-severity count of a mixed list (mirrors diagnostic.error_count; local
 // so the test file needs no extra import surface).
-fn diag_error_count(_ errs: List<Diagnostic>) -> Int {
+fn diag_error_count(errs: List<Diagnostic>) -> Int {
     let mut n = 0;
     for e in errs {
         if let Error = e.severity {
@@ -1520,7 +1520,7 @@ fn diag_error_count(_ errs: List<Diagnostic>) -> Int {
     return n;
 }
 
-fn warning_messages(_ errs: List<Diagnostic>) -> List<String> {
+fn warning_messages(errs: List<Diagnostic>) -> List<String> {
     let out: List<String> = [];
     for e in errs {
         if let Warning = e.severity {
@@ -1552,7 +1552,7 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
     )?;
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'import \'helper\';\nfn f(_ x: helper.Thing) -> Int { return 1; }')).len(),
+            'import \'helper\';\nfn f(x: helper.Thing) -> Int { return 1; }')).len(),
         expected: 0,
     )?;
     testing.assert_eq(
@@ -1564,7 +1564,7 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
     // of the namespace.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'import \'helper\';\nfn f<S: helper.Thing>(_ x: S) -> Int { return 1; }')).len(),
+            'import \'helper\';\nfn f<S: helper.Thing>(x: S) -> Int { return 1; }')).len(),
         expected: 0,
     )?;
     testing.assert_eq(
@@ -1588,7 +1588,7 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
 // A `file_namespaces` table registering an anonymous primary's `helper` import with
 // the given public surface — the loader-side data the `as _` attribution reads,
 // built by hand for the hermetic harness.
-fn helper_surface(_ names: List<String>) -> Map<String, Map<String, LibraryNamespace>> {
+fn helper_surface(names: List<String>) -> Map<String, Map<String, LibraryNamespace>> {
     let set: Set<String> = Set.new();
     for n in names {
         set.add(n);
@@ -1597,7 +1597,7 @@ fn helper_surface(_ names: List<String>) -> Map<String, Map<String, LibraryNames
     return ['<anon>': ['helper': ns]];
 }
 
-fn bare_errors_of(_ src: String, _ names: List<String>) -> List<Diagnostic> {
+fn bare_errors_of(src: String, names: List<String>) -> List<Diagnostic> {
     return check(testkit.parse(src), [], helper_surface(names), [:]).errors;
 }
 
@@ -1627,7 +1627,7 @@ fn test_as_underscore_used_import_is_clean() -> Result<Void, Error> {
     // A bare type annotation.
     testing.assert_eq(
         actual: warning_messages(bare_errors_of(
-            'import \'helper\' as _;\nfn f(_ t: Thing) -> Int { return 1; }',
+            'import \'helper\' as _;\nfn f(t: Thing) -> Int { return 1; }',
             ['go', 'Thing'],
         )).len(),
         expected: 0,
@@ -1665,7 +1665,7 @@ fn test_import_that_extends_a_foreign_type_is_not_reported() -> Result<Void, Err
     let primary = testkit.parse_at(
         'import \'owner\' as _;\n'
         + 'import \'helper\' as _;\n'
-        + 'fn f(_ c: Client) -> Int { return c.extra(); }',
+        + 'fn f(c: Client) -> Int { return c.extra(); }',
         'lib/main.thera',
     );
     let owner_surface = surface_of('Client', 'lib/owner.thera');
@@ -1711,7 +1711,7 @@ fn test_import_with_only_names_is_still_reported() -> Result<Void, Error> {
 /// A one-name import surface attributed to `file` — the loader-side data the `as _`
 /// attribution reads, with `origin` populated (unlike `helper_surface`, which
 /// predates the foreign-`impl` rule needing it).
-fn surface_of(_ name: String, _ file: String) -> LibraryNamespace {
+fn surface_of(name: String, file: String) -> LibraryNamespace {
     let names: Set<String> = Set.new();
     names.add(name);
     return LibraryNamespace { names: names, collisions: Set.new(), origin: [name: file] };
@@ -1737,7 +1737,7 @@ fn test_unreachable_code_warns() -> Result<Void, Error> {
     testing.assert_eq(
         actual: warning_messages(
             errors_of(
-                'fn f(_ b: Bool) -> Int {\n  if b { return 1; } else { return 2; }\n  return 3;\n}')
+                'fn f(b: Bool) -> Int {\n  if b { return 1; } else { return 2; }\n  return 3;\n}')
         ).len(),
         expected: 1,
     )?;
@@ -1749,7 +1749,7 @@ fn test_reachable_code_is_clean() -> Result<Void, Error> {
     // An else-less `if` falls through, so the following return is live.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'fn f(_ b: Bool) -> Int {\n  if b { return 1; }\n  return 2;\n}')).len(),
+            'fn f(b: Bool) -> Int {\n  if b { return 1; }\n  return 2;\n}')).len(),
         expected: 0,
     )?;
     return Result.Ok(void);
@@ -1760,30 +1760,30 @@ fn test_unreachable_arm_warns() -> Result<Void, Error> {
     // A catch-all first shadows everything after it.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'fn f(_ n: Int) -> Int {\n  return match n {\n    _ => 0,\n    1 => 1,\n  };\n}')),
+            'fn f(n: Int) -> Int {\n  return match n {\n    _ => 0,\n    1 => 1,\n  };\n}')),
         expected: ['unreachable match arm: an arm above already matches every value'],
     )?;
     // A repeated literal.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'fn f(_ n: Int) -> Int {\n  return match n {\n    1 => 1,\n    1 => 2,\n    _ => 0,\n  };\n}')),
+            'fn f(n: Int) -> Int {\n  return match n {\n    1 => 1,\n    1 => 2,\n    _ => 0,\n  };\n}')),
         expected: ['unreachable match arm: this literal is already matched above'],
     )?;
     // A variant fully matched by an all-binding constructor arm.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'enum E { A(Int), B }\nfn f(_ e: E) -> Int {\n  return match e {\n    A(x) => x,\n    A(y) => y,\n    B => 0,\n  };\n}')),
+            'enum E { A(Int), B }\nfn f(e: E) -> Int {\n  return match e {\n    A(x) => x,\n    A(y) => y,\n    B => 0,\n  };\n}')),
         expected: ['unreachable match arm: variant `A` is already matched above'],
     )?;
     // Full coverage counts as a catch-all: both bools, or every variant.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'fn f(_ b: Bool) -> Int {\n  return match b {\n    true => 1,\n    false => 0,\n    _ => 9,\n  };\n}')).len(),
+            'fn f(b: Bool) -> Int {\n  return match b {\n    true => 1,\n    false => 0,\n    _ => 9,\n  };\n}')).len(),
         expected: 1,
     )?;
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'enum E { A, B }\nfn f(_ e: E) -> Int {\n  return match e {\n    A => 0,\n    B => 1,\n    _ => 2,\n  };\n}')).len(),
+            'enum E { A, B }\nfn f(e: E) -> Int {\n  return match e {\n    A => 0,\n    B => 1,\n    _ => 2,\n  };\n}')).len(),
         expected: 1,
     )?;
     return Result.Ok(void);
@@ -1794,7 +1794,7 @@ fn test_refutable_constructor_arm_claims_nothing() -> Result<Void, Error> {
     // `A(1)` matches only one value of the payload, so a later `A(x)` is live.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'enum E { A(Int), B }\nfn f(_ e: E) -> Int {\n  return match e {\n    A(1) => 9,\n    A(x) => x,\n    B => 0,\n  };\n}')).len(),
+            'enum E { A(Int), B }\nfn f(e: E) -> Int {\n  return match e {\n    A(1) => 9,\n    A(x) => x,\n    B => 0,\n  };\n}')).len(),
         expected: 0,
     )?;
     return Result.Ok(void);
@@ -1816,7 +1816,7 @@ fn test_unused_variable_warns() -> Result<Void, Error> {
     testing.assert_eq(
         actual: warning_messages(
             errors_of(
-                'fn f(_ b: Bool) -> Int {\n  let x = 1;\n  if b { let x = 9; return 0; }\n  return x;\n}')
+                'fn f(b: Bool) -> Int {\n  let x = 1;\n  if b { let x = 9; return 0; }\n  return x;\n}')
         ).len(),
         expected: 1,
     )?;
@@ -1878,7 +1878,7 @@ fn test_ignore_comment_suppresses_warning() -> Result<Void, Error> {
 
 // The edits the fixable warnings carry, rendered as `offset+text` — enough to pin
 // where the label is inserted and what it says.
-fn warning_fixes(_ errs: List<Diagnostic>) -> List<String> {
+fn warning_fixes(errs: List<Diagnostic>) -> List<String> {
     let out: List<String> = [];
     for e in errs {
         if let Some(f) = e.fix {
@@ -1890,7 +1890,7 @@ fn warning_fixes(_ errs: List<Diagnostic>) -> List<String> {
 
 @test
 fn test_positional_argument_to_labeled_parameter_warns() -> Result<Void, Error> {
-    let src = 'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
+    let src = 'fn g(named a: Int, named b: Int) -> Int { return a + b; }\n'
         + 'fn f() -> Int { return g(1, 2); }';
     testing.assert_eq(
         actual: warning_messages(errors_of(src)),
@@ -1909,36 +1909,37 @@ fn test_labeled_and_positional_parameters_are_clean() -> Result<Void, Error> {
     // Each argument in the one form its parameter declares.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'fn g(_ a: Int, b: Int) -> Int { return a + b; }\n'
+            'fn g(a: Int, named b: Int) -> Int { return a + b; }\n'
             + 'fn f() -> Int { return g(1, b: 2); }')).len(),
         expected: 0,
     )?;
     // An omitted defaulted argument is not a missing label.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'fn g(_ a: Int, b: Int = 2) -> Int { return a + b; }\n'
+            'fn g(a: Int, named b: Int = 2) -> Int { return a + b; }\n'
             + 'fn f() -> Int { return g(1); }')).len(),
         expected: 0,
     )?;
-    // A two-name parameter is owed its *external* label, not its internal name.
+    // A fully positional signature owes nothing, however it is called.
     testing.assert_eq(
         actual: warning_messages(errors_of(
-            'fn g(_ a: Int, by n: Int) -> Int { return a + n; }\n'
-            + 'fn f() -> Int { return g(1, 2); }')),
-        expected: ['missing argument label `by:` in the call to "g"'],
+            'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
+            + 'fn f() -> Int { return g(1, 2); }')).len(),
+        expected: 0,
     )?;
     return Result.Ok(void);
 }
 
 @test
 fn test_missing_argument_label_carries_its_fix() -> Result<Void, Error> {
-    // The edit is a pure insertion at the argument's own offset: the second line
-    // starts at 46, putting `1` at 71 and `2` at 74.
+    // The edit is a pure insertion at the argument's own offset — `1` and `2` in
+    // the `g(1, 2)` on the second line.
+    let src = 'fn g(named a: Int, named b: Int) -> Int { return a + b; }\n'
+        + 'fn f() -> Int { return g(1, 2); }';
+    let call = src.find('g(1, 2)').unwrap_or(0);
     testing.assert_eq(
-        actual: warning_fixes(errors_of(
-            'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
-            + 'fn f() -> Int { return g(1, 2); }')),
-        expected: ['71+a: ', '74+b: '],
+        actual: warning_fixes(errors_of(src)),
+        expected: ['${call + 2}+a: ', '${call + 5}+b: '],
     )?;
     return Result.Ok(void);
 }
@@ -1950,6 +1951,38 @@ fn test_missing_argument_label_is_suppressable() -> Result<Void, Error> {
             'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
             + '// ignore: missing-argument-label\n'
             + 'fn f() -> Int { return g(1, 2); }')).len(),
+        expected: 0,
+    )?;
+    return Result.Ok(void);
+}
+
+// ---- named parameters must be a suffix of the parameter list ----
+
+@test
+fn test_named_parameters_must_be_a_suffix() -> Result<Void, Error> {
+    testing.assert_eq(
+        actual: first_message(errors_of('fn f(named a: Int, b: Int) -> Int { return a + b; }')),
+        expected: 'positional parameter `b` after a `named` one: named parameters must '
+        + 'come last (move it before the first `named`, or mark it `named`)',
+    )?;
+    // The legal arrangements: all positional, all named, and a named suffix.
+    testing.assert_eq(
+        actual: errors_of('fn f(a: Int, b: Int) -> Int { return a + b; }').len(),
+        expected: 0,
+    )?;
+    testing.assert_eq(
+        actual: errors_of('fn f(named a: Int, named b: Int) -> Int { return a + b; }').len(),
+        expected: 0,
+    )?;
+    testing.assert_eq(
+        actual: errors_of('fn f(a: Int, named b: Int) -> Int { return a + b; }').len(),
+        expected: 0,
+    )?;
+    // The receiver is exempt — it is not a labeled parameter.
+    testing.assert_eq(
+        actual: errors_of('struct S { let n: Int; }\n'
+            + 'impl S { fn f(self, k: Int, named by: Int) -> Int { return self.n * k * by; } }')
+        .len(),
         expected: 0,
     )?;
     return Result.Ok(void);

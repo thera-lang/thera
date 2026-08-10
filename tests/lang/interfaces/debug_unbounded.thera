@@ -15,7 +15,7 @@ enum Shape {
 // bound). It dispatches virtually and the runtime resolves it to the value's own
 // impl or the auto-derived structural `Debug` — the mechanism the collection
 // `Display` impls use to render their elements.
-fn render<T>(_ x: T) -> String {
+fn render<T>(x: T) -> String {
     return x.debug();
 }
 

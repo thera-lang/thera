@@ -18,7 +18,7 @@ impl Double {
     }
 
     /// The smaller of `self` and `other`.
-    pub fn min(self, _ other: Double) -> Double {
+    pub fn min(self, other: Double) -> Double {
         if self < other {
             return self;
         }
@@ -26,7 +26,7 @@ impl Double {
     }
 
     /// The larger of `self` and `other`.
-    pub fn max(self, _ other: Double) -> Double {
+    pub fn max(self, other: Double) -> Double {
         if self > other {
             return self;
         }
@@ -34,7 +34,7 @@ impl Double {
     }
 
     /// Constrain to the inclusive range [low, high]. Assumes low <= high.
-    pub fn clamp(self, _ low: Double, _ high: Double) -> Double {
+    pub fn clamp(self, low: Double, high: Double) -> Double {
         if self < low {
             return low;
         }
@@ -71,7 +71,7 @@ impl Debug for Double {
 /// Double has a total order (the generic/virtual path uses the runtime's total
 /// comparison, so `NaN` sorts consistently rather than trapping).
 impl Ord for Double {
-    fn compare(self, _ other: Double) -> Ordering {
+    fn compare(self, other: Double) -> Ordering {
         if self < other {
             return Ordering.Less;
         }

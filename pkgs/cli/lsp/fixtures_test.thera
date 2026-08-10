@@ -10,7 +10,7 @@ import 'fixtures';
 
 // A single LSP `Diagnostic` item on `line0` (0-based) with `severity` and
 // `message`.
-fn diag(_ line0: Int, _ severity: Int, _ message: String) -> Json {
+fn diag(line0: Int, severity: Int, message: String) -> Json {
     return json.obj([
         'range': json.obj([
             'start': json.obj(['line': json.int(line0), 'character': json.int(0)]),

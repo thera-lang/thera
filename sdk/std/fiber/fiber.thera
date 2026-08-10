@@ -15,7 +15,7 @@ pub struct Fiber<T> {
 
 /// Schedule `work` to run as a new fiber; returns a handle to it. The fiber makes
 /// progress cooperatively — when the current fiber blocks or yields.
-pub fn spawn<T>(_ work: () -> T) -> Fiber<T> {
+pub fn spawn<T>(work: () -> T) -> Fiber<T> {
     return Fiber { id: _spawn<T>(work) };
 }
 
@@ -40,14 +40,14 @@ pub struct Channel<T> {
 
 /// Create a channel buffering up to `capacity` values (clamped to at least 1). A
 /// `send` blocks while the buffer is full; a `receive` blocks while it is empty.
-pub fn channel<T>(capacity: Int = 1) -> Channel<T> {
+pub fn channel<T>(named capacity: Int = 1) -> Channel<T> {
     return Channel { id: _chan_new(capacity) };
 }
 
 impl Channel<T> {
     /// Send a value, blocking the caller while the buffer is full. Traps if the
     /// channel has been closed.
-    pub fn send(self, _ value: T) -> Void {
+    pub fn send(self, value: T) -> Void {
         _chan_send<T>(self.id, value);
     }
 
@@ -66,25 +66,25 @@ impl Channel<T> {
 }
 
 @extern('fiber_spawn')
-native fn _spawn<T>(_ work: () -> T) -> Int
+native fn _spawn<T>(work: () -> T) -> Int
 
 @extern('fiber_join')
-native fn _join<T>(_ id: Int) -> T
+native fn _join<T>(id: Int) -> T
 
 @extern('fiber_yield')
 native fn _yield() -> Void
 
 @extern('channel_new')
-native fn _chan_new(_ capacity: Int) -> Int
+native fn _chan_new(capacity: Int) -> Int
 
 @extern('channel_send')
-native fn _chan_send<T>(_ id: Int, _ value: T) -> Void
+native fn _chan_send<T>(id: Int, value: T) -> Void
 
 @extern('channel_receive')
-native fn _chan_receive<T>(_ id: Int) -> Option<T>
+native fn _chan_receive<T>(id: Int) -> Option<T>
 
 @extern('channel_close')
-native fn _chan_close(_ id: Int) -> Void
+native fn _chan_close(id: Int) -> Void
 
 // --- select ---
 //
@@ -145,7 +145,7 @@ pub interface Selectable {
 /// situation as `receive` on a channel nobody sends to, and it surfaces the same
 /// way: if the program has no other work, the scheduler reports the deadlock;
 /// otherwise the fiber simply never wakes. Don't do that.
-pub fn select(_ sources: List<Selectable>) -> Int {
+pub fn select(sources: List<Selectable>) -> Int {
     while true {
         for s in sources.enumerate() {
             if s.value.is_ready() {
@@ -207,7 +207,7 @@ pub struct Timer {
 /// ```thera
 /// let i = fiber.select([work, fiber.after(time.Duration.seconds(5))]);
 /// ```
-pub fn after(_ d: time.Duration) -> Timer {
+pub fn after(d: time.Duration) -> Timer {
     return Timer { deadline_millis: time.now_millis() + d.as_millis() };
 }
 
@@ -236,7 +236,7 @@ impl Selectable for Timer {
 /// the work: for anything holding a resource, arrange for the timeout to release
 /// it. For a socket read the idiom is to close the socket on timeout, which wakes
 /// the reader with a closed error and lets its fiber finish.
-pub fn with_timeout<T>(_ work: () -> T, _ d: time.Duration) -> Option<T> {
+pub fn with_timeout<T>(work: () -> T, d: time.Duration) -> Option<T> {
     let f = spawn(work);
     let deadline = after(d);
     if select([f, deadline]) == 0 {
@@ -246,10 +246,10 @@ pub fn with_timeout<T>(_ work: () -> T, _ d: time.Duration) -> Option<T> {
 }
 
 @extern('fiber_is_done')
-native fn _fiber_is_done(_ id: Int) -> Bool
+native fn _fiber_is_done(id: Int) -> Bool
 
 @extern('chan_is_ready')
-native fn _chan_is_ready(_ id: Int) -> Bool
+native fn _chan_is_ready(id: Int) -> Bool
 
 @extern('select_park')
-native fn _select_park(_ handles: List<Int>, _ deadline_millis: Int) -> Void
+native fn _select_park(handles: List<Int>, deadline_millis: Int) -> Void

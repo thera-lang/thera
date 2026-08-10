@@ -12,7 +12,7 @@ import std.char;
 
 import 'ast' as _; // a pure AST renderer — ast's node types are used pervasively
 
-pub fn describe_expr(_ e: Expr) -> String {
+pub fn describe_expr(e: Expr) -> String {
     return match e {
         Int(_, v) => '${v}',
         Float(_, v) => '${v}',
@@ -48,14 +48,14 @@ pub fn describe_expr(_ e: Expr) -> String {
     };
 }
 
-pub fn describe_type(_ t: TypeRef) -> String {
+pub fn describe_type(t: TypeRef) -> String {
     return match t {
         Named(x) => describe_named(x),
         Function(x) => '(' + join_types(x.params) + ') -> ' + describe_type(x.return_type),
     };
 }
 
-pub fn describe_pattern(_ p: Pattern) -> String {
+pub fn describe_pattern(p: Pattern) -> String {
     return match p {
         Wildcard(_) => '_',
         Ident(_, name) => name,
@@ -70,7 +70,7 @@ pub fn describe_pattern(_ p: Pattern) -> String {
 
 // --- helpers (the list joins and the compound nodes) ---
 
-fn describe_named(_ x: NamedType) -> String {
+fn describe_named(x: NamedType) -> String {
     let qualified = match x.namespace {
         Some(ns) => ns + '.' + x.name,
         None => x.name,
@@ -81,14 +81,14 @@ fn describe_named(_ x: NamedType) -> String {
     return qualified + '<' + join_types(x.args) + '>';
 }
 
-fn describe_type_args(_ ts: List<TypeRef>) -> String {
+fn describe_type_args(ts: List<TypeRef>) -> String {
     if ts.len() == 0 {
         return '';
     }
     return '<' + join_types(ts) + '>';
 }
 
-fn describe_lambda(_ x: LambdaExpr) -> String {
+fn describe_lambda(x: LambdaExpr) -> String {
     // The bare single-param form `n => …` only when it has no annotation.
     let unannotated = x.params.len() == 1 && match x.params[0].type_ann {
         Some(_) => false,
@@ -102,14 +102,14 @@ fn describe_lambda(_ x: LambdaExpr) -> String {
     return ps + ' => ' + describe_expr(x.body);
 }
 
-fn describe_lambda_param(_ p: LambdaParam) -> String {
+fn describe_lambda_param(p: LambdaParam) -> String {
     return match p.type_ann {
         Some(t) => p.name + ': ' + describe_type(t),
         None => p.name,
     };
 }
 
-fn describe_if(_ x: IfExpr) -> String {
+fn describe_if(x: IfExpr) -> String {
     let tail = match x.else_block {
         Some(_) => ' else {...}',
         None => '',
@@ -117,18 +117,18 @@ fn describe_if(_ x: IfExpr) -> String {
     return 'if ' + describe_expr(x.condition) + ' {...}' + tail;
 }
 
-fn describe_return(_ v: Option<Expr>) -> String {
+fn describe_return(v: Option<Expr>) -> String {
     return match v {
         Some(e) => 'return ' + describe_expr(e),
         None => 'return',
     };
 }
 
-fn describe_parts(_ parts: List<StringPart>) -> String {
+fn describe_parts(parts: List<StringPart>) -> String {
     return parts.map((p) => describe_part(p)).join('');
 }
 
-fn describe_part(_ p: StringPart) -> String {
+fn describe_part(p: StringPart) -> String {
     return match p {
         Text(_, t) => escape_text(t),
         // The literal `${` is built from two separate string literals: a `'\${'`
@@ -142,7 +142,7 @@ fn describe_part(_ p: StringPart) -> String {
 // Re-escape a (decoded) text part: describe strings are one-line diff keys, so the
 // control characters the lexer's escapes decode — and the backslash and quote that
 // would make the rendering ambiguous — render back as escapes.
-fn escape_text(_ t: String) -> String {
+fn escape_text(t: String) -> String {
     let out: List<Int> = [];
     for c in t.chars() {
         if c == char.BACKSLASH {
@@ -171,55 +171,55 @@ const LOWER_N: Int = 110;
 const LOWER_R: Int = 114;
 const LOWER_T: Int = 116;
 
-fn describe_arg(_ a: CallArg) -> String {
+fn describe_arg(a: CallArg) -> String {
     return match a.label {
         Some(l) => l + ': ' + describe_expr(a.value),
         None => describe_expr(a.value),
     };
 }
 
-fn describe_arm(_ a: MatchArm) -> String {
+fn describe_arm(a: MatchArm) -> String {
     return describe_pattern(a.pattern) + ' => ' + describe_expr(a.body);
 }
 
-fn describe_entry(_ e: MapEntry) -> String {
+fn describe_entry(e: MapEntry) -> String {
     return describe_expr(e.key) + ': ' + describe_expr(e.value);
 }
 
-fn describe_field_init(_ f: FieldInit) -> String {
+fn describe_field_init(f: FieldInit) -> String {
     return f.name + ': ' + describe_expr(f.value);
 }
 
-fn join_exprs(_ xs: List<Expr>) -> String {
+fn join_exprs(xs: List<Expr>) -> String {
     return xs.map((e) => describe_expr(e)).join(', ');
 }
 
-fn join_types(_ xs: List<TypeRef>) -> String {
+fn join_types(xs: List<TypeRef>) -> String {
     return xs.map((t) => describe_type(t)).join(', ');
 }
 
-fn describe_patterns(_ xs: List<Pattern>) -> String {
+fn describe_patterns(xs: List<Pattern>) -> String {
     return xs.map((p) => describe_pattern(p)).join(', ');
 }
 
-fn describe_args(_ xs: List<CallArg>) -> String {
+fn describe_args(xs: List<CallArg>) -> String {
     return xs.map((a) => describe_arg(a)).join(', ');
 }
 
-fn describe_arms(_ xs: List<MatchArm>) -> String {
+fn describe_arms(xs: List<MatchArm>) -> String {
     return xs.map((a) => describe_arm(a)).join(', ');
 }
 
-fn describe_entries(_ xs: List<MapEntry>) -> String {
+fn describe_entries(xs: List<MapEntry>) -> String {
     return xs.map((e) => describe_entry(e)).join(', ');
 }
 
-fn describe_field_inits(_ xs: List<FieldInit>) -> String {
+fn describe_field_inits(xs: List<FieldInit>) -> String {
     return xs.map((f) => describe_field_init(f)).join(', ');
 }
 
 // The `ns.` prefix of a qualified construction, or '' for a bare type.
-fn describe_qualifier(_ namespace: Option<String>) -> String {
+fn describe_qualifier(namespace: Option<String>) -> String {
     return match namespace {
         Some(ns) => '${ns}.',
         None => '',

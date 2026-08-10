@@ -14,8 +14,8 @@ import 'shadow/widgets' as _;
 
 fn Config() -> Int { return 41; } // expect error: top-level `Config` shadows a name the prelude or an `as _` import already provides
 
-fn shout(_ s: String) -> Void { println(s); }
+fn shout(s: String) -> Void { println(s); }
 
-fn println(_ s: String) -> Void {} // expect error: top-level `println` shadows a name the prelude or an `as _` import already provides
+fn println(s: String) -> Void {} // expect error: top-level `println` shadows a name the prelude or an `as _` import already provides
 
 fn main() -> Void { shout('hi'); }

@@ -9,7 +9,7 @@ import 'blocks' as _;
 // The block sequence as `<kind><line count>` per block — `P2 B1 V3` is a two-line
 // paragraph, a separator, then three verbatim lines. Compact enough to read the
 // whole shape off one assertion.
-fn shape(_ lines: List<String>) -> String {
+fn shape(lines: List<String>) -> String {
     let parts: List<String> = [];
     for b in blocks_of(lines) {
         let tag = match b.kind {
@@ -24,7 +24,7 @@ fn shape(_ lines: List<String>) -> String {
 
 // Assert the shape, and that the blocks concatenate back to the input — the
 // totality the guard leans on.
-fn check(_ lines: List<String>, _ want: String) -> Result<Void, Error> {
+fn check(lines: List<String>, want: String) -> Result<Void, Error> {
     testing.assert_eq(actual: shape(lines), expected: want)?;
     let flat: List<String> = [];
     for b in blocks_of(lines) {

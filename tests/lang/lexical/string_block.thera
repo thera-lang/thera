@@ -3,7 +3,7 @@
 
 // Each line is printed behind a `|` so the expectations can show leading
 // whitespace, which the runner trims off an expectation directive.
-fn dump(_ s: String) -> Void {
+fn dump(s: String) -> Void {
     for line in s.lines() {
         println('|${line}');
     }

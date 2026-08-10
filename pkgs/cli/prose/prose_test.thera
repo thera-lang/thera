@@ -13,7 +13,7 @@ import 'prose' as _;
 
 // Reflow at `width`, asserting the result *and* that reflowing it again changes
 // nothing. Every case is therefore an idempotency assertion.
-fn check(_ src: String, _ want: String, _ width: Int) -> Result<Void, Error> {
+fn check(src: String, want: String, width: Int) -> Result<Void, Error> {
     let once = reflow_prose(src, width);
     testing.assert_eq(actual: once.text, expected: want)?;
     testing.assert_eq(actual: reflow_prose(once.text, width).text, expected: want)?;

@@ -72,5 +72,5 @@ impl Display for Ordering {
 /// (`Int`/`Double`/`Bool`/`String`) and by any type that wants to be sorted or
 /// compared through `std.sort`.
 pub interface Ord {
-    fn compare(self, _ other: Self) -> Ordering;
+    fn compare(self, other: Self) -> Ordering;
 }

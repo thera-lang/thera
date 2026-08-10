@@ -33,7 +33,7 @@ impl SourceSpan {
     // span to enclose its children). An empty-source span is treated as absent, so
     // covering with one returns the other — mirroring the Dart `SourceSpan.cover`
     // factory.
-    pub fn cover(self, _ other: SourceSpan) -> SourceSpan {
+    pub fn cover(self, other: SourceSpan) -> SourceSpan {
         if self.source == '' {
             return other;
         }
@@ -63,7 +63,7 @@ impl Display for SourceSpan {
 // somewhere sensible, but it covers no source: offset/range consumers (reference
 // collection, span-keyed records) can skip synthesized nodes by their zero length,
 // which no real token produces (PA6).
-pub fn synthetic_span(_ anchor: SourceSpan) -> SourceSpan {
+pub fn synthetic_span(anchor: SourceSpan) -> SourceSpan {
     return SourceSpan {
         source: anchor.source,
         file: anchor.file,
@@ -78,7 +78,7 @@ pub fn synthetic_span(_ anchor: SourceSpan) -> SourceSpan {
 // the completion cursor sits, right after what was typed). The line/column
 // arithmetic is exact for the single-line tokens the lexer produces (a string's
 // escapes keep raw newlines out of source tokens).
-pub fn synthetic_span_after(_ anchor: SourceSpan) -> SourceSpan {
+pub fn synthetic_span_after(anchor: SourceSpan) -> SourceSpan {
     return SourceSpan {
         source: anchor.source,
         file: anchor.file,
@@ -108,7 +108,7 @@ pub struct Comment {
 // Classify a line comment by its marker. `text` is the comment verbatim (starting
 // at `//`). `////`+ is an ordinary comment, not a doc (matching Rust) — a run of
 // slashes is a common divider.
-pub fn classify_comment(_ text: String) -> CommentKind {
+pub fn classify_comment(text: String) -> CommentKind {
     if text.starts_with('//!') {
         return CommentKind.ModuleDoc;
     }

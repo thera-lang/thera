@@ -73,7 +73,7 @@ impl Page<T> {
     /// The bound is not paranoia: at `per_page: 100` the default still reaches a
     /// thousand items, and the alternative is a method call that can run for an
     /// hour. Raise it deliberately.
-    pub fn all(self, max_pages: Int = 10) -> Result<List<T>, GitHubError> {
+    pub fn all(self, named max_pages: Int = 10) -> Result<List<T>, GitHubError> {
         let items: List<T> = [];
         for item in self.items {
             items.push(item);
@@ -100,9 +100,9 @@ impl Page<T> {
 
 /// A page from a list response: decode the array, and read the `Link` header.
 pub fn page_of<T>(
-    _ client: Client,
-    _ resp: http.Response,
-    _ decode: (json.Cursor) -> Result<T, json.DecodeError>,
+    client: Client,
+    resp: http.Response,
+    decode: (json.Cursor) -> Result<T, json.DecodeError>,
 ) -> Result<Page<T>, GitHubError> {
     let items = decoded(resp, (at) => each(at, decode))?;
     return Result.Ok(Page {
@@ -125,7 +125,7 @@ pub fn page_of<T>(
 /// and the failure mode of getting it wrong is a missed page rather than a wrong
 /// one, so this is the version that fits in a paragraph. A real `Link` parser
 /// belongs in `std.http` if anything ever needs one.
-pub fn next_link(_ headers: Map<String, String>) -> Option<String> {
+pub fn next_link(headers: Map<String, String>) -> Option<String> {
     let value = match http.header(headers, 'link') {
         Some(v) => v,
         None => {

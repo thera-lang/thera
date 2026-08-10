@@ -40,7 +40,7 @@ fn test_min_max() -> Result<Void, Error> {
 struct Version { let major: Int; let minor: Int; }
 
 impl Ord for Version {
-    fn compare(self, _ other: Version) -> Ordering {
+    fn compare(self, other: Version) -> Ordering {
         let m = self.major.compare(other.major);
         if m.is_ne() {
             return m;

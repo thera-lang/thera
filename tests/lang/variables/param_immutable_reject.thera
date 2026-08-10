@@ -2,7 +2,7 @@
 //! mode: check
 
 // Parameters are immutable bindings too — reassigning one is an error.
-fn inc(_ x: Int) -> Int {
+fn inc(x: Int) -> Int {
     x = x + 1;   // expect error: cannot assign to `x`
     return x;
 }

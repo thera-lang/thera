@@ -1,7 +1,7 @@
 //! spec: fn-default-params
 //! mode: run
 
-fn greetd(name: String = 'world') -> String {
+fn greetd(named name: String = 'world') -> String {
     return 'hi ${name}';
 }
 

@@ -17,15 +17,15 @@ enum Color {
     Blue,
 }
 
-fn twice<T, T>(_ v: Int) -> Int {   // expect error: duplicate type parameter `T`
+fn twice<T, T>(v: Int) -> Int {   // expect error: duplicate type parameter `T`
     return v * 2;
 }
 
-fn add(a: Int, a: Int) -> Int {   // expect error: duplicate parameter `a`
+fn add(named a: Int, named a: Int) -> Int {   // expect error: duplicate parameter `a`
     return a;
 }
 
-fn tag(k: Int, k: Int) -> Int {   // expect error: duplicate parameter `k`
+fn tag(named k: Int, named k: Int) -> Int {   // expect error: duplicate parameter `k`
     return k;
 }
 

@@ -48,7 +48,7 @@ pub struct Block {
 /// Total: concatenating the result's `lines` reproduces the input exactly. The
 /// guard depends on that — a line this function dropped would be a line no
 /// invariant covers.
-pub fn blocks_of(_ lines: List<String>) -> List<Block> {
+pub fn blocks_of(lines: List<String>) -> List<Block> {
     let out: List<Block> = [];
     let mut cur: List<String> = [];
     let mut kind = BlockKind.Prose;
@@ -118,7 +118,7 @@ pub fn blocks_of(_ lines: List<String>) -> List<Block> {
 /// The wrapper's use is what makes this shared: a wrapped line may never *start*
 /// with something that would come back as a construct, or the next run would
 /// segment the same words differently.
-pub fn is_block_lead(_ content: String) -> Bool {
+pub fn is_block_lead(content: String) -> Bool {
     if content == '' {
         return false; // a separator, not a lead
     }
@@ -152,7 +152,7 @@ pub fn is_block_lead(_ content: String) -> Bool {
 /// Nothing here affects how a run segments, so the idempotency argument in
 /// [blocks_of] is untouched — this only removes break points the wrapper would
 /// otherwise have been free to take.
-pub fn is_wrap_unsafe_lead(_ content: String) -> Bool {
+pub fn is_wrap_unsafe_lead(content: String) -> Bool {
     if is_block_lead(content) {
         return true;
     }
@@ -172,7 +172,7 @@ pub fn is_wrap_unsafe_lead(_ content: String) -> Bool {
 
 /// Whether `cps` is a run of three or more of one rule character — `---` under a
 /// paragraph is a setext heading, and on its own a thematic break.
-fn is_rule(_ cps: List<Int>) -> Bool {
+fn is_rule(cps: List<Int>) -> Bool {
     let c = cps[0];
     if c != char.MINUS && c != char.EQ && c != char.UNDERSCORE && c != char.STAR {
         return false;
@@ -192,7 +192,7 @@ fn is_rule(_ cps: List<Int>) -> Bool {
 
 /// The length of the backtick run opening `content` if it is a fence marker (three
 /// or more), else 0.
-pub fn fence_len(_ content: String) -> Int {
+pub fn fence_len(content: String) -> Int {
     let cps = content.chars();
     let mut n = 0;
     while n < cps.len() && cps[n] == char.BACKTICK {
@@ -203,7 +203,7 @@ pub fn fence_len(_ content: String) -> Int {
 
 /// Whether `content` closes a fence opened with `open` backticks: a long-enough run
 /// with nothing after it (an info string is only allowed on the opener).
-fn closes_fence(_ content: String, _ open: Int) -> Bool {
+fn closes_fence(content: String, open: Int) -> Bool {
     let n = fence_len(content);
     if n < open {
         return false;
@@ -213,7 +213,7 @@ fn closes_fence(_ content: String, _ open: Int) -> Bool {
 
 /// Whether `cps` opens an ordered list item — digits, `.`, then end or a space.
 /// `1.` and `304.` qualify; `#127` and `3.14` do not.
-fn is_ordered_lead(_ cps: List<Int>) -> Bool {
+fn is_ordered_lead(cps: List<Int>) -> Bool {
     let mut i = 0;
     while i < cps.len() && char.is_digit(cps[i]) {
         i = i + 1;
@@ -231,7 +231,7 @@ fn is_ordered_lead(_ cps: List<Int>) -> Bool {
 /// (`**Line breaking** decides where the breaks go…`) is ordinary prose, and
 /// reading it as a label would freeze its first line and rewrap the rest as a
 /// separate paragraph.
-fn is_bold_label(_ content: String) -> Bool {
+fn is_bold_label(content: String) -> Bool {
     if !content.starts_with('**') || !content.ends_with(':**') {
         return false;
     }

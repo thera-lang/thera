@@ -52,15 +52,15 @@ impl Pulls {
     /// a function of the call, which is worth more than a shorter query string.
     pub fn list(
         self,
-        owner: String,
-        repo: String,
-        state: String = 'open',
-        head: Option<String> = Option.None,
-        base: Option<String> = Option.None,
-        sort: String = 'created',
-        direction: Option<String> = Option.None,
-        per_page: Int = 30,
-        page: Int = 1,
+        named owner: String,
+        named repo: String,
+        named state: String = 'open',
+        named head: Option<String> = Option.None,
+        named base: Option<String> = Option.None,
+        named sort: String = 'created',
+        named direction: Option<String> = Option.None,
+        named per_page: Int = 30,
+        named page: Int = 1,
     ) -> Result<Page<PullRequest>, GitHubError> {
         let url = self.client.url('/repos/${owner}/${repo}/pulls', query: params([
             'state': Option.Some(state),
@@ -96,14 +96,14 @@ impl Pulls {
     /// make: it would emit two types, and callers would convert between them.
     pub fn create(
         self,
-        owner: String,
-        repo: String,
-        head: String,
-        base: String,
-        title: Option<String> = Option.None,
-        body: Option<String> = Option.None,
-        draft: Option<Bool> = Option.None,
-        maintainer_can_modify: Option<Bool> = Option.None,
+        named owner: String,
+        named repo: String,
+        named head: String,
+        named base: String,
+        named title: Option<String> = Option.None,
+        named body: Option<String> = Option.None,
+        named draft: Option<Bool> = Option.None,
+        named maintainer_can_modify: Option<Bool> = Option.None,
     ) -> Result<PullRequest, GitHubError> {
         let payload = json.obj([
             'head': json.str(head),

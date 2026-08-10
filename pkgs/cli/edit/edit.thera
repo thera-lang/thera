@@ -18,17 +18,17 @@ pub struct TextEdit {
 }
 
 // The edit that replaces the text a span covers with `new_text`.
-pub fn span_edit(_ span: SourceSpan, _ new_text: String) -> TextEdit {
+pub fn span_edit(span: SourceSpan, new_text: String) -> TextEdit {
     return TextEdit { start: span.offset, end: span.offset + span.length, new_text: new_text };
 }
 
 // A pure insertion of `text` at code-point `offset` (nothing is removed).
-pub fn insert(_ offset: Int, _ text: String) -> TextEdit {
+pub fn insert(offset: Int, text: String) -> TextEdit {
     return TextEdit { start: offset, end: offset, new_text: text };
 }
 
 // Replace the code-point range `[start, end)` with `new_text`.
-pub fn replace(_ start: Int, _ end: Int, _ text: String) -> TextEdit {
+pub fn replace(start: Int, end: Int, text: String) -> TextEdit {
     return TextEdit { start: start, end: end, new_text: text };
 }
 
@@ -41,7 +41,7 @@ pub fn replace(_ start: Int, _ end: Int, _ text: String) -> TextEdit {
 // A per-edit `slice`-and-concat would rebuild the whole string on every edit —
 // O(edits × source length), quadratic over a large file with many edits — so we
 // accumulate the result's code points in one pass instead.
-pub fn apply_edits(_ source: String, _ edits: List<TextEdit>) -> String {
+pub fn apply_edits(source: String, edits: List<TextEdit>) -> String {
     if edits.len() == 0 {
         return source;
     }
@@ -80,7 +80,7 @@ pub struct Position {
 }
 
 // The (line, column) of a code-point `offset` in `source`, clamped to its length.
-pub fn offset_to_line_col(_ source: String, _ offset: Int) -> Position {
+pub fn offset_to_line_col(source: String, offset: Int) -> Position {
     let chars = source.chars();
     let limit = if offset < chars.len() { offset } else { chars.len() };
     let mut line = 1;
@@ -100,14 +100,14 @@ pub fn offset_to_line_col(_ source: String, _ offset: Int) -> Position {
 
 // The position just past the end of a span (its exclusive end), for building an LSP
 // range `{start, end}` from a `SourceSpan` (which carries only its start).
-pub fn span_end_position(_ source: String, _ span: SourceSpan) -> Position {
+pub fn span_end_position(source: String, span: SourceSpan) -> Position {
     return offset_to_line_col(source, span.offset + span.length);
 }
 
 // The leading-whitespace prefix of the line containing `offset` — the indentation
 // of that line's first token, which a fragment spliced onto the line should hang
 // from (see `fmt.format_fragment`).
-pub fn line_indent_at(_ source: String, _ offset: Int) -> String {
+pub fn line_indent_at(source: String, offset: Int) -> String {
     let chars = source.chars();
     let n = chars.len();
     let start = if offset < n { offset } else { n };

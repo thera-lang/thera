@@ -9,11 +9,11 @@
 
 import 'provider';
 
-fn hinted(_ g: bogus.Gadget) -> Int { // expect error: unknown namespace
+fn hinted(g: bogus.Gadget) -> Int { // expect error: unknown namespace
     return g.n;
 }
 
-fn unhinted(_ x: nowhere.Missing) -> Int { // expect error: unknown namespace
+fn unhinted(x: nowhere.Missing) -> Int { // expect error: unknown namespace
     return 0;
 }
 

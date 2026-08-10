@@ -30,17 +30,17 @@ pub interface Iterator<T> {
     // --- lazy adapters: each wraps `self` and pulls on demand ---
 
     /// An iterator yielding `f(x)` for each `x` of this iterator.
-    fn map<U>(self, _ f: (T) -> U) -> Iterator<U> {
+    fn map<U>(self, f: (T) -> U) -> Iterator<U> {
         return MapIter { source: self, transform: f };
     }
 
     /// An iterator yielding only the elements for which `keep` returns `true`.
-    fn filter(self, _ keep: (T) -> Bool) -> Iterator<T> {
+    fn filter(self, keep: (T) -> Bool) -> Iterator<T> {
         return FilterIter { source: self, keep: keep };
     }
 
     /// An iterator yielding at most the first `n` elements of this iterator.
-    fn take(self, _ n: Int) -> Iterator<T> {
+    fn take(self, n: Int) -> Iterator<T> {
         return TakeIter { source: self, remaining: n };
     }
 

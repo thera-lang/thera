@@ -57,7 +57,7 @@ impl Display for FsError {
 
 // The native error payload is "<kind>\u{1}<message>"; map the kind tag to the
 // matching variant so callers can `match` on the cause.
-fn to_fs_error(_ raw: String) -> FsError {
+fn to_fs_error(raw: String) -> FsError {
     let parts = raw.split('\u{1}');
     let kind = parts.get(0).unwrap_or('other');
     let msg = parts.get(1).unwrap_or(raw);
@@ -100,14 +100,14 @@ pub struct DirEntry {
 
 // The native reports last-modified as Unix milliseconds, using 0 to mean "unknown";
 // surface that as `None` rather than a misleading 1970 timestamp.
-fn modified_from_millis(_ millis: Int) -> Option<time.DateTime> {
+fn modified_from_millis(millis: Int) -> Option<time.DateTime> {
     if millis == 0 {
         return Option.None;
     }
     return Option.Some(time.DateTime.from_unix_millis(millis));
 }
 
-fn file_kind(_ code: Int) -> FileKind {
+fn file_kind(code: Int) -> FileKind {
     if code == 1 {
         return FileKind.Dir;
     }
@@ -123,50 +123,50 @@ fn file_kind(_ code: Int) -> FileKind {
 // --- native bindings (private; errors come back kind-tagged) ---
 
 @extern('fs_read_text')
-native fn _read_text(_ path: String) -> Result<String, String>
+native fn _read_text(path: String) -> Result<String, String>
 
 @extern('fs_write_text')
-native fn _write_text(_ path: String, _ text: String) -> Result<Void, String>
+native fn _write_text(path: String, text: String) -> Result<Void, String>
 
 @extern('fs_read_bytes')
-native fn _read_bytes(_ path: String) -> Result<Bytes, String>
+native fn _read_bytes(path: String) -> Result<Bytes, String>
 
 @extern('fs_write_bytes')
-native fn _write_bytes(_ path: String, _ data: Bytes) -> Result<Void, String>
+native fn _write_bytes(path: String, data: Bytes) -> Result<Void, String>
 
 @extern('fs_list_dir')
-native fn _list_dir(_ path: String) -> Result<List<String>, String>
+native fn _list_dir(path: String) -> Result<List<String>, String>
 
 @extern('fs_read_dir')
-native fn _read_dir(_ path: String) -> Result<List<String>, String>
+native fn _read_dir(path: String) -> Result<List<String>, String>
 
 @extern('fs_metadata')
-native fn _metadata(_ path: String) -> Result<List<Int>, String>
+native fn _metadata(path: String) -> Result<List<Int>, String>
 
 @extern('fs_symlink_metadata')
-native fn _symlink_metadata(_ path: String) -> Result<List<Int>, String>
+native fn _symlink_metadata(path: String) -> Result<List<Int>, String>
 
 @extern('fs_create_dir')
-native fn _create_dir(_ path: String) -> Result<Void, String>
+native fn _create_dir(path: String) -> Result<Void, String>
 
 @extern('fs_create_dir_all')
-native fn _create_dir_all(_ path: String) -> Result<Void, String>
+native fn _create_dir_all(path: String) -> Result<Void, String>
 
 @extern('fs_remove')
-native fn _remove(_ path: String) -> Result<Void, String>
+native fn _remove(path: String) -> Result<Void, String>
 
 @extern('fs_remove_dir_all')
-native fn _remove_dir_all(_ path: String) -> Result<Void, String>
+native fn _remove_dir_all(path: String) -> Result<Void, String>
 
 @extern('fs_rename')
-native fn _rename(_ src: String, _ dst: String) -> Result<Void, String>
+native fn _rename(src: String, dst: String) -> Result<Void, String>
 
 @extern('fs_copy')
-native fn _copy(_ src: String, _ dst: String) -> Result<Void, String>
+native fn _copy(src: String, dst: String) -> Result<Void, String>
 
 /// These two never fail.
 @extern('fs_exists')
-pub native fn exists(_ path: String) -> Bool
+pub native fn exists(path: String) -> Bool
 
 @extern('fs_temp_dir')
 pub native fn temp_dir() -> String
@@ -174,7 +174,7 @@ pub native fn temp_dir() -> String
 // --- whole-value reads & writes ---
 
 /// Read an entire file as a UTF-8 string.
-pub fn read_text(_ path: String) -> Result<String, FsError> {
+pub fn read_text(path: String) -> Result<String, FsError> {
     return match _read_text(path) {
         Ok(s) => Result.Ok(s),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -182,7 +182,7 @@ pub fn read_text(_ path: String) -> Result<String, FsError> {
 }
 
 /// Write `text` to a file, creating it or replacing its contents.
-pub fn write_text(_ path: String, _ text: String) -> Result<Void, FsError> {
+pub fn write_text(path: String, text: String) -> Result<Void, FsError> {
     return match _write_text(path, text) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -190,7 +190,7 @@ pub fn write_text(_ path: String, _ text: String) -> Result<Void, FsError> {
 }
 
 /// Read an entire file as raw bytes.
-pub fn read_bytes(_ path: String) -> Result<Bytes, FsError> {
+pub fn read_bytes(path: String) -> Result<Bytes, FsError> {
     return match _read_bytes(path) {
         Ok(b) => Result.Ok(b),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -198,7 +198,7 @@ pub fn read_bytes(_ path: String) -> Result<Bytes, FsError> {
 }
 
 /// Write raw bytes to a file, creating it or replacing its contents.
-pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError> {
+pub fn write_bytes(path: String, data: Bytes) -> Result<Void, FsError> {
     return match _write_bytes(path, data) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -210,7 +210,7 @@ pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError> {
 /// Metadata for the file or directory at `path`, **following** symlinks (a symlink
 /// reports its target's kind, size, and time). Use `symlink_metadata` to inspect
 /// the link itself.
-pub fn metadata(_ path: String) -> Result<Metadata, FsError> {
+pub fn metadata(path: String) -> Result<Metadata, FsError> {
     return match _metadata(path) {
         Ok(fields) => Result.Ok(build_metadata(fields)),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -219,7 +219,7 @@ pub fn metadata(_ path: String) -> Result<Metadata, FsError> {
 
 /// Metadata for the entry at `path` **without following** a symlink — a symlink
 /// reports `FileKind.Symlink` (where `metadata` would report its target).
-pub fn symlink_metadata(_ path: String) -> Result<Metadata, FsError> {
+pub fn symlink_metadata(path: String) -> Result<Metadata, FsError> {
     return match _symlink_metadata(path) {
         Ok(fields) => Result.Ok(build_metadata(fields)),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -227,7 +227,7 @@ pub fn symlink_metadata(_ path: String) -> Result<Metadata, FsError> {
 }
 
 // Assemble a `Metadata` from the native's `[kind, size, modified_millis]`.
-fn build_metadata(_ fields: List<Int>) -> Metadata {
+fn build_metadata(fields: List<Int>) -> Metadata {
     return Metadata {
         kind: file_kind(fields[0]),
         size: fields[1],
@@ -241,7 +241,7 @@ fn build_metadata(_ fields: List<Int>) -> Metadata {
 /// Prefer `read_dir` when you need to know which entries are directories: it
 /// reports each entry's kind for free, where `list_dir` + `metadata` per entry
 /// costs a syscall apiece.
-pub fn list_dir(_ path: String) -> Result<List<String>, FsError> {
+pub fn list_dir(path: String) -> Result<List<String>, FsError> {
     return match _list_dir(path) {
         Ok(names) => Result.Ok(names),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -263,7 +263,7 @@ pub fn list_dir(_ path: String) -> Result<List<String>, FsError> {
 ///             _ => visit(path.join(dir, e.name)),
 ///         }
 ///     }
-pub fn read_dir(_ path: String) -> Result<List<DirEntry>, FsError> {
+pub fn read_dir(path: String) -> Result<List<DirEntry>, FsError> {
     return match _read_dir(path) {
         Ok(raw) => Result.Ok(raw.map((r) => build_dir_entry(r))),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -274,7 +274,7 @@ pub fn read_dir(_ path: String) -> Result<List<DirEntry>, FsError> {
 // error payloads use) — a list can't hold a String and an Int side by side. Split
 // on the *first* separator only: every byte but `/` and NUL is legal in a filename,
 // `\u{1}` included, and `split` would truncate such a name at it.
-fn build_dir_entry(_ raw: String) -> DirEntry {
+fn build_dir_entry(raw: String) -> DirEntry {
     return match raw.find('\u{1}') {
         Some(i) => DirEntry {
             name: raw.slice(i + 1, raw.len()),
@@ -287,7 +287,7 @@ fn build_dir_entry(_ raw: String) -> DirEntry {
 }
 
 /// Create a single directory; the parent must already exist.
-pub fn create_dir(_ path: String) -> Result<Void, FsError> {
+pub fn create_dir(path: String) -> Result<Void, FsError> {
     return match _create_dir(path) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -295,7 +295,7 @@ pub fn create_dir(_ path: String) -> Result<Void, FsError> {
 }
 
 /// Create a directory and any missing parents (like `mkdir -p`).
-pub fn create_dir_all(_ path: String) -> Result<Void, FsError> {
+pub fn create_dir_all(path: String) -> Result<Void, FsError> {
     return match _create_dir_all(path) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -305,7 +305,7 @@ pub fn create_dir_all(_ path: String) -> Result<Void, FsError> {
 // --- mutations ---
 
 /// Remove a file or an empty directory. Use `remove_dir_all` for a non-empty one.
-pub fn remove(_ path: String) -> Result<Void, FsError> {
+pub fn remove(path: String) -> Result<Void, FsError> {
     return match _remove(path) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -313,7 +313,7 @@ pub fn remove(_ path: String) -> Result<Void, FsError> {
 }
 
 /// Remove a directory and everything inside it, recursively.
-pub fn remove_dir_all(_ path: String) -> Result<Void, FsError> {
+pub fn remove_dir_all(path: String) -> Result<Void, FsError> {
     return match _remove_dir_all(path) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -321,7 +321,7 @@ pub fn remove_dir_all(_ path: String) -> Result<Void, FsError> {
 }
 
 /// Rename (move) a file or directory.
-pub fn rename(from: String, to: String) -> Result<Void, FsError> {
+pub fn rename(named from: String, named to: String) -> Result<Void, FsError> {
     return match _rename(from, to) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -329,7 +329,7 @@ pub fn rename(from: String, to: String) -> Result<Void, FsError> {
 }
 
 /// Copy a file's contents to a new path.
-pub fn copy(from: String, to: String) -> Result<Void, FsError> {
+pub fn copy(named from: String, named to: String) -> Result<Void, FsError> {
     return match _copy(from, to) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -357,30 +357,30 @@ impl File {
 }
 
 @extern('fs_open')
-native fn _open(_ path: String) -> Result<Int, String>
+native fn _open(path: String) -> Result<Int, String>
 
 @extern('fs_create')
-native fn _create(_ path: String) -> Result<Int, String>
+native fn _create(path: String) -> Result<Int, String>
 
 // Returns "<handle>\u{1}<path>" so the open handle and its generated path come back
 // together (the native creates + opens atomically, avoiding a re-open race).
 @extern('fs_temp_file')
-native fn _temp_file(_ prefix: String) -> Result<String, String>
+native fn _temp_file(prefix: String) -> Result<String, String>
 
 @extern('file_read')
-native fn _file_read(_ handle: Int, _ max: Int) -> Result<Bytes, String>
+native fn _file_read(handle: Int, max: Int) -> Result<Bytes, String>
 
 @extern('file_write')
-native fn _file_write(_ handle: Int, _ data: Bytes) -> Result<Int, String>
+native fn _file_write(handle: Int, data: Bytes) -> Result<Int, String>
 
 @extern('file_seek')
-native fn _file_seek(_ handle: Int, _ whence: Int, _ offset: Int) -> Result<Int, String>
+native fn _file_seek(handle: Int, whence: Int, offset: Int) -> Result<Int, String>
 
 @extern('file_close')
-native fn _file_close(_ handle: Int) -> Result<Void, String>
+native fn _file_close(handle: Int) -> Result<Void, String>
 
 impl io.Reader for File {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         return match _file_read(self.handle, max) {
             Ok(b) => Result.Ok(b),
             Err(e) => Result.Err(to_fs_error(e)),
@@ -389,7 +389,7 @@ impl io.Reader for File {
 }
 
 impl io.Writer for File {
-    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+    pub fn write(self, data: Bytes) -> Result<Int, Error> {
         return match _file_write(self.handle, data) {
             Ok(n) => Result.Ok(n),
             Err(e) => Result.Err(to_fs_error(e)),
@@ -398,7 +398,7 @@ impl io.Writer for File {
 }
 
 impl io.Seek for File {
-    pub fn seek(self, _ to: io.SeekFrom) -> Result<Int, Error> {
+    pub fn seek(self, to: io.SeekFrom) -> Result<Int, Error> {
         // Decode `SeekFrom` into the native's (whence, offset) pair (0/1/2).
         let raw = match to {
             Start(n) => _file_seek(self.handle, 0, n),
@@ -422,7 +422,7 @@ impl io.Closer for File {
 }
 
 /// Open an existing file for reading (its cursor starts at the beginning).
-pub fn open(_ path: String) -> Result<File, FsError> {
+pub fn open(path: String) -> Result<File, FsError> {
     return match _open(path) {
         Ok(h) => Result.Ok(File { handle: h, path: path }),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -430,7 +430,7 @@ pub fn open(_ path: String) -> Result<File, FsError> {
 }
 
 /// Create a file (or truncate an existing one) for writing.
-pub fn create(_ path: String) -> Result<File, FsError> {
+pub fn create(path: String) -> Result<File, FsError> {
     return match _create(path) {
         Ok(h) => Result.Ok(File { handle: h, path: path }),
         Err(e) => Result.Err(to_fs_error(e)),
@@ -450,7 +450,7 @@ pub fn create(_ path: String) -> Result<File, FsError> {
 /// // ... use f.path() ...
 /// fs.remove(f.path())?;
 /// ```
-pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError> {
+pub fn temp_file(named prefix: String = 'tmp') -> Result<File, FsError> {
     return match _temp_file(prefix) {
         Ok(encoded) => {
             let parts = encoded.split('\u{1}');
@@ -480,7 +480,7 @@ pub struct WalkIter {
 
 impl WalkIter {
     // List `dir` and push its entries as full paths; stash the first failure.
-    fn expand(self, _ dir: String) -> Void {
+    fn expand(self, dir: String) -> Void {
         match list_dir(dir) {
             Ok(names) => {
                 for name in names {
@@ -534,7 +534,7 @@ impl Iterator<String> for WalkIter {
 /// `WalkIter` — an `Iterator<String>` of full descendant paths; drive it with
 /// `for p in fs.walk(root)` or an adapter chain. Check `.error()` afterwards if a
 /// directory that couldn't be read must be distinguished from an empty tree.
-pub fn walk(_ root: String) -> WalkIter {
+pub fn walk(root: String) -> WalkIter {
     let w = WalkIter { stack: [], err: Option.None };
     w.expand(root);
     return w;

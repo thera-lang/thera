@@ -5,7 +5,7 @@
 // propagating `Err`). Valid in an `Option`-returning function: `Some(v)` unwraps
 // to `v`, `None` early-returns `None`.
 
-fn first_plus(_ xs: List<Int>, _ n: Int) -> Option<Int> {
+fn first_plus(xs: List<Int>, n: Int) -> Option<Int> {
     let head = xs.first()?;      // Option<Int> -> Int, else return None
     return Option.Some(head + n);
 }

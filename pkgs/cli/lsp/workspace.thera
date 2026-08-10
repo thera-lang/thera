@@ -23,7 +23,7 @@ import std.path;
 // `prune` decides a whole *subtree*, so a caller must only reject a directory when
 // every file beneath it is unwanted; a filter that merely rejects some files
 // belongs after the walk, not here (see `glob.prunes_dir`).
-pub fn thera_files(_ roots: List<String>, prune: (String) -> Bool) -> List<String> {
+pub fn thera_files(roots: List<String>, named prune: (String) -> Bool) -> List<String> {
     let seen: Set<String> = Set.new();
     let out: List<String> = [];
     for root in roots {
@@ -33,7 +33,7 @@ pub fn thera_files(_ roots: List<String>, prune: (String) -> Bool) -> List<Strin
 }
 
 // The `prune` for a scan that skips nothing beyond the built-in noise dirs.
-pub fn no_prune(_ dir: String) -> Bool {
+pub fn no_prune(dir: String) -> Bool {
     return false;
 }
 
@@ -43,12 +43,7 @@ pub fn no_prune(_ dir: String) -> Bool {
 // populated `runtime/target`: 1593ms of a 1608ms scan went to those stat calls;
 // reading all 377 `.thera` sources was 8ms of it. The client re-pulls
 // `workspace/diagnostic` every 2s forever, so that was paid continuously.)
-fn walk_dir(
-    _ dir: String,
-    _ seen: Set<String>,
-    _ out: List<String>,
-    _ prune: (String) -> Bool,
-) -> Void {
+fn walk_dir(dir: String, seen: Set<String>, out: List<String>, prune: (String) -> Bool) -> Void {
     let entries = match fs.read_dir(dir) {
         Ok(es) => es,
         Err(_) => return, // unreadable directory — skip its subtree
@@ -76,7 +71,7 @@ fn walk_dir(
 // workspace can legitimately symlink a source directory in), and this keeps it
 // doing so. Only symlinks pay the syscall, and a tree has few; a broken link
 // resolves to nothing and is skipped, as before.
-fn entry_kind(_ full: String, _ e: fs.DirEntry) -> fs.FileKind {
+fn entry_kind(full: String, e: fs.DirEntry) -> fs.FileKind {
     return match e.kind {
         Symlink => match fs.metadata(full) {
             Ok(md) => md.kind,
@@ -89,6 +84,6 @@ fn entry_kind(_ full: String, _ e: fs.DirEntry) -> fs.FileKind {
 // A directory whose subtree is pruned from the scan: `build` output or a
 // dot-directory (version control, tool caches, editor state). Matching a language
 // server's usual noise filter without needing a config file.
-pub fn skip_dir(_ name: String) -> Bool {
+pub fn skip_dir(name: String) -> Bool {
     return name == 'build' || name.starts_with('.');
 }

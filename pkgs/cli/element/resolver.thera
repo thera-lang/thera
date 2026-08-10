@@ -80,7 +80,7 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
 // buffer mid-edit) can't clobber core identity. Deliberately *not* the whole core
 // surface: utility types that merely live in core (`BytesBuilder`, `Args`,
 // `Indexed`, …) are ordinary owner-resolved names a user may redeclare.
-pub fn is_reserved_type_name(_ name: String) -> Bool {
+pub fn is_reserved_type_name(name: String) -> Bool {
     return name == 'Result' || name == 'Option' || name == 'Ordering'
         || name == 'List' || name == 'Map' || name == 'Set'
         || name == 'String' || name == 'Int' || name == 'Bool' || name == 'Double'
@@ -93,7 +93,7 @@ pub fn is_reserved_type_name(_ name: String) -> Bool {
 // hermetic-floor stand-in for a primitive's `impl Display for …` / `impl Ord for …`
 // in std.core (all four primitives declare both). The conformances carry the floor
 // interfaces' identities; the real core impls carry the core file's.
-fn builtin_displayable(_ name: String) -> TypeDefElement {
+fn builtin_displayable(name: String) -> TypeDefElement {
     let def = new_builtin(BUILTIN_OWNER, name, []);
     def.interfaces.push(TypeId { owner: BUILTIN_OWNER, name: 'Display' });
     def.interfaces.push(TypeId { owner: BUILTIN_OWNER, name: 'Ord' });
@@ -112,9 +112,9 @@ fn builtin_displayable(_ name: String) -> TypeDefElement {
 // keep last-wins: the flat table is only a fallback beneath the authoritative
 // per-file tables.
 fn record_flat_type(
-    _ type_defs: Map<String, TypeDefElement>,
-    _ name: String,
-    _ el: TypeDefElement,
+    type_defs: Map<String, TypeDefElement>,
+    name: String,
+    el: TypeDefElement,
 ) -> Void {
     if is_reserved_type_name(name) {
         if let Some(existing) = type_defs.get(name) {
@@ -136,10 +136,10 @@ fn record_flat_type(
 // pass bodies are shared with the incremental pair below (`build_import_library` +
 // `layer_primary`), which must stay behavior-identical to this full build.
 pub fn build_library(
-    _ program: Program,
-    _ imports: List<Program>,
-    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Map<String, String>>,
+    program: Program,
+    imports: List<Program>,
+    file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    file_bare_surface: Map<String, Map<String, String>>,
 ) -> LibraryElement {
     stamp_anon_keys(program, imports);
     // Imports are registered first so the primary program can shadow them.
@@ -165,7 +165,7 @@ pub fn build_library(
 // to. Per-program (never the whole shared library at once), so the incremental path
 // types the base's imports once at base-build and `layer_primary` types only the
 // primary — the frozen-base invariant holds.
-fn resolve_global_types(_ library: LibraryElement, _ programs: List<Program>) -> Void {
+fn resolve_global_types(library: LibraryElement, programs: List<Program>) -> Void {
     for p in programs {
         inference.infer_program_globals(library, p);
     }
@@ -181,9 +181,9 @@ fn resolve_global_types(_ library: LibraryElement, _ programs: List<Program>) ->
 // elements (any new element-mutation site in the resolver must respect this, or
 // repeated layered requests silently poison the cache).
 pub fn build_import_library(
-    _ imports: List<Program>,
-    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Map<String, String>>,
+    imports: List<Program>,
+    file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    file_bare_surface: Map<String, Map<String, String>>,
 ) -> LibraryElement {
     stamp_anon_imports(imports);
     let library = library_over(imports, file_namespaces, file_bare_surface);
@@ -206,10 +206,10 @@ pub fn build_import_library(
 // base's for import files — the caller's invalidation guarantees it — plus the
 // primary's own entries).
 pub fn layer_primary(
-    _ base: LibraryElement,
-    _ program: Program,
-    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Map<String, String>>,
+    base: LibraryElement,
+    program: Program,
+    file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    file_bare_surface: Map<String, Map<String, String>>,
 ) -> Option<LibraryElement> {
     if program.file_path.is_none() {
         program.file_path = Option.Some(file_key(Option.None));
@@ -251,14 +251,14 @@ pub fn layer_primary(
 // address it as `file_key(None)`); path-less imports count up from 2. Stamping
 // mutates the program — as the loader's canonical re-stamp does — so the checker's
 // and codegen's builds agree on one identity.
-fn stamp_anon_keys(_ program: Program, _ imports: List<Program>) -> Void {
+fn stamp_anon_keys(program: Program, imports: List<Program>) -> Void {
     if program.file_path.is_none() {
         program.file_path = Option.Some(file_key(Option.None));
     }
     stamp_anon_imports(imports);
 }
 
-fn stamp_anon_imports(_ imports: List<Program>) -> Void {
+fn stamp_anon_imports(imports: List<Program>) -> Void {
     let mut anon = 1;
     for ip in imports {
         if ip.file_path.is_none() {
@@ -269,7 +269,7 @@ fn stamp_anon_imports(_ imports: List<Program>) -> Void {
 }
 
 // A shallow copy: the outer map is fresh, the values are shared references.
-fn map_copy<K, V>(_ m: Map<K, V>) -> Map<K, V> {
+fn map_copy<K, V>(m: Map<K, V>) -> Map<K, V> {
     let out: Map<K, V> = [:];
     for k in m.keys() {
         out[k] = m[k];
@@ -281,9 +281,9 @@ fn map_copy<K, V>(_ m: Map<K, V>) -> Map<K, V> {
 // included). Pass 3 (interface flattening) is the caller's — the layered build
 // flattens only the primary's interfaces.
 fn library_over(
-    _ programs: List<Program>,
-    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Map<String, String>>,
+    programs: List<Program>,
+    file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    file_bare_surface: Map<String, Map<String, String>>,
 ) -> LibraryElement {
     let type_defs = builtin_type_defs();
     let file_type_defs: Map<String, Map<String, TypeDefElement>> = [:];
@@ -320,7 +320,7 @@ fn library_over(
 
 // Collect one program's declared top-level names into `file_owned` (the same-file
 // half of bare resolution).
-fn collect_owned(_ file_owned: Map<String, Set<String>>, _ p: Program) -> Void {
+fn collect_owned(file_owned: Map<String, Set<String>>, p: Program) -> Void {
     let key = file_key(p.file_path);
     if !file_owned.has(key) {
         file_owned[key] = Set.new();
@@ -334,9 +334,9 @@ fn collect_owned(_ file_owned: Map<String, Set<String>>, _ p: Program) -> Void {
 
 // ---- pass 1: skeleton type definitions (one program) ----
 fn register_skeletons(
-    _ type_defs: Map<String, TypeDefElement>,
-    _ file_type_defs: Map<String, Map<String, TypeDefElement>>,
-    _ p: Program,
+    type_defs: Map<String, TypeDefElement>,
+    file_type_defs: Map<String, Map<String, TypeDefElement>>,
+    p: Program,
 ) -> Void {
     for decl in p.decls {
         match decl {
@@ -389,7 +389,7 @@ fn register_skeletons(
 }
 
 // ---- pass 2: members, signatures, consts (one program) ----
-fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
+fn resolve_members(library: LibraryElement, p: Program) -> Void {
     let file_functions = library.file_functions;
     let file_type_defs = library.file_type_defs;
     let file_consts = library.file_consts;
@@ -494,7 +494,7 @@ fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
 // shadowed same-named interface flattens too. Supers were resolved to `TypeId`s in
 // pass 2 (each from its declaring file's scope), so the walk — and the closure it
 // stores — is by identity (EL9).
-fn flatten_owner_interfaces(_ library: LibraryElement, _ owner: String) -> Void {
+fn flatten_owner_interfaces(library: LibraryElement, owner: String) -> Void {
     if let Some(defs) = library.file_type_defs.get(owner) {
         for def in defs.values() {
             if def.kind == TypeDefKind.Interface {
@@ -504,7 +504,7 @@ fn flatten_owner_interfaces(_ library: LibraryElement, _ owner: String) -> Void 
     }
 }
 
-fn flatten_interface_closure(_ def: TypeDefElement, _ library: LibraryElement) -> Void {
+fn flatten_interface_closure(def: TypeDefElement, library: LibraryElement) -> Void {
     let own_id = TypeId { owner: def.owner_file, name: def.name };
     let closure: List<TypeId> = [];
     let queue: List<TypeId> = [];
@@ -547,10 +547,10 @@ fn flatten_interface_closure(_ def: TypeDefElement, _ library: LibraryElement) -
 // object stored in the flat table, so later passes that mutate it through the flat
 // table are visible here too.
 fn record_file_type(
-    _ tbl: Map<String, Map<String, TypeDefElement>>,
-    _ file: Option<String>,
-    _ name: String,
-    _ el: TypeDefElement,
+    tbl: Map<String, Map<String, TypeDefElement>>,
+    file: Option<String>,
+    name: String,
+    el: TypeDefElement,
 ) -> Void {
     let key = file_key(file);
     if !tbl.has(key) {
@@ -565,9 +565,9 @@ fn record_file_type(
 // element they resolved, so they must reach the one their own file declared; under
 // type-name uniqueness this is the same object the flat lookup returns.
 fn file_type_def(
-    _ tbl: Map<String, Map<String, TypeDefElement>>,
-    _ file: Option<String>,
-    _ name: String,
+    tbl: Map<String, Map<String, TypeDefElement>>,
+    file: Option<String>,
+    name: String,
 ) -> Option<TypeDefElement> {
     return match tbl.get(file_key(file)) {
         Some(m) => m.get(name),
@@ -578,10 +578,10 @@ fn file_type_def(
 // Record `el` under its declaring `file` in the per-file function table — the
 // `FunctionElement` sibling of `record_file_type`/`record_file_const`.
 fn record_file_function(
-    _ tbl: Map<String, Map<String, FunctionElement>>,
-    _ file: Option<String>,
-    _ name: String,
-    _ el: FunctionElement,
+    tbl: Map<String, Map<String, FunctionElement>>,
+    file: Option<String>,
+    name: String,
+    el: FunctionElement,
 ) -> Void {
     let key = file_key(file);
     if !tbl.has(key) {
@@ -591,10 +591,10 @@ fn record_file_function(
 }
 
 fn record_file_const(
-    _ tbl: Map<String, Map<String, ConstElement>>,
-    _ file: Option<String>,
-    _ name: String,
-    _ el: ConstElement,
+    tbl: Map<String, Map<String, ConstElement>>,
+    file: Option<String>,
+    name: String,
+    el: ConstElement,
 ) -> Void {
     let key = file_key(file);
     if !tbl.has(key) {
@@ -605,7 +605,7 @@ fn record_file_const(
 
 // The top-level name a declaration introduces into its file's scope, or None for
 // the nameless declarations (`impl` blocks, `import`s).
-fn top_decl_name(_ decl: Decl) -> Option<String> {
+fn top_decl_name(decl: Decl) -> Option<String> {
     return match decl {
         Fn(x) => Option.Some(x.name),
         Type(x) => Option.Some(x.name),
@@ -618,7 +618,7 @@ fn top_decl_name(_ decl: Decl) -> Option<String> {
     };
 }
 
-fn resolve_impl(_ decl: ImplDecl, _ scope: FileScope) -> Void {
+fn resolve_impl(decl: ImplDecl, scope: FileScope) -> Void {
     // Attach to the type the impl's file actually sees (own file / bare import),
     // not the flat table's last-wins entry — so `impl Point { … }` in one library
     // extends *its* Point (Phase 1 T4 follow-up).
@@ -658,7 +658,7 @@ fn resolve_impl(_ decl: ImplDecl, _ scope: FileScope) -> Void {
     }
 }
 
-fn function_element(_ decl: FnDecl, _ scope: FileScope) -> FunctionElement {
+fn function_element(decl: FnDecl, scope: FileScope) -> FunctionElement {
     let tps = type_param_set(decl.type_params);
     return FunctionElement {
         name: decl.name,
@@ -674,11 +674,11 @@ fn function_element(_ decl: FnDecl, _ scope: FileScope) -> FunctionElement {
 }
 
 fn method_element(
-    _ decl: FnDecl,
-    _ owner: String,
-    _ scope: FileScope,
-    _ outer_type_params: Set<String>,
-    _ self_type: Option<Type>,
+    decl: FnDecl,
+    owner: String,
+    scope: FileScope,
+    outer_type_params: Set<String>,
+    self_type: Option<Type>,
 ) -> FunctionElement {
     let tps: Set<String> = Set.new();
     for t in outer_type_params.to_list() {
@@ -703,10 +703,10 @@ fn method_element(
 // A missing `-> Type` means the function returns Unit (Thera's implicit-unit
 // return), not "unknown".
 fn resolve_return(
-    _ ref: Option<TypeRef>,
-    _ scope: FileScope,
-    _ type_params: Set<String>,
-    _ self_type: Option<Type>,
+    ref: Option<TypeRef>,
+    scope: FileScope,
+    type_params: Set<String>,
+    self_type: Option<Type>,
 ) -> Type {
     return match ref {
         None => Type.Primitive(Primitive.Unit),
@@ -715,10 +715,10 @@ fn resolve_return(
 }
 
 fn build_params(
-    _ decl: FnDecl,
-    _ scope: FileScope,
-    _ type_params: Set<String>,
-    _ self_type: Option<Type>,
+    decl: FnDecl,
+    scope: FileScope,
+    type_params: Set<String>,
+    self_type: Option<Type>,
 ) -> List<ParameterElement> {
     let result: List<ParameterElement> = [];
     for p in decl.params {
@@ -748,7 +748,7 @@ fn build_params(
 
 // --- small helpers ---
 
-fn type_param_names(_ tps: List<TypeParam>) -> List<String> {
+fn type_param_names(tps: List<TypeParam>) -> List<String> {
     return tps.map((tp) => tp.name);
 }
 
@@ -756,7 +756,7 @@ fn type_param_names(_ tps: List<TypeParam>) -> List<String> {
 // interface the declaring file's scope sees, honoring a `ns.Name` qualifier. Shared
 // with the checker and codegen, which resolve the same AST bound lists at their use
 // sites.
-pub fn bound_id(_ fs: FileScope, _ b: BoundRef) -> TypeId {
+pub fn bound_id(fs: FileScope, b: BoundRef) -> TypeId {
     return TypeId { owner: fs.resolve_type_owner(b.name, b.namespace), name: b.name };
 }
 
@@ -765,13 +765,13 @@ pub fn bound_id(_ fs: FileScope, _ b: BoundRef) -> TypeId {
 // scope. Index-assign into the (already-empty) map, so the field needn't be `mut` —
 // the same way `fields` is filled. Runs in pass 2 (bounds resolve names, so pass 1
 // is too early).
-fn fill_type_param_bounds(_ el: TypeDefElement, _ tps: List<TypeParam>, _ fs: FileScope) -> Void {
+fn fill_type_param_bounds(el: TypeDefElement, tps: List<TypeParam>, fs: FileScope) -> Void {
     for tp in tps {
         el.type_parameter_bounds[tp.name] = tp.bounds.map((b) => bound_id(fs, b));
     }
 }
 
-fn type_param_bounds(_ decl: FnDecl, _ fs: FileScope) -> Map<String, List<TypeId>> {
+fn type_param_bounds(decl: FnDecl, fs: FileScope) -> Map<String, List<TypeId>> {
     let b: Map<String, List<TypeId>> = [:];
     for tp in decl.type_params {
         b[tp.name] = tp.bounds.map((n) => bound_id(fs, n));

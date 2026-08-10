@@ -12,11 +12,11 @@ impl Point {
         return Point { x: 0, y: 0 };
     }
 
-    fn create(x: Int, y: Int) -> Point {
+    fn create(named x: Int, named y: Int) -> Point {
         return Point { x: x, y: y };
     }
 
-    fn translate(self, dx: Int, dy: Int) -> Point {
+    fn translate(self, named dx: Int, named dy: Int) -> Point {
         return Point { x: self.x + dx, y: self.y + dy };
     }
 }

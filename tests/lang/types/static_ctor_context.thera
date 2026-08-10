@@ -7,7 +7,7 @@
 // static-call arm of inference instantiates the return type from context, like the
 // free-function path.)
 
-fn want(_ s: Set<String>) -> Int {
+fn want(s: Set<String>) -> Int {
     s.add('y');
     return s.len();
 }

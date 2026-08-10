@@ -104,10 +104,10 @@ struct OrderedArg {
 // types, and methods register into a single scope (so cross-module references
 // resolve), then every unit is compiled.
 pub fn compile_program(
-    _ program: Program,
-    _ imports: List<Program>,
-    _ file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Map<String, String>>,
+    program: Program,
+    imports: List<Program>,
+    file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
+    file_bare_surface: Map<String, Map<String, String>>,
 ) -> CodegenResult {
     let library = element.build_library(program, imports, file_namespaces, file_bare_surface);
     // Fill un-annotated module-global types from their initializers (the resolver
@@ -197,7 +197,7 @@ const INIT_THUNK_NAME: String = '<init>';
 const MAX_CONCAT_ARGC: Int = 255;
 
 // Register one module's declarations into the shared scope.
-fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
+fn register_module(scope: ModuleScope, program: Program) -> Void {
     let file = program.file_path;
     for decl in program.decls {
         match decl {
@@ -323,7 +323,7 @@ pub struct FnCompiler {
     let errors: List<diagnostic.Diagnostic>;
 }
 
-pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnostic>) -> FnCompiler {
+pub fn new_fn_compiler(scope: ModuleScope, errors: List<diagnostic.Diagnostic>) -> FnCompiler {
     return FnCompiler {
         scope: scope,
         code: [],
@@ -348,7 +348,7 @@ pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnosti
 
 impl FnCompiler {
     // Compile the unit at `index` in the module scope.
-    pub fn compile(self, _ index: Int) -> FuncDef {
+    pub fn compile(self, index: Int) -> FuncDef {
         let fn_decl = self.scope.units[index];
         self.file = self.scope.unit_files[index];
         let bfs = file_scope(self.scope.library, self.file);
@@ -517,7 +517,7 @@ impl FnCompiler {
     // initializer (scanning the code emitted since `start`). The result would be a
     // stale load-time snapshot; see docs/language.md. A lambda *value* in an
     // initializer is fine — its body is a separate unit, not run at load.
-    fn reject_effectful_natives(self, _ start: Int, _ span: SourceSpan) -> Void {
+    fn reject_effectful_natives(self, start: Int, span: SourceSpan) -> Void {
         let mut i = start;
         while i < self.code.len() {
             if let CallNative(name, _) = self.code[i] {
@@ -532,11 +532,11 @@ impl FnCompiler {
 
     // --- low-level emit / labels / slots ---
 
-    fn emit(self, _ instr: Instr) -> Void {
+    fn emit(self, instr: Instr) -> Void {
         self.code.push(instr);
     }
 
-    fn error(self, _ message: String, _ span: SourceSpan) -> Void {
+    fn error(self, message: String, span: SourceSpan) -> Void {
         self.errors.push(diagnostic.at(message, span));
     }
 
@@ -545,11 +545,11 @@ impl FnCompiler {
         return self.labels.len() - 1;
     }
 
-    fn bind(self, _ label: Int) -> Void {
+    fn bind(self, label: Int) -> Void {
         self.labels[label] = Option.Some(self.code.len());
     }
 
-    fn emit_jump(self, _ kind: Jk, _ label: Int) -> Void {
+    fn emit_jump(self, kind: Jk, label: Int) -> Void {
         self.fixups.push(Fixup { pos: self.code.len(), label: label, kind: kind });
         self.emit(Instr.Jump(0)); // placeholder, replaced during resolution
     }
@@ -580,7 +580,7 @@ impl FnCompiler {
         return s;
     }
 
-    fn declare_local(self, _ name: String) -> Int {
+    fn declare_local(self, name: String) -> Int {
         let slot = self.local_count;
         self.local_count = self.local_count + 1;
         self.slots[name] = slot;
@@ -594,13 +594,13 @@ impl FnCompiler {
         return saved;
     }
 
-    fn exit_scope(self, _ saved: SavedScope) -> Void {
+    fn exit_scope(self, saved: SavedScope) -> Void {
         self.slots = saved.slots;
         self.type_scope = saved.types;
     }
 
     // Emit a statement block in its own lexical scope.
-    fn scoped_block(self, _ b: Block) -> Void {
+    fn scoped_block(self, b: Block) -> Void {
         let saved = self.enter_scope();
         self.block(b);
         self.exit_scope(saved);
@@ -613,7 +613,7 @@ impl FnCompiler {
     // `#loc` site is cleared too — crossing into another file's code means a `#loc`
     // written there is its own site again, unless the caller re-establishes one (as
     // the default-argument path does).
-    fn enter_file_context(self, _ file: Option<String>) -> FileContext {
+    fn enter_file_context(self, file: Option<String>) -> FileContext {
         let saved = FileContext {
             file: self.file,
             ctx: self.ctx,
@@ -633,7 +633,7 @@ impl FnCompiler {
         return saved;
     }
 
-    fn restore_file_context(self, _ saved: FileContext) -> Void {
+    fn restore_file_context(self, saved: FileContext) -> Void {
         self.file = saved.file;
         self.ctx = saved.ctx;
         self.slots = saved.slots;
@@ -662,12 +662,12 @@ impl FnCompiler {
         return false;
     }
 
-    fn is_namespace(self, _ name: String) -> Bool {
+    fn is_namespace(self, name: String) -> Bool {
         return !self.slots.has(name) && self.scope.file_has_namespace(self.file, name);
     }
 
     // Push the value of local `name`; a boxed local holds a one-field cell.
-    fn load_local_value(self, _ name: String, _ span: SourceSpan) -> Void {
+    fn load_local_value(self, name: String, span: SourceSpan) -> Void {
         match self.slots.get(name) {
             Some(slot) => {
                 self.emit(Instr.Load(slot));
@@ -698,7 +698,7 @@ impl FnCompiler {
     // Last in the chain, after locals/consts/globals: a name is only a function
     // reference if it is nothing else, and one name space per scope means it cannot
     // be two of them.
-    fn load_function_value(self, _ name: String, _ span: SourceSpan) -> Void {
+    fn load_function_value(self, name: String, span: SourceSpan) -> Void {
         match self.scope.resolve_function(self.file, name) {
             Some(index) => { self.emit(Instr.ClosureNew(index, 0)); },
             None => { self.error('undefined name: ${name}', span); },
@@ -706,7 +706,7 @@ impl FnCompiler {
     }
 
     // Load a module global (top-level `let`) by its owner-resolved slot.
-    fn emit_global(self, _ owner: String, _ name: String) -> Void {
+    fn emit_global(self, owner: String, name: String) -> Void {
         if let Some(slot) = self.scope.global_in_file(owner, name) {
             self.emit(Instr.GlobalGet(slot));
         }
@@ -718,7 +718,7 @@ impl FnCompiler {
     // initializer's own references (another const, a namespace) resolve against its
     // declaring file. Cycle detection keys by owner too, so two libraries'
     // same-named consts referencing each other aren't a false cycle.
-    fn emit_const(self, _ owner: String, _ name: String, _ span: SourceSpan) -> Void {
+    fn emit_const(self, owner: String, name: String, span: SourceSpan) -> Void {
         let key = type_key(owner, name);
         if self.consts_in_progress.contains(key) {
             self.error('cyclic constant: ${name}', span);
@@ -735,21 +735,21 @@ impl FnCompiler {
 
     // The static type *name* of an expression, for opcode/dispatch selection. None
     // for Unit and anything without a usable concrete name.
-    fn type_of(self, _ e: Expr) -> Option<String> {
+    fn type_of(self, e: Expr) -> Option<String> {
         return name_of_type(infer_expr(e, self.type_scope, self.ctx, Option.None));
     }
 
     // The owner-qualified identity of `e`'s inferred type, when it names a
     // struct/enum — so a field/variant/method lookup keys the codegen type table by
     // the type's *owner*, not its bare name (Phase 1 T3).
-    fn type_id_of(self, _ e: Expr) -> Option<TypeId> {
+    fn type_id_of(self, e: Expr) -> Option<TypeId> {
         return type_id_of_type(infer_expr(e, self.type_scope, self.ctx, Option.None));
     }
 
     // Whether `e`'s inferred type is the *core* type `name` — identity, not
     // spelling (X1): lowering (`List`/`Map` opcodes, implicit-`Ok`) keys on the
     // core types themselves, never on a name match.
-    fn is_core(self, _ e: Expr, _ name: String) -> Bool {
+    fn is_core(self, e: Expr, name: String) -> Bool {
         return match self.type_id_of(e) {
             Some(id) => element.is_core_id(self.scope.library, id, name),
             None => false,
@@ -758,13 +758,13 @@ impl FnCompiler {
 
     // --- statements ---
 
-    fn block(self, _ block: Block) -> Void {
+    fn block(self, block: Block) -> Void {
         for p in block.stmts.enumerate() {
             self.stmt(p.value, block.stmts, p.index);
         }
     }
 
-    fn stmt(self, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -> Void {
+    fn stmt(self, stmt: Stmt, stmts: List<Stmt>, index: Int) -> Void {
         match stmt {
             Let(x) => {
                 // Evaluate before declaring, so the initializer can't see the
@@ -876,7 +876,7 @@ impl FnCompiler {
         }
     }
 
-    fn assign(self, _ target: Expr, _ value: Expr, _ span: SourceSpan) -> Void {
+    fn assign(self, target: Expr, value: Expr, span: SourceSpan) -> Void {
         match target {
             Ident(_, name) => {
                 match self.slots.get(name) {
@@ -926,7 +926,7 @@ impl FnCompiler {
     // Emit a `return`, applying implicit `Ok` wrapping when the function returns
     // `Result` and the value isn't already a `Result`. A bare `return;` in a
     // `Result<Void, _>` function wraps its unit the same way — `Ok(void)`.
-    fn emit_return(self, _ value: Option<Expr>) -> Void {
+    fn emit_return(self, value: Option<Expr>) -> Void {
         match value {
             None => {
                 self.emit(Instr.Simple(Op.ConstUnit));
@@ -945,13 +945,13 @@ impl FnCompiler {
     }
 
     // `throw e` is sugar for `return Err(e)` in a `Result`-returning function.
-    fn emit_throw(self, _ value: Expr) -> Void {
+    fn emit_throw(self, value: Expr) -> Void {
         self.expr(value);
         self.emit(Instr.EnumNew(TY_RESULT, TAG_ERR, 1));
         self.emit(Instr.Simple(Op.Return));
     }
 
-    fn for_stmt(self, _ pattern: Pattern, _ iterable: Expr, _ body: Block) -> Void {
+    fn for_stmt(self, pattern: Pattern, iterable: Expr, body: Block) -> Void {
         let var_name = match pattern {
             Ident(_, name) => Option.Some(name),
             Wildcard(_) => Option.None,
@@ -982,7 +982,7 @@ impl FnCompiler {
         }
     }
 
-    fn is_iterator(self, _ e: Expr) -> Bool {
+    fn is_iterator(self, e: Expr) -> Bool {
         match self.type_id_of(e) {
             Some(id) => {
                 if element.is_core_id(self.scope.library, id, 'Iterator') {
@@ -999,7 +999,7 @@ impl FnCompiler {
 
     // Bind a for-loop variable into the type scope (the element type), parallel to
     // its slot. Reuses inference's element-typing.
-    fn bind_loop_var(self, _ var_name: Option<String>, _ iter: Expr) -> Int {
+    fn bind_loop_var(self, var_name: Option<String>, iter: Expr) -> Int {
         let iter_type = infer_expr(iter, self.type_scope, self.ctx, Option.None);
         let element = for_element_type(iter, iter_type, self.ctx);
         return match var_name {
@@ -1011,7 +1011,7 @@ impl FnCompiler {
         };
     }
 
-    fn range_for(self, _ var_name: Option<String>, _ range: Expr, _ body: Block) -> Void {
+    fn range_for(self, var_name: Option<String>, range: Expr, body: Block) -> Void {
         if let Range(_, start_e, end_e) = range {
             self.expr(start_e);
             let counter = match var_name {
@@ -1049,7 +1049,7 @@ impl FnCompiler {
         }
     }
 
-    fn list_for(self, _ var_name: Option<String>, _ list_expr: Expr, _ body: Block) -> Void {
+    fn list_for(self, var_name: Option<String>, list_expr: Expr, body: Block) -> Void {
         self.expr(list_expr);
         let list = self.fresh_slot();
         self.emit(Instr.Store(list));
@@ -1084,7 +1084,7 @@ impl FnCompiler {
         self.bind(end);
     }
 
-    fn iterator_for(self, _ var_name: Option<String>, _ iter_expr: Expr, _ body: Block) -> Void {
+    fn iterator_for(self, var_name: Option<String>, iter_expr: Expr, body: Block) -> Void {
         self.expr(iter_expr);
         let it = self.fresh_slot();
         self.emit(Instr.Store(it));
@@ -1119,11 +1119,11 @@ impl FnCompiler {
     // use this; the few that carry a known expected (a `let` value, a `return`
     // value, a struct-field value, a call argument) use `expr_expecting` so a
     // lambda there can type its un-annotated parameters bidirectionally.
-    fn expr(self, _ e: Expr) -> Void {
+    fn expr(self, e: Expr) -> Void {
         self.expr_expecting(e, Option.None);
     }
 
-    fn expr_expecting(self, _ e: Expr, _ expected: Option<Type>) -> Void {
+    fn expr_expecting(self, e: Expr, expected: Option<Type>) -> Void {
         match e {
             Int(_, v) => { self.emit(Instr.ConstInt(v)); },
             Float(_, v) => { self.emit(Instr.ConstDouble(v)); },
@@ -1180,7 +1180,7 @@ impl FnCompiler {
     // the callee's code and compiles in the callee's file context, but its `#loc`
     // still names where the call was written. The span carries the file, falling
     // back to the unit's for a span with no file (a hermetic parse).
-    fn emit_source_loc(self, _ span: SourceSpan) -> Void {
+    fn emit_source_loc(self, span: SourceSpan) -> Void {
         let at = self.loc_span.unwrap_or(span);
         let file = if at.file != '' { at.file } else { self.file.unwrap_or('') };
         let fields: List<FieldInit> = [
@@ -1205,7 +1205,7 @@ impl FnCompiler {
     // the block's scope (it sees the block's bindings), so the scope spans both;
     // `expected` is the context's type for the tail (CH7 — a lambda tail types its
     // parameters bidirectionally, mirroring the checker).
-    fn emit_block_value(self, _ block: Block, _ expected: Option<Type>) -> Void {
+    fn emit_block_value(self, block: Block, expected: Option<Type>) -> Void {
         let saved = self.enter_scope();
         self.block(block);
         match block.tail {
@@ -1217,10 +1217,10 @@ impl FnCompiler {
 
     fn if_expr(
         self,
-        _ condition: Expr,
-        _ then_block: Block,
-        _ else_block: Option<Block>,
-        _ expected: Option<Type>,
+        condition: Expr,
+        then_block: Block,
+        else_block: Option<Block>,
+        expected: Option<Type>,
     ) -> Void {
         self.expr(condition);
         let else_label = self.new_label();
@@ -1238,7 +1238,7 @@ impl FnCompiler {
 
     // `expr?` — propagate Err/None. The failing tag is 1 for each and the payload
     // to unwrap is field 0, so one lowering serves Result and Option.
-    fn propagate_expr(self, _ inner: Expr) -> Void {
+    fn propagate_expr(self, inner: Expr) -> Void {
         self.expr(inner);
         self.emit(Instr.Simple(Op.Dup));
         self.emit(Instr.Simple(Op.EnumTag));
@@ -1257,7 +1257,7 @@ impl FnCompiler {
     // parameters are its captured variables, push the captured values, and build a
     // closure value `{ func, captures }`. `expected` lets an un-annotated parameter
     // take its type from the surrounding function type.
-    fn lambda_expr(self, _ x: LambdaExpr, _ expected: Option<Type>) -> Void {
+    fn lambda_expr(self, x: LambdaExpr, expected: Option<Type>) -> Void {
         // Free variables that name an enclosing local are the captures; references
         // to functions/types/namespaces resolve the same way in the lifted unit and
         // need no capture.
@@ -1323,7 +1323,7 @@ impl FnCompiler {
     // threads into every arm body (the codegen mirror of
     // `infer_match`/`check_match` — CH16), so a lambda in a value arm types its
     // parameters bidirectionally when the unit is later compiled.
-    fn match_expr(self, _ e: MatchExpr, _ expected: Option<Type>) -> Void {
+    fn match_expr(self, e: MatchExpr, expected: Option<Type>) -> Void {
         let subject_ty = infer_expr(e.subject, self.type_scope, self.ctx, Option.None);
         // Owner-qualified: enum dispatch resolves the codegen type table by the
         // subject's owning library, not its bare name (T3).
@@ -1409,7 +1409,7 @@ impl FnCompiler {
     // literal/irrefutable mid-arm, or a duplicate or unknown tag. Every non-final
     // arm must be a constructor whose arguments are all irrefutable, so the tag
     // alone decides the arm. The final arm is the catch-all default.
-    fn plan_dispatch(self, _ e: MatchExpr, _ enum_type: Option<TypeId>) -> Option<DispatchPlan> {
+    fn plan_dispatch(self, e: MatchExpr, enum_type: Option<TypeId>) -> Option<DispatchPlan> {
         let info = match enum_type {
             Some(t) => self.scope.resolve_enum(t.owner, t.name),
             None => Option.None,
@@ -1452,7 +1452,7 @@ impl FnCompiler {
 
     // Emit a balanced binary search over the (distinct, sorted) case tags, with
     // every miss routed to a single shared default.
-    fn emit_dispatch(self, _ plan: DispatchPlan, _ ctx: MatchCtx) -> Void {
+    fn emit_dispatch(self, plan: DispatchPlan, ctx: MatchCtx) -> Void {
         let tags = sorted_keys(plan.cases);
         let default_label = self.new_label();
         self.emit_bisect(0, tags.len() - 1, tags, plan.cases, default_label, ctx);
@@ -1462,12 +1462,12 @@ impl FnCompiler {
 
     fn emit_bisect(
         self,
-        _ lo: Int,
-        _ hi: Int,
-        _ tags: List<Int>,
-        _ cases: Map<Int, MatchArm>,
-        _ default_label: Int,
-        _ ctx: MatchCtx,
+        lo: Int,
+        hi: Int,
+        tags: List<Int>,
+        cases: Map<Int, MatchArm>,
+        default_label: Int,
+        ctx: MatchCtx,
     ) -> Void {
         let mid = (lo + hi) / 2;
         let t = tags[mid];
@@ -1505,7 +1505,7 @@ impl FnCompiler {
 
     // The tag is already known at a leaf, so only bind fields (fail = None), then
     // run the body. The pattern's bindings are scoped to the arm.
-    fn emit_leaf(self, _ arm: MatchArm, _ jump_to_end: Bool, _ ctx: MatchCtx) -> Void {
+    fn emit_leaf(self, arm: MatchArm, jump_to_end: Bool, ctx: MatchCtx) -> Void {
         let saved = self.enter_scope();
         bind_match_pattern(arm.pattern, ctx.subject_ty, self.type_scope, self.ctx);
         self.emit_pattern(arm.pattern, ctx.subject, ctx.subject_ty, Option.None, Option.None);
@@ -1523,11 +1523,11 @@ impl FnCompiler {
     // `Shape`, substituting the subject's type arguments (CG7).
     fn emit_pattern(
         self,
-        _ pattern: Pattern,
-        _ value_slot: Int,
-        _ value_ty: Type,
-        _ fail: Option<Int>,
-        _ tag_slot: Option<Int>,
+        pattern: Pattern,
+        value_slot: Int,
+        value_ty: Type,
+        fail: Option<Int>,
+        tag_slot: Option<Int>,
     ) -> Void {
         match pattern {
             Wildcard(_) => void, // matches anything, binds nothing
@@ -1577,13 +1577,7 @@ impl FnCompiler {
 
     // A match arm body either yields a value (and jumps to the merge point) or
     // transfers control out of the function (return/throw).
-    fn arm_body(
-        self,
-        _ body: Expr,
-        _ end: Int,
-        _ jump_to_end: Bool,
-        _ expected: Option<Type>,
-    ) -> Void {
+    fn arm_body(self, body: Expr, end: Int, jump_to_end: Bool, expected: Option<Type>) -> Void {
         match body {
             Return(_, value) => { self.emit_return(value); },
             Throw(_, value) => { self.emit_throw(value); },
@@ -1597,7 +1591,7 @@ impl FnCompiler {
     }
 
     // The variant tag for a constructor `name` within enum `enum_type`.
-    fn variant_tag(self, _ enum_type: Option<TypeId>, _ name: String, _ span: SourceSpan) -> Int {
+    fn variant_tag(self, enum_type: Option<TypeId>, name: String, span: SourceSpan) -> Int {
         let tag = match enum_type {
             Some(t) => match self.scope.resolve_enum(t.owner, t.name) {
                 Some(ei) => tag_of(ei, name),
@@ -1612,7 +1606,7 @@ impl FnCompiler {
         return 0;
     }
 
-    fn unary_expr(self, _ op: String, _ operand: Expr, _ span: SourceSpan) -> Void {
+    fn unary_expr(self, op: String, operand: Expr, span: SourceSpan) -> Void {
         self.expr(operand);
         if op == '-' {
             self.emit(Instr.Simple(if self.is_double(operand) { Op.NegF64 } else { Op.NegI64 }));
@@ -1625,7 +1619,7 @@ impl FnCompiler {
         }
     }
 
-    fn binary_expr(self, _ left: Expr, _ op: String, _ right: Expr, _ span: SourceSpan) -> Void {
+    fn binary_expr(self, left: Expr, op: String, right: Expr, span: SourceSpan) -> Void {
         if op == '&&' || op == '||' {
             self.logical_expr(left, op, right);
             return;
@@ -1714,7 +1708,7 @@ impl FnCompiler {
     }
 
     // `&&` / `||` short-circuit via branches (no and/or opcode).
-    fn logical_expr(self, _ left: Expr, _ op: String, _ right: Expr) -> Void {
+    fn logical_expr(self, left: Expr, op: String, right: Expr) -> Void {
         let is_and = op == '&&';
         let short_circuit = self.new_label();
         let end = self.new_label();
@@ -1727,13 +1721,13 @@ impl FnCompiler {
         self.bind(end);
     }
 
-    fn is_double(self, _ e: Expr) -> Bool {
+    fn is_double(self, e: Expr) -> Bool {
         return self.type_of(e) == Option.Some('Double');
     }
 
     // --- strings ---
 
-    fn string_expr(self, _ e: Expr) -> Void {
+    fn string_expr(self, e: Expr) -> Void {
         if let Str(span, parts) = e {
             if parts.len() == 0 {
                 self.emit(Instr.ConstStr(''));
@@ -1763,7 +1757,7 @@ impl FnCompiler {
         }
     }
 
-    fn string_piece(self, _ part: StringPart, _ span: SourceSpan) -> Void {
+    fn string_piece(self, part: StringPart, span: SourceSpan) -> Void {
         match part {
             Text(_, text) => { self.emit(Instr.ConstStr(text)); },
             Interp(_, e) => { self.emit_as_string(e, span); },
@@ -1774,7 +1768,7 @@ impl FnCompiler {
     // already typed `String` needs no conversion; otherwise it is rendered through
     // its `Display.to_string` method. The shared lowering behind both interpolation
     // and `println`/`print`/`eprintln`/`eprint`.
-    fn emit_as_string(self, _ value: Expr, _ span: SourceSpan) -> Void {
+    fn emit_as_string(self, value: Expr, span: SourceSpan) -> Void {
         let t = infer_expr(value, self.type_scope, self.ctx, Option.None);
         self.expr(value);
         if name_of_type(t) != Option.Some('String') {
@@ -1790,7 +1784,7 @@ impl FnCompiler {
     // `Bytes.to_string() -> Result<…>`, is never mistaken for rendering), a virtual
     // dispatch (an interface-typed or bounded-generic value), or a concrete impl
     // method.
-    fn emit_display(self, _ t: Type, _ span: SourceSpan) -> Void {
+    fn emit_display(self, t: Type, span: SourceSpan) -> Void {
         if let Some(symbol) = self.native_display_symbol(name_of_type(t)) {
             self.emit(Instr.CallNative(symbol, 1));
             return;
@@ -1818,7 +1812,7 @@ impl FnCompiler {
 
     // The runtime native symbol behind `ty_name`'s native `impl Display`
     // conformance, if it has one; None otherwise.
-    fn native_display_symbol(self, _ ty_name: Option<String>) -> Option<String> {
+    fn native_display_symbol(self, ty_name: Option<String>) -> Option<String> {
         if let Some(t) = ty_name {
             return self.scope.native_display_symbols.get(t);
         }
@@ -1829,8 +1823,8 @@ impl FnCompiler {
     // has one; None otherwise.
     fn native_instance_method_symbol(
         self,
-        _ ty_name: Option<String>,
-        _ method: String,
+        ty_name: Option<String>,
+        method: String,
     ) -> Option<String> {
         if let Some(t) = ty_name {
             if let Some(m) = self.scope.native_instance_methods.get(t) { return m.get(method); }
@@ -1840,7 +1834,7 @@ impl FnCompiler {
 
     // --- structs / fields / indexing ---
 
-    fn struct_expr(self, _ x: StructExpr) -> Void {
+    fn struct_expr(self, x: StructExpr) -> Void {
         // Owner-correct (Phase 1 T4): resolve the constructed type's owner from
         // this file's scope, honoring a `ns.Point` qualifier, so two libraries'
         // same-named structs get their own layout and field defaults.
@@ -1874,7 +1868,7 @@ impl FnCompiler {
         }
     }
 
-    fn field_expr(self, _ object: Expr, _ field: String, _ span: SourceSpan) -> Void {
+    fn field_expr(self, object: Expr, field: String, span: SourceSpan) -> Void {
         // A namespace-qualified constant, global, or function *value*: `ns.NAME` →
         // inline the const initializer, load the global slot, or push the function
         // as a closure. Resolved within `ns`'s owning library (owner-correct): the
@@ -1924,7 +1918,7 @@ impl FnCompiler {
         }
     }
 
-    fn struct_of(self, _ object: Expr, _ span: SourceSpan) -> Option<StructInfo> {
+    fn struct_of(self, object: Expr, span: SourceSpan) -> Option<StructInfo> {
         if let Some(id) = self.type_id_of(object) {
             if let Some(info) = self.scope.resolve_struct(id.owner, id.name) {
                 return Option.Some(info);
@@ -1934,7 +1928,7 @@ impl FnCompiler {
         return Option.None;
     }
 
-    fn field_index(self, _ info: StructInfo, _ field: String, _ span: SourceSpan) -> Int {
+    fn field_index(self, info: StructInfo, field: String, span: SourceSpan) -> Int {
         let idx = field_index_of(info, field);
         if idx < 0 {
             self.error('no such field: ${field}', span);
@@ -1946,7 +1940,7 @@ impl FnCompiler {
         return idx;
     }
 
-    fn emit_index_get(self, _ object: Expr, _ span: SourceSpan) -> Void {
+    fn emit_index_get(self, object: Expr, span: SourceSpan) -> Void {
         if self.is_core(object, 'List') {
             self.emit(Instr.Simple(Op.ListGet));
         } else if self.is_core(object, 'Map') {
@@ -1963,7 +1957,7 @@ impl FnCompiler {
 
     // If `object` names a user enum (Enum or ns.Enum, not a local) and `name` is
     // one of its variants, the enum info and the variant's tag.
-    fn enum_variant(self, _ object: Expr, _ name: String) -> Option<EnumVariantRef> {
+    fn enum_variant(self, object: Expr, name: String) -> Option<EnumVariantRef> {
         if let Some(id) = self.static_type_id(object) {
             if let Some(info) = self.scope.resolve_enum(id.owner, id.name) {
                 let tag = tag_of(info, name);
@@ -1980,7 +1974,7 @@ impl FnCompiler {
     // to, when it names a struct/enum/built-in type and isn't shadowed by a local.
     // (The native static-method table is name-keyed; everything else keys off the
     // owner-carrying form below.)
-    fn static_type_name(self, _ e: Expr) -> Option<String> {
+    fn static_type_name(self, e: Expr) -> Option<String> {
         return self.static_type_id(e).map((t) => t.name);
     }
 
@@ -1990,7 +1984,7 @@ impl FnCompiler {
     // existence-anywhere (CG9): a type this file can't reach does not classify a
     // bare name as a type — matching the checker's view — and a local always
     // shadows.
-    fn static_type_id(self, _ e: Expr) -> Option<TypeId> {
+    fn static_type_id(self, e: Expr) -> Option<TypeId> {
         let fs = file_scope(self.scope.library, self.file);
         match e {
             Ident(_, name) => {
@@ -2012,7 +2006,7 @@ impl FnCompiler {
 
     // --- calls ---
 
-    fn call_expr(self, _ x: CallExpr) -> Void {
+    fn call_expr(self, x: CallExpr) -> Void {
         let callee = x.callee;
         match callee {
             Field(_, obj, field) => {
@@ -2067,7 +2061,7 @@ impl FnCompiler {
     // callee a site is — codegen no longer re-derives that classification, it
     // dispatches on it and only chooses the backend lowering (native symbol vs.
     // unit index vs. virtual selector) for the resolved kind.
-    fn method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Void {
+    fn method_call(self, x: CallExpr, obj: Expr, field: String) -> Void {
         let emitted = match infer_callee_kind(obj, field, x.args.len(), self.type_scope, self.ctx) {
             EnumCtor => self.emit_enum_ctor(x, obj, field),
             EnumName => self.emit_enum_name_call(x, obj),
@@ -2087,7 +2081,7 @@ impl FnCompiler {
     }
 
     // Enum payload constructor: `Shape.Circle(5)`.
-    fn emit_enum_ctor(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+    fn emit_enum_ctor(self, x: CallExpr, obj: Expr, field: String) -> Bool {
         match self.enum_variant(obj, field) {
             Some(ev) => {
                 for arg in x.args {
@@ -2101,7 +2095,7 @@ impl FnCompiler {
     }
 
     // `e.name()` on an enum value → the variant name (from its tag).
-    fn emit_enum_name_call(self, _ x: CallExpr, _ obj: Expr) -> Bool {
+    fn emit_enum_name_call(self, x: CallExpr, obj: Expr) -> Bool {
         match self.type_id_of(obj) {
             Some(id) => {
                 match self.scope.resolve_enum(id.owner, id.name) {
@@ -2118,7 +2112,7 @@ impl FnCompiler {
     // `ns`'s owning library (owner-correct): the member must be on the namespace's
     // own surface — a flat native table used to let any import's native `get`
     // hijack an unrelated library's ordinary `pub fn get`.
-    fn emit_namespace_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+    fn emit_namespace_call(self, x: CallExpr, obj: Expr, field: String) -> Bool {
         if let Ident(_, ns_name) = obj {
             if self.is_namespace(ns_name) {
                 if let Some(owner) = file_scope(
@@ -2155,7 +2149,7 @@ impl FnCompiler {
 
     // Static method on a type: `String.from_chars(...)` (a runtime native) or a
     // user `fn` with no `self` (a direct call, no receiver pushed).
-    fn emit_static_method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+    fn emit_static_method_call(self, x: CallExpr, obj: Expr, field: String) -> Bool {
         if let Some(static_type) = self.static_type_name(obj) {
             if let Some(m) = self.scope.native_static_methods.get(static_type) {
                 if let Some(native_sym) = m.get(field) {
@@ -2185,7 +2179,7 @@ impl FnCompiler {
 
     // Instance method on a concrete receiver: a built-in `native fn` (the receiver
     // is the native's first argument) or a user method (self pushed first).
-    fn emit_instance_method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+    fn emit_instance_method_call(self, x: CallExpr, obj: Expr, field: String) -> Bool {
         if let Some(t) = self.type_of(obj) {
             if let Some(m) = self.scope.native_instance_methods.get(t) {
                 if let Some(instance_native) = m.get(field) {
@@ -2230,7 +2224,7 @@ impl FnCompiler {
     // `to_string`/`debug` selectors, which dispatch on any receiver (total
     // rendering: the runtime resolves the value's impl or its auto-derived
     // fallback).
-    fn emit_virtual_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+    fn emit_virtual_call(self, x: CallExpr, obj: Expr, field: String) -> Bool {
         // A non-universal selector must be declared by a candidate interface; the
         // declaring interface's signature governs the call (its parameter defaults
         // fill omitted arguments, as at every statically resolved site).
@@ -2294,7 +2288,7 @@ impl FnCompiler {
 
     // A function-valued struct field invoked like a method: `c.now()` where `now`
     // is a field holding a closure (no method by that name).
-    fn emit_field_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+    fn emit_field_call(self, x: CallExpr, obj: Expr, field: String) -> Bool {
         if let Some(id) = self.type_id_of(obj) {
             if let Some(struct_info) = self.scope.resolve_struct(id.owner, id.name) {
                 let fi = field_index_of(struct_info, field);
@@ -2315,7 +2309,7 @@ impl FnCompiler {
     // The unit index of method `name` on receiver `receiver`, or None. A type name
     // (`Type` or `ns.Type`, not a local) selects a static method; otherwise the
     // receiver's static type does.
-    fn resolve_method(self, _ receiver: Expr, _ name: String) -> Option<Int> {
+    fn resolve_method(self, receiver: Expr, name: String) -> Option<Int> {
         // Key the method table by the receiver's owner-qualified identity — a
         // static type-name receiver (`Type`/`ns.Type`) or the receiver value's
         // inferred type — so two libraries' same-named types keep distinct methods.
@@ -2340,7 +2334,7 @@ impl FnCompiler {
 
     // The inferred type of a primitive-typed receiver as a method-table identity:
     // the core registry entry for its type name. None for anything non-primitive.
-    fn primitive_receiver_id(self, _ receiver: Expr) -> Option<TypeId> {
+    fn primitive_receiver_id(self, receiver: Expr) -> Option<TypeId> {
         let t = infer_expr(receiver, self.type_scope, self.ctx, Option.None);
         return match t {
             Primitive(_) => name_of_type(t).map((n) =>
@@ -2351,7 +2345,7 @@ impl FnCompiler {
 
     // `e.name()` — the variant name, looked up from the enum tag (a tag-check
     // chain; the last variant is the fall-through).
-    fn enum_name(self, _ receiver: Expr, _ info: EnumInfo) -> Void {
+    fn enum_name(self, receiver: Expr, info: EnumInfo) -> Void {
         self.expr(receiver);
         self.emit(Instr.Simple(Op.EnumTag));
         let tag = self.fresh_slot();
@@ -2382,9 +2376,9 @@ impl FnCompiler {
     // the call-ordered view — a reordered labeled call would misalign here).
     fn emit_ordered_args(
         self,
-        _ callee: Expr,
-        _ args: List<CallArg>,
-        _ ordered: List<OrderedArg>,
+        callee: Expr,
+        args: List<CallArg>,
+        ordered: List<OrderedArg>,
     ) -> Void {
         let expected = expected_param_types(callee, args, self.type_scope, self.ctx);
         for p in ordered.enumerate() {
@@ -2413,10 +2407,10 @@ impl FnCompiler {
     // compiled in its own file) is what keeps that second half working.
     fn emit_default_arg(
         self,
-        _ value: Expr,
-        _ decl_file: Option<String>,
-        _ call: SourceSpan,
-        _ expected: Option<Type>,
+        value: Expr,
+        decl_file: Option<String>,
+        call: SourceSpan,
+        expected: Option<Type>,
     ) -> Void {
         let saved = self.enter_file_context(decl_file);
         self.loc_span = Option.Some(call);
@@ -2430,10 +2424,10 @@ impl FnCompiler {
     // this fills in must compile against (see `emit_default_arg`).
     fn resolve_args(
         self,
-        _ params: List<Param>,
-        _ call_args: List<CallArg>,
-        _ span: SourceSpan,
-        _ decl_file: Option<String>,
+        params: List<Param>,
+        call_args: List<CallArg>,
+        span: SourceSpan,
+        decl_file: Option<String>,
     ) -> List<OrderedArg> {
         let positional: List<Expr> = [];
         let named: Map<String, Expr> = [:];
@@ -2484,12 +2478,7 @@ impl FnCompiler {
 
     // --- dispatch helpers ---
 
-    fn interface_method(
-        self,
-        _ ty: Option<TypeId>,
-        _ iface: TypeId,
-        _ method: String,
-    ) -> Option<Int> {
+    fn interface_method(self, ty: Option<TypeId>, iface: TypeId, method: String) -> Option<Int> {
         if let Some(t) = ty {
             let implements = match self.scope.interface_impls.get(t) {
                 Some(info) => info.interfaces.contains(iface),
@@ -2504,13 +2493,13 @@ impl FnCompiler {
 
     // The identity of the *core* interface `name` (`Eq`/`Display`/`Iterator`, …) —
     // never a same-named user interface.
-    fn core_iface_key(self, _ name: String) -> TypeId {
+    fn core_iface_key(self, name: String) -> TypeId {
         return TypeId { owner: element.core_owner(self.scope.library, name), name: name };
     }
 
     // The candidate interfaces a value of type `t` dispatches through: the
     // interface it *is*, or its type parameter's bounds.
-    fn dispatch_interfaces(self, _ t: Type) -> Option<List<TypeId>> {
+    fn dispatch_interfaces(self, t: Type) -> Option<List<TypeId>> {
         match t {
             Interface(id, _) => {
                 if self.scope.interface_methods.has(id) {
@@ -2535,7 +2524,7 @@ impl FnCompiler {
         return Option.None;
     }
 
-    fn dispatches_via(self, _ t: Type, _ method: String) -> Bool {
+    fn dispatches_via(self, t: Type, method: String) -> Bool {
         if let Some(ifaces) = self.dispatch_interfaces(t) {
             for i in ifaces {
                 if let Some(s) = self.scope.interface_methods.get(i) {
@@ -2553,9 +2542,9 @@ impl FnCompiler {
 // file that default was written in and the call being filled in. None when the
 // parameter has no default — a missing argument, which `resolve_args` reports.
 fn default_arg(
-    _ d: Option<Expr>,
-    _ decl_file: Option<String>,
-    _ call: SourceSpan,
+    d: Option<Expr>,
+    decl_file: Option<String>,
+    call: SourceSpan,
 ) -> Option<OrderedArg> {
     return d.map((e) => OrderedArg { value: e, site: ArgSite.Default(decl_file, call) });
 }
@@ -2592,7 +2581,7 @@ struct MatchCtx {
 
 // The number of non-final arms that emit a top-level tag test in the linear scheme
 // — the constructor-pattern arms. Drives whether hoisting the tag pays.
-fn top_level_tag_tests(_ e: MatchExpr) -> Int {
+fn top_level_tag_tests(e: MatchExpr) -> Int {
     let mut n = 0;
     let mut i = 0;
     while i < e.arms.len() - 1 {
@@ -2602,7 +2591,7 @@ fn top_level_tag_tests(_ e: MatchExpr) -> Int {
     return n;
 }
 
-fn all_irrefutable_args(_ args: List<Pattern>) -> Bool {
+fn all_irrefutable_args(args: List<Pattern>) -> Bool {
     for a in args {
         match a {
             Wildcard(_) => void,
@@ -2613,12 +2602,12 @@ fn all_irrefutable_args(_ args: List<Pattern>) -> Bool {
     return true;
 }
 
-fn get_case(_ cases: Map<Int, MatchArm>, _ tag: Int) -> MatchArm {
+fn get_case(cases: Map<Int, MatchArm>, tag: Int) -> MatchArm {
     return cases[tag];
 }
 
 // The case tags, ascending (selection sort over the distinct map keys).
-fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
+fn sorted_keys(cases: Map<Int, MatchArm>) -> List<Int> {
     let keys = cases.keys();
     let used: Set<Int> = Set.new();
     let sorted: List<Int> = [];
@@ -2652,11 +2641,7 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
 // its declared parameters applied (`List` -> `List<T>`). This is codegen's
 // inference-context construction; it matches the checker's `impl_self_type` so the
 // two infer a method body identically.
-fn named_self_type(
-    _ name: String,
-    _ library: element.LibraryElement,
-    _ file: Option<String>,
-) -> Type {
+fn named_self_type(name: String, library: element.LibraryElement, file: Option<String>) -> Type {
     if let Some(p) = primitive_type(name) {
         return p;
     }
@@ -2676,7 +2661,7 @@ fn named_self_type(
 
 // The type-parameter names of a receiver type (`List<T>` -> `[T]`) — the owner
 // parameters that join a method unit's in-scope type-parameter set.
-fn self_type_param_names(_ t: Type) -> List<String> {
+fn self_type_param_names(t: Type) -> List<String> {
     let out = [];
     if let Interface(_, args) = t {
         for a in args {
@@ -2700,9 +2685,9 @@ fn self_type_param_names(_ t: Type) -> List<String> {
 // The checker's receiver type for a unit — the oracle's reference, kept separate
 // from codegen's `named_self_type` so the comparison is a genuine differential.
 fn checker_self_type(
-    _ self_name: Option<String>,
-    _ library: element.LibraryElement,
-    _ file: Option<String>,
+    self_name: Option<String>,
+    library: element.LibraryElement,
+    file: Option<String>,
 ) -> Option<Type> {
     return match self_name {
         Some(n) => match primitive_type(n) {
@@ -2726,7 +2711,7 @@ fn checker_self_type(
     };
 }
 
-fn describe_self(_ t: Option<Type>) -> String {
+fn describe_self(t: Option<Type>) -> String {
     return match t {
         Some(ty) => type_to_string(ty),
         None => '(none)',
@@ -2734,11 +2719,11 @@ fn describe_self(_ t: Option<Type>) -> String {
 }
 
 // The `self_type` codegen recorded for unit `i` (None if it never compiled it).
-fn recorded_self(_ scope: ModuleScope, _ i: Int) -> Option<Type> {
+fn recorded_self(scope: ModuleScope, i: Int) -> Option<Type> {
     return scope.unit_ctx_self.get(i).unwrap_or(Option.None);
 }
 
-fn run_infer_oracle(_ scope: ModuleScope) -> Void {
+fn run_infer_oracle(scope: ModuleScope) -> Void {
     let library = scope.library;
     let mut diverged = 0;
     let mut checked = 0;
@@ -2771,12 +2756,12 @@ fn run_infer_oracle(_ scope: ModuleScope) -> Void {
         + '${lambdas} lambda unit(s) skipped (context inherited via snapshot)');
 }
 
-fn file_label(_ f: Option<String>) -> String {
+fn file_label(f: Option<String>) -> String {
     return f.unwrap_or('(no file)');
 }
 
 // The core `Void`/unit type.
-fn is_unit_ty(_ t: Type) -> Bool {
+fn is_unit_ty(t: Type) -> Bool {
     return match t {
         Primitive(p) => match p {
             Unit => true,
@@ -2786,7 +2771,7 @@ fn is_unit_ty(_ t: Type) -> Bool {
     };
 }
 
-fn name_of_type(_ t: Type) -> Option<String> {
+fn name_of_type(t: Type) -> Option<String> {
     return match t {
         Primitive(p) => match p {
             Int => Option.Some('Int'),
@@ -2804,7 +2789,7 @@ fn name_of_type(_ t: Type) -> Option<String> {
 // The `TypeId` of an interface (struct/enum) type, or None for primitives / type
 // parameters / unknowns — the owner-carrying analogue of `name_of_type` used to key
 // the codegen type table.
-fn type_id_of_type(_ t: Type) -> Option<TypeId> {
+fn type_id_of_type(t: Type) -> Option<TypeId> {
     return match t {
         Interface(id, _) => Option.Some(id),
         _ => Option.None,
@@ -2814,7 +2799,7 @@ fn type_id_of_type(_ t: Type) -> Option<TypeId> {
 // Build the synthetic FnDecl a lambda lowers to: its parameters are the captured
 // variables (leading, in capture order) followed by the lambda's own parameters;
 // its body returns the lambda's body expression.
-fn lift_lambda(_ x: LambdaExpr, _ captures: List<String>) -> FnDecl {
+fn lift_lambda(x: LambdaExpr, captures: List<String>) -> FnDecl {
     let body = Block {
         start_span: x.span,
         end_span: x.span,
@@ -2863,7 +2848,7 @@ fn lift_lambda(_ x: LambdaExpr, _ captures: List<String>) -> FnDecl {
 // not itself bind. Its own parameters, and names introduced by nested lambdas,
 // match patterns, block lets, and for loops, are bound (not free). Listed in
 // first-reference order so the capture layout is deterministic.
-fn free_variables(_ lambda: LambdaExpr) -> List<String> {
+fn free_variables(lambda: LambdaExpr) -> List<String> {
     let v = FreeVars { free: [], seen: Set.new() };
     let bound: Set<String> = Set.new();
     for p in lambda.params {
@@ -2873,7 +2858,7 @@ fn free_variables(_ lambda: LambdaExpr) -> List<String> {
     return v.free;
 }
 
-fn copy_set(_ s: Set<String>) -> Set<String> {
+fn copy_set(s: Set<String>) -> Set<String> {
     let out: Set<String> = Set.new();
     for x in s.to_list() {
         out.add(x);
@@ -2882,7 +2867,7 @@ fn copy_set(_ s: Set<String>) -> Set<String> {
 }
 
 // The slot-map analogue of inference's `copy_scope`.
-fn copy_slots(_ m: Map<String, Int>) -> Map<String, Int> {
+fn copy_slots(m: Map<String, Int>) -> Map<String, Int> {
     let out: Map<String, Int> = [:];
     for k in m.keys() {
         if let Some(v) = m.get(k) { out[k] = v; }
@@ -2898,12 +2883,12 @@ fn copy_slots(_ m: Map<String, Int>) -> Map<String, Int> {
 // only the behaviors that differ.
 interface TreeVisitor {
     // An identifier reference not bound in the current lexical scope.
-    fn free_ref(self, _ name: String) -> Void;
+    fn free_ref(self, name: String) -> Void;
     // A `mut` local declaration (its name).
-    fn mut_local(self, _ name: String) -> Void;
+    fn mut_local(self, name: String) -> Void;
     // A lambda expression. Return true to descend into its body (its parameters are
     // added to the scope); false to skip it (the visitor handles it).
-    fn enter_lambda(self, _ x: LambdaExpr) -> Bool;
+    fn enter_lambda(self, x: LambdaExpr) -> Bool;
 }
 
 // Collects the free variables of a body: each unbound identifier once, in
@@ -2915,14 +2900,14 @@ struct FreeVars {
 }
 
 impl TreeVisitor for FreeVars {
-    fn free_ref(self, _ name: String) -> Void {
+    fn free_ref(self, name: String) -> Void {
         if !self.seen.contains(name) {
             self.seen.add(name);
             self.free.push(name);
         }
     }
-    fn mut_local(self, _ name: String) -> Void {} // references, not declarations, matter here
-    fn enter_lambda(self, _ x: LambdaExpr) -> Bool { return true; }
+    fn mut_local(self, name: String) -> Void {} // references, not declarations, matter here
+    fn enter_lambda(self, x: LambdaExpr) -> Bool { return true; }
 }
 
 // Collects a function's own `mut` locals and its top-level lambdas (a lambda's body
@@ -2933,15 +2918,15 @@ struct BoxScan {
 }
 
 impl TreeVisitor for BoxScan {
-    fn free_ref(self, _ name: String) -> Void {} // refs don't matter for boxing
-    fn mut_local(self, _ name: String) -> Void { self.muts.add(name); }
-    fn enter_lambda(self, _ x: LambdaExpr) -> Bool {
+    fn free_ref(self, name: String) -> Void {} // refs don't matter for boxing
+    fn mut_local(self, name: String) -> Void { self.muts.add(name); }
+    fn enter_lambda(self, x: LambdaExpr) -> Bool {
         self.lambdas.push(x);
         return false;
     }
 }
 
-fn pattern_bindings(_ p: Pattern, _ into: Set<String>) -> Void {
+fn pattern_bindings(p: Pattern, into: Set<String>) -> Void {
     match p {
         Ident(_, name) => { into.add(name); },
         Constructor(_, _, args) => {
@@ -2954,7 +2939,7 @@ fn pattern_bindings(_ p: Pattern, _ into: Set<String>) -> Void {
     }
 }
 
-fn walk_block(_ b: Block, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
+fn walk_block(b: Block, bound: Set<String>, v: TreeVisitor) -> Void {
     let local = copy_set(bound);
     for s in b.stmts {
         walk_stmt(s, local, v);
@@ -2962,7 +2947,7 @@ fn walk_block(_ b: Block, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
     if let Some(t) = b.tail { walk_expr(t, local, v); }
 }
 
-fn walk_expr(_ e: Expr, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
+fn walk_expr(e: Expr, bound: Set<String>, v: TreeVisitor) -> Void {
     match e {
         Ident(_, name) => { if !bound.contains(name) { v.free_ref(name); } },
         Int(_, _) => void,
@@ -3044,7 +3029,7 @@ fn walk_expr(_ e: Expr, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
     }
 }
 
-fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
+fn walk_stmt(s: Stmt, bound: Set<String>, v: TreeVisitor) -> Void {
     match s {
         Let(x) => {
             walk_expr(x.value, bound, v);
@@ -3088,8 +3073,8 @@ fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
 // Cross-module order falls out of registration order (imports before importers),
 // which the post-order preserves for globals with no edge between them.
 fn order_global_inits(
-    _ scope: ModuleScope,
-    _ errors: List<diagnostic.Diagnostic>,
+    scope: ModuleScope,
+    errors: List<diagnostic.Diagnostic>,
 ) -> List<GlobalInit> {
     let ordered: List<GlobalInit> = [];
     let state: Map<String, Int> = [:]; // keyed like `global_key`; 1 = visiting, 2 = done
@@ -3105,17 +3090,17 @@ fn order_global_inits(
 
 // A global's owner-qualified identity (two libraries' same-named globals are
 // distinct nodes in the initializer-order graph).
-fn global_key(_ g: GlobalInit) -> String {
+fn global_key(g: GlobalInit) -> String {
     return type_key(element.file_key(g.file), g.name);
 }
 
 fn visit_global_init(
-    _ g: GlobalInit,
-    _ scope: ModuleScope,
-    _ by_key: Map<String, GlobalInit>,
-    _ state: Map<String, Int>,
-    _ ordered: List<GlobalInit>,
-    _ errors: List<diagnostic.Diagnostic>,
+    g: GlobalInit,
+    scope: ModuleScope,
+    by_key: Map<String, GlobalInit>,
+    state: Map<String, Int>,
+    ordered: List<GlobalInit>,
+    errors: List<diagnostic.Diagnostic>,
 ) -> Void {
     let key = global_key(g);
     if let Some(s) = state.get(key) {
@@ -3142,7 +3127,7 @@ fn visit_global_init(
 // Module-level bindings). Process-stable reads (env queries, the OS, the path
 // separator) are allowed. A cheap denylist, not a purity analysis — matched on the
 // resolved runtime symbol, so namespace aliasing can't evade it.
-fn forbidden_in_initializer(_ sym: String) -> Bool {
+fn forbidden_in_initializer(sym: String) -> Bool {
     return sym.starts_with('time_')
         || sym.starts_with('fs_')
         || sym.starts_with('socket_')
@@ -3158,7 +3143,7 @@ fn forbidden_in_initializer(_ sym: String) -> Bool {
 // initializer (lambda params, block lets, match/for patterns) are excluded by the
 // free-variable walk. Indirect dependencies through a called function's body are
 // not tracked — initializers should reference their dependencies directly.
-fn global_init_deps(_ g: GlobalInit, _ scope: ModuleScope) -> List<String> {
+fn global_init_deps(g: GlobalInit, scope: ModuleScope) -> List<String> {
     let v = FreeVars { free: [], seen: Set.new() };
     walk_expr(g.value, Set.new(), v);
     let deps: List<String> = [];
@@ -3175,7 +3160,7 @@ fn global_init_deps(_ g: GlobalInit, _ scope: ModuleScope) -> List<String> {
 // declarations (not descending into lambda bodies — those belong to the lifted
 // unit) and its top-level lambdas; a captured-and-mutable local is the
 // intersection.
-fn boxed_mut_locals(_ body: Block) -> Set<String> {
+fn boxed_mut_locals(body: Block) -> Set<String> {
     let scan = BoxScan { muts: Set.new(), lambdas: [] };
     walk_block(body, Set.new(), scan);
     let result: Set<String> = Set.new();
@@ -3198,7 +3183,7 @@ fn boxed_mut_locals(_ body: Block) -> Set<String> {
 
 // Whether `p` always matches, so it needs no test: a wildcard or a bare variable
 // binding. (A constructor or literal pattern — even nested — is refutable.)
-fn is_irrefutable(_ p: Pattern) -> Bool {
+fn is_irrefutable(p: Pattern) -> Bool {
     return match p {
         Wildcard(_) => true,
         Ident(_, _) => true,
@@ -3206,7 +3191,7 @@ fn is_irrefutable(_ p: Pattern) -> Bool {
     };
 }
 
-fn find_field_init(_ fields: List<FieldInit>, _ name: String) -> Option<Expr> {
+fn find_field_init(fields: List<FieldInit>, name: String) -> Option<Expr> {
     for f in fields {
         if f.name == name {
             return Option.Some(f.value);
@@ -3219,7 +3204,7 @@ fn find_field_init(_ fields: List<FieldInit>, _ name: String) -> Option<Expr> {
 // type this file's scope resolves — same-file, bare surface, built-in, or the
 // namespace's public surface — when its definition is a struct, enum, or built-in
 // (an interface has no static-receiver form).
-fn receiver_type_id(_ fs: FileScope, _ name: String, _ ns: Option<String>) -> Option<TypeId> {
+fn receiver_type_id(fs: FileScope, name: String, ns: Option<String>) -> Option<TypeId> {
     let id = TypeId { owner: fs.resolve_type_owner(name, ns), name: name };
     // No explicit unresolved (`''`) guard: `''` is also the anonymous program's
     // real file key (EL11's double duty), and hermetic/in-memory programs own their
@@ -3233,25 +3218,25 @@ fn receiver_type_id(_ fs: FileScope, _ name: String, _ ns: Option<String>) -> Op
     };
 }
 
-fn is_arithmetic(_ op: String) -> Bool {
+fn is_arithmetic(op: String) -> Bool {
     return op == '+' || op == '-' || op == '*' || op == '/' || op == '%';
 }
 
 // The `Display`-bounded console natives: codegen renders their argument to a
 // `String` (via `Display`) before the call, so the native is a plain writer.
-fn is_print_native(_ name: String) -> Bool {
+fn is_print_native(name: String) -> Bool {
     return name == 'println' || name == 'print' || name == 'eprintln' || name == 'eprint';
 }
 
-fn is_comparison_op(_ op: String) -> Bool {
+fn is_comparison_op(op: String) -> Bool {
     return op == '==' || op == '!=' || op == '<' || op == '<=' || op == '>' || op == '>=';
 }
 
-fn is_bitwise(_ op: String) -> Bool {
+fn is_bitwise(op: String) -> Bool {
     return op == '&' || op == '|' || op == '^' || op == '<<' || op == '>>' || op == '>>>';
 }
 
-fn arith_op(_ op: String, _ is_double: Bool) -> Op {
+fn arith_op(op: String, is_double: Bool) -> Op {
     if op == '+' {
         return if is_double { Op.AddF64 } else { Op.AddI64 };
     }
@@ -3267,7 +3252,7 @@ fn arith_op(_ op: String, _ is_double: Bool) -> Op {
     return Op.ModI64; // `%` (Int only; the Double case is rejected by the caller)
 }
 
-fn cmp_op(_ op: String, _ is_double: Bool) -> Op {
+fn cmp_op(op: String, is_double: Bool) -> Op {
     if op == '==' {
         return if is_double { Op.EqF64 } else { Op.EqI64 };
     }
@@ -3286,7 +3271,7 @@ fn cmp_op(_ op: String, _ is_double: Bool) -> Op {
     return if is_double { Op.GeF64 } else { Op.GeI64 };
 }
 
-fn bitwise_op(_ op: String) -> Op {
+fn bitwise_op(op: String) -> Op {
     if op == '&' {
         return Op.AndI64;
     }

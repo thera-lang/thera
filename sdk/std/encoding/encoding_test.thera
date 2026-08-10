@@ -5,11 +5,11 @@ import std.testing;
 import 'encoding' as _;
 
 // Decode helpers that surface the text, so tests read as round-trips.
-fn b64_text(_ s: String) -> Result<String, Error> {
+fn b64_text(s: String) -> Result<String, Error> {
     return base64_decode(s)?.to_string();
 }
 
-fn hex_text(_ s: String) -> Result<String, Error> {
+fn hex_text(s: String) -> Result<String, Error> {
     return hex_decode(s)?.to_string();
 }
 

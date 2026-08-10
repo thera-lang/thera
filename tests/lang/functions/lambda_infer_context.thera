@@ -13,12 +13,12 @@ struct Counter {
 }
 
 impl Counter {
-    pub fn make(_ f: (Int) -> Int) -> Counter {
+    pub fn make(f: (Int) -> Int) -> Counter {
         return Counter { n: f(1) };
     }
 }
 
-fn apply(_ f: (Int) -> Int) -> Int {
+fn apply(f: (Int) -> Int) -> Int {
     return f(10);
 }
 

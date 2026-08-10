@@ -11,18 +11,18 @@ import 'libpoint_b' as b;
 // identity includes its owning library, `TypeId`). This exercises every resolution
 // path that keys on a type name, each of which must pick the *owner* the file sees:
 //
-//   * a function signature — `a.sum(_ p: Point)`'s param type (resolved when the
+//   * a function signature — `a.sum(p: Point)`'s param type (resolved when the
 //     library element is built), matched against a scope-typed argument;
 //   * a struct field's declared type — `Point.label: Label` (a collided name), so
 //     `pa.label.a_id` must read `a.Label`, not `b.Label`;
 //   * an inherent method on a collided type — `a`'s `Point.scaled` vs `b`'s;
 //   * an interface method (`Display`) dispatched on a collided type — `'${pa}'`;
-//   * a qualified param annotation here — `diff_a(_ p: a.Point)`.
-fn diff_a(_ p: a.Point) -> Int {
+//   * a qualified param annotation here — `diff_a(p: a.Point)`.
+fn diff_a(p: a.Point) -> Int {
     return p.x - p.y;
 }
 
-fn diff_b(_ p: b.Point) -> Int {
+fn diff_b(p: b.Point) -> Int {
     return p.lat - p.lng;
 }
 

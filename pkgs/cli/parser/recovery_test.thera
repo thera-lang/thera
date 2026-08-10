@@ -27,12 +27,12 @@ import 'parser' as _;
 
 // Parse `src` as a single expression and render it canonically (holes visible:
 // `Expr.Error` → `<error>`, an empty `Field` member → a trailing `.`).
-fn expr_str(_ src: String) -> String {
+fn expr_str(src: String) -> String {
     return describe_expr(parse_expression(tokenize(src).tokens));
 }
 
 // Parse `src` as a program and render its structure.
-fn dump_str(_ src: String) -> String {
+fn dump_str(src: String) -> String {
     return dump_program(parse_tokens(tokenize(src).tokens).program);
 }
 
@@ -42,7 +42,7 @@ fn dump_str(_ src: String) -> String {
 fn test_dump_well_formed_function() -> Result<Void, Error> {
     // The dumper renders declaration/statement/block structure that describe_expr
     // omits; expressions within it delegate to describe_expr.
-    let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }';
+    let src = 'fn add(a: Int, b: Int) -> Int { return a + b; }';
     let expected = 'fn add(a: Int, b: Int) -> Int\n'
         + '  block\n'
         + '    return (a + b)';
@@ -99,7 +99,7 @@ fn test_dangling_dot_survives_in_full_function() -> Result<Void, Error> {
     // THE completion win: `user.` deep in a function body no longer discards the
     // whole declaration. The `Field(user, "")` node survives — with its empty
     // member as the completion anchor — and so do the statements around it.
-    let src = 'fn f(_ user: Int) -> Int { let name = user.; return 0; }';
+    let src = 'fn f(user: Int) -> Int { let name = user.; return 0; }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert(r.has_errors(), message: 'expected a parse error for the dangling dot')?;
     let expected = 'fn f(user: Int) -> Int\n'
@@ -150,7 +150,7 @@ fn test_broken_body_keeps_signature() -> Result<Void, Error> {
     // declaration — the block recovers internally, so `parse_block` returns and the
     // `FnDecl` keeps its real signature (name, params, return type). A dependent in
     // another file can still resolve against it.
-    let src = 'fn compute(_ x: Int) -> Int { ) ) ) }';
+    let src = 'fn compute(x: Int) -> Int { ) ) ) }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert(r.has_errors(), message: 'expected a parse error for the garbage body')?;
     let expected = 'fn compute(x: Int) -> Int\n'
@@ -203,7 +203,7 @@ fn test_broken_stmt_in_match_arm_block_keeps_the_match() -> Result<Void, Error> 
     // recovers *within* the arm block, so the enclosing `let`, the match tree, and
     // the sibling arm all survive (previously the whole statement collapsed to an
     // `Expr.Error`).
-    let src = 'fn f(_ n: Int) -> Int { let x = match n { 1 => { let y = ; y }, _ => 0 }; return x; }';
+    let src = 'fn f(n: Int) -> Int { let x = match n { 1 => { let y = ; y }, _ => 0 }; return x; }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert_eq(actual: r.errors.len(), expected: 1)?;
     let expected = 'fn f(n: Int) -> Int\n'
@@ -219,7 +219,7 @@ fn test_broken_arm_expression_body_keeps_siblings() -> Result<Void, Error> {
     // An arm whose expression body can't parse (`1 => ,`) recovers to the next arm:
     // the broken arm keeps its pattern with an `<error>` body, and the sibling arm
     // survives.
-    let src = 'fn f(_ n: Int) -> Int { let x = match n { 1 => , _ => 0 }; return x; }';
+    let src = 'fn f(n: Int) -> Int { let x = match n { 1 => , _ => 0 }; return x; }';
     let r = parse_tokens(tokenize(src).tokens);
     testing.assert_eq(actual: r.errors.len(), expected: 1)?;
     let expected = 'fn f(n: Int) -> Int\n'
@@ -404,7 +404,7 @@ fn test_error_expr_carries_cursor_span() -> Result<Void, Error> {
 // Parse every token-prefix of `src` (each re-terminated with EOF) and count them. A
 // non-advancing recovery loop would hang instead of returning — exactly the
 // mid-edit fragment the LSP feeds the parser on each keystroke.
-fn count_prefix_parses(_ src: String) -> Int {
+fn count_prefix_parses(src: String) -> Int {
     let toks = tokenize(src).tokens;
     let eof = toks[toks.len() - 1];
     let mut count = 0;
@@ -428,7 +428,7 @@ fn test_recovery_terminates_on_changed_constructs() -> Result<Void, Error> {
     // generic argument lists, and dangling members/delimiters.
     let samples: List<String> = [
         'impl Foo { fn bar() -> Int { return 1; } fn baz(',
-        'impl Eq for Foo { fn eq(self, _ o: Foo) -> Bool { return true; } }',
+        'impl Eq for Foo { fn eq(self, o: Foo) -> Bool { return true; } }',
         'interface Show { fn show(self) -> String; }',
         'enum Color { Red, Green, Blue }',
         'struct P { let x: Int; let y: Int; }',
@@ -440,9 +440,9 @@ fn test_recovery_terminates_on_changed_constructs() -> Result<Void, Error> {
         'fn f() -> Int { if c { let x = ; } return 0; }',
         'fn f() -> Int { for x in xs { @ } return 0; }',
         // Stage 2b: broken elements inside expression blocks and match arms.
-        'fn f(_ n: Int) -> Int { let x = match n { 1 => { let y = ; y }, _ => 0 }; return x; }',
+        'fn f(n: Int) -> Int { let x = match n { 1 => { let y = ; y }, _ => 0 }; return x; }',
         'fn f() -> Int { let x = { let y = ; 5 }; return x; }',
-        'fn f(_ n: Int) -> Int { return match n { 1 => , _ => 0 }; }',
+        'fn f(n: Int) -> Int { return match n { 1 => , _ => 0 }; }',
         // Unterminated calls (the signature-help frame).
         'fn f() -> Int { return add(1, }',
         'fn f() -> Int { let x = add( ; return x; }',

@@ -9,7 +9,7 @@ import std.path;
 import 'workspace' as _;
 
 // A fresh, empty directory under the system temp dir (pre-cleaned).
-fn workspace_dir(_ name: String) -> Result<String, Error> {
+fn workspace_dir(name: String) -> Result<String, Error> {
     let dir = path.join(fs.temp_dir(), name);
     match fs.remove_dir_all(dir) {
         Ok(_) => void,

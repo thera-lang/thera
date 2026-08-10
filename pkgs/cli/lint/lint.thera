@@ -28,7 +28,7 @@ pub struct Suggestion {
 
 // Walk a whole program, collecting every suggestion. The entry point the CLI and
 // (later) the LSP call.
-pub fn lint_program(_ p: Program) -> List<Suggestion> {
+pub fn lint_program(p: Program) -> List<Suggestion> {
     let out: List<Suggestion> = [];
     for d in p.decls {
         walk_decl(d, out);
@@ -91,7 +91,7 @@ pub struct LetElseMatch {
 // a constructor pattern. The dropped arm may be `_`, an identifier, a nullary
 // variant (`None`), or any arm whose body is empty — all collapse to the omitted
 // `else` of an `if let`. Returns the pieces, or None if the shape doesn't match.
-pub fn match_if_let(_ m: MatchExpr) -> Option<IfLetMatch> {
+pub fn match_if_let(m: MatchExpr) -> Option<IfLetMatch> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
     }
@@ -117,7 +117,7 @@ pub fn match_if_let(_ m: MatchExpr) -> Option<IfLetMatch> {
     });
 }
 
-fn detect_match_to_if_let(_ m: MatchExpr) -> Option<Suggestion> {
+fn detect_match_to_if_let(m: MatchExpr) -> Option<Suggestion> {
     return match match_if_let(m) {
         Some(_) => Option.Some(Suggestion {
             rule: 'match-to-if-let',
@@ -131,7 +131,7 @@ fn detect_match_to_if_let(_ m: MatchExpr) -> Option<Suggestion> {
 // `match r { Ok(v) => v, Err(e) => return Result.Err(e) }` → `r?` (and the
 // `Some(v)`/`None => return Option.None` analogue). The success arm binds and
 // yields its value; the error arm returns the same error re-wrapped.
-fn detect_match_to_question(_ m: MatchExpr) -> Option<Suggestion> {
+fn detect_match_to_question(m: MatchExpr) -> Option<Suggestion> {
     return match match_question(m) {
         Some(_) => Option.Some(Suggestion {
             rule: 'match-to-question',
@@ -147,7 +147,7 @@ fn detect_match_to_question(_ m: MatchExpr) -> Option<Suggestion> {
 // source two-arm match: one arm binds a constructor and yields its binding, the
 // other diverges (return/throw). Excludes the `?` shape (that is
 // match-to-question's, the more specific rewrite).
-fn detect_match_to_let_else(_ l: LetStmt) -> Option<Suggestion> {
+fn detect_match_to_let_else(l: LetStmt) -> Option<Suggestion> {
     return match l.value {
         Match(m) => {
             if !is_source_match(m) || m.arms.len() != 2 || is_question_shape(m) {
@@ -169,7 +169,7 @@ fn detect_match_to_let_else(_ l: LetStmt) -> Option<Suggestion> {
 // `match opt { Some(v) => v, None => d }` → `opt.unwrap_or(d)` /
 // `.unwrap_or_else(…)`. The success arm binds and yields its value; the other arm
 // is any catch-all whose body is a (non-empty, non-diverging) fallback value.
-fn detect_match_to_unwrap_or(_ m: MatchExpr) -> Option<Suggestion> {
+fn detect_match_to_unwrap_or(m: MatchExpr) -> Option<Suggestion> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
     }
@@ -185,7 +185,7 @@ fn detect_match_to_unwrap_or(_ m: MatchExpr) -> Option<Suggestion> {
 
 // `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` → `opt.map(…)`.
 // Both arms re-wrap into the same enum, mapping only the payload.
-fn detect_match_to_map(_ m: MatchExpr) -> Option<Suggestion> {
+fn detect_match_to_map(m: MatchExpr) -> Option<Suggestion> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
     }
@@ -205,7 +205,7 @@ fn detect_match_to_map(_ m: MatchExpr) -> Option<Suggestion> {
 // explicit unit value. Fires once per empty-block arm, on source matches only (a
 // desugared `if let` fabricates empty else-blocks), and the caller skips matches
 // the `if let` rule already claims — its rewrite removes the arm.
-fn detect_void_arms(_ m: MatchExpr, _ out: List<Suggestion>) -> Void {
+fn detect_void_arms(m: MatchExpr, out: List<Suggestion>) -> Void {
     if !is_source_match(m) {
         return;
     }
@@ -222,7 +222,7 @@ fn detect_void_arms(_ m: MatchExpr, _ out: List<Suggestion>) -> Void {
 
 // An arm body that is literally an empty *source* block `{}` — not `void` (the
 // suggested spelling), and not a desugar's fabricated empty block.
-fn is_empty_block_body(_ e: Expr) -> Bool {
+fn is_empty_block_body(e: Expr) -> Bool {
     return match e {
         Block(_, b) => !b.synthetic && block_is_empty(b),
         _ => false,
@@ -231,7 +231,7 @@ fn is_empty_block_body(_ e: Expr) -> Bool {
 
 // `while i < xs.len() { … }` → a `for` loop. Flags the manual-index condition shape
 // (`<ident> < <recv>.len()`); the body is left to the reader/rewriter.
-fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
+fn detect_while_index(w: WhileStmt) -> Option<Suggestion> {
     return match w.condition {
         Binary(_, lhs, op, rhs) => {
             if op != '<' || !is_ident_expr(lhs) || !is_len_call(rhs) {
@@ -259,7 +259,7 @@ fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
 // `match r { Ok(v) => v, Err(e) => return Result.Err(e) }` → `r?` (and the
 // `Some(v)`/`None => return Option.None` analogue). Behavior-preserving: the `?`
 // operator desugars to exactly this match, and the error is re-raised unchanged.
-pub fn match_question(_ m: MatchExpr) -> Option<QuestionMatch> {
+pub fn match_question(m: MatchExpr) -> Option<QuestionMatch> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
     }
@@ -273,7 +273,7 @@ pub fn match_question(_ m: MatchExpr) -> Option<QuestionMatch> {
 // `.unwrap_or_else(…)` when the fallback isn't a cheap value (the fix decides). The
 // fallback must be a bare value; the catch-all must bind nothing (`Some`) or be an
 // `Err(e)`/`Err(_)`/`_` whose binding the closure can carry (`Ok`).
-pub fn match_unwrap_or(_ m: MatchExpr) -> Option<UnwrapOrMatch> {
+pub fn match_unwrap_or(m: MatchExpr) -> Option<UnwrapOrMatch> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
     }
@@ -283,7 +283,7 @@ pub fn match_unwrap_or(_ m: MatchExpr) -> Option<UnwrapOrMatch> {
     };
 }
 
-fn unwrap_or_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<UnwrapOrMatch> {
+fn unwrap_or_site(m: MatchExpr, a: MatchArm, b: MatchArm) -> Option<UnwrapOrMatch> {
     let aname = ctor_name(a.pattern)?;
     if aname != 'Some' && aname != 'Ok' {
         return Option.None;
@@ -316,7 +316,7 @@ fn unwrap_or_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<Unwrap
 
 // `match SUBJ { Some(v) => Option.Some(EXPR), None => Option.None }` →
 // `SUBJ.map((v) => EXPR)`. Both arms must be bare re-wraps (no dropped statements).
-pub fn match_map(_ m: MatchExpr) -> Option<MapMatch> {
+pub fn match_map(m: MatchExpr) -> Option<MapMatch> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
     }
@@ -326,7 +326,7 @@ pub fn match_map(_ m: MatchExpr) -> Option<MapMatch> {
     };
 }
 
-fn map_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<MapMatch> {
+fn map_site(m: MatchExpr, a: MatchArm, b: MatchArm) -> Option<MapMatch> {
     if !ctor_name_is(a.pattern, 'Some') || !ctor_name_is(b.pattern, 'None') {
         return Option.None;
     }
@@ -356,7 +356,7 @@ fn map_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<MapMatch> {
 // `let x = match SUBJ { Some(v) => v, None => { …diverge… } }` →
 // `let Some(x) = SUBJ else { …diverge… }`. The `let` must be a plain, unannotated
 // binding, and the diverging arm must bind nothing (the `else` binds nothing).
-pub fn match_let_else(_ l: LetStmt) -> Option<LetElseMatch> {
+pub fn match_let_else(l: LetStmt) -> Option<LetElseMatch> {
     if l.is_mut {
         return Option.None;
     }
@@ -371,12 +371,7 @@ pub fn match_let_else(_ l: LetStmt) -> Option<LetElseMatch> {
     };
 }
 
-fn let_else_site(
-    _ l: LetStmt,
-    _ m: MatchExpr,
-    _ a: MatchArm,
-    _ b: MatchArm,
-) -> Option<LetElseMatch> {
+fn let_else_site(l: LetStmt, m: MatchExpr, a: MatchArm, b: MatchArm) -> Option<LetElseMatch> {
     let ctor = ctor_name(a.pattern)?;
     let v = ctor_binding(a.pattern)?;
     if !body_yields_var(a.body, v) || !body_diverges(b.body) || !pattern_binds_nothing(b.pattern) {
@@ -396,7 +391,7 @@ fn let_else_site(
 // A real `match` (not a desugared `if let`/`let … else`, which lower to an
 // otherwise-indistinguishable `MatchExpr`), told apart by the parser's origin
 // marker — so a suggester never re-fires on its own desugared output.
-fn is_source_match(_ m: MatchExpr) -> Bool {
+fn is_source_match(m: MatchExpr) -> Bool {
     return match m.origin {
         Source => true,
         _ => false,
@@ -405,13 +400,13 @@ fn is_source_match(_ m: MatchExpr) -> Bool {
 
 // Both orderings of the error-propagation shape (the success arm may be first or
 // second). Callers must have already checked there are two arms.
-fn is_question_shape(_ m: MatchExpr) -> Bool {
+fn is_question_shape(m: MatchExpr) -> Bool {
     return question_pair(m.arms[0], m.arms[1]) || question_pair(m.arms[1], m.arms[0]);
 }
 
 // `a` is `Ok(v)`/`Some(v)` yielding `v`; `b` re-raises the same error
 // (`Err(e) => return Result.Err(e)` or `None => return Option.None`).
-fn question_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
+fn question_pair(a: MatchArm, b: MatchArm) -> Bool {
     let Some(vname) = ctor_binding(a.pattern) else { return false; };
     if !body_yields_var(a.body, vname) {
         return false;
@@ -429,7 +424,7 @@ fn question_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
 }
 
 // `a` binds a constructor and yields its binding; `b` diverges (return/throw).
-fn let_else_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
+fn let_else_pair(a: MatchArm, b: MatchArm) -> Bool {
     return match ctor_binding(a.pattern) {
         Some(v) => body_yields_var(a.body, v) && body_diverges(b.body),
         None => false,
@@ -438,7 +433,7 @@ fn let_else_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
 
 // `a` is `Ok(v)`/`Some(v)` yielding `v`; `b` is a catch-all returning a plain
 // fallback value (not empty, not diverging — those are `if let` / `let … else`).
-fn unwrap_or_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
+fn unwrap_or_pair(a: MatchArm, b: MatchArm) -> Bool {
     let Some(vname) = ctor_binding(a.pattern) else { return false; };
     let Some(aname) = ctor_name(a.pattern) else { return false; };
     if aname != 'Some' && aname != 'Ok' {
@@ -451,7 +446,7 @@ fn unwrap_or_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
 }
 
 // `a` is `Some(…) => Option.Some(…)`; `b` is `None => Option.None`.
-fn map_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
+fn map_pair(a: MatchArm, b: MatchArm) -> Bool {
     if !ctor_name_is(a.pattern, 'Some') || !ctor_name_is(b.pattern, 'None') {
         return false;
     }
@@ -473,7 +468,7 @@ fn map_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
 
 // A match-arm body that produces no value and runs no statements: an empty block
 // `{}` (which parses as a Void block) or the literal `void`.
-fn is_empty_body(_ e: Expr) -> Bool {
+fn is_empty_body(e: Expr) -> Bool {
     return match e {
         Block(_, b) => block_is_empty(b),
         Unit(_) => true,
@@ -481,7 +476,7 @@ fn is_empty_body(_ e: Expr) -> Bool {
     };
 }
 
-fn block_is_empty(_ b: Block) -> Bool {
+fn block_is_empty(b: Block) -> Bool {
     if b.stmts.len() != 0 {
         return false;
     }
@@ -493,7 +488,7 @@ fn block_is_empty(_ b: Block) -> Bool {
 
 // A body that yields a value (has a value expression), as opposed to an empty block
 // or a bare divergence.
-fn is_value_body(_ e: Expr) -> Bool {
+fn is_value_body(e: Expr) -> Bool {
     return match e {
         Block(_, b) => match b.tail {
             Some(_) => true,
@@ -508,7 +503,7 @@ fn is_value_body(_ e: Expr) -> Bool {
 
 // A body that exits the enclosing block: `return`/`throw`, bare or as a block's
 // last statement (or tail).
-fn body_diverges(_ e: Expr) -> Bool {
+fn body_diverges(e: Expr) -> Bool {
     return match e {
         Return(_, _) => true,
         Throw(_, _) => true,
@@ -517,7 +512,7 @@ fn body_diverges(_ e: Expr) -> Bool {
     };
 }
 
-fn block_diverges(_ b: Block) -> Bool {
+fn block_diverges(b: Block) -> Bool {
     return match b.tail {
         Some(t) => body_diverges(t),
         None => if b.stmts.len() == 0 {
@@ -534,7 +529,7 @@ fn block_diverges(_ b: Block) -> Bool {
 
 // Whether a body is exactly `return X` (bare or `{ return X; }`); yields the
 // returned value `X`. None for any other body or a bare `return;`.
-fn body_single_return(_ e: Expr) -> Option<Expr> {
+fn body_single_return(e: Expr) -> Option<Expr> {
     return match e {
         Return(_, v) => v,
         Block(_, b) => block_single_return(b),
@@ -542,7 +537,7 @@ fn body_single_return(_ e: Expr) -> Option<Expr> {
     };
 }
 
-fn block_single_return(_ b: Block) -> Option<Expr> {
+fn block_single_return(b: Block) -> Option<Expr> {
     return match b.tail {
         Some(t) => match t {
             Return(_, v) => v,
@@ -563,7 +558,7 @@ fn block_single_return(_ b: Block) -> Option<Expr> {
 // block that is a pure wrapper (no statements) around a tail. None for a block with
 // statements (moving it into a closure/`else` would drop them), or a diverging or
 // empty body. Stricter than `body_value_expr`; used by the fix-able sites.
-fn simple_value_expr(_ e: Expr) -> Option<Expr> {
+fn simple_value_expr(e: Expr) -> Option<Expr> {
     return match e {
         Block(_, b) => if b.stmts.len() == 0 { b.tail } else { Option.None },
         Return(_, _) => Option.None,
@@ -575,7 +570,7 @@ fn simple_value_expr(_ e: Expr) -> Option<Expr> {
 
 // The value expression a body produces (a bare expr, or a block's tail); None for
 // an empty or diverging body.
-fn body_value_expr(_ e: Expr) -> Option<Expr> {
+fn body_value_expr(e: Expr) -> Option<Expr> {
     return match e {
         Block(_, b) => b.tail,
         Return(_, _) => Option.None,
@@ -586,7 +581,7 @@ fn body_value_expr(_ e: Expr) -> Option<Expr> {
 }
 
 // Whether a body is exactly the variable `name` (bare `=> v` or `=> { v }`).
-fn body_yields_var(_ e: Expr, _ name: String) -> Bool {
+fn body_yields_var(e: Expr, name: String) -> Bool {
     return match e {
         Ident(_, n) => n == name,
         Block(_, b) => b.stmts.len() == 0 && match b.tail {
@@ -605,7 +600,7 @@ fn body_yields_var(_ e: Expr, _ name: String) -> Bool {
 // A constructor pattern that carries a payload (`Some(v)`, `Ok(_)`, `Err(e)`) — the
 // refutable, binding shape that becomes an `if let` pattern. A bare variant
 // (`None`), a wildcard, or an identifier is not.
-fn is_binding_ctor(_ p: Pattern) -> Bool {
+fn is_binding_ctor(p: Pattern) -> Bool {
     return match p {
         Constructor(_, _, subs) => subs.len() > 0,
         _ => false,
@@ -615,7 +610,7 @@ fn is_binding_ctor(_ p: Pattern) -> Bool {
 // The single variable a one-field constructor pattern binds (`Some(v)` → `v`); None
 // for a wildcard sub-pattern, a multi-field or nullary constructor, or a
 // non-constructor pattern.
-fn ctor_binding(_ p: Pattern) -> Option<String> {
+fn ctor_binding(p: Pattern) -> Option<String> {
     return match p {
         Constructor(_, _, subs) => if subs.len() == 1 {
             match subs[0] {
@@ -629,14 +624,14 @@ fn ctor_binding(_ p: Pattern) -> Option<String> {
     };
 }
 
-fn ctor_name(_ p: Pattern) -> Option<String> {
+fn ctor_name(p: Pattern) -> Option<String> {
     return match p {
         Constructor(_, n, _) => Option.Some(n),
         _ => Option.None,
     };
 }
 
-fn ctor_name_is(_ p: Pattern, _ name: String) -> Bool {
+fn ctor_name_is(p: Pattern, name: String) -> Bool {
     return match p {
         Constructor(_, n, _) => n == name,
         _ => false,
@@ -647,7 +642,7 @@ fn ctor_name_is(_ p: Pattern, _ name: String) -> Bool {
 // constructor all of whose sub-patterns bind nothing (`None`, `Err(_)`). An
 // identifier binds, so it does not. Used where the "other" arm's binding cannot be
 // carried into the rewrite (the `else` of a `let … else`, or `Some`'s catch-all).
-fn pattern_binds_nothing(_ p: Pattern) -> Bool {
+fn pattern_binds_nothing(p: Pattern) -> Bool {
     return match p {
         Wildcard(_) => true,
         Literal(_, _) => true,
@@ -666,7 +661,7 @@ fn pattern_binds_nothing(_ p: Pattern) -> Bool {
 // A fallback pattern the `Ok`/`unwrap_or_else` rewrite can carry: `_`, or an `Err`
 // whose sub-patterns are each a bare binding or wildcard (`Err(e)`, `Err(_)`). The
 // error binding, if any, is threaded into the closure by `result_err_binding`.
-fn is_result_fallback_pat(_ p: Pattern) -> Bool {
+fn is_result_fallback_pat(p: Pattern) -> Bool {
     return match p {
         Wildcard(_) => true,
         Constructor(_, n, subs) => n == 'Err' && all_simple_binders(subs),
@@ -674,7 +669,7 @@ fn is_result_fallback_pat(_ p: Pattern) -> Bool {
     };
 }
 
-fn all_simple_binders(_ subs: List<Pattern>) -> Bool {
+fn all_simple_binders(subs: List<Pattern>) -> Bool {
     for s in subs {
         let ok = match s {
             Ident(_, _) => true,
@@ -690,7 +685,7 @@ fn all_simple_binders(_ subs: List<Pattern>) -> Bool {
 
 // The single variable an `Err(e)` fallback binds (for `unwrap_or_else((e) => …)`);
 // None for `Err(_)`, `_`, or a multi-field `Err`.
-fn result_err_binding(_ p: Pattern) -> Option<String> {
+fn result_err_binding(p: Pattern) -> Option<String> {
     return match p {
         Constructor(_, _, subs) => if subs.len() == 1 {
             match subs[0] {
@@ -707,7 +702,7 @@ fn result_err_binding(_ p: Pattern) -> Option<String> {
 // An irrefutable / complement arm pattern (`_`, an identifier, or a variant like
 // `None`/`Err(_)`) — the "other case" of a two-arm match. A literal pattern is not
 // (it matches only one value).
-fn is_catch_all_pattern(_ p: Pattern) -> Bool {
+fn is_catch_all_pattern(p: Pattern) -> Bool {
     return match p {
         Literal(_, _) => false,
         _ => true,
@@ -717,7 +712,7 @@ fn is_catch_all_pattern(_ p: Pattern) -> Bool {
 // --- Expression helpers ---
 
 // `ns.member` as a field access (`Option.None`).
-fn is_qual_field(_ e: Expr, _ ns: String, _ member: String) -> Bool {
+fn is_qual_field(e: Expr, ns: String, member: String) -> Bool {
     return match e {
         Field(_, obj, m) => m.name == member && match obj {
             Ident(_, n) => n == ns,
@@ -728,7 +723,7 @@ fn is_qual_field(_ e: Expr, _ ns: String, _ member: String) -> Bool {
 }
 
 // `ns.member(arg)` as a one-argument call (`Result.Err(e)`).
-fn is_qual_call1(_ e: Expr, _ ns: String, _ member: String, _ arg: String) -> Bool {
+fn is_qual_call1(e: Expr, ns: String, member: String, arg: String) -> Bool {
     return match e {
         Call(c) => is_qual_field(
             c.callee,
@@ -742,7 +737,7 @@ fn is_qual_call1(_ e: Expr, _ ns: String, _ member: String, _ arg: String) -> Bo
     };
 }
 
-fn is_ident_expr(_ e: Expr) -> Bool {
+fn is_ident_expr(e: Expr) -> Bool {
     return match e {
         Ident(_, _) => true,
         _ => false,
@@ -751,7 +746,7 @@ fn is_ident_expr(_ e: Expr) -> Bool {
 
 // A no-argument `.len()` call (`xs.len()`, `self.items.len()`); the receiver is
 // unconstrained.
-fn is_len_call(_ e: Expr) -> Bool {
+fn is_len_call(e: Expr) -> Bool {
     return match e {
         Call(c) => c.args.len() == 0 && match c.callee {
             Field(_, _, name) => name.name == 'len',
@@ -767,11 +762,11 @@ fn is_len_call(_ e: Expr) -> Bool {
 // expression so a rule fires no matter how deeply a shape is nested; the traversal
 // itself is rule-agnostic.
 
-fn push_opt(_ s: Option<Suggestion>, _ out: List<Suggestion>) -> Void {
+fn push_opt(s: Option<Suggestion>, out: List<Suggestion>) -> Void {
     if let Some(sug) = s { out.push(sug); }
 }
 
-fn walk_decl(_ d: Decl, _ out: List<Suggestion>) -> Void {
+fn walk_decl(d: Decl, out: List<Suggestion>) -> Void {
     match d {
         Fn(f) => { walk_fn(f, out); },
         Impl(i) => {
@@ -792,21 +787,21 @@ fn walk_decl(_ d: Decl, _ out: List<Suggestion>) -> Void {
     }
 }
 
-fn walk_fn(_ f: FnDecl, _ out: List<Suggestion>) -> Void {
+fn walk_fn(f: FnDecl, out: List<Suggestion>) -> Void {
     for p in f.params {
         if let Some(e) = p.default_value { walk_expr(e, out); }
     }
     if let Some(b) = f.body { walk_block(b, out); }
 }
 
-fn walk_block(_ b: Block, _ out: List<Suggestion>) -> Void {
+fn walk_block(b: Block, out: List<Suggestion>) -> Void {
     for s in b.stmts {
         walk_stmt(s, out);
     }
     if let Some(e) = b.tail { walk_expr(e, out); }
 }
 
-fn walk_stmt(_ s: Stmt, _ out: List<Suggestion>) -> Void {
+fn walk_stmt(s: Stmt, out: List<Suggestion>) -> Void {
     match s {
         Let(l) => {
             push_opt(detect_match_to_let_else(l), out);
@@ -838,7 +833,7 @@ fn walk_stmt(_ s: Stmt, _ out: List<Suggestion>) -> Void {
     }
 }
 
-fn walk_expr(_ e: Expr, _ out: List<Suggestion>) -> Void {
+fn walk_expr(e: Expr, out: List<Suggestion>) -> Void {
     match e {
         Str(_, parts) => {
             for part in parts {
@@ -915,10 +910,10 @@ fn walk_expr(_ e: Expr, _ out: List<Suggestion>) -> Void {
     }
 }
 
-fn walk_opt_expr(_ e: Option<Expr>, _ out: List<Suggestion>) -> Void {
+fn walk_opt_expr(e: Option<Expr>, out: List<Suggestion>) -> Void {
     if let Some(inner) = e { walk_expr(inner, out); }
 }
 
-fn walk_opt_block(_ b: Option<Block>, _ out: List<Suggestion>) -> Void {
+fn walk_opt_block(b: Option<Block>, out: List<Suggestion>) -> Void {
     if let Some(inner) = b { walk_block(inner, out); }
 }

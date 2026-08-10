@@ -11,7 +11,7 @@ import 'wrap' as _;
 // The atoms of `text`, joined with `|` so a case reads as one string. `?` on the
 // `None` case is deliberate — a test that expected atoms and got none should fail
 // loudly.
-fn atoms(_ text: String) -> Result<String, Error> {
+fn atoms(text: String) -> Result<String, Error> {
     let Some(xs) = atoms_of(text) else {
         throw error('unbalanced delimiter in: ${text}');
     };
@@ -87,7 +87,7 @@ fn atoms_are_measured_in_code_points() -> Result<Void, Error> {
 
 // --- filling ---
 
-fn filled(_ text: String, _ avail: Int) -> Result<String, Error> {
+fn filled(text: String, avail: Int) -> Result<String, Error> {
     let Some(xs) = atoms_of(text) else {
         throw error('unbalanced delimiter in: ${text}');
     };

@@ -17,7 +17,7 @@
 import std.char;
 import std.json;
 
-fn apply(_ f: (String) -> json.Json, _ s: String) -> json.Json {
+fn apply(f: (String) -> json.Json, s: String) -> json.Json {
     return f(s);
 }
 

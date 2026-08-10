@@ -213,7 +213,7 @@ fn sdk_root_or_warn() -> Option<String> {
 // already handled `--help` and parse errors.) Named `run_subcommand`, not `run`, to
 // avoid colliding with the imported `process.run` — free-function names still share
 // one global namespace.
-fn run_subcommand(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
+fn run_subcommand(name: String, sub: cli.Matches) -> Result<Int, Error> {
     // `lsp` is the only command that takes no file argument.
     if name == 'lsp' {
         server.serve(io.stdin(), io.stdout(), sdk_root_or_warn());
@@ -225,7 +225,7 @@ fn run_subcommand(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
 // The file-taking subcommands (run/check/emit/test): dispatch to the real pipeline.
 // `test` and `check` take one or more `<file|dir>` targets; `emit` takes
 // `<file> <out>`; `run` takes `<file>` then forwards trailing args.
-fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
+fn run_on_file(name: String, sub: cli.Matches) -> Result<Int, Error> {
     let positionals = sub.positionals();
     if name == 'test' {
         return runner.test_paths(
@@ -308,7 +308,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
 // target is given — the friendly no-argument invocation for a project checkout —
 // while the commands that write (`fmt`, `fix`) or need an output path (`emit`) keep
 // their targets explicit.
-fn default_cwd(_ positionals: List<String>) -> List<String> {
+fn default_cwd(positionals: List<String>) -> List<String> {
     if positionals.len() == 0 {
         return ['.'];
     }
@@ -319,7 +319,7 @@ fn default_cwd(_ positionals: List<String>) -> List<String> {
 // is taken as-is — sorted and de-duplicated. None when a target does not exist: a
 // usage error the caller turns into exit 2, reported on stderr under `cmd` (the
 // invocation as the user typed it, e.g. `thera lint --fix`).
-fn collect_targets(_ targets: List<String>, _ cmd: String) -> Option<List<String>> {
+fn collect_targets(targets: List<String>, cmd: String) -> Option<List<String>> {
     let files: List<String> = [];
     let mut missing = false;
     for target in targets {
@@ -350,9 +350,9 @@ fn collect_targets(_ targets: List<String>, _ cmd: String) -> Option<List<String
 // target is missing or a file is unreadable (operational trumps diagnostics — LD12:
 // an unreadable file used to count as a diagnostic and exit 1).
 fn do_check(
-    _ targets: List<String>,
-    _ sdk_root: Option<String>,
-    fatal_warnings: Bool = false,
+    targets: List<String>,
+    sdk_root: Option<String>,
+    named fatal_warnings: Bool = false,
 ) -> Result<Int, Error> {
     let Some(sorted) = collect_targets(targets, 'thera check') else { return Result.Ok(2); };
 
@@ -432,7 +432,7 @@ fn do_check(
 // valid: they are all computed against the source as read. Only files among the
 // targets are rewritten; an edit attributed elsewhere is dropped rather than
 // silently reaching outside what the user named.
-fn do_check_fix(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+fn do_check_fix(targets: List<String>, sdk_root: Option<String>) -> Result<Int, Error> {
     let Some(files) = collect_targets(targets, 'thera check --fix') else {
         return Result.Ok(2);
     };
@@ -495,9 +495,9 @@ fn do_check_fix(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<I
 // `apply_edits` requires non-overlapping edits, and a duplicate insertion is an
 // overlap.
 fn collect_fix(
-    _ d: diagnostic.Diagnostic,
-    _ edits: Map<String, List<edit.TextEdit>>,
-    _ seen: Set<String>,
+    d: diagnostic.Diagnostic,
+    edits: Map<String, List<edit.TextEdit>>,
+    seen: Set<String>,
 ) -> Void {
     let Some(fix) = d.fix else { return; };
     let Some(key) = d.file else { return; };
@@ -517,7 +517,7 @@ fn collect_fix(
 
 // `thera fmt <file|dir>...` — format each target in place, or (with `check`) list
 // the unformatted files without touching them.
-fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
+fn do_fmt(targets: List<String>, named check: Bool = false) -> Result<Int, Error> {
     let files: List<String> = [];
     let mut missing = false;
     for target in targets {
@@ -593,7 +593,7 @@ fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
 // `thera lint <file|dir>...` — report idiomatic-rewrite suggestions, with a
 // per-rule tally. Read-only and purely syntactic (no import closure); exits 0
 // regardless of how many sites it finds (it's advice, not an error).
-fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
+fn do_lint(targets: List<String>) -> Result<Int, Error> {
     let Some(files) = collect_targets(targets, 'thera lint') else { return Result.Ok(2); };
 
     let tally: Map<String, Int> = [:];
@@ -628,7 +628,7 @@ fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
 // `thera lint --fix <file|dir>...` — apply the safe lint rewrites in place. The
 // read-only report is plain `thera lint`; exits 0 (advisory — fixes are
 // opportunistic, not a gate).
-fn do_fix(_ targets: List<String>, only: List<String> = []) -> Result<Int, Error> {
+fn do_fix(targets: List<String>, named only: List<String> = []) -> Result<Int, Error> {
     let Some(files) = collect_targets(targets, 'thera lint --fix') else {
         return Result.Ok(2);
     };
@@ -663,7 +663,7 @@ fn do_fix(_ targets: List<String>, only: List<String> = []) -> Result<Int, Error
 }
 
 // `thera emit <file> <out>` — compile to a `.thera-bc` file, or print diagnostics.
-fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
+fn do_emit(file: String, out: String) -> Result<Int, Error> {
     match fs.read_text(file) {
         Ok(source) => {
             let outcome = session.new_session(sdk_root_or_warn()).compile(source, file);
@@ -697,7 +697,7 @@ fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
 /// Join the continuation lines of `text` — the indented ones — onto the line above,
 /// so the help text above can be hard-wrapped to keep this file's lines short and
 /// still print as whole paragraphs and bullets.
-fn unwrap_lines(_ text: String) -> String {
+fn unwrap_lines(text: String) -> String {
     let lines: List<String> = [];
 
     for line in text.split('\n') {

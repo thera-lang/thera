@@ -70,7 +70,7 @@ const INDENT: String = '    ';
 const MAX_REFLOW_ROUNDS: Int = 12;
 
 // Format a single file in place. Returns `true` if the file was modified.
-pub fn format_file(_ path: String) -> Result<Bool, Error> {
+pub fn format_file(path: String) -> Result<Bool, Error> {
     let source = fs.read_text(path)?;
     let formatted = formatted_text(source, path);
     if formatted == source {
@@ -82,7 +82,7 @@ pub fn format_file(_ path: String) -> Result<Bool, Error> {
 
 // Whether `path` needs formatting — `true` if formatting would change it. The
 // read-only counterpart to `format_file` (writes nothing), for `fmt --check`.
-pub fn check_file(_ path: String) -> Result<Bool, Error> {
+pub fn check_file(path: String) -> Result<Bool, Error> {
     let source = fs.read_text(path)?;
     return Result.Ok(formatted_text(source, path) != source);
 }
@@ -90,7 +90,7 @@ pub fn check_file(_ path: String) -> Result<Bool, Error> {
 // The formatted form of `source`, reporting a guard rejection against `path`. The
 // single place both entry points go through, so `format_file` and `check_file` can
 // never disagree about what "formatted" is.
-fn formatted_text(_ source: String, _ path: String) -> String {
+fn formatted_text(source: String, path: String) -> String {
     let outcome = format_outcome(source, reflow.DEFAULT_WIDTH);
     if outcome.fell_back {
         eprintln('thera fmt: ${path}: line breaking skipped (result was not token-identical)');
@@ -114,7 +114,7 @@ fn formatted_text(_ source: String, _ path: String) -> String {
 // Guarded: unless the result is the same code as the input (token-identical modulo
 // an inert trailing comma) and still parses, the [format_lines] output is returned
 // instead.
-pub fn format_source(_ source: String) -> String {
+pub fn format_source(source: String) -> String {
     return format_outcome(source, reflow.DEFAULT_WIDTH).text;
 }
 
@@ -122,7 +122,7 @@ pub fn format_source(_ source: String) -> String {
 // has no width option — the formatter is not configurable by design (see
 // docs/architecture.md) — so this is for tests, which pin shapes at small widths to
 // keep their fixtures readable, and for the width study in docs/roadmap.md.
-pub fn format_source_at(_ source: String, _ width: Int) -> String {
+pub fn format_source_at(source: String, width: Int) -> String {
     return format_outcome(source, width).text;
 }
 
@@ -138,7 +138,7 @@ pub struct FormatOutcome {
     let prose_fell_back: Bool;
 }
 
-pub fn format_outcome(_ source: String, _ width: Int) -> FormatOutcome {
+pub fn format_outcome(source: String, width: Int) -> FormatOutcome {
     let base = format_lines(source);
     let mut cur = base;
     let mut round = 0;
@@ -179,7 +179,7 @@ pub fn format_outcome(_ source: String, _ width: Int) -> FormatOutcome {
 // then re-format so the result is re-indented and its intra-line spacing
 // re-normalized (joining leaves a single space where a newline was, which the
 // spacing pass then tightens — `g(\n a\n)` becomes `g( a )` and then `g(a)`).
-fn apply_joins(_ text: String, _ width: Int) -> String {
+fn apply_joins(text: String, width: Int) -> String {
     let spans = reflow.join_spans(text, width);
     if spans.len() == 0 {
         return text;
@@ -232,7 +232,7 @@ fn apply_joins(_ text: String, _ width: Int) -> String {
     return format_lines(String.from_chars(out));
 }
 
-fn is_layout_space(_ c: Int) -> Bool {
+fn is_layout_space(c: Int) -> Bool {
     return c == char.SPACE || c == char.TAB || c == char.CR || c == char.LF;
 }
 
@@ -240,7 +240,7 @@ fn is_layout_space(_ c: Int) -> Bool {
 // i.e. the comma just before `from` is a trailing comma, whichever group it belongs
 // to. Bounded by `to` (the joined span's own closer) so the scan cannot run past
 // the region being collapsed.
-fn closer_follows(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
+fn closer_follows(chars: List<Int>, from: Int, to: Int) -> Bool {
     let mut i = from;
     while i <= to && i < chars.len() {
         let c = chars[i];
@@ -259,7 +259,7 @@ const RBRACE: Int = 125;
 
 // Apply each edit's text at its offset (ascending). Offsets index code points, as
 // token spans do.
-fn apply_break_edits(_ text: String, _ edits: List<reflow.BreakEdit>) -> String {
+fn apply_break_edits(text: String, edits: List<reflow.BreakEdit>) -> String {
     let parts: List<String> = [];
     let mut prev = 0;
     for e in edits {
@@ -282,7 +282,7 @@ fn apply_break_edits(_ text: String, _ edits: List<reflow.BreakEdit>) -> String 
 // The grammar declares that comma optional in every comma-separated list, so
 // dropping it from both streams before comparing keeps the check exact while
 // letting the one intended token edit through. Nothing else may differ.
-fn reflow_guarded(_ original: String, _ candidate: String, _ fallback: String) -> String {
+fn reflow_guarded(original: String, candidate: String, fallback: String) -> String {
     let before = tokenize(original);
     let after = tokenize(candidate);
     if before.errors.len() > 0 || after.errors.len() > 0 {
@@ -302,7 +302,7 @@ fn reflow_guarded(_ original: String, _ candidate: String, _ fallback: String) -
 // `tokens` without any `,` that immediately precedes a closing bracket. Such a
 // comma is syntactically optional everywhere Thera allows one (docs/grammar.md), so
 // it carries no meaning and reflow is allowed to add or remove it.
-fn without_inert_commas(_ tokens: List<Token>) -> List<Token> {
+fn without_inert_commas(tokens: List<Token>) -> List<Token> {
     let out: List<Token> = [];
     let mut i = 0;
     while i < tokens.len() {
@@ -316,7 +316,7 @@ fn without_inert_commas(_ tokens: List<Token>) -> List<Token> {
     return out;
 }
 
-fn is_closing(_ k: TokenKind) -> Bool {
+fn is_closing(k: TokenKind) -> Bool {
     return match k {
         RParen => true,
         RBracket => true,
@@ -329,7 +329,7 @@ fn is_closing(_ k: TokenKind) -> Bool {
 // of the formatter that owns everything within and between lines. The breaking half
 // drives it (see the file header); it is also what a caller wants when the input is
 // a fragment rather than a whole file. Idempotent.
-pub fn format_lines(_ source: String) -> String {
+pub fn format_lines(source: String) -> String {
     // Stage A (intra-line spacing) then Stage B (indentation). A is a no-op on
     // source that doesn't parse (e.g. a fix fragment), so B still runs.
     let spaced = space_intra_line(source);
@@ -353,7 +353,7 @@ pub fn format_lines(_ source: String) -> String {
 // code fix replaces a construct mid-line, e.g. starting at its `match` keyword).
 // Blank lines are left un-prefixed. Lets a code fix produce a localized,
 // well-formatted replacement without reformatting the rest of the file.
-pub fn format_fragment(_ text: String, _ indent: String) -> String {
+pub fn format_fragment(text: String, indent: String) -> String {
     let out: List<String> = [];
     let mut first = true;
     for line in format_lines(text).lines() {
@@ -378,7 +378,7 @@ pub fn format_fragment(_ text: String, _ indent: String) -> String {
 // unchanged if it doesn't lex/parse cleanly (a fix fragment, or a
 // syntactically-invalid file), or if the rewrite fails the round-trip token check —
 // so it can never change the token stream, and never break a compile.
-fn space_intra_line(_ source: String) -> String {
+fn space_intra_line(source: String) -> String {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
         return source;
@@ -468,9 +468,9 @@ fn space_intra_line(_ source: String) -> String {
 // that pair's gap holds the comment text and fails `gap_is_spacing`, so the walk
 // above skips it.
 fn comment_gap_edits(
-    _ toks: List<Token>,
-    _ comments: List<Comment>,
-    _ chars: List<Int>,
+    toks: List<Token>,
+    comments: List<Comment>,
+    chars: List<Int>,
 ) -> List<edit.TextEdit> {
     let out: List<edit.TextEdit> = [];
     if toks.len() == 0 {
@@ -503,7 +503,7 @@ fn comment_gap_edits(
 }
 
 // The lexed tokens without the trailing EOF (which has no meaningful span).
-fn code_tokens(_ tokens: List<Token>) -> List<Token> {
+fn code_tokens(tokens: List<Token>) -> List<Token> {
     let out: List<Token> = [];
     for t in tokens {
         if t.kind != TokenKind.Eof {
@@ -517,7 +517,7 @@ fn code_tokens(_ tokens: List<Token>) -> List<Token> {
 // (spaces/tabs) — the only gaps Stage A rewrites. Empty is spacing; a newline or
 // anything else is not. Takes the source code points + range (not a sliced-out
 // string) so the caller need not rebuild the source per token.
-fn gap_is_spacing(_ chars: List<Int>, _ start: Int, _ end: Int) -> Bool {
+fn gap_is_spacing(chars: List<Int>, start: Int, end: Int) -> Bool {
     let mut i = start;
     while i < end {
         let cp = chars[i];
@@ -533,7 +533,7 @@ fn gap_is_spacing(_ chars: List<Int>, _ start: Int, _ end: Int) -> Bool {
 // immediately after a `.` (`p.in`, `x.match(y)`; the parser's
 // `expect_member_name`). Such a token is an ordinary name: it ends a value, so a
 // following `(`/`[` opens a call/index and a following `-` is binary.
-fn compute_member_kw(_ toks: List<Token>) -> List<Bool> {
+fn compute_member_kw(toks: List<Token>) -> List<Bool> {
     let out: List<Bool> = [];
     let mut i = 0;
     while i < toks.len() {
@@ -547,9 +547,9 @@ fn compute_member_kw(_ toks: List<Token>) -> List<Bool> {
 // unary iff the previous token doesn't end a value (so `-x`, `= -1`, `[-1]`,
 // `return -1` are unary, but `a - b`, `xs[i] - 1` are binary).
 fn compute_prefix_unary(
-    _ toks: List<Token>,
-    _ member_kw: List<Bool>,
-    _ delims: parser.GenericDelims,
+    toks: List<Token>,
+    member_kw: List<Bool>,
+    delims: parser.GenericDelims,
 ) -> List<Bool> {
     let out: List<Bool> = [];
     let mut i = 0;
@@ -573,11 +573,11 @@ fn compute_prefix_unary(
 // precedes; one otherwise (the fusion-safe default — two word-ish tokens are never
 // tight, and the round-trip check backs it up).
 fn space_between(
-    _ a: Token,
-    _ b: Token,
-    _ a_prefix_unary: Bool,
-    _ a_member_kw: Bool,
-    _ delims: parser.GenericDelims,
+    a: Token,
+    b: Token,
+    a_prefix_unary: Bool,
+    a_member_kw: Bool,
+    delims: parser.GenericDelims,
 ) -> Int {
     // An empty brace pair is tight (`{}`, `Foo {}`, `=> {}`) — a non-empty one
     // spaces its interior (`Foo { x }`), which the default 1 already gives.
@@ -603,7 +603,7 @@ fn space_between(
 
 // `a` binds tightly to the following token (no space after it): an opener, a
 // `.`/`..`/`@`/`#`, a prefix-unary operator, or a generic-opening `<`.
-fn no_space_after(_ a: Token, _ a_prefix_unary: Bool, _ delims: parser.GenericDelims) -> Bool {
+fn no_space_after(a: Token, a_prefix_unary: Bool, delims: parser.GenericDelims) -> Bool {
     if a_prefix_unary {
         return true;
     }
@@ -623,12 +623,7 @@ fn no_space_after(_ a: Token, _ a_prefix_unary: Bool, _ delims: parser.GenericDe
 // separator/terminator (`,` `;` `:`), a `.`/`..`, a postfix `?`, a generic angle
 // bracket, or a `(`/`[` that opens a call/index (prev token ends a value — which a
 // keyword member name, `x.match(y)`, also does).
-fn no_space_before(
-    _ a: Token,
-    _ b: Token,
-    _ a_member_kw: Bool,
-    _ delims: parser.GenericDelims,
-) -> Bool {
+fn no_space_before(a: Token, b: Token, a_member_kw: Bool, delims: parser.GenericDelims) -> Bool {
     return match b.kind {
         RParen => true,
         RBracket => true,
@@ -648,14 +643,14 @@ fn no_space_before(
 
 // An angle-bracket token (`<` or `>`) — a generic delimiter, a comparison, or part
 // of a shift operator.
-fn is_angle(_ k: TokenKind) -> Bool {
+fn is_angle(k: TokenKind) -> Bool {
     return k == TokenKind.Lt || k == TokenKind.Gt;
 }
 
 // Whether `t` can end a value/primary — used to tell a call/index `(`/`[` from a
 // grouping/literal one, and a binary `-` from a unary one. A generic-closing `>`
 // ends a type-argument list (`foo<T>(…)`), so it counts.
-fn is_value_ender(_ t: Token, _ delims: parser.GenericDelims) -> Bool {
+fn is_value_ender(t: Token, delims: parser.GenericDelims) -> Bool {
     return match t.kind {
         Identifier => true,
         IntLiteral => true,
@@ -677,7 +672,7 @@ fn is_value_ender(_ t: Token, _ delims: parser.GenericDelims) -> Bool {
 // guarantee Stage A's edits preserved. Whitespace/spans aside. `xc`/`yc` are the
 // two sources as code-point lists (materialized once by the caller), so a token's
 // text is read by index rather than sliced out of the source per token.
-fn same_tokens(_ xs: List<Token>, _ xc: List<Int>, _ ys: List<Token>, _ yc: List<Int>) -> Bool {
+fn same_tokens(xs: List<Token>, xc: List<Int>, ys: List<Token>, yc: List<Int>) -> Bool {
     if xs.len() != ys.len() {
         return false;
     }
@@ -697,7 +692,7 @@ fn same_tokens(_ xs: List<Token>, _ xc: List<Int>, _ ys: List<Token>, _ yc: List
 // identifier or string literal) compares by its stored content; any other kind by
 // the code points its span covers, read from the caller's char list by index
 // (O(span length), not O(source length) as `span.text()` would cost per token).
-fn same_lexeme(_ x: Token, _ xc: List<Int>, _ y: Token, _ yc: List<Int>) -> Bool {
+fn same_lexeme(x: Token, xc: List<Int>, y: Token, yc: List<Int>) -> Bool {
     return match x.value {
         Some(xv) => match y.value {
             Some(yv) => xv == yv,
@@ -709,7 +704,7 @@ fn same_lexeme(_ x: Token, _ xc: List<Int>, _ y: Token, _ yc: List<Int>) -> Bool
 
 // Whether the code points the two spans cover are equal, comparing by index into
 // the pre-materialized char lists (no substring allocation).
-fn same_span_chars(_ xc: List<Int>, _ xs: SourceSpan, _ yc: List<Int>, _ ys: SourceSpan) -> Bool {
+fn same_span_chars(xc: List<Int>, xs: SourceSpan, yc: List<Int>, ys: SourceSpan) -> Bool {
     if xs.length != ys.length {
         return false;
     }
@@ -738,7 +733,7 @@ struct LineInfo {
 // closer aligns to; its content is one level past. A `{` anchors at the statement
 // base; a `(`/`[` at the line's visual column. Both drop when a closer closes a
 // bracket opened on a previous line.
-fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
+fn scan_lines(source: String, n: Int) -> LineInfo {
     let toks_by_line: List<List<Token>> = [];
     let verbatim: List<Bool> = filled_bool(n, false);
     let mut i = 0;
@@ -912,7 +907,7 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
 // or before a closer. Vertical space there separates code from its own delimiter
 // rather than one piece of code from another, so `{⏎⏎ x;⏎⏎ }` and `{⏎ x;⏎ }` are
 // the same code and get the same layout.
-fn emit(_ lines: List<String>, _ info: LineInfo) -> String {
+fn emit(lines: List<String>, info: LineInfo) -> String {
     let out: List<String> = [];
     let mut pending_blank = false;
     let mut prev_opens = false; // last content line emitted ended with an opener
@@ -964,7 +959,7 @@ fn emit(_ lines: List<String>, _ info: LineInfo) -> String {
 
 // --- token classification ---
 
-fn is_opener(_ k: TokenKind) -> Bool {
+fn is_opener(k: TokenKind) -> Bool {
     return match k {
         LBrace => true,
         LBracket => true,
@@ -973,7 +968,7 @@ fn is_opener(_ k: TokenKind) -> Bool {
     };
 }
 
-fn is_closer(_ k: TokenKind) -> Bool {
+fn is_closer(k: TokenKind) -> Bool {
     return match k {
         RBrace => true,
         RBracket => true,
@@ -984,7 +979,7 @@ fn is_closer(_ k: TokenKind) -> Bool {
 
 // Brackets that already hang their content, so a continuation bonus inside them
 // would double the indent.
-fn is_hang_bracket(_ k: TokenKind) -> Bool {
+fn is_hang_bracket(k: TokenKind) -> Bool {
     return match k {
         LParen => true,
         LBracket => true,
@@ -996,7 +991,7 @@ fn is_hang_bracket(_ k: TokenKind) -> Bool {
 // wrapped return type `->`, or a binary operator the author put at the line start.
 // Kept deliberately narrow — `-`/`*` are excluded (unary, or a leading `-1`
 // collection element).
-fn is_cont_lead(_ k: TokenKind) -> Bool {
+fn is_cont_lead(k: TokenKind) -> Bool {
     return match k {
         Dot => true,
         Arrow => true,
@@ -1012,7 +1007,7 @@ fn is_cont_lead(_ k: TokenKind) -> Bool {
 // A line that *ends* with one of these carries onto the next line (a wrapped binary
 // expression, an assignment or arrow whose value is on the next line). A trailing
 // `,`/`;`/opener is excluded — those are handled by bracket depth.
-fn is_cont_prev(_ k: TokenKind) -> Bool {
+fn is_cont_prev(k: TokenKind) -> Bool {
     return match k {
         Plus => true,
         Minus => true,
@@ -1037,17 +1032,17 @@ fn is_cont_prev(_ k: TokenKind) -> Bool {
 
 // --- small helpers ---
 
-fn pop_or_zero(_ stack: List<Int>) -> Int {
+fn pop_or_zero(stack: List<Int>) -> Int {
     return stack.pop().unwrap_or(0);
 }
 
-fn pop_kind(_ kinds: List<TokenKind>) -> Void {
+fn pop_kind(kinds: List<TokenKind>) -> Void {
     kinds.pop();
 }
 
 // Whether the string literal at `offset` is a text block — three of the same quote.
 // (A raw string's span opens on its `r`, so it never reads as one.)
-fn is_text_block(_ chars: List<Int>, _ offset: Int) -> Bool {
+fn is_text_block(chars: List<Int>, offset: Int) -> Bool {
     if offset + 2 >= chars.len() {
         return false;
     }
@@ -1057,7 +1052,7 @@ fn is_text_block(_ chars: List<Int>, _ offset: Int) -> Bool {
         && chars[offset + 2] == q;
 }
 
-fn count_newlines(_ chars: List<Int>, _ start: Int, _ end: Int) -> Int {
+fn count_newlines(chars: List<Int>, start: Int, end: Int) -> Int {
     let mut c = 0;
     let mut i = start;
     while i < end {
@@ -1069,7 +1064,7 @@ fn count_newlines(_ chars: List<Int>, _ start: Int, _ end: Int) -> Int {
     return c;
 }
 
-fn filled_int(_ n: Int, _ v: Int) -> List<Int> {
+fn filled_int(n: Int, v: Int) -> List<Int> {
     let xs: List<Int> = [];
     let mut i = 0;
     while i < n {
@@ -1079,7 +1074,7 @@ fn filled_int(_ n: Int, _ v: Int) -> List<Int> {
     return xs;
 }
 
-fn filled_bool(_ n: Int, _ v: Bool) -> List<Bool> {
+fn filled_bool(n: Int, v: Bool) -> List<Bool> {
     let xs: List<Bool> = [];
     let mut i = 0;
     while i < n {

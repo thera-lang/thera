@@ -4,7 +4,7 @@
 /// derived automatically for structs whose fields all implement Eq. Powers the ==
 /// and != operators.
 pub interface Eq {
-    fn eq(self, other: Self) -> Bool;
+    fn eq(self, named other: Self) -> Bool;
 }
 
 /// User-facing string representation. Used by string interpolation (${}) and

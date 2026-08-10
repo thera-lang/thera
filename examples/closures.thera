@@ -3,13 +3,13 @@
 // function-typed parameters (`(Int) -> Int`), and returning a closure.
 
 // A higher-order function: applies the given function to a value.
-fn apply(_ f: (Int) -> Int, _ x: Int) -> Int {
+fn apply(f: (Int) -> Int, x: Int) -> Int {
     return f(x);
 }
 
 // Builds and returns a closure that adds `by` to its argument. `by` is a captured
 // variable — the returned closure carries it.
-fn adder(_ by: Int) -> (Int) -> Int {
+fn adder(by: Int) -> (Int) -> Int {
     return n => n + by;
 }
 
