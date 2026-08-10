@@ -1,0 +1,49 @@
+//! spec: warn-missing-argument-label
+//! mode: check
+
+// The calling convention gives each parameter exactly one call form: a labeled
+// parameter is passed with its label, a `_` one without. Passing a labeled
+// parameter positionally is a **warning** for now — the checker still accepts it,
+// ahead of the enforcement flip.
+
+fn greet(name: String, times: Int) -> String {
+    return '${name} x${times}';
+}
+
+// `default` is the external label; `value` is the internal name — the label the
+// call site owes is the external one.
+fn flag(_ name: String, default value: Bool) -> Bool {
+    return value;
+}
+
+fn pad(_ s: String, width: Int = 4) -> String {
+    return '${s}${width}';
+}
+
+fn canonical() -> String {
+    // Each argument in the form its parameter declares: clean.
+    return greet(name: 'a', times: 1) + '${flag('-v', default: true)}' + pad('x', width: 2);
+}
+
+fn positional() -> String {
+    let a = greet('a', times: 1); // expect warning: missing argument label `name:`
+    let b = greet(name: 'b', 2); // expect warning: missing argument label `times:`
+    let c = flag('-v', true); // expect warning: missing argument label `default:`
+    return '${a}${b}${c}';
+}
+
+fn omitted() -> String {
+    return pad('x'); // an omitted defaulted argument owes no label
+}
+
+// A `// ignore: missing-argument-label` comment suppresses the warning at that
+// site.
+fn suppressed() -> String {
+    // ignore: missing-argument-label
+    return greet('a', 1);
+}
+
+fn main() -> Int {
+    println('${canonical()} ${positional()} ${omitted()} ${suppressed()}');
+    return 0;
+}

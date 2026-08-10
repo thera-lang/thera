@@ -42,7 +42,7 @@ pub fn direct_outbox(_ writer: io.Writer) -> Outbox {
 // An asynchronous outbox: a writer fiber drains the channel and does the writes, so
 // concurrent producers only enqueue and their output never interleaves.
 pub fn async_outbox(_ writer: io.Writer) -> Outbox {
-    let ch: fiber.Channel<Json> = fiber.channel(64);
+    let ch: fiber.Channel<Json> = fiber.channel(capacity: 64);
     let pump = fiber.spawn(() => {
         let mut going = true;
         while going {

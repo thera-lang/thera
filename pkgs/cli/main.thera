@@ -19,6 +19,7 @@ import std.io;
 
 import 'diagnostic';
 import 'driver';
+import 'edit/edit';
 import 'fix/fix';
 import 'fmt';
 import 'loader';
@@ -53,15 +54,23 @@ Type-checks each target (a .thera file, or a directory searched for *.thera) wit
   executing — the analyzer for CI and pre-commit hooks. No target checks the current
   directory.
 
+With `--fix`, it instead applies the mechanical fix carried by every fixable warning
+  (today: `missing-argument-label`) in place. Each fix is a localized edit — nothing
+  else in the file is touched. `--fix` requires an explicit target (like the other
+  writing commands), and only rewrites files among the targets.
+
 - stdout: one diagnostic per line, `path:line:col: message`, then a `Checked N source
-  files; M issues found.` summary
+  files; M issues found.` summary; with --fix, one line per rewritten file and a
+  count
 - stderr: operational errors (a missing or unreadable target)
 - exit code: 0 clean, 1 if any errors (or, with --fatal-warnings, any warnings), 2 if
-  a target is missing or a file is unreadable'''))
+  a target is missing or a file is unreadable; --fix exits 0 (the fixes are advice
+  applied, not a gate)'''))
             .flag(
                 'fatal-warnings',
                 help: 'treat warnings as errors: exit 1 if any warning is reported (for CI)',
             )
+            .flag('fix', help: 'apply fixable warnings in place (requires an explicit target)')
             .positional(
                 'target',
                 help: 'a .thera file or directory to check (default: the current directory)',
@@ -227,6 +236,15 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
         );
     }
     if name == 'check' {
+        if sub.flag('fix') {
+            // A writing run keeps its target explicit (like `fmt` and `lint --fix`)
+            // — no implicit whole-project rewrite from a bare invocation.
+            if positionals.len() == 0 {
+                eprintln('thera check --fix: expected a <file|dir> argument');
+                return Result.Ok(2);
+            }
+            return do_check_fix(positionals, sdk_root_or_warn());
+        }
         return do_check(
             default_cwd(positionals),
             sdk_root_or_warn(),
@@ -297,6 +315,33 @@ fn default_cwd(_ positionals: List<String>) -> List<String> {
     return positionals;
 }
 
+// Resolve each target to source files — a directory recurses for `*.thera`, a file
+// is taken as-is — sorted and de-duplicated. None when a target does not exist: a
+// usage error the caller turns into exit 2, reported on stderr under `cmd` (the
+// invocation as the user typed it, e.g. `thera lint --fix`).
+fn collect_targets(_ targets: List<String>, _ cmd: String) -> Option<List<String>> {
+    let files: List<String> = [];
+    let mut missing = false;
+    for target in targets {
+        match fs.metadata(target) {
+            Ok(meta) => {
+                match meta.kind {
+                    Dir => { runner.collect_from_dir(target, loader.source_exts(), files); },
+                    _ => { files.push(target); },
+                }
+            },
+            Err(_) => {
+                eprintln('${cmd}: not found: ${target}');
+                missing = true;
+            },
+        }
+    }
+    if missing {
+        return Option.None;
+    }
+    return Option.Some(runner.sort_dedup(files));
+}
+
 // `thera check [file|dir]...` — type-check each target, printing
 // `file:line:col: message` for every diagnostic and a closing summary line (proof
 // of work even when clean). A directory is searched recursively for `*.thera`; a
@@ -309,27 +354,7 @@ fn do_check(
     _ sdk_root: Option<String>,
     fatal_warnings: Bool = false,
 ) -> Result<Int, Error> {
-    // Resolve targets to a sorted, de-duplicated list of files (dirs recurse for
-    // `*.thera`); a missing target is a usage error.
-    let files: List<String> = [];
-    let mut missing = false;
-    for target in targets {
-        match fs.metadata(target) {
-            Ok(meta) => {
-                match meta.kind {
-                    Dir => { runner.collect_from_dir(target, loader.source_exts(), files); },
-                    _ => { files.push(target); },
-                }
-            },
-            Err(_) => {
-                eprintln('thera check: not found: ${target}');
-                missing = true;
-            },
-        }
-    }
-    if missing {
-        return Result.Ok(2);
-    }
+    let Some(sorted) = collect_targets(targets, 'thera check') else { return Result.Ok(2); };
 
     // One analysis session for the whole run: its parse cache (every file imports
     // the `std.core` prelude, and most share internal imports — parsed once per
@@ -343,7 +368,6 @@ fn do_check(
     let mut total = 0;
     let mut warnings = 0;
     let mut unreadable = false;
-    let sorted = runner.sort_dedup(files);
     for file in sorted {
         match fs.read_text(file) {
             Ok(source) => {
@@ -395,6 +419,100 @@ fn do_check(
         return Result.Ok(1);
     }
     return Result.Ok(0);
+}
+
+// `thera check --fix <file|dir>...` — apply every fixable warning's mechanical edit
+// in place. The read-only report is plain `thera check`; exits 0 (advisory — the
+// fixes are opportunistic, not a gate).
+//
+// Every target is checked before anything is written, for two reasons. A diagnostic
+// is attributed to *its* file (`d.file`), which may be an import pulled in by
+// whichever target reached it first — so the edits are gathered by owning file, not
+// by the file being checked. And writing at the end keeps every edit's offsets
+// valid: they are all computed against the source as read. Only files among the
+// targets are rewritten; an edit attributed elsewhere is dropped rather than
+// silently reaching outside what the user named.
+fn do_check_fix(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+    let Some(files) = collect_targets(targets, 'thera check --fix') else {
+        return Result.Ok(2);
+    };
+
+    let sess = session.new_session(sdk_root);
+    let sources: Map<String, String> = [:]; // canonical key -> the file's text
+    let paths: Map<String, String> = [:]; // canonical key -> the path to write back
+    let edits: Map<String, List<edit.TextEdit>> = [:]; // canonical key -> its edits
+    let seen: Set<String> = Set.new(); // dedupe: a file is checked once per importer
+    let mut unreadable = false;
+    for file in files {
+        match fs.read_text(file) {
+            Ok(source) => {
+                let key = loader.canonical_path(file);
+                sources[key] = source;
+                paths[key] = file;
+                for d in sess.check(source, file) {
+                    collect_fix(d, edits, seen);
+                }
+            },
+            Err(e) => {
+                eprintln('thera check --fix: cannot read ${file}: ${e}');
+                unreadable = true;
+            },
+        }
+    }
+    if unreadable {
+        return Result.Ok(2);
+    }
+
+    let mut total = 0;
+    let mut changed = 0;
+    // Keyed off the targets, so an edit attributed to a non-target file is dropped.
+    for key in sources.keys() {
+        if let Some(file_edits) = edits.get(key) {
+            let path = paths.get_or(key, key);
+            let fixed = edit.apply_edits(sources.get_or(key, ''), file_edits);
+            match fs.write_text(path, fixed) {
+                Ok(_) => {
+                    total = total + file_edits.len();
+                    changed = changed + 1;
+                    println('Fixed ${path} (${file_edits.len()})');
+                },
+                Err(e) => { eprintln('thera check --fix: cannot write ${path}: ${e}'); },
+            }
+        }
+    }
+
+    if total == 0 {
+        println('no fixes available');
+    } else {
+        println('Applied ${total} fix(es) in ${changed} file(s)');
+    }
+    return Result.Ok(0);
+}
+
+// Add `d`'s fix, if it has one, to the per-file edit list. `seen` keys on the whole
+// edit so a diagnostic reported twice — once while checking the importer that
+// reached its file, once when that file is its own target — contributes once;
+// `apply_edits` requires non-overlapping edits, and a duplicate insertion is an
+// overlap.
+fn collect_fix(
+    _ d: diagnostic.Diagnostic,
+    _ edits: Map<String, List<edit.TextEdit>>,
+    _ seen: Set<String>,
+) -> Void {
+    let Some(fix) = d.fix else { return; };
+    let Some(key) = d.file else { return; };
+    let id = '${key}:${fix.start}:${fix.end}:${fix.new_text}';
+    if seen.contains(id) {
+        return;
+    }
+    seen.add(id);
+    if !edits.has(key) {
+        edits[key] = [];
+    }
+    if let Some(list) = edits.get(key) {
+        list.push(fix);
+    }
+    return;
 }
 
 // `thera fmt <file|dir>...` — format each target in place, or (with `check`) list
@@ -476,29 +594,11 @@ fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
 // per-rule tally. Read-only and purely syntactic (no import closure); exits 0
 // regardless of how many sites it finds (it's advice, not an error).
 fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
-    let files: List<String> = [];
-    let mut missing = false;
-    for target in targets {
-        match fs.metadata(target) {
-            Ok(meta) => {
-                match meta.kind {
-                    Dir => { runner.collect_from_dir(target, loader.source_exts(), files); },
-                    _ => { files.push(target); },
-                }
-            },
-            Err(_) => {
-                eprintln('thera lint: not found: ${target}');
-                missing = true;
-            },
-        }
-    }
-    if missing {
-        return Result.Ok(2);
-    }
+    let Some(files) = collect_targets(targets, 'thera lint') else { return Result.Ok(2); };
 
     let tally: Map<String, Int> = [:];
     let mut total = 0;
-    for file in runner.sort_dedup(files) {
+    for file in files {
         match fs.read_text(file) {
             Ok(source) => {
                 for s in driver.lint_source(source) {
@@ -529,36 +629,20 @@ fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
 // read-only report is plain `thera lint`; exits 0 (advisory — fixes are
 // opportunistic, not a gate).
 fn do_fix(_ targets: List<String>, only: List<String> = []) -> Result<Int, Error> {
-    let files: List<String> = [];
-    let mut missing = false;
-    for target in targets {
-        match fs.metadata(target) {
-            Ok(meta) => {
-                match meta.kind {
-                    Dir => { runner.collect_from_dir(target, loader.source_exts(), files); },
-                    _ => { files.push(target); },
-                }
-            },
-            Err(_) => {
-                eprintln('thera lint --fix: not found: ${target}');
-                missing = true;
-            },
-        }
-    }
-    if missing {
+    let Some(files) = collect_targets(targets, 'thera lint --fix') else {
         return Result.Ok(2);
-    }
+    };
 
     let mut total = 0;
     let mut changed = 0;
-    for file in runner.sort_dedup(files) {
+    for file in files {
         match fs.read_text(file) {
             Ok(source) => {
-                let locs = fix.fix_locations(source, only);
+                let locs = fix.fix_locations(source, only: only);
                 if locs.len() > 0 {
                     total = total + locs.len();
                     changed = changed + 1;
-                    match fs.write_text(file, fix.fix_source(source, only)) {
+                    match fs.write_text(file, fix.fix_source(source, only: only)) {
                         Ok(_) => { println('Fixed ${file} (${locs.len()})'); },
                         Err(e) => { eprintln('thera lint --fix: cannot write ${file}: ${e}'); },
                     }

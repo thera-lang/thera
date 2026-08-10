@@ -8,6 +8,7 @@
 // prints against.
 
 import 'source'; // SourceSpan
+import 'edit/edit'; // TextEdit — a fixable diagnostic carries its own edit
 
 // How loud a diagnostic is. An `Error` is invalid code and blocks compile/run; a
 // `Warning` is legal-but-probably-a-bug — reported by `thera check` (and the LSP)
@@ -30,6 +31,12 @@ pub struct Diagnostic {
     // `// ignore: <rule>` comment names. Errors carry None — they are not
     // suppressable and not configurable.
     let rule: Option<String>;
+    // The mechanical fix, when the diagnostic has exactly one — the edit
+    // `thera check --fix` applies (and an LSP quickfix would offer). It edits the
+    // diagnostic's own file, so a batch is grouped by `file` before applying. Most
+    // diagnostics carry None: a fix earns its place only when the rewrite is
+    // unambiguous and behavior-preserving.
+    let fix: Option<edit.TextEdit>;
 }
 
 impl Display for Diagnostic {
@@ -48,6 +55,7 @@ pub fn at(_ message: String, _ span: source.SourceSpan) -> Diagnostic {
         file: file,
         severity: Severity.Error,
         rule: Option.None,
+        fix: Option.None,
     };
 }
 
@@ -61,12 +69,25 @@ pub fn in_file(_ message: String, _ span: source.SourceSpan, _ file: String) -> 
         file: Option.Some(file),
         severity: Severity.Error,
         rule: Option.None,
+        fix: Option.None,
     };
 }
 
 // A `Warning` diagnostic: a named, suppressable rule (`// ignore: <rule>` on the
 // offending line, or the line above, silences it at that site).
 pub fn warning(_ message: String, _ span: source.SourceSpan, _ rule: String) -> Diagnostic {
+    return warning_fix(message, span, rule, Option.None);
+}
+
+// A `Warning` carrying a mechanical fix — the edit that resolves it, applied by
+// `thera check --fix`. `fix` is None for the plain case (`warning` above delegates
+// here), so one constructor covers both.
+pub fn warning_fix(
+    _ message: String,
+    _ span: source.SourceSpan,
+    _ rule: String,
+    _ fix: Option<edit.TextEdit>,
+) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
     return Diagnostic {
         message: message,
@@ -74,6 +95,7 @@ pub fn warning(_ message: String, _ span: source.SourceSpan, _ rule: String) -> 
         file: file,
         severity: Severity.Warning,
         rule: Option.Some(rule),
+        fix: fix,
     };
 }
 

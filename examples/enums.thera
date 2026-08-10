@@ -14,7 +14,7 @@ enum Shape {
     Point,
 }
 
-fn describe_direction(d: Direction) -> String {
+fn describe_direction(_ d: Direction) -> String {
     return match d {
         North => 'heading north',
         South => 'heading south',
@@ -23,7 +23,7 @@ fn describe_direction(d: Direction) -> String {
     };
 }
 
-fn area(s: Shape) -> Int {
+fn area(_ s: Shape) -> Int {
     return match s {
         Circle(r) => r * r,
         Rect(w, h) => w * h,

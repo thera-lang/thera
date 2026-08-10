@@ -116,19 +116,19 @@ fn text_at(_ msg: Message, _ i: Int) -> Result<String, Error> {
 @test
 fn decodes_a_text_response() -> Result<Void, Error> {
     let msg = decode(TEXT_RESPONSE)?;
-    testing.assert_eq(msg.id, 'msg_013Zva2CMHLNnXjNJJKqJ2EF')?;
-    testing.assert_eq(msg.model, 'claude-sonnet-4-5-20250929')?;
-    testing.assert_eq(msg.role, 'assistant')?;
-    testing.assert_eq(msg.content.len(), 1)?;
-    testing.assert_eq(text_at(msg, 0)?, 'Hi! I am Claude.')?;
-    testing.assert_eq(msg.usage.input_tokens, 2095)?;
-    return testing.assert_eq(msg.usage.output_tokens, 503);
+    testing.assert_eq(actual: msg.id, expected: 'msg_013Zva2CMHLNnXjNJJKqJ2EF')?;
+    testing.assert_eq(actual: msg.model, expected: 'claude-sonnet-4-5-20250929')?;
+    testing.assert_eq(actual: msg.role, expected: 'assistant')?;
+    testing.assert_eq(actual: msg.content.len(), expected: 1)?;
+    testing.assert_eq(actual: text_at(msg, 0)?, expected: 'Hi! I am Claude.')?;
+    testing.assert_eq(actual: msg.usage.input_tokens, expected: 2095)?;
+    return testing.assert_eq(actual: msg.usage.output_tokens, expected: 503);
 }
 
 @test
 fn a_known_stop_reason_becomes_its_variant() -> Result<Void, Error> {
     let msg = decode(TEXT_RESPONSE)?;
-    return testing.assert_eq(msg.stop_reason, Option.Some(StopReason.EndTurn));
+    return testing.assert_eq(actual: msg.stop_reason, expected: Option.Some(StopReason.EndTurn));
 }
 
 /// `"stop_sequence": null` is present-and-null, and means the same as absent. The
@@ -137,21 +137,21 @@ fn a_known_stop_reason_becomes_its_variant() -> Result<Void, Error> {
 @test
 fn an_explicit_null_is_none() -> Result<Void, Error> {
     let msg = decode(TEXT_RESPONSE)?;
-    return testing.assert_eq(msg.stop_sequence, Option.None);
+    return testing.assert_eq(actual: msg.stop_sequence, expected: Option.None);
 }
 
 @test
 fn absent_cache_fields_are_none() -> Result<Void, Error> {
     let msg = decode(TEXT_RESPONSE)?;
-    testing.assert_eq(msg.usage.cache_read_input_tokens, Option.None)?;
-    return testing.assert_eq(msg.usage.cache_creation_input_tokens, Option.None);
+    testing.assert_eq(actual: msg.usage.cache_read_input_tokens, expected: Option.None)?;
+    return testing.assert_eq(actual: msg.usage.cache_creation_input_tokens, expected: Option.None);
 }
 
 @test
 fn a_present_cache_field_is_some() -> Result<Void, Error> {
     let msg = decode(TOOL_USE_RESPONSE)?;
-    testing.assert_eq(msg.usage.cache_read_input_tokens, Option.Some(1024))?;
-    return testing.assert_eq(msg.usage.cache_creation_input_tokens, Option.None);
+    testing.assert_eq(actual: msg.usage.cache_read_input_tokens, expected: Option.Some(1024))?;
+    return testing.assert_eq(actual: msg.usage.cache_creation_input_tokens, expected: Option.None);
 }
 
 /// `input` stays a `Json` because its shape belongs to the tool, not the API — so
@@ -160,15 +160,15 @@ fn a_present_cache_field_is_some() -> Result<Void, Error> {
 @test
 fn decodes_a_tool_use_block_keeping_input_as_json() -> Result<Void, Error> {
     let msg = decode(TOOL_USE_RESPONSE)?;
-    testing.assert_eq(msg.content.len(), 2)?;
-    testing.assert_eq(text_at(msg, 0)?, 'Let me check the weather.')?;
+    testing.assert_eq(actual: msg.content.len(), expected: 2)?;
+    testing.assert_eq(actual: text_at(msg, 0)?, expected: 'Let me check the weather.')?;
     match msg.content[1] {
         ToolUse(block) => {
-            testing.assert_eq(block.id, 'toolu_01A09q90qw90lq917835lq9')?;
-            testing.assert_eq(block.name, 'get_weather')?;
+            testing.assert_eq(actual: block.id, expected: 'toolu_01A09q90qw90lq917835lq9')?;
+            testing.assert_eq(actual: block.name, expected: 'get_weather')?;
             return testing.assert_eq(
-                block.input.get('location').as_string(),
-                Option.Some('San Francisco, CA'),
+                actual: block.input.get('location').as_string(),
+                expected: Option.Some('San Francisco, CA'),
             );
         },
         _ => throw error('content[1] is not a tool_use block'),
@@ -180,8 +180,11 @@ fn decodes_a_thinking_block() -> Result<Void, Error> {
     let msg = decode(EXTENDED_RESPONSE)?;
     match msg.content[0] {
         Thinking(block) => {
-            testing.assert_eq(block.thinking, 'The user wants today\'s forecast.')?;
-            return testing.assert_eq(block.signature, 'ErUBCkYIBxgCIkQ1a2ZvbwpQ');
+            testing.assert_eq(
+                actual: block.thinking,
+                expected: 'The user wants today\'s forecast.',
+            )?;
+            return testing.assert_eq(actual: block.signature, expected: 'ErUBCkYIBxgCIkQ1a2ZvbwpQ');
         },
         _ => throw error('content[0] is not a thinking block'),
     }
@@ -195,17 +198,17 @@ fn decodes_a_thinking_block() -> Result<Void, Error> {
 @test
 fn an_unknown_block_type_decodes_rather_than_failing() -> Result<Void, Error> {
     let msg = decode(EXTENDED_RESPONSE)?;
-    testing.assert_eq(msg.content.len(), 3)?;
-    testing.assert_eq(text_at(msg, 2)?, 'It will rain.')?;
+    testing.assert_eq(actual: msg.content.len(), expected: 3)?;
+    testing.assert_eq(actual: text_at(msg, 2)?, expected: 'It will rain.')?;
     match msg.content[1] {
         Unknown(raw) => {
             testing.assert_eq(
-                raw.get('type').as_string(),
-                Option.Some('web_search_tool_result'),
+                actual: raw.get('type').as_string(),
+                expected: Option.Some('web_search_tool_result'),
             )?;
             return testing.assert_eq(
-                raw.get('content').at(0).get('url').as_string(),
-                Option.Some('https://example.com/weather'),
+                actual: raw.get('content').at(0).get('url').as_string(),
+                expected: Option.Some('https://example.com/weather'),
             );
         },
         _ => throw error('content[1] should have decoded as Unknown'),
@@ -216,8 +219,8 @@ fn an_unknown_block_type_decodes_rather_than_failing() -> Result<Void, Error> {
 fn an_unknown_stop_reason_keeps_its_tag() -> Result<Void, Error> {
     let msg = decode(EXTENDED_RESPONSE)?;
     return testing.assert_eq(
-        msg.stop_reason,
-        Option.Some(StopReason.Unknown('a_reason_from_the_future')),
+        actual: msg.stop_reason,
+        expected: Option.Some(StopReason.Unknown('a_reason_from_the_future')),
     );
 }
 
@@ -229,7 +232,10 @@ fn a_block_with_no_type_is_an_error() -> Result<Void, Error> {
     let body = '{"id":"m","role":"assistant","model":"x",'
         + '"content":[{"text":"hi"}],'
         + '"usage":{"input_tokens":1,"output_tokens":2}}';
-    return testing.assert_eq(decode_error(body)?, 'missing required field $.content[0].type');
+    return testing.assert_eq(
+        actual: decode_error(body)?,
+        expected: 'missing required field $.content[0].type',
+    );
 }
 
 // --- failures name where they happened ---
@@ -238,14 +244,17 @@ fn a_block_with_no_type_is_an_error() -> Result<Void, Error> {
 fn a_missing_required_field_names_it() -> Result<Void, Error> {
     let body = '{"role":"assistant","model":"x","content":[],'
         + '"usage":{"input_tokens":1,"output_tokens":2}}';
-    return testing.assert_eq(decode_error(body)?, 'missing required field $.id');
+    return testing.assert_eq(actual: decode_error(body)?, expected: 'missing required field $.id');
 }
 
 @test
 fn a_wrong_typed_field_names_the_path_and_both_types() -> Result<Void, Error> {
     let body = '{"id":7,"role":"assistant","model":"x","content":[],'
         + '"usage":{"input_tokens":1,"output_tokens":2}}';
-    return testing.assert_eq(decode_error(body)?, 'expected a string at $.id, got number');
+    return testing.assert_eq(
+        actual: decode_error(body)?,
+        expected: 'expected a string at $.id, got number',
+    );
 }
 
 /// The path has to carry the index, or a failure in a long content list is
@@ -257,8 +266,8 @@ fn a_failure_inside_the_content_list_carries_the_index() -> Result<Void, Error> 
         + '"content":[{"type":"text","text":"ok"},{"type":"text","text":7}],'
         + '"usage":{"input_tokens":1,"output_tokens":2}}';
     return testing.assert_eq(
-        decode_error(body)?,
-        'expected a string at $.content[1].text, got number',
+        actual: decode_error(body)?,
+        expected: 'expected a string at $.content[1].text, got number',
     );
 }
 
@@ -267,14 +276,17 @@ fn a_nested_struct_failure_names_the_nesting() -> Result<Void, Error> {
     let body = '{"id":"m","role":"assistant","model":"x","content":[],'
         + '"usage":{"input_tokens":"lots","output_tokens":2}}';
     return testing.assert_eq(
-        decode_error(body)?,
-        'expected an integer at $.usage.input_tokens, got string',
+        actual: decode_error(body)?,
+        expected: 'expected an integer at $.usage.input_tokens, got string',
     );
 }
 
 @test
 fn a_non_object_root_is_an_error() -> Result<Void, Error> {
-    return testing.assert_eq(decode_error('[1, 2]')?, 'expected an object at $, got array');
+    return testing.assert_eq(
+        actual: decode_error('[1, 2]')?,
+        expected: 'expected an object at $, got array',
+    );
 }
 
 /// A content element that isn't an object at all is blamed on the element, not on
@@ -285,8 +297,8 @@ fn a_non_object_content_element_is_blamed_on_the_element() -> Result<Void, Error
     let body = '{"id":"m","role":"assistant","model":"x","content":["hi"],'
         + '"usage":{"input_tokens":1,"output_tokens":2}}';
     return testing.assert_eq(
-        decode_error(body)?,
-        'expected an object at $.content[0], got string',
+        actual: decode_error(body)?,
+        expected: 'expected an object at $.content[0], got string',
     );
 }
 
@@ -298,14 +310,14 @@ fn a_non_object_tool_input_is_an_error() -> Result<Void, Error> {
         + '"content":[{"type":"tool_use","id":"t","name":"n","input":"nope"}],'
         + '"usage":{"input_tokens":1,"output_tokens":2}}';
     return testing.assert_eq(
-        decode_error(body)?,
-        'expected an object at $.content[0].input, got string',
+        actual: decode_error(body)?,
+        expected: 'expected an object at $.content[0].input, got string',
     );
 }
 
 @test
 fn the_minimal_body_decodes() -> Result<Void, Error> {
     let msg = decode(MINIMAL)?;
-    testing.assert_eq(msg.content.len(), 0)?;
-    return testing.assert_eq(msg.stop_reason, Option.None);
+    testing.assert_eq(actual: msg.content.len(), expected: 0)?;
+    return testing.assert_eq(actual: msg.stop_reason, expected: Option.None);
 }

@@ -17,6 +17,7 @@ import '../source' as _; // SourceSpan
 import '../element' as _;
 import '../element';
 import '../diagnostic'; // Diagnostic — the uniform phase error
+import '../edit/edit'; // TextEdit — the mechanical fix on a fixable warning
 import 'hints'; // corrective hints for guessed-wrong names
 
 pub struct CheckResult {
@@ -3132,7 +3133,54 @@ fn check_call_args(
         }
     }
 
+    check_argument_labels(errors, fn_el, args, matched);
     check_bounds(errors, fn_el, matched, bindings, args, arg_types, span, ctx);
+}
+
+// ---- argument labels (warning: missing-argument-label) ----
+
+// The calling convention's one-call-form rule (language.md → Named parameters): the
+// author decides each parameter's call form, so a **labeled** parameter must be
+// passed with its label and a **positional** (`_`) one without. The checker is
+// still permissive — a labeled parameter also accepts a positional argument — so
+// this lands as a warning first, with a mechanical fix, ahead of the corpus sweep
+// that lets it become an error (tracker #134).
+//
+// Only the positional-to-labeled direction is flagged. The mirror case (a label on
+// a `_` parameter) is already an error — `unknown argument label` above, since a
+// `_` parameter contributes no label to match. Reordered labeled arguments are a
+// separate open question, decided with enforcement, and are not flagged here.
+fn check_argument_labels(
+    _ errors: List<diagnostic.Diagnostic>,
+    _ fn_el: FunctionElement,
+    _ args: List<CallArg>,
+    _ matched: List<Option<ParameterElement>>,
+) -> Void {
+    for ia in args.enumerate() {
+        if let Some(label) = label_owed(ia.value, matched[ia.index]) {
+            // An unlabeled argument's span is its value's, so the label is a pure
+            // insertion at its start — no reordering, no reformatting.
+            errors.push(diagnostic.warning_fix(
+                'missing argument label `${label}:` in the call to "${fn_el.name}"',
+                ia.value.span,
+                'missing-argument-label',
+                Option.Some(edit.insert(ia.value.span.offset, '${label}: ')),
+            ));
+        }
+    }
+}
+
+// The label `arg` should have carried, if any: Some only for an unlabeled argument
+// whose parameter is labeled. None when the argument already has its label, when it
+// matched no parameter (a call the arity/label checks above already rejected), or
+// when the parameter is positional (`_`) — the correct form as written.
+fn label_owed(_ arg: CallArg, _ param: Option<ParameterElement>) -> Option<String> {
+    match arg.label {
+        Some(_) => return Option.None,
+        None => void,
+    }
+    let Some(p) = param else { return Option.None; };
+    return p.label;
 }
 
 // Enforce generic-call consistency at a call site: infer each type parameter's

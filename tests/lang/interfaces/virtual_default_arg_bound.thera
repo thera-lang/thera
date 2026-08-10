@@ -20,7 +20,7 @@ impl Greeter for Person {
 
 fn show<T: Greeter>(_ g: T) -> Void {
     println(g.greet());    // expect: hi!
-    println(g.greet('?')); // expect: hi?
+    println(g.greet(punct: '?')); // expect: hi?
 }
 
 fn main() -> Int {

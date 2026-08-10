@@ -88,9 +88,9 @@ fn seen_header(_ resp: common.Response, _ name: String) -> Result<String, Error>
 fn gets_a_response() -> Result<Void, Error> {
     let base = serving((_req) => Result.Ok(server.text(200, 'hello')))?;
     let resp = http.get(base + '/greet')?;
-    testing.assert_eq(resp.status, 200)?;
+    testing.assert_eq(actual: resp.status, expected: 200)?;
     testing.assert(resp.is_ok(), message: '200 is ok')?;
-    return testing.assert_eq(resp.text()?, 'hello');
+    return testing.assert_eq(actual: resp.text()?, expected: 'hello');
 }
 
 /// The request line carries the path, not the whole URL — the absolute form is for
@@ -99,17 +99,17 @@ fn gets_a_response() -> Result<Void, Error> {
 fn the_request_line_carries_the_path_not_the_url() -> Result<Void, Error> {
     let base = serving(echo)?;
     let resp = http.get(base + '/a/b?q=1&r=2')?;
-    return testing.assert_eq(field(resp, 'url')?, '/a/b?q=1&r=2');
+    return testing.assert_eq(actual: field(resp, 'url')?, expected: '/a/b?q=1&r=2');
 }
 
 @test
 fn posts_a_body() -> Result<Void, Error> {
     let base = serving(echo)?;
     let resp = http.post(base + '/submit', body: 'the payload'.bytes())?;
-    testing.assert_eq(field(resp, 'method')?, 'POST')?;
-    testing.assert_eq(field(resp, 'body')?, 'the payload')?;
+    testing.assert_eq(actual: field(resp, 'method')?, expected: 'POST')?;
+    testing.assert_eq(actual: field(resp, 'body')?, expected: 'the payload')?;
     // The codec derives content-length from the body.
-    return testing.assert_eq(seen_header(resp, 'content-length')?, '11');
+    return testing.assert_eq(actual: seen_header(resp, 'content-length')?, expected: '11');
 }
 
 @test
@@ -129,7 +129,7 @@ fn reads_a_json_response() -> Result<Void, Error> {
         },
         _ => 0,
     };
-    return testing.assert_eq(n, 7);
+    return testing.assert_eq(actual: n, expected: 7);
 }
 
 /// A 4xx is a perfectly good response, not an error: errors are values, and
@@ -138,9 +138,9 @@ fn reads_a_json_response() -> Result<Void, Error> {
 fn a_404_is_a_response_not_an_error() -> Result<Void, Error> {
     let base = serving((_req) => Result.Ok(server.text(404, 'nope')))?;
     let resp = http.get(base + '/missing')?;
-    testing.assert_eq(resp.status, 404)?;
+    testing.assert_eq(actual: resp.status, expected: 404)?;
     testing.assert(!resp.is_ok(), message: '404 is not ok')?;
-    return testing.assert_eq(resp.text()?, 'nope');
+    return testing.assert_eq(actual: resp.text()?, expected: 'nope');
 }
 
 /// Nor does the client chase a 3xx — it hands the redirect back for the caller to
@@ -153,8 +153,8 @@ fn a_redirect_is_not_followed() -> Result<Void, Error> {
         return Result.Ok(r);
     })?;
     let resp = http.get(base + '/start')?;
-    testing.assert_eq(resp.status, 302)?;
-    return testing.assert_eq(resp.headers['location'], '/elsewhere');
+    testing.assert_eq(actual: resp.status, expected: 302)?;
+    return testing.assert_eq(actual: resp.headers['location'], expected: '/elsewhere');
 }
 
 // --- headers ---
@@ -166,14 +166,14 @@ fn sends_a_host_header_from_the_url() -> Result<Void, Error> {
     let resp = http.get(base + '/x')?;
     // `base` is 'http://127.0.0.1:<port>' — the authority is what host must read.
     let authority = base.slice('http://'.len(), base.len());
-    return testing.assert_eq(seen_header(resp, 'host')?, authority);
+    return testing.assert_eq(actual: seen_header(resp, 'host')?, expected: authority);
 }
 
 @test
 fn sends_a_default_user_agent() -> Result<Void, Error> {
     let base = serving(echo)?;
     let resp = http.get(base + '/x')?;
-    return testing.assert_eq(seen_header(resp, 'user-agent')?, http.USER_AGENT);
+    return testing.assert_eq(actual: seen_header(resp, 'user-agent')?, expected: http.USER_AGENT);
 }
 
 @test
@@ -181,9 +181,9 @@ fn caller_headers_are_sent_and_win_over_the_defaults() -> Result<Void, Error> {
     let base = serving(echo)?;
     let resp = http.get(base + '/x', headers: ['X-Marker': 'mine', 'User-Agent': 'custom/9'])?;
     // Names normalize to lowercase on the way out...
-    testing.assert_eq(seen_header(resp, 'x-marker')?, 'mine')?;
+    testing.assert_eq(actual: seen_header(resp, 'x-marker')?, expected: 'mine')?;
     // ...and a caller who sets user-agent means it.
-    return testing.assert_eq(seen_header(resp, 'user-agent')?, 'custom/9');
+    return testing.assert_eq(actual: seen_header(resp, 'user-agent')?, expected: 'custom/9');
 }
 
 /// No pooling, so the client says so — it lets the server release the connection at
@@ -192,7 +192,7 @@ fn caller_headers_are_sent_and_win_over_the_defaults() -> Result<Void, Error> {
 fn sends_connection_close() -> Result<Void, Error> {
     let base = serving(echo)?;
     let resp = http.get(base + '/x')?;
-    return testing.assert_eq(seen_header(resp, 'connection')?, 'close');
+    return testing.assert_eq(actual: seen_header(resp, 'connection')?, expected: 'close');
 }
 
 // --- chunked ---
@@ -213,7 +213,7 @@ fn reads_a_chunked_response() -> Result<Void, Error> {
         return conn.close();
     });
     let resp = http.get('http://' + addr + '/c')?;
-    return testing.assert_eq(resp.text()?, 'chunked!');
+    return testing.assert_eq(actual: resp.text()?, expected: 'chunked!');
 }
 
 // --- URL handling ---
@@ -223,7 +223,7 @@ fn a_url_without_a_path_requests_root() -> Result<Void, Error> {
     let base = serving(echo)?;
     // No trailing slash: the request line still has to say `/`.
     let resp = http.get(base)?;
-    return testing.assert_eq(field(resp, 'url')?, '/');
+    return testing.assert_eq(actual: field(resp, 'url')?, expected: '/');
 }
 
 /// A fragment is client-side only and never goes on the common.
@@ -231,7 +231,7 @@ fn a_url_without_a_path_requests_root() -> Result<Void, Error> {
 fn a_fragment_is_not_sent() -> Result<Void, Error> {
     let base = serving(echo)?;
     let resp = http.get(base + '/page?a=1#section')?;
-    return testing.assert_eq(field(resp, 'url')?, '/page?a=1');
+    return testing.assert_eq(actual: field(resp, 'url')?, expected: '/page?a=1');
 }
 
 // --- https ---
@@ -277,7 +277,7 @@ fn a_live_https_request_succeeds() -> Result<Void, Error> {
         return Result.Ok(void);
     }
     let resp = http.get('https://example.com/')?;
-    return testing.assert_eq(resp.status, 200);
+    return testing.assert_eq(actual: resp.status, expected: 200);
 }
 
 /// The security-critical half: verification is actually **on**. A host whose
@@ -442,7 +442,7 @@ fn already_closed(_ s: http.Stream) -> Bool {
 fn streams_a_response_body() -> Result<Void, Error> {
     let base = serving(echo)?;
     let s = http.stream(get_request(base + '/s'))?;
-    testing.assert_eq(s.status, 200)?;
+    testing.assert_eq(actual: s.status, expected: 200)?;
     testing.assert(s.is_ok(), message: '200 is ok')?;
     // The head has arrived; the body has not been touched.
     testing.assert(!s.body.is_complete(), message: 'the body is still on the wire')?;
@@ -460,12 +460,12 @@ fn a_streamed_body_decodes_as_server_sent_events() -> Result<Void, Error> {
     let base = serving(event_source)?;
     let s = http.stream(get_request(base + '/events'))?;
     let content_type = common.header(s.headers, 'content-type').unwrap_or('');
-    testing.assert_eq(content_type, 'text/event-stream')?;
+    testing.assert_eq(actual: content_type, expected: 'text/event-stream')?;
     let names = sse.events(s.body).map((ev) => ev.name).to_list();
     let _ = s.close();
-    testing.assert_eq(names.len(), 2)?;
-    testing.assert_eq(names[0], 'message_start')?;
-    return testing.assert_eq(names[1], 'message_stop');
+    testing.assert_eq(actual: names.len(), expected: 2)?;
+    testing.assert_eq(actual: names[0], expected: 'message_start')?;
+    return testing.assert_eq(actual: names[1], expected: 'message_stop');
 }
 
 /// `send` is `stream` plus a capped read plus the close, so the two paths have to
@@ -478,7 +478,7 @@ fn the_streamed_and_buffered_clients_agree() -> Result<Void, Error> {
     let streamed = io.read_all(s.body)?;
     let _ = s.close();
     let buffered = http.get(base + '/events')?;
-    return testing.assert_eq(streamed.to_string()?, buffered.text()?);
+    return testing.assert_eq(actual: streamed.to_string()?, expected: buffered.text()?);
 }
 
 /// Smuggling the stream out of the callback is exactly what the scoped form exists
@@ -535,8 +535,8 @@ fn events_arrive_while_the_server_is_still_writing() -> Result<Void, Error> {
     let _ = s.close();
 
     testing.assert(pushed.join(), message: 'the second event was sent before the first arrived')?;
-    testing.assert_eq(event_name(first), 'a')?;
-    return testing.assert_eq(event_name(second), 'b');
+    testing.assert_eq(actual: event_name(first), expected: 'a')?;
+    return testing.assert_eq(actual: event_name(second), expected: 'b');
 }
 
 /// Serve one event stream in two writes with a bounded wait between them. Returns
@@ -585,7 +585,7 @@ fn many_requests_run_concurrently() -> Result<Void, Error> {
     }
     for p in calls.enumerate() {
         let resp = p.value.join()?;
-        testing.assert_eq(field(resp, 'url')?, '/n' + p.index.to_string())?;
+        testing.assert_eq(actual: field(resp, 'url')?, expected: '/n' + p.index.to_string())?;
     }
     return Result.Ok(void);
 }

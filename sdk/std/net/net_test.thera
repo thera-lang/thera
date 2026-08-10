@@ -33,7 +33,7 @@ fn connect_and_echo() -> Result<Void, Error> {
     let client = net.connect('127.0.0.1', port_of(addr)?)?;
     io.write_all(to: client, 'ping'.bytes())?;
     let echoed = io.read_all(client)?;
-    testing.assert_eq(echoed.to_string()?, 'ping')?;
+    testing.assert_eq(actual: echoed.to_string()?, expected: 'ping')?;
 
     client.close()?;
     server.join()?;
@@ -56,7 +56,7 @@ fn read_returns_empty_at_eof() -> Result<Void, Error> {
 
     let client = net.connect_addr(addr)?;
     let got = io.read_all(client)?;
-    testing.assert_eq(got.len(), 0)?;
+    testing.assert_eq(actual: got.len(), expected: 0)?;
 
     client.close()?;
     server.join()?;
@@ -96,7 +96,7 @@ fn many_concurrent_connections() -> Result<Void, Error> {
     }
     for p in clients.enumerate() {
         let reply = p.value.read(max: 64)?;
-        testing.assert_eq(reply.to_string()?, 'hello ' + p.index.to_string())?;
+        testing.assert_eq(actual: reply.to_string()?, expected: 'hello ' + p.index.to_string())?;
         p.value.close()?;
     }
 
@@ -127,8 +127,8 @@ fn large_transfer_survives_short_writes() -> Result<Void, Error> {
 
     let client = net.connect_addr(addr)?;
     let got = io.read_all(client)?;
-    testing.assert_eq(got.len(), payload.len())?;
-    testing.assert_eq(got.to_string()?, payload)?;
+    testing.assert_eq(actual: got.len(), expected: payload.len())?;
+    testing.assert_eq(actual: got.to_string()?, expected: payload)?;
 
     client.close()?;
     server.join()?;
@@ -273,7 +273,7 @@ fn a_handshake_against_a_plaintext_server_fails_as_tls() -> Result<Void, Error> 
             _ => 'wrong variant: ' + e.message(),
         },
     };
-    testing.assert_eq(outcome, 'tls')?;
+    testing.assert_eq(actual: outcome, expected: 'tls')?;
     // `connect` takes the socket over, so a failed handshake closes it rather than
     // leaking the descriptor. (White-box: the handle and `_close` are private.)
     testing.assert_err(_close(sock.handle))?;
@@ -414,7 +414,7 @@ fn a_tls_client_and_server_echo_over_loopback() -> Result<Void, Error> {
 
     server.join()?;
     listener.close()?;
-    return testing.assert_eq(echoed.to_string()?, 'hello over TLS');
+    return testing.assert_eq(actual: echoed.to_string()?, expected: 'hello over TLS');
 }
 
 /// The security-critical half, now hermetically: the same server, but a client on

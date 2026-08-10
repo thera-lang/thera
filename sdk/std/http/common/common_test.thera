@@ -38,10 +38,10 @@ fn reads_a_request_with_no_body() -> Result<Void, Error> {
         Some(r) => r,
         None => { return Result.Err(error('expected a request')); },
     };
-    testing.assert_eq(r.method, 'GET')?;
-    testing.assert_eq(r.url, '/hello?q=1')?;
-    testing.assert_eq(r.headers['host'], 'example.com')?;
-    return testing.assert_eq(r.body.len(), 0);
+    testing.assert_eq(actual: r.method, expected: 'GET')?;
+    testing.assert_eq(actual: r.url, expected: '/hello?q=1')?;
+    testing.assert_eq(actual: r.headers['host'], expected: 'example.com')?;
+    return testing.assert_eq(actual: r.body.len(), expected: 0);
 }
 
 @test
@@ -52,8 +52,8 @@ fn reads_a_request_with_a_content_length_body() -> Result<Void, Error> {
         Some(r) => r,
         None => { return Result.Err(error('expected a request')); },
     };
-    testing.assert_eq(r.method, 'POST')?;
-    return testing.assert_eq(r.body.to_string()?, 'hello');
+    testing.assert_eq(actual: r.method, expected: 'POST')?;
+    return testing.assert_eq(actual: r.body.to_string()?, expected: 'hello');
 }
 
 /// A clean end-of-stream before any request is how a keep-alive serve loop learns
@@ -76,14 +76,14 @@ fn reads_two_pipelined_requests_from_one_buffer() -> Result<Void, Error> {
         Some(r) => r,
         None => { return Result.Err(error('expected a first request')); },
     };
-    testing.assert_eq(first.url, '/one')?;
-    testing.assert_eq(first.body.to_string()?, 'hi')?;
+    testing.assert_eq(actual: first.url, expected: '/one')?;
+    testing.assert_eq(actual: first.body.to_string()?, expected: 'hi')?;
 
     let second = match w.read_request()? {
         Some(r) => r,
         None => { return Result.Err(error('expected a second request')); },
     };
-    testing.assert_eq(second.url, '/two')?;
+    testing.assert_eq(actual: second.url, expected: '/two')?;
 
     return testing.assert(w.read_request()?.is_none(), message: 'expected EOF after two');
 }
@@ -187,10 +187,10 @@ fn redact_headers_replaces_only_the_sensitive_ones() -> Result<Void, Error> {
 fn reads_a_response() -> Result<Void, Error> {
     let raw = 'HTTP/1.1 404 Not Found\r\nContent-Length: 3\r\n\r\nnope';
     let r = parse_response(raw)?;
-    testing.assert_eq(r.status, 404)?;
+    testing.assert_eq(actual: r.status, expected: 404)?;
     testing.assert(!r.is_ok(), message: '404 is not ok')?;
     // Only content-length bytes are taken, even though more follow.
-    return testing.assert_eq(r.body.to_string()?, 'nop');
+    return testing.assert_eq(actual: r.body.to_string()?, expected: 'nop');
 }
 
 /// A response with no framing headers is delimited by the close — HTTP/1.0 style. A
@@ -199,7 +199,7 @@ fn reads_a_response() -> Result<Void, Error> {
 @test
 fn a_response_without_framing_reads_to_eof() -> Result<Void, Error> {
     let r = parse_response('HTTP/1.1 200 OK\r\n\r\nthe whole rest')?;
-    return testing.assert_eq(r.body.to_string()?, 'the whole rest');
+    return testing.assert_eq(actual: r.body.to_string()?, expected: 'the whole rest');
 }
 
 @test
@@ -209,7 +209,7 @@ fn a_request_without_framing_has_no_body() -> Result<Void, Error> {
         Some(r) => r,
         None => { return Result.Err(error('expected a request')); },
     };
-    return testing.assert_eq(r.body.len(), 0);
+    return testing.assert_eq(actual: r.body.len(), expected: 0);
 }
 
 /// 204/304 carry no body whatever the headers claim; believing a content-length
@@ -217,8 +217,8 @@ fn a_request_without_framing_has_no_body() -> Result<Void, Error> {
 @test
 fn a_204_has_no_body_despite_content_length() -> Result<Void, Error> {
     let r = parse_response('HTTP/1.1 204 No Content\r\nContent-Length: 5\r\n\r\nhello')?;
-    testing.assert_eq(r.status, 204)?;
-    return testing.assert_eq(r.body.len(), 0);
+    testing.assert_eq(actual: r.status, expected: 204)?;
+    return testing.assert_eq(actual: r.body.len(), expected: 0);
 }
 
 /// Same for a HEAD response — but nothing on the wire says so, which is why the
@@ -227,9 +227,9 @@ fn a_204_has_no_body_despite_content_length() -> Result<Void, Error> {
 fn a_head_response_has_no_body() -> Result<Void, Error> {
     let w = common.Wire.new(io.from_bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n'.bytes()));
     let r = w.read_response(to_head: true)?;
-    testing.assert_eq(r.status, 200)?;
-    testing.assert_eq(r.headers['content-length'], '5')?;
-    return testing.assert_eq(r.body.len(), 0);
+    testing.assert_eq(actual: r.status, expected: 200)?;
+    testing.assert_eq(actual: r.headers['content-length'], expected: '5')?;
+    return testing.assert_eq(actual: r.body.len(), expected: 0);
 }
 
 /// The reason phrase is optional and may contain spaces — don't split the status
@@ -237,7 +237,7 @@ fn a_head_response_has_no_body() -> Result<Void, Error> {
 @test
 fn a_multi_word_reason_phrase_parses() -> Result<Void, Error> {
     let r = parse_response('HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n')?;
-    return testing.assert_eq(r.status, 500);
+    return testing.assert_eq(actual: r.status, expected: 500);
 }
 
 // --- chunked ---
@@ -249,7 +249,7 @@ fn reads_a_chunked_body() -> Result<Void, Error> {
         + '6\r\n world\r\n'
         + '0\r\n\r\n';
     let r = parse_response(raw)?;
-    return testing.assert_eq(r.body.to_string()?, 'hello world');
+    return testing.assert_eq(actual: r.body.to_string()?, expected: 'hello world');
 }
 
 /// Chunk sizes are hex, and may carry `;ext` extensions nothing uses but which are
@@ -260,7 +260,7 @@ fn chunk_sizes_are_hex_and_may_carry_extensions() -> Result<Void, Error> {
         + '1a;foo=bar\r\n' + 'abcdefghijklmnopqrstuvwxyz' + '\r\n'
         + '0\r\n\r\n';
     let r = parse_response(raw)?;
-    return testing.assert_eq(r.body.to_string()?, 'abcdefghijklmnopqrstuvwxyz');
+    return testing.assert_eq(actual: r.body.to_string()?, expected: 'abcdefghijklmnopqrstuvwxyz');
 }
 
 @test
@@ -269,7 +269,7 @@ fn a_chunked_body_may_carry_trailers() -> Result<Void, Error> {
         + '2\r\nhi\r\n'
         + '0\r\nX-Checksum: abc\r\n\r\n';
     let r = parse_response(raw)?;
-    return testing.assert_eq(r.body.to_string()?, 'hi');
+    return testing.assert_eq(actual: r.body.to_string()?, expected: 'hi');
 }
 
 // --- streaming bodies ---
@@ -309,18 +309,18 @@ fn streaming_a_response_leaves_the_body_on_the_wire() -> Result<Void, Error> {
     let raw = 'HTTP/1.1 200 OK\r\nContent-Length: 64\r\n\r\n' + 'x'.repeat(64);
     let src = SlowReader { data: raw.bytes(), step: 8, pos: 0 };
     let s = common.Wire.new(src).stream_response()?;
-    testing.assert_eq(s.status, 200)?;
+    testing.assert_eq(actual: s.status, expected: 200)?;
     testing.assert(
         src.pos < raw.len(),
         message: 'the head is parsed but the source is drained: ' + src.pos.to_string(),
     )?;
     testing.assert(!s.body.is_complete(), message: 'the body has not been read')?;
-    testing.assert_eq(io.read_all(s.body)?.len(), 64)?;
+    testing.assert_eq(actual: io.read_all(s.body)?.len(), expected: 64)?;
     testing.assert(s.body.is_complete(), message: 'the body is complete now')?;
 
     let drained = SlowReader { data: raw.bytes(), step: 8, pos: 0 };
     common.Wire.new(drained).read_response()?;
-    return testing.assert_eq(drained.pos, raw.len());
+    return testing.assert_eq(actual: drained.pos, expected: raw.len());
 }
 
 /// `read_some` yields what has arrived rather than waiting for the frame to fill,
@@ -329,9 +329,9 @@ fn streaming_a_response_leaves_the_body_on_the_wire() -> Result<Void, Error> {
 @test
 fn a_streamed_body_yields_partial_reads() -> Result<Void, Error> {
     let s = stream('HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello world!!!')?;
-    testing.assert_eq(s.body.read_some(max: 5)?.to_string()?, 'hello')?;
-    testing.assert_eq(s.body.read_some(max: 99)?.to_string()?, ' world')?;
-    testing.assert_eq(s.body.read_some(max: 99)?.len(), 0)?;
+    testing.assert_eq(actual: s.body.read_some(max: 5)?.to_string()?, expected: 'hello')?;
+    testing.assert_eq(actual: s.body.read_some(max: 99)?.to_string()?, expected: ' world')?;
+    testing.assert_eq(actual: s.body.read_some(max: 99)?.len(), expected: 0)?;
     return testing.assert(s.body.is_complete(), message: 'complete at the framed length');
 }
 
@@ -344,9 +344,9 @@ fn a_streamed_chunked_body_yields_chunk_by_chunk() -> Result<Void, Error> {
         + '6\r\n world\r\n'
         + '0\r\n\r\n';
     let s = stream(raw)?;
-    testing.assert_eq(s.body.read_some(max: 4096)?.to_string()?, 'hello')?;
-    testing.assert_eq(s.body.read_some(max: 4096)?.to_string()?, ' world')?;
-    testing.assert_eq(s.body.read_some(max: 4096)?.len(), 0)?;
+    testing.assert_eq(actual: s.body.read_some(max: 4096)?.to_string()?, expected: 'hello')?;
+    testing.assert_eq(actual: s.body.read_some(max: 4096)?.to_string()?, expected: ' world')?;
+    testing.assert_eq(actual: s.body.read_some(max: 4096)?.len(), expected: 0)?;
     return testing.assert(s.body.is_complete(), message: 'the zero-size chunk ended it');
 }
 
@@ -362,10 +362,10 @@ fn a_streamed_body_composes_with_io_lines() -> Result<Void, Error> {
         + '3\r\nee\n\r\n'
         + '0\r\n\r\n';
     let got = io.lines(stream(raw)?.body).to_list();
-    testing.assert_eq(got.len(), 3)?;
-    testing.assert_eq(got[0], 'one')?;
-    testing.assert_eq(got[1], 'two')?;
-    return testing.assert_eq(got[2], 'three');
+    testing.assert_eq(actual: got.len(), expected: 3)?;
+    testing.assert_eq(actual: got[0], expected: 'one')?;
+    testing.assert_eq(actual: got[1], expected: 'two')?;
+    return testing.assert_eq(actual: got[2], expected: 'three');
 }
 
 /// `read_response` *is* `stream_response` plus a capped drain, so the two agree by
@@ -377,14 +377,17 @@ fn the_streamed_and_buffered_paths_agree() -> Result<Void, Error> {
         + '2\r\nde\r\n'
         + '0\r\n\r\n';
     let streamed = io.read_all(stream(raw)?.body)?;
-    return testing.assert_eq(streamed.to_string()?, parse_response(raw)?.body.to_string()?);
+    return testing.assert_eq(
+        actual: streamed.to_string()?,
+        expected: parse_response(raw)?.body.to_string()?,
+    );
 }
 
 @test
 fn a_stream_can_still_be_buffered() -> Result<Void, Error> {
     let r = stream('HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\nhi')?.buffered()?;
     testing.assert(r.is_ok(), message: '201 is ok')?;
-    return testing.assert_eq(r.body.to_string()?, 'hi');
+    return testing.assert_eq(actual: r.body.to_string()?, expected: 'hi');
 }
 
 /// `content-length: 0` is a body that is over on arrival: it must complete without
@@ -392,7 +395,7 @@ fn a_stream_can_still_be_buffered() -> Result<Void, Error> {
 @test
 fn a_zero_length_body_completes_without_reading() -> Result<Void, Error> {
     let s = stream('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n')?;
-    testing.assert_eq(io.read_all(s.body)?.len(), 0)?;
+    testing.assert_eq(actual: io.read_all(s.body)?.len(), expected: 0)?;
     return testing.assert(s.body.is_complete(), message: 'complete');
 }
 
@@ -403,7 +406,7 @@ fn a_head_response_streams_an_empty_body() -> Result<Void, Error> {
     let w = common.Wire.new(io.from_bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n'.bytes()));
     let s = w.stream_response(to_head: true)?;
     testing.assert(s.body.is_complete(), message: 'no body to read')?;
-    return testing.assert_eq(io.read_all(s.body)?.len(), 0);
+    return testing.assert_eq(actual: io.read_all(s.body)?.len(), expected: 0);
 }
 
 /// A truncated body fails the same way streamed as buffered: the promise was
@@ -427,10 +430,10 @@ fn header_names_are_lowercased() -> Result<Void, Error> {
         Some(r) => r,
         None => { return Result.Err(error('expected a request')); },
     };
-    testing.assert_eq(r.headers['content-type'], 'text/plain')?;
+    testing.assert_eq(actual: r.headers['content-type'], expected: 'text/plain')?;
     // ...and `header` looks up case-insensitively either way.
     let found = common.header(r.headers, 'Content-Type').unwrap_or('');
-    return testing.assert_eq(found, 'text/plain');
+    return testing.assert_eq(actual: found, expected: 'text/plain');
 }
 
 @test
@@ -442,7 +445,7 @@ fn repeated_headers_are_comma_joined() -> Result<Void, Error> {
         Some(r) => r,
         None => { return Result.Err(error('expected a request')); },
     };
-    return testing.assert_eq(r.headers['accept'], 'text/html, application/json');
+    return testing.assert_eq(actual: r.headers['accept'], expected: 'text/html, application/json');
 }
 
 /// set-cookie is the carve-out: its own syntax contains commas (in `Expires`), so a
@@ -454,9 +457,9 @@ fn repeated_set_cookie_is_newline_joined() -> Result<Void, Error> {
         + 'Set-Cookie: b=2\r\n\r\n';
     let r = parse_response(raw)?;
     let cookies = r.headers['set-cookie'].split('\n');
-    testing.assert_eq(cookies.len(), 2)?;
-    testing.assert_eq(cookies[0], 'a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT')?;
-    return testing.assert_eq(cookies[1], 'b=2');
+    testing.assert_eq(actual: cookies.len(), expected: 2)?;
+    testing.assert_eq(actual: cookies[0], expected: 'a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT')?;
+    return testing.assert_eq(actual: cookies[1], expected: 'b=2');
 }
 
 // --- writing ---
@@ -476,7 +479,7 @@ fn writes_a_request() -> Result<Void, Error> {
         + 'content-length: 7\r\n'
         + '\r\n'
         + '{"a":1}';
-    return testing.assert_eq(out.into_string()?, expected);
+    return testing.assert_eq(actual: out.into_string()?, expected: expected);
 }
 
 @test
@@ -488,7 +491,7 @@ fn writes_a_response_with_its_reason_phrase() -> Result<Void, Error> {
         + 'content-length: 4\r\n'
         + '\r\n'
         + 'gone';
-    return testing.assert_eq(out.into_string()?, expected);
+    return testing.assert_eq(actual: out.into_string()?, expected: expected);
 }
 
 /// The codec owns framing: a caller-set content-length that disagrees with the body
@@ -542,11 +545,11 @@ fn a_request_round_trips() -> Result<Void, Error> {
         Some(r) => r,
         None => { return Result.Err(error('expected a request')); },
     };
-    testing.assert_eq(back.method, 'PUT')?;
-    testing.assert_eq(back.url, '/a/b?c=d')?;
-    testing.assert_eq(back.headers['host'], 'example.com')?;
-    testing.assert_eq(back.headers['x-trace'], 'abc123')?;
-    return testing.assert_eq(back.body.to_string()?, 'payload');
+    testing.assert_eq(actual: back.method, expected: 'PUT')?;
+    testing.assert_eq(actual: back.url, expected: '/a/b?c=d')?;
+    testing.assert_eq(actual: back.headers['host'], expected: 'example.com')?;
+    testing.assert_eq(actual: back.headers['x-trace'], expected: 'abc123')?;
+    return testing.assert_eq(actual: back.body.to_string()?, expected: 'payload');
 }
 
 @test
@@ -560,9 +563,9 @@ fn a_response_round_trips() -> Result<Void, Error> {
     common.write_response(to: out, sent)?;
 
     let back = common.Wire.new(io.from_bytes(out.into_bytes())).read_response()?;
-    testing.assert_eq(back.status, 201)?;
-    testing.assert_eq(back.headers['location'], '/things/1')?;
-    return testing.assert_eq(back.body.to_string()?, 'created');
+    testing.assert_eq(actual: back.status, expected: 201)?;
+    testing.assert_eq(actual: back.headers['location'], expected: '/things/1')?;
+    return testing.assert_eq(actual: back.body.to_string()?, expected: 'created');
 }
 
 // --- malformed input ---

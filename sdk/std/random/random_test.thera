@@ -20,7 +20,10 @@ fn test_seeded_is_reproducible() -> Result<Void, Error> {
     let b = random.seeded(12345);
     let mut i = 0;
     while i < 20 {
-        testing.assert_eq(actual: a.int(0, 1000000), expected: b.int(0, 1000000))?;
+        testing.assert_eq(
+            actual: a.int(low: 0, high: 1000000),
+            expected: b.int(low: 0, high: 1000000),
+        )?;
         i = i + 1;
     }
     return Result.Ok(void);
@@ -30,7 +33,10 @@ fn test_seeded_is_reproducible() -> Result<Void, Error> {
 fn test_distinct_seeds_diverge() -> Result<Void, Error> {
     let a = random.seeded(1);
     let b = random.seeded(2);
-    testing.assert_ne(actual: a.int(0, 1000000), unexpected: b.int(0, 1000000))?;
+    testing.assert_ne(
+        actual: a.int(low: 0, high: 1000000),
+        unexpected: b.int(low: 0, high: 1000000),
+    )?;
     return Result.Ok(void);
 }
 
@@ -39,7 +45,7 @@ fn test_int_is_in_range() -> Result<Void, Error> {
     let rng = random.seeded(7);
     let mut i = 0;
     while i < 300 {
-        let v = rng.int(10, 20);
+        let v = rng.int(low: 10, high: 20);
         testing.assert(v >= 10, message: 'below low: ${v}')?;
         testing.assert(v < 20, message: 'at/above high: ${v}')?;
         i = i + 1;
@@ -50,8 +56,8 @@ fn test_int_is_in_range() -> Result<Void, Error> {
 @test
 fn test_empty_range_returns_low() -> Result<Void, Error> {
     let rng = random.seeded(4);
-    testing.assert_eq(actual: rng.int(5, 5), expected: 5)?;
-    testing.assert_eq(actual: rng.int(9, 2), expected: 9)?;
+    testing.assert_eq(actual: rng.int(low: 5, high: 5), expected: 5)?;
+    testing.assert_eq(actual: rng.int(low: 9, high: 2), expected: 9)?;
     return Result.Ok(void);
 }
 

@@ -120,19 +120,20 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Functions
 
-| ID                    | Spec (language.md)      | Pins                                                                                                           | Status |
-| --------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------- | ------ |
-| `fn-decl`             | Functions               | params, return type, default `Void` return                                                                     | ✓      |
-| `fn-missing-return`   | Functions → Return      | definite return: every path through a value-returning fn must exit (fall-through / bare `return;` are errors)  | ✓      |
-| `fn-named-params`     | Named parameters        | label-by-name, `_` suppression, `external internal`                                                            | ✓      |
-| `fn-labeled-reorder`  | Named parameters        | labeled args in any order; an un-annotated lambda types (and compiles) against the parameter its label targets | ✓      |
-| `fn-call-args`        | Functions → Calls       | argument diagnostics (type mismatch, unknown label, bound violation) anchor to the offending argument          | ✓      |
-| `gen-arg-consistency` | Functions → Generics    | a type parameter must bind consistently across a call's arguments; undetermined bindings stay lenient          | ✓      |
-| `fn-default-params`   | Named parameters        | default parameter values: resolved in the declaring file, expanded per call site (`#loc`), checked at the decl | ✓      |
-| `fn-lambda`           | Functions               | `n => …` and `(a, b) => …` forms                                                                               | ✓      |
-| `fn-lambda-infer`     | Functions → Param types | lambda param type from context (incl. if/block tails, static-method args); error when undetermined             | ✓      |
-| `fn-closures`         | Functions               | capture by value; captured `mut` is shared                                                                     | ✓      |
-| `fn-types`            | Functions               | `(T) -> R` function-typed values                                                                               | ✓      |
+| ID                            | Spec (language.md)      | Pins                                                                                                                                   | Status |
+| ----------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `fn-decl`                     | Functions               | params, return type, default `Void` return                                                                                             | ✓      |
+| `fn-missing-return`           | Functions → Return      | definite return: every path through a value-returning fn must exit (fall-through / bare `return;` are errors)                          | ✓      |
+| `fn-named-params`             | Named parameters        | label-by-name, `_` suppression, `external internal`                                                                                    | ✓      |
+| `fn-labeled-reorder`          | Named parameters        | labeled args in any order; an un-annotated lambda types (and compiles) against the parameter its label targets                         | ✓      |
+| `warn-missing-argument-label` | Named parameters        | passing a labeled parameter positionally is a **warning** (suppressable; a `_` parameter and an omitted defaulted argument are exempt) | ✓      |
+| `fn-call-args`                | Functions → Calls       | argument diagnostics (type mismatch, unknown label, bound violation) anchor to the offending argument                                  | ✓      |
+| `gen-arg-consistency`         | Functions → Generics    | a type parameter must bind consistently across a call's arguments; undetermined bindings stay lenient                                  | ✓      |
+| `fn-default-params`           | Named parameters        | default parameter values: resolved in the declaring file, expanded per call site (`#loc`), checked at the decl                         | ✓      |
+| `fn-lambda`                   | Functions               | `n => …` and `(a, b) => …` forms                                                                                                       | ✓      |
+| `fn-lambda-infer`             | Functions → Param types | lambda param type from context (incl. if/block tails, static-method args); error when undetermined                                     | ✓      |
+| `fn-closures`                 | Functions               | capture by value; captured `mut` is shared                                                                                             | ✓      |
+| `fn-types`                    | Functions               | `(T) -> R` function-typed values                                                                                                       | ✓      |
 
 ## Control flow
 

@@ -384,9 +384,15 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     outside the loop span. Deferred with it: a `zip` adapter for the
     parallel-two-list sub-case (needs the `Pair`/`Tuple` decision — see
     _Stdlib_).
-  - **Calling-convention lint** (positional argument → labeled parameter) — the
-    next rule; needs resolution, not just AST shape. Pairs with the enforcement
-    sweep under _Language → Calling convention_.
+  - **Calling-convention lint** (positional argument → labeled parameter) —
+    _landed_ as `missing-argument-label`. It needs resolution, so unlike the
+    rules above it is not a `lint` rule at all: it lives in the checker, which
+    is the phase that has the resolved callee. That made the fix machinery
+    diverge too — a `Diagnostic` now carries an optional `TextEdit`, and
+    `thera check --fix` applies them (the label is a pure insertion at the
+    argument's own offset, so no source-slice reassembly is involved). The same
+    payload is what an LSP _quickfix_ code action would offer, alongside the
+    `refactor.rewrite` actions the `lint` rules already supply.
   - **Ecosystem payoff.** These aren't one-off cleanups: the same
     shape-matching + located-suggestion + auto-fix machinery is what a Thera
     `lint` / `thera fix` is built from, and what the LSP surfaces as code
@@ -537,19 +543,23 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
   labeled arguments may be reordered), so the model ships with an
   enforcement-status caveat in the docs. Sequencing:
   1. **Clarify the docs** — _done_ (language.md Named parameters + style rule).
-  2. **Fix existing code** — migrate call sites that pass a labeled parameter
-     positionally (or rely on reordering) to the canonical form, and add `_` to
-     the parameters that should be positional (the obvious "subject" args). This
-     is a corpus-wide sweep; it pairs with the _Tools — refactorings_ machinery
-     (a located diagnostic for "positional argument to a labeled parameter" is
-     the natural lint, with a mechanical fix).
-  3. **Enforce** — the checker requires a labeled parameter's label and forbids
-     a positional argument for it. Flip after the sweep so the corpus stays
-     green.
+  2. **The lint** — _done_: `missing-argument-label`, a checker warning with a
+     mechanical fix (see _Tools — refactorings_).
+  3. **Fix existing code** — _done_: the corpus sweep, 597 sites in 22 files,
+     applied by `thera check --fix`. It was one pattern almost end to end —
+     `testing.assert_eq(actual:, expected:)` accounted for 546 of the 597 — with
+     a ~7-site tail in `examples/` where the better fix was `_` on the parameter
+     (a single "subject" arg: `area(_ s:)`, `apply(_ f:)`).
+  4. **Enforce** — the checker requires a labeled parameter's label and forbids
+     a positional argument for it. The remaining step: the corpus is now clean,
+     so the flip is a severity change plus whatever the sub-decision below
+     settles.
   - **Open sub-decision:** whether to also require **source order** for labeled
     arguments (forbid `f(b: 2, a: 1)`). The same one-form principle argues yes;
-    it's a separable call from the positional-vs-labeled tightening. Decide
-    during step 3.
+    it's a separable call from the positional-vs-labeled tightening. Measured
+    during step 3: **3 sites corpus-wide**, one of which is the conformance test
+    pinning the permissive behaviour (`fn-labeled-reorder`) — so the migration
+    cost is not an argument either way. Decide at step 4.
   - The style rule (`_` for the single obvious "subject" arg; labels for
     booleans / multiple same-typed / non-obvious roles) belongs in the
     agent-facing idioms guidance (see _Idioms & best-practices guidance_).
@@ -559,11 +569,16 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     positional by default and the rest labeled**, with explicit overrides both
     ways. It makes the common case need no marker, at the cost of
     position-dependence and a two-way override (less "simple, one rule"). **Not
-    an immediate goal.** Measure first — count how often `_` would land on the
-    first parameter **under the tightened convention** (not today's permissive
-    usage); that frequency is the input to the flat-`_` vs first-arg-positional
-    call. (Keyword markers like `pos`/`positional` were considered and declined:
-    too verbose at this frequency, and `pos` collides with the ubiquitous `pos`
+    an immediate goal.** First measurement (step 3, over 3,678 declared
+    parameters): **97.6%** of first parameters are `_` (1,923 of 1,971) — but so
+    are **93.0%** of later ones (1,587 of 1,707), for **95.4% of all
+    parameters**. So the skew is not specific to slot one: a
+    first-arg-positional default would drop the marker from 55% of the
+    positional parameters while adding an override to 48 first parameters, and
+    the sharper reading of the data is that "labeled by default" is the minority
+    case everywhere. Re-measure after enforcement before acting on either.
+    (Keyword markers like `pos`/`positional` were considered and declined: too
+    verbose at this frequency, and `pos` collides with the ubiquitous `pos`
     variable; `_` reads as "external label = none", consistent with the
     `external internal` slot.)
 
@@ -893,6 +908,21 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Calling convention — the lint, and the corpus sweep** (2026-08, issue #134
+  steps 2–3). Passing a labeled parameter positionally is now the
+  `missing-argument-label` warning. Unlike the `lint` rules it needs the
+  resolved callee, so it lives in the checker — which is also why the fix
+  machinery grew a second shape: a `Diagnostic` carries an optional `TextEdit`,
+  and `thera check --fix` applies it. The label is a pure insertion at the
+  argument's own offset (an unlabeled argument's span _is_ its value's), so no
+  source-slice reassembly is needed. The sweep it enabled: **597 sites in 22
+  files**, of which 546 were `testing.assert_eq` called positionally — the
+  convention was already near-universal in declarations (95.4% of parameters are
+  `_`) and the gap was concentrated in test files. A ~7-site tail in `examples/`
+  took `_` on the parameter instead, the call site being right as written.
+  Enforcement (warning → error) and the source-order sub-decision stay open
+  under _Language → Calling convention_.
 
 - **List editing/query gaps filled; `Map.entries()`** (2026-08, #142's B2/B3 —
   closing the stdlib naming audit). `List` gains the methods the transcript
