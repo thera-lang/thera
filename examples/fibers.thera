@@ -47,7 +47,7 @@ fn main() -> Result<Int, Error> {
     println('sum of squares 1..5 = ${total}'); // 55
 
     // Producer / consumer over a bounded channel.
-    let ch: fiber.Channel<Int> = fiber.channel(4);
+    let ch: fiber.Channel<Int> = fiber.channel(capacity: 4);
     let producer = fiber.spawn(() => produce(ch, 10));
 
     let mut count = 0;

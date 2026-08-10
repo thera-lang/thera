@@ -53,10 +53,13 @@ fn ok_handler(_ req: common.Request) -> Result<common.Response, Error> {
 fn serves_a_request() -> Result<Void, Error> {
     let addr = start(ok_handler)?;
     let resp = get(addr, '/world')?;
-    testing.assert_eq(resp.status, 200)?;
+    testing.assert_eq(actual: resp.status, expected: 200)?;
     testing.assert(resp.is_ok(), message: '200 is ok')?;
-    testing.assert_eq(resp.body.to_string()?, 'hello /world')?;
-    return testing.assert_eq(resp.headers['content-type'], 'text/plain; charset=utf-8');
+    testing.assert_eq(actual: resp.body.to_string()?, expected: 'hello /world')?;
+    return testing.assert_eq(
+        actual: resp.headers['content-type'],
+        expected: 'text/plain; charset=utf-8',
+    );
 }
 
 @test
@@ -69,16 +72,16 @@ fn a_handler_sees_the_request_body_and_headers() -> Result<Void, Error> {
         addr,
         'POST /x HTTP/1.1\r\nX-Marker: here\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbody',
     )?;
-    return testing.assert_eq(resp.body.to_string()?, 'POST here body');
+    return testing.assert_eq(actual: resp.body.to_string()?, expected: 'POST here body');
 }
 
 @test
 fn serves_json() -> Result<Void, Error> {
     let addr = start((_req) => Result.Ok(server.json(201, obj(['ok': bool(true)]))))?;
     let resp = get(addr, '/j')?;
-    testing.assert_eq(resp.status, 201)?;
-    testing.assert_eq(resp.headers['content-type'], 'application/json')?;
-    return testing.assert_eq(resp.body.to_string()?, '{"ok":true}');
+    testing.assert_eq(actual: resp.status, expected: 201)?;
+    testing.assert_eq(actual: resp.headers['content-type'], expected: 'application/json')?;
+    return testing.assert_eq(actual: resp.body.to_string()?, expected: '{"ok":true}');
 }
 
 /// An `Error` out of a handler is the handler's bug, not the request's: 500.
@@ -86,8 +89,8 @@ fn serves_json() -> Result<Void, Error> {
 fn a_handler_error_becomes_a_500() -> Result<Void, Error> {
     let addr = start((_req) => Result.Err(error('handler blew up')))?;
     let resp = get(addr, '/boom')?;
-    testing.assert_eq(resp.status, 500)?;
-    return testing.assert_eq(resp.body.to_string()?, 'handler blew up');
+    testing.assert_eq(actual: resp.status, expected: 500)?;
+    return testing.assert_eq(actual: resp.body.to_string()?, expected: 'handler blew up');
 }
 
 /// A handler returning a 4xx is not an error at all — errors are values.
@@ -95,8 +98,8 @@ fn a_handler_error_becomes_a_500() -> Result<Void, Error> {
 fn a_handler_can_return_a_4xx_directly() -> Result<Void, Error> {
     let addr = start((_req) => Result.Ok(server.text(418, 'teapot')))?;
     let resp = get(addr, '/tea')?;
-    testing.assert_eq(resp.status, 418)?;
-    return testing.assert_eq(resp.body.to_string()?, 'teapot');
+    testing.assert_eq(actual: resp.status, expected: 418)?;
+    return testing.assert_eq(actual: resp.body.to_string()?, expected: 'teapot');
 }
 
 // --- connection handling ---
@@ -110,11 +113,11 @@ fn keeps_a_connection_alive_across_requests() -> Result<Void, Error> {
 
     io.write_all(to: conn, 'GET /one HTTP/1.1\r\nHost: x\r\n\r\n'.bytes())?;
     let first = w.read_response()?;
-    testing.assert_eq(first.body.to_string()?, 'hello /one')?;
+    testing.assert_eq(actual: first.body.to_string()?, expected: 'hello /one')?;
 
     io.write_all(to: conn, 'GET /two HTTP/1.1\r\nHost: x\r\n\r\n'.bytes())?;
     let second = w.read_response()?;
-    testing.assert_eq(second.body.to_string()?, 'hello /two')?;
+    testing.assert_eq(actual: second.body.to_string()?, expected: 'hello /two')?;
 
     conn.close()?;
     return Result.Ok(void);
@@ -125,8 +128,8 @@ fn keeps_a_connection_alive_across_requests() -> Result<Void, Error> {
 fn connection_close_is_honored() -> Result<Void, Error> {
     let addr = start(ok_handler)?;
     let resp = get(addr, '/once')?;
-    testing.assert_eq(resp.headers['connection'], 'close')?;
-    return testing.assert_eq(resp.status, 200);
+    testing.assert_eq(actual: resp.headers['connection'], expected: 'close')?;
+    return testing.assert_eq(actual: resp.status, expected: 200);
 }
 
 /// The point of one-fiber-per-connection: a slow handler parks its own fiber, and
@@ -149,7 +152,10 @@ fn serves_many_connections_concurrently() -> Result<Void, Error> {
     }
     for p in pending.enumerate() {
         let resp = common.Wire.new(p.value).read_response()?;
-        testing.assert_eq(resp.body.to_string()?, 'hello /n' + p.index.to_string())?;
+        testing.assert_eq(
+            actual: resp.body.to_string()?,
+            expected: 'hello /n' + p.index.to_string(),
+        )?;
         p.value.close()?;
     }
     return Result.Ok(void);
@@ -161,7 +167,7 @@ fn serves_many_connections_concurrently() -> Result<Void, Error> {
 fn a_malformed_request_gets_a_400() -> Result<Void, Error> {
     let addr = start(ok_handler)?;
     let resp = exchange(addr, 'GARBAGE\r\n\r\n')?;
-    return testing.assert_eq(resp.status, 400);
+    return testing.assert_eq(actual: resp.status, expected: 400);
 }
 
 /// A smuggling attempt (both framing headers) is refused, not guessed at.
@@ -170,7 +176,7 @@ fn a_smuggling_attempt_gets_a_400() -> Result<Void, Error> {
     let addr = start(ok_handler)?;
     let raw = 'POST /x HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nhello';
     let resp = exchange(addr, raw)?;
-    return testing.assert_eq(resp.status, 400);
+    return testing.assert_eq(actual: resp.status, expected: 400);
 }
 
 /// An over-long body is the one malformed case the client can act on: 413, not 400.
@@ -178,7 +184,7 @@ fn a_smuggling_attempt_gets_a_400() -> Result<Void, Error> {
 fn an_oversized_body_gets_a_413() -> Result<Void, Error> {
     let addr = start(ok_handler)?;
     let resp = exchange(addr, 'POST /x HTTP/1.1\r\nContent-Length: 99999999999\r\n\r\n')?;
-    return testing.assert_eq(resp.status, 413);
+    return testing.assert_eq(actual: resp.status, expected: 413);
 }
 
 // --- the router ---
@@ -195,18 +201,18 @@ fn routed() -> Result<String, Error> {
 @test
 fn the_router_dispatches_on_method_and_path() -> Result<Void, Error> {
     let addr = routed()?;
-    testing.assert_eq(get(addr, '/health')?.body.to_string()?, 'ok')?;
-    testing.assert_eq(get(addr, '/thing')?.body.to_string()?, 'a thing')?;
+    testing.assert_eq(actual: get(addr, '/health')?.body.to_string()?, expected: 'ok')?;
+    testing.assert_eq(actual: get(addr, '/thing')?.body.to_string()?, expected: 'a thing')?;
 
     let made = exchange(addr, 'POST /thing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n')?;
-    testing.assert_eq(made.status, 201)?;
-    return testing.assert_eq(made.body.to_string()?, 'made a thing');
+    testing.assert_eq(actual: made.status, expected: 201)?;
+    return testing.assert_eq(actual: made.body.to_string()?, expected: 'made a thing');
 }
 
 @test
 fn the_router_404s_an_unknown_path() -> Result<Void, Error> {
     let addr = routed()?;
-    return testing.assert_eq(get(addr, '/nope')?.status, 404);
+    return testing.assert_eq(actual: get(addr, '/nope')?.status, expected: 404);
 }
 
 /// A known path under the wrong verb is a 405, not a 404 — the distinction between
@@ -215,8 +221,8 @@ fn the_router_404s_an_unknown_path() -> Result<Void, Error> {
 fn the_router_405s_a_known_path_under_the_wrong_method() -> Result<Void, Error> {
     let addr = routed()?;
     let resp = exchange(addr, 'DELETE /thing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n')?;
-    testing.assert_eq(resp.status, 405)?;
-    return testing.assert_eq(resp.headers['allow'], 'GET, POST');
+    testing.assert_eq(actual: resp.status, expected: 405)?;
+    return testing.assert_eq(actual: resp.headers['allow'], expected: 'GET, POST');
 }
 
 /// Routes match the path only: a query string is the handler's business, and
@@ -224,14 +230,17 @@ fn the_router_405s_a_known_path_under_the_wrong_method() -> Result<Void, Error> 
 @test
 fn the_router_ignores_the_query_string() -> Result<Void, Error> {
     let addr = routed()?;
-    return testing.assert_eq(get(addr, '/health?verbose=1&x=2')?.body.to_string()?, 'ok');
+    return testing.assert_eq(
+        actual: get(addr, '/health?verbose=1&x=2')?.body.to_string()?,
+        expected: 'ok',
+    );
 }
 
 @test
 fn path_of_splits_at_the_query() -> Result<Void, Error> {
-    testing.assert_eq(server.path_of('/a/b?q=1'), '/a/b')?;
-    testing.assert_eq(server.path_of('/a/b'), '/a/b')?;
-    return testing.assert_eq(server.path_of('/?q=1'), '/');
+    testing.assert_eq(actual: server.path_of('/a/b?q=1'), expected: '/a/b')?;
+    testing.assert_eq(actual: server.path_of('/a/b'), expected: '/a/b')?;
+    return testing.assert_eq(actual: server.path_of('/?q=1'), expected: '/');
 }
 
 // --- binding ---

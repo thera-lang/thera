@@ -28,8 +28,8 @@ fn a_minimal_request_names_three_arguments() -> Result<Void, Error> {
         max_tokens: 1024,
     );
     return testing.assert_eq(
-        body(req),
-        '{"model":"claude-sonnet-4-5-20250929",'
+        actual: body(req),
+        expected: '{"model":"claude-sonnet-4-5-20250929",'
         + '"messages":[{"role":"user","content":"hello"}],'
         + '"max_tokens":1024}',
     );
@@ -53,8 +53,8 @@ fn a_full_request_carries_every_field() -> Result<Void, Error> {
         stream: Option.Some(true),
     );
     return testing.assert_eq(
-        body(req),
-        '{"model":"claude-opus-4-1-20250805",'
+        actual: body(req),
+        expected: '{"model":"claude-opus-4-1-20250805",'
         + '"messages":[{"role":"user","content":"hi"},'
         + '{"role":"assistant","content":"hello"},'
         + '{"role":"user","content":"again"}],'
@@ -73,9 +73,9 @@ fn a_full_request_carries_every_field() -> Result<Void, Error> {
 fn an_unset_optional_field_is_absent_not_null() -> Result<Void, Error> {
     let req = create(model: 'm', messages: [user('x')], max_tokens: 1);
     let text = body(req);
-    testing.assert_eq(text.contains('null'), false)?;
-    testing.assert_eq(text.contains('temperature'), false)?;
-    return testing.assert_eq(text.contains('stream'), false);
+    testing.assert_eq(actual: text.contains('null'), expected: false)?;
+    testing.assert_eq(actual: text.contains('temperature'), expected: false)?;
+    return testing.assert_eq(actual: text.contains('stream'), expected: false);
 }
 
 /// And one set field arrives without dragging the others along.
@@ -88,8 +88,8 @@ fn setting_one_optional_field_leaves_the_rest_off() -> Result<Void, Error> {
         temperature: Option.Some(0.0),
     );
     let text = body(req);
-    testing.assert_eq(text.contains('"temperature":0.0'), true)?;
-    return testing.assert_eq(text.contains('top_p'), false);
+    testing.assert_eq(actual: text.contains('"temperature":0.0'), expected: true)?;
+    return testing.assert_eq(actual: text.contains('top_p'), expected: false);
 }
 
 /// `0` is a real value, not "unset" — the reason every optional field is an
@@ -99,8 +99,8 @@ fn setting_one_optional_field_leaves_the_rest_off() -> Result<Void, Error> {
 fn a_zero_valued_optional_field_is_still_sent() -> Result<Void, Error> {
     let zeroed = create(model: 'm', messages: [user('x')], max_tokens: 1, top_k: Option.Some(0));
     let silent = create(model: 'm', messages: [user('x')], max_tokens: 1);
-    testing.assert_eq(body(zeroed).contains('"top_k":0'), true)?;
-    return testing.assert_eq(body(silent).contains('top_k'), false);
+    testing.assert_eq(actual: body(zeroed).contains('"top_k":0'), expected: true)?;
+    return testing.assert_eq(actual: body(silent).contains('top_k'), expected: false);
 }
 
 @test
@@ -111,13 +111,13 @@ fn an_empty_optional_list_is_sent_as_an_empty_array() -> Result<Void, Error> {
         max_tokens: 1,
         stop_sequences: Option.Some([]),
     );
-    return testing.assert_eq(body(req).contains('"stop_sequences":[]'), true);
+    return testing.assert_eq(actual: body(req).contains('"stop_sequences":[]'), expected: true);
 }
 
 // --- roles ---
 
 @test
 fn user_and_assistant_tag_their_turns() -> Result<Void, Error> {
-    testing.assert_eq(user('a').role, 'user')?;
-    return testing.assert_eq(assistant('b').role, 'assistant');
+    testing.assert_eq(actual: user('a').role, expected: 'user')?;
+    return testing.assert_eq(actual: assistant('b').role, expected: 'assistant');
 }

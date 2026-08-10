@@ -1871,3 +1871,84 @@ fn test_ignore_comment_suppresses_warning() -> Result<Void, Error> {
     )?;
     return Result.Ok(void);
 }
+
+// ---- warnings: missing-argument-label ----
+
+// The edits the fixable warnings carry, rendered as `offset+text` — enough to pin
+// where the label is inserted and what it says.
+fn warning_fixes(_ errs: List<Diagnostic>) -> List<String> {
+    let out: List<String> = [];
+    for e in errs {
+        if let Some(f) = e.fix {
+            out.push('${f.start}+${f.new_text}');
+        }
+    }
+    return out;
+}
+
+@test
+fn test_positional_argument_to_labeled_parameter_warns() -> Result<Void, Error> {
+    let src = 'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
+        + 'fn f() -> Int { return g(1, 2); }';
+    testing.assert_eq(
+        actual: warning_messages(errors_of(src)),
+        expected: [
+            'missing argument label `a:` in the call to "g"',
+            'missing argument label `b:` in the call to "g"',
+        ],
+    )?;
+    // Advisory ahead of the enforcement sweep: still no error.
+    testing.assert_eq(actual: diag_error_count(errors_of(src)), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_labeled_and_positional_parameters_are_clean() -> Result<Void, Error> {
+    // Each argument in the one form its parameter declares.
+    testing.assert_eq(
+        actual: warning_messages(errors_of(
+            'fn g(_ a: Int, b: Int) -> Int { return a + b; }\n'
+            + 'fn f() -> Int { return g(1, b: 2); }')).len(),
+        expected: 0,
+    )?;
+    // An omitted defaulted argument is not a missing label.
+    testing.assert_eq(
+        actual: warning_messages(errors_of(
+            'fn g(_ a: Int, b: Int = 2) -> Int { return a + b; }\n'
+            + 'fn f() -> Int { return g(1); }')).len(),
+        expected: 0,
+    )?;
+    // A two-name parameter is owed its *external* label, not its internal name.
+    testing.assert_eq(
+        actual: warning_messages(errors_of(
+            'fn g(_ a: Int, by n: Int) -> Int { return a + n; }\n'
+            + 'fn f() -> Int { return g(1, 2); }')),
+        expected: ['missing argument label `by:` in the call to "g"'],
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_missing_argument_label_carries_its_fix() -> Result<Void, Error> {
+    // The edit is a pure insertion at the argument's own offset: the second line
+    // starts at 46, putting `1` at 71 and `2` at 74.
+    testing.assert_eq(
+        actual: warning_fixes(errors_of(
+            'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
+            + 'fn f() -> Int { return g(1, 2); }')),
+        expected: ['71+a: ', '74+b: '],
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_missing_argument_label_is_suppressable() -> Result<Void, Error> {
+    testing.assert_eq(
+        actual: warning_messages(errors_of(
+            'fn g(a: Int, b: Int) -> Int { return a + b; }\n'
+            + '// ignore: missing-argument-label\n'
+            + 'fn f() -> Int { return g(1, 2); }')).len(),
+        expected: 0,
+    )?;
+    return Result.Ok(void);
+}

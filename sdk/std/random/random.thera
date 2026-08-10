@@ -106,7 +106,7 @@ impl Rng {
         if n == 0 {
             return Option.None;
         }
-        return items.get(self.int(0, n));
+        return items.get(self.int(low: 0, high: n));
     }
 
     /// A new list with the elements of `items` in a uniformly random order
@@ -115,7 +115,7 @@ impl Rng {
         let result = items.map((x) => x);
         let mut i = result.len() - 1;
         while i > 0 {
-            let j = self.int(0, i + 1);
+            let j = self.int(low: 0, high: i + 1);
             let tmp = result[i];
             result[i] = result[j];
             result[j] = tmp;

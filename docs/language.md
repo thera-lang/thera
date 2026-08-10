@@ -529,10 +529,13 @@ name must be an identifier (see
 > the checker is currently **more permissive** than it. Today a labeled
 > parameter may _also_ be passed positionally, and labeled arguments may be
 > reordered — so more than one call form compiles for the same function.
-> Tightening to one canonical form (a labeled parameter's label is required;
-> positional is forbidden for it), migrating the call sites that rely on the
-> looseness, and the style guidance above are tracked in
-> [roadmap.md](roadmap.md).
+>
+> The positional half of that gap is diagnosed but not yet rejected: passing a
+> labeled parameter positionally is the `missing-argument-label` **warning**,
+> which carries a mechanical fix (`thera check --fix` inserts the label). The
+> corpus has been migrated, so the remaining step is flipping the warning to an
+> error. Whether labeled arguments must also appear in **declaration order** is
+> still open. Both are tracked in [roadmap.md](roadmap.md).
 
 ### Default values
 

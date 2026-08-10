@@ -16,9 +16,9 @@ fn decode(_ raw: String) -> List<sse.Event> {
 @test
 fn decodes_one_event() -> Result<Void, Error> {
     let events = decode('event: ping\ndata: hello\n\n');
-    testing.assert_eq(events.len(), 1)?;
-    testing.assert_eq(events[0].name, 'ping')?;
-    return testing.assert_eq(events[0].data, 'hello');
+    testing.assert_eq(actual: events.len(), expected: 1)?;
+    testing.assert_eq(actual: events[0].name, expected: 'ping')?;
+    return testing.assert_eq(actual: events[0].data, expected: 'hello');
 }
 
 /// A record with no `event:` field is a `message` — the spec's default, and what a
@@ -26,8 +26,8 @@ fn decodes_one_event() -> Result<Void, Error> {
 @test
 fn a_record_without_an_event_field_is_a_message() -> Result<Void, Error> {
     let events = decode('data: hi\n\n');
-    testing.assert_eq(events.len(), 1)?;
-    return testing.assert_eq(events[0].name, 'message');
+    testing.assert_eq(actual: events.len(), expected: 1)?;
+    return testing.assert_eq(actual: events[0].name, expected: 'message');
 }
 
 /// Repeated `data:` lines are one payload joined with newlines. This is how a JSON
@@ -36,8 +36,8 @@ fn a_record_without_an_event_field_is_a_message() -> Result<Void, Error> {
 @test
 fn repeated_data_lines_join_with_newlines() -> Result<Void, Error> {
     let events = decode('data: one\ndata: two\ndata: three\n\n');
-    testing.assert_eq(events.len(), 1)?;
-    return testing.assert_eq(events[0].data, 'one\ntwo\nthree');
+    testing.assert_eq(actual: events.len(), expected: 1)?;
+    return testing.assert_eq(actual: events[0].data, expected: 'one\ntwo\nthree');
 }
 
 @test
@@ -46,19 +46,19 @@ fn decodes_a_sequence_of_events() -> Result<Void, Error> {
         + 'event: b\ndata: 2\n\n'
         + 'event: c\ndata: 3\n\n';
     let events = decode(raw);
-    testing.assert_eq(events.len(), 3)?;
-    testing.assert_eq(events[0].name, 'a')?;
-    testing.assert_eq(events[2].name, 'c')?;
-    return testing.assert_eq(events[1].data, '2');
+    testing.assert_eq(actual: events.len(), expected: 3)?;
+    testing.assert_eq(actual: events[0].name, expected: 'a')?;
+    testing.assert_eq(actual: events[2].name, expected: 'c')?;
+    return testing.assert_eq(actual: events[1].data, expected: '2');
 }
 
 /// CRLF is as legal as LF, and is what a server behind a proxy often produces.
 @test
 fn crlf_line_endings_decode_the_same() -> Result<Void, Error> {
     let events = decode('event: a\r\ndata: 1\r\n\r\n');
-    testing.assert_eq(events.len(), 1)?;
-    testing.assert_eq(events[0].name, 'a')?;
-    return testing.assert_eq(events[0].data, '1');
+    testing.assert_eq(actual: events.len(), expected: 1)?;
+    testing.assert_eq(actual: events[0].name, expected: 'a')?;
+    return testing.assert_eq(actual: events[0].data, expected: '1');
 }
 
 /// Exactly one leading space is stripped from a value — a second one is data. The
@@ -66,14 +66,14 @@ fn crlf_line_endings_decode_the_same() -> Result<Void, Error> {
 @test
 fn only_one_leading_space_is_stripped() -> Result<Void, Error> {
     let events = decode('data:  padded\n\n');
-    return testing.assert_eq(events[0].data, ' padded');
+    return testing.assert_eq(actual: events[0].data, expected: ' padded');
 }
 
 /// No space at all is also legal.
 @test
 fn a_value_needs_no_leading_space() -> Result<Void, Error> {
     let events = decode('data:tight\n\n');
-    return testing.assert_eq(events[0].data, 'tight');
+    return testing.assert_eq(actual: events[0].data, expected: 'tight');
 }
 
 /// A line with no colon is the field with an empty value — so a bare `data` line
@@ -81,8 +81,8 @@ fn a_value_needs_no_leading_space() -> Result<Void, Error> {
 @test
 fn a_field_without_a_colon_has_an_empty_value() -> Result<Void, Error> {
     let events = decode('data: first\ndata\ndata: third\n\n');
-    testing.assert_eq(events.len(), 1)?;
-    return testing.assert_eq(events[0].data, 'first\n\nthird');
+    testing.assert_eq(actual: events.len(), expected: 1)?;
+    return testing.assert_eq(actual: events[0].data, expected: 'first\n\nthird');
 }
 
 /// Comments are what a keep-alive ping looks like on the wire, so they arrive
@@ -90,8 +90,8 @@ fn a_field_without_a_colon_has_an_empty_value() -> Result<Void, Error> {
 @test
 fn comments_are_ignored() -> Result<Void, Error> {
     let events = decode(': keep-alive\ndata: hi\n: another\n\n');
-    testing.assert_eq(events.len(), 1)?;
-    return testing.assert_eq(events[0].data, 'hi');
+    testing.assert_eq(actual: events.len(), expected: 1)?;
+    return testing.assert_eq(actual: events[0].data, expected: 'hi');
 }
 
 /// An unknown field is ignored rather than fatal — the extension point the format
@@ -99,8 +99,8 @@ fn comments_are_ignored() -> Result<Void, Error> {
 @test
 fn unknown_fields_are_ignored() -> Result<Void, Error> {
     let events = decode('data: hi\nfuture-field: whatever\n\n');
-    testing.assert_eq(events.len(), 1)?;
-    return testing.assert_eq(events[0].data, 'hi');
+    testing.assert_eq(actual: events.len(), expected: 1)?;
+    return testing.assert_eq(actual: events[0].data, expected: 'hi');
 }
 
 /// Field names are case-sensitive, unlike header names — so `Data:` is an unknown
@@ -108,7 +108,7 @@ fn unknown_fields_are_ignored() -> Result<Void, Error> {
 /// nothing.
 @test
 fn field_names_are_case_sensitive() -> Result<Void, Error> {
-    return testing.assert_eq(decode('Data: hi\n\n').len(), 0);
+    return testing.assert_eq(actual: decode('Data: hi\n\n').len(), expected: 0);
 }
 
 // --- dispatch rules ---
@@ -118,21 +118,21 @@ fn field_names_are_case_sensitive() -> Result<Void, Error> {
 /// payload.
 @test
 fn an_unterminated_record_is_not_dispatched() -> Result<Void, Error> {
-    return testing.assert_eq(decode('event: a\ndata: partial\n').len(), 0);
+    return testing.assert_eq(actual: decode('event: a\ndata: partial\n').len(), expected: 0);
 }
 
 /// A record with no `data` field dispatches nothing at all — an empty `data` field
 /// is not the same as no `data` field.
 @test
 fn a_record_without_data_dispatches_nothing() -> Result<Void, Error> {
-    testing.assert_eq(decode('event: a\n\n').len(), 0)?;
-    return testing.assert_eq(decode('data\n\n').len(), 1);
+    testing.assert_eq(actual: decode('event: a\n\n').len(), expected: 0)?;
+    return testing.assert_eq(actual: decode('data\n\n').len(), expected: 1);
 }
 
 /// Extra blank lines are records with no fields, and so dispatch nothing.
 @test
 fn blank_lines_between_events_are_harmless() -> Result<Void, Error> {
-    return testing.assert_eq(decode('\n\ndata: a\n\n\n\ndata: b\n\n').len(), 2);
+    return testing.assert_eq(actual: decode('\n\ndata: a\n\n\n\ndata: b\n\n').len(), expected: 2);
 }
 
 /// An `event:` name does not carry into the next record — unlike `id`, which does.
@@ -140,9 +140,9 @@ fn blank_lines_between_events_are_harmless() -> Result<Void, Error> {
 @test
 fn an_event_name_does_not_carry_forward() -> Result<Void, Error> {
     let events = decode('event: named\ndata: 1\n\ndata: 2\n\n');
-    testing.assert_eq(events.len(), 2)?;
-    testing.assert_eq(events[0].name, 'named')?;
-    return testing.assert_eq(events[1].name, 'message');
+    testing.assert_eq(actual: events.len(), expected: 2)?;
+    testing.assert_eq(actual: events[0].name, expected: 'named')?;
+    return testing.assert_eq(actual: events[1].name, expected: 'message');
 }
 
 // --- id and retry (stream state, not record state) ---
@@ -153,10 +153,10 @@ fn an_event_name_does_not_carry_forward() -> Result<Void, Error> {
 @test
 fn an_id_carries_forward_to_later_events() -> Result<Void, Error> {
     let events = decode('id: 7\ndata: a\n\ndata: b\n\nid: 8\ndata: c\n\n');
-    testing.assert_eq(events.len(), 3)?;
-    testing.assert_eq(events[0].id.unwrap_or(''), '7')?;
-    testing.assert_eq(events[1].id.unwrap_or(''), '7')?;
-    return testing.assert_eq(events[2].id.unwrap_or(''), '8');
+    testing.assert_eq(actual: events.len(), expected: 3)?;
+    testing.assert_eq(actual: events[0].id.unwrap_or(''), expected: '7')?;
+    testing.assert_eq(actual: events[1].id.unwrap_or(''), expected: '7')?;
+    return testing.assert_eq(actual: events[2].id.unwrap_or(''), expected: '8');
 }
 
 @test
@@ -171,8 +171,8 @@ fn no_id_field_means_no_id() -> Result<Void, Error> {
 fn a_retry_only_record_still_sets_the_delay() -> Result<Void, Error> {
     let d = sse.events(io.from_string('retry: 2500\n\ndata: a\n\n'));
     let events = d.to_list();
-    testing.assert_eq(events.len(), 1)?;
-    return testing.assert_eq(d.retry_ms().unwrap_or(0), 2500);
+    testing.assert_eq(actual: events.len(), expected: 1)?;
+    return testing.assert_eq(actual: d.retry_ms().unwrap_or(0), expected: 2500);
 }
 
 /// Only all-digits counts. `to_int` alone would take `-1`, and a negative
@@ -195,7 +195,7 @@ fn a_non_numeric_retry_is_ignored() -> Result<Void, Error> {
 fn an_id_containing_nul_is_ignored() -> Result<Void, Error> {
     let nul = String.from_chars([0]);
     let events = decode('id: a' + nul + 'b\ndata: x\n\n');
-    testing.assert_eq(events.len(), 1)?;
+    testing.assert_eq(actual: events.len(), expected: 1)?;
     return testing.assert(events[0].id.is_none(), message: 'a NUL id is not stored');
 }
 
@@ -215,8 +215,8 @@ fn data_of(_ ev: Option<sse.Event>) -> String {
 @test
 fn read_event_yields_one_at_a_time() -> Result<Void, Error> {
     let d = sse.Decoder.new(io.from_string('data: a\n\ndata: b\n\n'));
-    testing.assert_eq(data_of(d.read_event()?), 'a')?;
-    testing.assert_eq(data_of(d.read_event()?), 'b')?;
+    testing.assert_eq(actual: data_of(d.read_event()?), expected: 'a')?;
+    testing.assert_eq(actual: data_of(d.read_event()?), expected: 'b')?;
     return testing.assert(d.read_event()?.is_none(), message: 'the stream is done');
 }
 
@@ -237,7 +237,7 @@ fn adapters_drive_the_decoder() -> Result<Void, Error> {
         .filter((ev) => ev.name == 'keep')
         .map((ev) => ev.data)
         .to_list();
-    return testing.assert_eq(kept.join(','), '1,3');
+    return testing.assert_eq(actual: kept.join(','), expected: '1,3');
 }
 
 /// The realistic shape: a chunk of an Anthropic-style stream, where every event
@@ -251,7 +251,7 @@ fn decodes_a_model_style_stream() -> Result<Void, Error> {
         + ': keep-alive\n\n'
         + 'event: message_stop\ndata: {"type":"message_stop"}\n\n';
     let names = decode(raw).map((ev) => ev.name);
-    testing.assert_eq(names.len(), 4)?;
-    testing.assert_eq(names[0], 'message_start')?;
-    return testing.assert_eq(names[3], 'message_stop');
+    testing.assert_eq(actual: names.len(), expected: 4)?;
+    testing.assert_eq(actual: names[0], expected: 'message_start')?;
+    return testing.assert_eq(actual: names[3], expected: 'message_stop');
 }

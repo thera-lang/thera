@@ -159,7 +159,7 @@ fn twice(_ f: (Int) -> Int, _ x: Int) -> Int {
 }
 
 /// Build a closure that scales its argument by `factor` (captured by value).
-fn scaler(factor: Int) -> (Int) -> Int {
+fn scaler(_ factor: Int) -> (Int) -> Int {
     return n => n * factor;
 }
 

@@ -28,6 +28,6 @@ fn main() -> Int {
     let p = Person { name: 'hi' };
     println(p.greet());   // expect: hi!
     show(p);              // expect: hi!
-    println(p.greet('?')); // expect: hi?
+    println(p.greet(punct: '?')); // expect: hi?
     return 0;
 }

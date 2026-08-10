@@ -33,7 +33,7 @@ impl MsgBuffer {
                 return Option.Some(body);
             }
             // Need more bytes before a full message is available.
-            match reader.read(8192) {
+            match reader.read(max: 8192) {
                 Ok(chunk) => {
                     if chunk.len() == 0 {
                         return Option.None; // EOF

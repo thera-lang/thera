@@ -227,7 +227,7 @@ pub fn fix_source(_ source: String, only: List<String> = []) -> String {
     let mut cur = source;
     let mut guard = 0;
     while guard < 1000 {
-        let edits = non_overlapping(fix_edits(cur, only));
+        let edits = non_overlapping(fix_edits(cur, only: only));
         if edits.len() == 0 {
             return cur;
         }

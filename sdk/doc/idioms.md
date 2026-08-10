@@ -108,7 +108,8 @@ Each of these is a real first-contact error, most-frequent first.
 7. **Arguments are labeled by default.** A parameter declared `name: T` must be
    called as `f(name: v)`; only `_ name: T` parameters are positional. So:
    `testing.assert_eq(actual: got, expected: want)?`,
-   `process.run('git', args: […])`.
+   `process.run('git', args: […])`. Dropping the label is the
+   `missing-argument-label` warning; `thera check --fix` inserts it for you.
 
 8. **Qualify everything cross-library.** `import std.fs;` then `fs.read_text(…)`
    — a bare `read_text` is an error, as is `assert_eq` without `testing.`. Only

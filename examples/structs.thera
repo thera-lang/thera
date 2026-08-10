@@ -41,7 +41,7 @@ impl Rect {
     }
 
     fn bottom_right(self) -> Point {
-        return self.top_left.translate(self.width, self.height);
+        return self.top_left.translate(dx: self.width, dy: self.height);
     }
 }
 
@@ -58,7 +58,7 @@ fn main() -> Result<Int, Error> {
     println('origin: ${origin}');
 
     let p = Point.create(x: 3, y: 4);
-    let q = p.translate(1, 2);
+    let q = p.translate(dx: 1, dy: 2);
     println('p: ${p}');
     println('q: ${q}');
 

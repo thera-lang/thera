@@ -297,9 +297,9 @@ fn only_filter_restricts_to_named_rules() -> Result<Void, Error> {
     let src = 'fn f(_ o: Option<Int>) -> Int {\n'
         + '    match o { Some(v) => { return v; }, None => {} }\n'
         + '    return 0;\n}\n';
-    testing.assert_eq(actual: fix_source(src, ['match-to-unwrap-or']), expected: src)?;
+    testing.assert_eq(actual: fix_source(src, only: ['match-to-unwrap-or']), expected: src)?;
     testing.assert(
-        fix_source(src, ['match-to-if-let']).contains('if let Some(v) = o'),
+        fix_source(src, only: ['match-to-if-let']).contains('if let Some(v) = o'),
         message: 'the named rule is applied',
     )?;
     return Result.Ok(void);

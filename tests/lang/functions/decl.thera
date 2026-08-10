@@ -11,7 +11,7 @@ fn log(_ msg: String) {
 }
 
 fn main() -> Int {
-    println('${add(2, 3)}');   // expect: 5
+    println('${add(a: 2, b: 3)}');   // expect: 5
     log('logged');             // expect: logged
     return 0;
 }
