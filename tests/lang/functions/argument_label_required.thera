@@ -1,0 +1,59 @@
+//! spec: fn-argument-label-required
+//! mode: check
+
+// The calling convention gives each parameter exactly one call form: a `named`
+// parameter is passed with its label, a plain one without. Both directions are
+// errors, so a given function has exactly one call form.
+//
+// This was a warning through the 2026-08 migration so the corpus could be swept
+// first; it became an error once the corpus was clean.
+
+fn greet(named name: String, named times: Int) -> String {
+    return '${name} x${times}';
+}
+
+// `default` is not a reserved word, so it serves as both the call-site label and
+// the body's binding. `name` takes no marker: positional is the default.
+fn flag(name: String, named default: Bool) -> Bool {
+    return default;
+}
+
+fn pad(s: String, named width: Int = 4) -> String {
+    return '${s}${width}';
+}
+
+fn canonical() -> String {
+    // Each argument in the form its parameter declares: clean. Labeled arguments
+    // may be reordered (they are order-free by decision).
+    return greet(times: 1, name: 'a') + '${flag('-v', default: true)}' + pad('x', width: 2);
+}
+
+fn positional() -> String {
+    let a = greet('a', times: 1); // expect error: missing argument label `name:`
+    let b = greet(name: 'b', 2); // expect error: missing argument label `times:`
+    let c = flag('-v', true); // expect error: missing argument label `default:`
+    return '${a}${b}${c}';
+}
+
+fn omitted() -> String {
+    return pad('x'); // an omitted defaulted argument owes no label
+}
+
+// The mirror direction: a label on a positional parameter is `unknown argument
+// label`, since a positional parameter contributes none to match.
+fn labeled_a_positional() -> String {
+    return pad(s: 'x'); // expect error: unknown argument label "s"
+}
+
+// Not suppressable: an error carries no rule name, so `// ignore:` has no key to
+// match. The mechanical fix (`thera check --fix`) is the way out.
+fn not_suppressed() -> String {
+    // ignore: missing-argument-label
+    return greet('a', times: 1); // expect error: missing argument label `name:`
+}
+
+fn main() -> Int {
+    println('${canonical()} ${positional()} ${omitted()} ${labeled_a_positional()} '
+        + '${not_suppressed()}');
+    return 0;
+}

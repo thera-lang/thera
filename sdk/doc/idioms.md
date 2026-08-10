@@ -111,8 +111,9 @@ Each of these is a real first-contact error, most-frequent first.
    (a positional one after a `named` one is an error). So:
    `testing.assert_eq(actual: got, expected: want)?`,
    `process.run('git', args: […])`, but `path.join(base, part)`. Dropping a
-   label that is owed is the `missing-argument-label` warning;
-   `thera check --fix` inserts it for you.
+   label that is owed is an error (as is adding one that isn't) — but a fixable
+   one: `thera check --fix` inserts it for you. Labeled arguments may be given
+   in any order.
 
 8. **Qualify everything cross-library.** `import std.fs;` then `fs.read_text(…)`
    — a bare `read_text` is an error, as is `assert_eq` without `testing.`. Only

@@ -633,8 +633,14 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     close the gap — cheaper, but it would have removed the feature to avoid
     specifying it.
 
-  - Enforcement (the checker rejecting the non-canonical form rather than
-    warning — `missing-argument-label` today) is the remaining call.
+  - **Enforcement landed** (2026-08): a missing argument label is an error, not
+    a warning, so exactly one call form compiles. It keeps its mechanical fix —
+    being an error says the code is wrong, not that the repair is unclear — but
+    loses its rule name, since a rule name is what `// ignore:` keys on and
+    errors are not suppressable. That took a `Diagnostic` constructor for an
+    error _with_ a fix, which the model had not needed before: severity is about
+    how bad it is, a fix is about whether it can be repaired, and the two are
+    independent. The arc is complete.
   - The style rule inverts with the default and stays in the agent-facing idioms
     guidance (see _Idioms & best-practices guidance_): reach for `named` when
     the label earns its place — booleans, several same-typed arguments whose
@@ -989,6 +995,23 @@ conformance specs. Newest first.
   name now), `self` in a parameter list is unconditionally the receiver, and
   parameters left the "keywords as member names" set in the spec. Landed ahead
   of #157 because it removes that change's one grammar ambiguity.
+
+- **A missing argument label is an error** (2026-08, closing issue #157). The
+  calling-convention arc's last step: passing a `named` parameter positionally
+  was a warning through the migration so the corpus could be swept first, and
+  became an error once the corpus was clean. With the mirror direction already
+  rejected (`unknown argument label`), a function now has exactly one call form
+  — which is what the convention existed for.
+
+  Two consequences worth recording. It **keeps its mechanical fix**: being an
+  error says the code is wrong, not that the repair is unclear, so
+  `thera check --fix` still inserts the label. That needed a `Diagnostic`
+  constructor for an error _with_ a fix, which the model had not needed —
+  severity is how bad it is, a fix is whether it can be repaired, and the two
+  are independent axes. And it **stops being suppressable**: `// ignore:` keys
+  on a rule name, errors carry none, so the fix is the only way out. That is the
+  intended trade — an escape hatch is for judgment calls, and this one has a
+  mechanical answer.
 
 - **Parameters are positional by default; `named` opts into a label** (2026-08,
   issue #157). The default flipped, and the marker moved to the minority case:

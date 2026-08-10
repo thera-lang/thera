@@ -36,6 +36,11 @@ pub struct Diagnostic {
     // diagnostic's own file, so a batch is grouped by `file` before applying. Most
     // diagnostics carry None: a fix earns its place only when the rewrite is
     // unambiguous and behavior-preserving.
+    //
+    // Independent of severity: a fix is about *repair*, a rule is about
+    // suppressability, and an error may well be mechanically fixable (a missing
+    // argument label is). So `fix` may be Some on either severity, while `rule`
+    // stays warning-only.
     let fix: Option<edit.TextEdit>;
 }
 
@@ -48,6 +53,18 @@ impl Display for Diagnostic {
 // An `Error` diagnostic whose owning file is derived from the span (the span knows
 // its file; a file-less hermetic span yields None).
 pub fn at(message: String, span: source.SourceSpan) -> Diagnostic {
+    return at_fix(message, span, Option.None);
+}
+
+// An `Error` carrying a mechanical fix — the edit that resolves it, applied by
+// `thera check --fix`. Still carries no rule: an error is not suppressable, and
+// being fixable does not change that. `fix` is None for the plain case (`at` above
+// delegates here), so one constructor covers both.
+pub fn at_fix(
+    message: String,
+    span: source.SourceSpan,
+    fix: Option<edit.TextEdit>,
+) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
     return Diagnostic {
         message: message,
@@ -55,7 +72,7 @@ pub fn at(message: String, span: source.SourceSpan) -> Diagnostic {
         file: file,
         severity: Severity.Error,
         rule: Option.None,
-        fix: Option.None,
+        fix: fix,
     };
 }
 
