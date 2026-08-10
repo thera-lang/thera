@@ -24,6 +24,11 @@ import '../source' as _; // SourceSpan, synthetic spans
 import '../ast/ast' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error
 
+// The contextual keyword marking a labeled parameter (`fn f(named width: Int)`).
+// Contextual, not reserved: it is an ordinary identifier everywhere else, and even
+// here only when followed by the parameter's name.
+const NAMED_MARKER: String = 'named';
+
 pub struct ParseResult {
     let program: Program;
     let errors: List<diagnostic.Diagnostic>;
@@ -230,6 +235,16 @@ impl Parser {
 
     fn check_member_name(self) -> Bool {
         return self.check(TokenKind.Identifier) || is_keyword(self.current().kind);
+    }
+
+    // Whether the parameter about to be parsed opens with the `named` marker.
+    // `named` is **contextual** — reserved nowhere, recognized only here, and only
+    // when another identifier follows it (`named width: Int`). A parameter that is
+    // itself called `named` is `named: Int` — one identifier then `:`, so the
+    // lookahead excludes it; `named named: Int` marks a parameter called `named`.
+    fn check_named_marker(self) -> Bool {
+        return self.check(TokenKind.Identifier) && self.current().lexeme() == NAMED_MARKER
+            && self.peek_tok(1).kind == TokenKind.Identifier;
     }
 
     // Consume a member name: an identifier or — member positions are grammatically
@@ -793,18 +808,31 @@ impl Parser {
         }
 
         // Label/name forms:
+        //   named name    → labeled; the label is the name
         //   _ name        → suppressed label (positional)
         //   name          → label == name
         // There is no two-name `label name` form: a parameter's external label *is*
         // its internal name. (It existed until 2026-08 and was used 12 times across
         // ~2k functions; retiring it costs only a keyword label — see the tracker.)
-        // So the name is an identifier in both forms, never a keyword: it is read
+        // So the name is an identifier in every form, never a keyword: it is read
         // bare in the body, where a keyword cannot appear.
+        //
+        // TRANSITIONAL (#157): the default is flipping from labeled to positional,
+        // so `named` and the bare form are synonyms for one release of the
+        // bootstrap ratchet — the snapshot has to *parse* `named` before the corpus
+        // may *use* it. The bare form becomes positional, and `_` an error, once the
+        // corpus is migrated.
         let mut label = Option.None;
         let mut name = '';
         let mut name_span = self.current().span;
 
-        if self.check(TokenKind.Underscore) {
+        if self.check_named_marker() {
+            self.advance(); // `named`
+            let name_tok = self.advance();
+            label = Option.Some(name_tok.lexeme());
+            name = name_tok.lexeme();
+            name_span = name_tok.span;
+        } else if self.check(TokenKind.Underscore) {
             self.advance(); // _
             let name_tok = self.expect(TokenKind.Identifier, 'parameter name');
             name = name_tok.lexeme();
