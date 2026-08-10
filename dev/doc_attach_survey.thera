@@ -1,0 +1,71 @@
+// One-off survey for the doc-comment attachment pass (docs/documentation.md phase
+// 0): runs `docs.attach` over a source tree and reports how many doc runs there
+// are, how many attached, and where the unattached ones sit. An unattached `///`
+// run is either a real orphan or a shape the pass misses — this is how you tell
+// which. Not part of the build.
+//
+// Run: bin/thera.sh run dev/doc_attach_survey.thera [root]
+
+import '../pkgs/cli/docs';
+import '../pkgs/cli/lexer';
+import '../pkgs/cli/parser';
+import '../pkgs/cli/source';
+
+import std.fs;
+import std.sort;
+
+fn thera_files(root: String) -> List<String> {
+    let out: List<String> = [];
+    for p in fs.walk(root) {
+        if p.ends_with('.thera') {
+            out.push(p);
+        }
+    }
+    return sort.sorted(out);
+}
+
+fn main(args: List<String>) -> Result<Int, Error> {
+    let root = args.get(0).unwrap_or('sdk/std');
+    let mut files = 0;
+    let mut with_file_doc = 0;
+    let mut item_runs = 0;
+    let mut attached = 0;
+    let orphans: List<String> = [];
+
+    for p in thera_files(root) {
+        let src = fs.read_text(p)?;
+        let lex = lexer.tokenize(src);
+        let parsed = parser.parse_tokens(lex.tokens);
+        if parsed.errors.len() != 0 {
+            println('skip (parse errors): ${p}');
+            continue;
+        }
+        let m = docs.attach(parsed.program, lex.comments);
+        let runs = docs.doc_runs(lex.comments).filter((r) => r.kind == source.CommentKind.Doc);
+        files = files + 1;
+        item_runs = item_runs + runs.len();
+        attached = attached + m.len();
+        if let Some(_) = m.file_doc {
+            with_file_doc = with_file_doc + 1;
+        }
+        if runs.len() != m.len() {
+            for r in runs {
+                orphans.push('${p}:${r.span.line}: ${r.summary()}');
+            }
+        }
+    }
+
+    println('files: ${files}, with a //! header: ${with_file_doc}');
+    println('/// runs: ${item_runs}, attached to an item: ${attached}');
+    if orphans.len() != 0 {
+        println('runs in files with an unattached ///:');
+        for o in orphans.enumerate() {
+            if o.index >= 40 {
+                break;
+            }
+            println('  ${o.value}');
+        }
+        println('  (${orphans.len()} runs in those files)');
+    }
+    return Result.Ok(0);
+}

@@ -361,20 +361,26 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
 - **Doc-comment tooling — machinery pending.** The conventions
   ([documentation.md](documentation.md), syntax in
   [language.md](language.md#documentation)), the `sdk/std/` migration to
-  `///`/`//!`, and the lexer's comment side-channel are done (see _Changelog_) —
-  but every downstream consumer remains **pending** (the side channel is
-  collected, then dropped: each `parse_tokens` call site passes only
-  `lex.tokens`). The remaining tooling: (1) **attach docs to AST nodes** — a
-  pass re-associating each `///`/`//!` comment to the decl it precedes by span,
-  threaded onto the AST (or a side table) — the one piece the side channel
-  directly unblocks; (2) **LSP hover** surfaces the item/file doc (today
-  `hover.thera` shows the signature only); (3) a **doc generator** extracts a
-  package's `pub` surface + barrel `//!` into an index for agent navigation (no
-  `doc` subcommand yet); (4) **reference resolution + lint** — resolve
-  `[Symbol]` references (link them in hover/doc-gen, flag ones that no longer
-  resolve), plus a lint for `pub` symbols whose doc only restates the signature,
-  and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
-  `examples/`, deliberately deferred — the public API surface was the priority.)
+  `///`/`//!`, the lexer's comment side-channel, and now **attachment** are done
+  (see _Changelog_); the consumers below remain **pending**. (1) **Attach docs
+  to AST nodes — done** (2026-08). `docs.attach` (`pkgs/cli/docs.thera`) groups
+  `///`/`//!` comments into runs and keys each by the span offset of the item
+  below it, yielding a `DocMap` that reaches declarations, `impl`/`interface`
+  methods, struct fields, and enum variants alike. It is a **side table, not an
+  AST field**: a span offset is already node identity, so the parser stays a
+  pure function of tokens and the structural-equality parser tests are
+  undisturbed. The side channel is no longer dropped — `ParsedFile` retains
+  `comments` beside `tokens`, for the same reason it retains tokens, so a doc
+  consumer never re-lexes. Verified over the whole corpus with
+  `dev/doc_attach_survey.thera`: 1,144 `///` runs, every one attached, no
+  orphans. (2) **LSP hover** surfaces the item/file doc (today `hover.thera`
+  shows the signature only); (3) a **doc generator** extracts a package's `pub`
+  surface + barrel `//!` into an index for agent navigation (no `doc` subcommand
+  yet); (4) **reference resolution + lint** — resolve `[Symbol]` references
+  (link them in hover/doc-gen, flag ones that no longer resolve), plus a lint
+  for `pub` symbols whose doc only restates the signature, and normalization of
+  doc layout. (Not yet migrated: `pkgs/cli/` and `examples/`, deliberately
+  deferred — the public API surface was the priority.)
 
 - **Tools — refactorings (suggestion diagnostics + code actions).** The
   machinery landed end to end (see _Changelog_): `thera lint` reports

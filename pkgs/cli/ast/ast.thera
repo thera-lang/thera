@@ -459,6 +459,22 @@ pub struct IfExpr {
 
 // --- Span accessors (Dart's `.span` getters, as free functions over the enums) ---
 
+// A declaration's span starts at whatever the author wrote first — its leading
+// decorator, then `pub`, then the introducing keyword — so it is also the anchor a
+// doc comment attaches above (see `docs.thera`).
+pub fn decl_span(d: Decl) -> SourceSpan {
+    return match d {
+        Import(x) => x.span,
+        Fn(x) => x.span,
+        Type(x) => x.span,
+        Impl(x) => x.span,
+        Interface(x) => x.span,
+        Const(x) => x.span,
+        Let(x) => x.span,
+        Enum(x) => x.span,
+    };
+}
+
 pub fn expr_span(e: Expr) -> SourceSpan {
     return match e {
         Int(s, _) => s,

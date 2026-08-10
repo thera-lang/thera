@@ -14,6 +14,7 @@ import 'lexer/lexer';
 import 'parser/parser';
 import 'element/element';
 import 'diagnostic'; // Diagnostic — the uniform phase error
+import 'source'; // Comment — the doc-comment side channel, retained on ParsedFile
 
 import std.env;
 import std.fs;
@@ -221,6 +222,12 @@ pub struct ParsedFile {
     // lowest rung of the analysis ladder). Paired with `program` by construction:
     // both are products of one `parse_source` over one source string.
     let tokens: List<lexer.Token>;
+    // The file's comments, retained from that same lex for the same reason as
+    // `tokens`: they are the raw material of `docs.attach`, and a doc consumer
+    // (hover, the doc generator, doc-example extraction) would otherwise have to
+    // re-lex the buffer to see them. The compile path never reads this — comments
+    // are not tokens — so retaining them costs memory, not correctness.
+    let comments: List<source.Comment>;
     let diagnostics: List<diagnostic.Diagnostic>;
 }
 
@@ -253,7 +260,12 @@ pub fn parse_source(path: String, source: String) -> ParsedFile {
     }
     let prog = parsed.program;
     prog.file_path = Option.Some(path);
-    return ParsedFile { program: prog, tokens: lex.tokens, diagnostics: diagnostics };
+    return ParsedFile {
+        program: prog,
+        tokens: lex.tokens,
+        comments: lex.comments,
+        diagnostics: diagnostics,
+    };
 }
 
 // Lex and parse `path`, or None if it can't be read or has lex/parse errors. Stamps

@@ -553,7 +553,7 @@ sits against the rest of developer tooling.
 | The conventions above; `sdk/std` migrated to `///` / `//!`   | **done** (`pkgs/cli` and `examples/` not yet migrated)                                              |
 | `examples/` compiled and run by `bin/test.sh`                | **done**                                                                                            |
 | `@test` functions, `thera test`                              | **done**                                                                                            |
-| Attaching docs to AST nodes                                  | pending — unblocks everything below                                                                 |
+| Attaching docs to AST nodes                                  | **done** — `docs.attach` (`pkgs/cli/docs.thera`), a span-keyed side table                           |
 | Fence extraction + compile-check, `doc-example` warning      | pending — **phase 1**, the high-order bit                                                           |
 | The doc-example dialect (bare exprs, unused `Result`, `...`) | pending — lands with phase 1                                                                        |
 | `--docs` (Markdown fences)                                   | pending — phase 2                                                                                   |
