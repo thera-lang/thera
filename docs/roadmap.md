@@ -629,9 +629,9 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     the line does not show, and nothing specified otherwise.
     [language.md](language.md) now specifies **source order**, with a `ⓧ`
     conformance test (`fn-arg-eval-order`) pinning it until `resolve_args` in
-    codegen is fixed to match. Forbidding reordering was the other way to close
-    the gap — cheaper, but it would have removed the feature to avoid specifying
-    it.
+    codegen is fixed to match (#163). Forbidding reordering was the other way to
+    close the gap — cheaper, but it would have removed the feature to avoid
+    specifying it.
 
   - Enforcement (the checker rejecting the non-canonical form rather than
     warning — `missing-argument-label` today) is the remaining call.
