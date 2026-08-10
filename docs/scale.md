@@ -334,12 +334,12 @@ participates in checking and refactors with no special tooling.
    (~99 blocks across 33 `sdk/std` files today). Locality is the point: they
    surface in hover and `thera doc` at the API they illustrate. **The fence tag
    is the contract**: a `thera`-tagged fence claims to be real Thera and is
-   verified; attributes make exceptions (`thera sketch` — rendered, never
-   checked, self-labels aspirational API; `thera no_run` — compile only). An
-   **untagged fence is ignored** — legitimately: design fiction is fine when
-   lexically marked, and the corpus already conforms (language.md's 64 blocks
-   are all tagged and should verify; stdlib.md's 52 sketch blocks are all
-   untagged). Same rule for fences in `docs/*.md`.
+   verified; attributes make exceptions (`thera,no_check` — rendered, never
+   checked, for design fiction; `thera,no_run` — compile only). An **untagged
+   fence is ignored** — legitimately: design fiction is fine when lexically
+   marked, and the corpus already conforms (language.md's 64 blocks are all
+   tagged and should verify; stdlib.md's 52 sketch blocks are all untagged).
+   Same rule for fences in `docs/*.md`.
 2. **Workflow examples in test files** — an `@example`-decorated fn in the
    existing `foo_test.thera` (consistent with `@test`; compiled and run by the
    test runner). Ordinary code: renames, checking, and find-references work with
@@ -396,8 +396,8 @@ the decisions a reader of this doc would want:
   all: bare expression statements and unused `Result`s are legal (REPL shape is
   the point — otherwise `sdk/std`'s 109 fences all fail), and `...` elides a
   body, expression, or member list as a diverging hole (otherwise 14 of
-  language.md's most illustrative blocks degrade to `sketch`). This is language
-  surface and wants conformance IDs when it lands.
+  language.md's most illustrative blocks degrade to `no_check`). This is
+  language surface and wants conformance IDs when it lands.
 
 The three open questions are closed: `// =>` runs get pinned ambient
 capabilities (fixed clock/env/RNG), so `no_run` stays rare; a doc example's
