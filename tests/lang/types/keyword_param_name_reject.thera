@@ -1,9 +1,10 @@
 //! spec: name-keyword-members
 //! mode: check
 
-// A keyword may *label* a parameter but not name it — the internal name is
-// read bare in the body. The single-name form gets the prescriptive error.
-fn f(match: Int) -> Int {   // expect error: a keyword parameter label needs a distinct internal name
+// A parameter name may not be a keyword: it is read bare in the body, where a
+// keyword cannot appear. With the two-name form retired there is no label slot
+// to escape into, so the error prescribes the two real ways out.
+fn f(match: Int) -> Int {   // expect error: a parameter name cannot be a keyword
     return 1;
 }
 

@@ -267,10 +267,10 @@ pub fn stream(_ request: common.Request) -> Result<Stream, common.HttpError> {
 /// ```
 pub fn with_stream<T>(
     _ request: common.Request,
-    handle handler: (Stream) -> Result<T, Error>,
+    handle: (Stream) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let open = stream(request)?;
-    let outcome = handler(open);
+    let outcome = handle(open);
     let _ = open.close();
     return outcome;
 }

@@ -951,28 +951,19 @@ fn check_unique(
     }
 }
 
-// Parameters collide on either coordinate: the internal name (the body's binding)
-// or the external label (the call site's keyword). One error per parameter — a
-// same-name duplicate (`f(a: Int, a: Int)`, where the label duplicates too) reports
-// once, as the name.
+// Parameters collide on their name. Since a label *is* the name (the two-name form
+// was retired), the label needs no separate check — two parameters sharing a label
+// already share a name, and report once as the name.
 fn check_param_uniqueness(_ errors: List<diagnostic.Diagnostic>, _ params: List<Param>) -> Void {
     let names: Set<String> = Set.new();
-    let labels: Set<String> = Set.new();
     for p in params {
         if p.name == '' {
             continue; // parse-recovery param
         }
         if names.contains(p.name) {
             add_error(errors, 'duplicate parameter `${p.name}`', p.name_span);
-        } else if let Some(l) = p.label {
-            if labels.contains(l) {
-                add_error(errors, 'duplicate parameter label `${l}`', p.name_span);
-            }
         }
         names.add(p.name);
-        if let Some(l) = p.label {
-            labels.add(l);
-        }
     }
 }
 

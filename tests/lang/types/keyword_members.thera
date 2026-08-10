@@ -2,8 +2,10 @@
 //! mode: run
 
 // Member positions are grammatically closed, so any keyword is an ordinary
-// name there: field declarations, struct-literal fields, `.` access,
-// call-site labels, and parameter labels.
+// name there: field declarations, struct-literal fields, `.` access, and
+// call-site labels. Parameters are *not* such a position — a parameter's label
+// is its name, and a name is read bare in the body (see
+// keyword_param_name_reject).
 struct Param {
     let in: String;
     let enum: List<String>;
@@ -15,7 +17,7 @@ struct Links {
     let self: String;
 }
 
-fn find(in loc: String, if cond: Bool) -> String {
+fn find(_ loc: String, _ cond: Bool) -> String {
     return if cond { loc } else { 'none' };
 }
 
@@ -28,7 +30,7 @@ fn main() -> Int {
     println('${p.match}');               // expect: 8
     let l = Links { self: 'https://example.com' };
     println(l.self);                     // expect: https://example.com
-    println(find(in: 'path', if: true)); // expect: path
+    println(find('path', true));         // expect: path
     println('${p.in.len()}');            // expect: 5
     return 0;
 }

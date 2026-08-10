@@ -1230,11 +1230,13 @@ fn test_duplicate_params_and_labels() -> Result<Void, Error> {
     let errs = errors_of('fn f(a: Int, a: Int) -> Int { return a; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?; // one error, as the name
     testing.assert_eq(actual: first_message(errs), expected: 'duplicate parameter `a`')?;
+    // A label *is* the name, so a duplicate label is a duplicate name — one error,
+    // and it reports as the name (there is no separate label check to double it).
     testing.assert_eq(
-        actual: first_message(errors_of('fn f(k a: Int, k b: Int) -> Int { return a + b; }')),
-        expected: 'duplicate parameter label `k`',
+        actual: errors_of('fn f(_ a: Int, a: Int, a: Int) -> Int { return a; }').len(),
+        expected: 2,
     )?;
-    // Distinct labels over distinct names: clean.
+    // Distinct names: clean.
     testing.assert_eq(
         actual: errors_of('fn f(a: Int, b: Int) -> Int { return a + b; }').len(),
         expected: 0,

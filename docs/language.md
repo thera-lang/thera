@@ -507,23 +507,21 @@ redundant — typically the single "subject" argument of a call (`log(msg)`,
 multiple same-typed arguments whose order is otherwise unclear, and for any role
 the name and value don't already make obvious.
 
-Use `external internal` to give a parameter a different external label from its
-internal identifier — useful when the natural label is a keyword or reads
-awkwardly inside the body (`_` is just the case where the external label is
-none):
+A parameter's label **is** its name — there is no way to give it an external
+label that differs from the binding the body reads:
 
 ```thera
-fn flag(_ name: String, default value: Bool) -> Bool { ... }
+fn flag(_ name: String, default: Bool) -> Bool { ... }
 
 args.flag('--verbose', default: false);
 ```
 
-Here `default` is the label at the call site; `value` is the name used inside
-the function body (avoiding a clash with a potential `default` keyword). An
-actual keyword works as a label too — `fn find(in loc: String)`, called
-`find(in: 'path')` — but then the two-name form is required, since the internal
-name must be an identifier (see
-[Keywords as member names](#keywords-as-member-names)).
+Here `default` is both the call-site label and the name inside the body. That
+works because `default` is not a reserved word; the consequence of the one-name
+rule is that a **keyword cannot be a label**, since it could not be read bare in
+the body (see [Keywords as member names](#keywords-as-member-names)). A two-name
+`external internal` form existed until 2026-08 and was retired: across ~2,000
+functions it was used 12 times, none of them for a keyword label.
 
 > **Enforcement status.** The single-call-form model above is the design intent;
 > the checker is currently **more permissive** than it. Today a labeled
@@ -1355,10 +1353,9 @@ Syntactic position still selects which _space_ a name is looked up in — a valu
 
 The same rule applies at the **member tier**: within one owner, a struct's
 fields, an enum's variants, a declaration's type parameters, a function's
-parameters (both the internal names and the external labels), an
-`impl`/`interface` block's method names, a struct literal's fields, and a
-pattern's bindings must each be unique — a second introduction is a
-`duplicate …` error at that site.
+parameters, an `impl`/`interface` block's method names, a struct literal's
+fields, and a pattern's bindings must each be unique — a second introduction is
+a `duplicate …` error at that site.
 
 ### Reserved type names
 
@@ -1392,7 +1389,7 @@ the `native type` declaration form gives it meaning.
 **Every other keyword is a valid _member name_.** Member positions are
 grammatically closed — only a name can appear there — so keywords are accepted
 in: struct field declarations, struct-literal fields, field/method access after
-`.`, call-site argument labels, and parameter labels:
+`.`, and call-site argument labels:
 
 ```thera
 struct Param {
@@ -1400,23 +1397,20 @@ struct Param {
     let enum: List<String>;
 }
 
-fn find(in loc: String) -> Option<Param> { ... }
-
 let p = Param { in: 'query', enum: [] };
 println(p.in);
-find(in: 'path');
 ```
 
-**Binding names still require identifiers.** A `let`, a lambda parameter, or a
-parameter's _internal_ name is read bare in the body, where a keyword cannot
-appear — so `fn f(match: Int)` is an error; write the two-name form
-`fn f(match m: Int)` (label `match` at the call site, `m` in the body). Two
-edges resolve by one-token lookahead: in a field declaration `mut` is the
-modifier unless followed by `:` (`let mut: Bool;` is a field named `mut`), and
-in a parameter list `self` is the receiver only when bare
-(`fn f(self href: String)` declares a parameter labeled `self`). Declaration
-names (functions, types, variants) are not member positions and stay
-identifier-only.
+**Binding names still require identifiers**, and a **parameter is a binding
+name, not a member position**. A `let`, a lambda parameter, or a parameter is
+read bare in the body, where a keyword cannot appear — so `fn f(match: Int)` is
+an error, and since a parameter's label is its name
+([Named parameters](#named-parameters)) there is no label slot to escape into.
+Rename it, or make it positional (`fn f(_ m: Int)`), which drops the label. One
+edge resolves by one-token lookahead: in a field declaration `mut` is the
+modifier unless followed by `:` (`let mut: Bool;` is a field named `mut`). In a
+parameter list `self` is always the receiver. Declaration names (functions,
+types, variants) are not member positions and stay identifier-only.
 
 ### Resolution order
 

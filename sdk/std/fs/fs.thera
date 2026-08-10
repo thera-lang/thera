@@ -321,16 +321,16 @@ pub fn remove_dir_all(_ path: String) -> Result<Void, FsError> {
 }
 
 /// Rename (move) a file or directory.
-pub fn rename(from src: String, to dst: String) -> Result<Void, FsError> {
-    return match _rename(src, dst) {
+pub fn rename(from: String, to: String) -> Result<Void, FsError> {
+    return match _rename(from, to) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
     };
 }
 
 /// Copy a file's contents to a new path.
-pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
-    return match _copy(src, dst) {
+pub fn copy(from: String, to: String) -> Result<Void, FsError> {
+    return match _copy(from, to) {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
     };

@@ -10,10 +10,10 @@ fn greet(name: String, times: Int) -> String {
     return '${name} x${times}';
 }
 
-// `default` is the external label; `value` is the internal name — the label the
-// call site owes is the external one.
-fn flag(_ name: String, default value: Bool) -> Bool {
-    return value;
+// A label is the parameter's name; `default` is not a reserved word, so it is
+// both the label the call site owes and the binding the body reads.
+fn flag(_ name: String, default: Bool) -> Bool {
+    return default;
 }
 
 fn pad(_ s: String, width: Int = 4) -> String {

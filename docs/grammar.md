@@ -72,8 +72,8 @@ the `nativeTypeDecl` form (`native type`), recognized by lexeme.
 nothing but a name can appear there — so every keyword above is accepted as an
 ordinary name in the positions the `MEMBER` class marks below: struct field
 declarations (`let in: String;`), struct-literal fields, field/method access
-after `.`, call-site argument labels, and parameter labels
-(`fn f(in loc: String)`):
+after `.`, and call-site argument labels. A **parameter is not** such a position
+— its label is its name, so the name is read bare in the body:
 
 ```
 MEMBER = IDENT | KEYWORD
@@ -81,13 +81,12 @@ MEMBER = IDENT | KEYWORD
 
 Three disambiguations keep this local: in a field declaration `mut` is the
 modifier unless the next token is `:` (`let mut: Bool;` declares a field named
-`mut`); in a parameter list `self` is the receiver only when bare (followed by
-`,` or `)`); and after a postfix `.` a keyword is a member name only on the
-dot's own line, so a dangling mid-edit `x.` does not swallow the next line's
-statement keyword (identifiers are unrestricted). A parameter's _internal_ name
-must still be an identifier — it is read bare in the body, where a keyword
-cannot appear; the parser prescribes the `label name` form
-(`fn f(match m: Int)`).
+`mut`); and after a postfix `.` a keyword is a member name only on the dot's own
+line, so a dangling mid-edit `x.` does not swallow the next line's statement
+keyword (identifiers are unrestricted). In a parameter list `self` is always the
+receiver, and a parameter's name must be an identifier — it is read bare in the
+body, where a keyword cannot appear, and its label is that same name, so there
+is no label slot to escape into.
 
 ### Identifiers
 
@@ -210,11 +209,11 @@ typeParam   = IDENT ( ':' IDENT ('+' IDENT)* )?        // bounds: T: Eq + Debug
 paramList   = param (',' param)*
 param       = 'self'
             | '_' IDENT (':' type)? ('=' expr)?         // suppressed label
-            | MEMBER IDENT (':' type)? ('=' expr)?      // label + name, default
             | IDENT (':' type)? ('=' expr)?             // name (label == name)
-            // `label name` gives a distinct external label — the label may be
-            // a keyword (MEMBER); the internal name may not. A bare `self` is
-            // the receiver; `self` followed by an identifier is a label.
+            // A parameter's label is its name — there is no two-name
+            // `label name` form (retired 2026-08), so the name is IDENT in
+            // both cases and a keyword cannot label a parameter. `self` in a
+            // parameter list is always the receiver.
 
 structDecl  = 'struct' IDENT typeParams? '{' field* '}'
 field       = 'let' 'mut'? MEMBER ':' type ';'

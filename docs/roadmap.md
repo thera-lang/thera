@@ -608,13 +608,12 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     position — the treatment `type` already gets. It is live in the corpus as an
     ordinary name (`std.log`'s `pub fn named(…)`, and locals), all of which keep
     working.
-  - The **`external internal` two-name form** collides with the marker:
-    `named value: Bool` is two identifiers before the `:`, structurally
-    identical to today's "external label `named`, internal name `value`".
-    Resolvable by making the external-label slot exist only after the marker
-    (`named default value: Bool`, three identifiers) — but retiring the two-name
-    form outright removes the ambiguity instead of managing it, which is why the
-    two are tracked together (#158).
+  - The **`external internal` two-name form** is **gone** (#158, landed first
+    for exactly this reason): it collided with the marker, since
+    `named value: Bool` is two identifiers before the `:` — structurally
+    identical to "external label `named`, internal name `value`". Retiring it
+    removes the ambiguity rather than managing it with a three-identifier
+    `named default value: Bool` case, so the marker needs no lookahead rule.
   - Enforcement (the checker rejecting the non-canonical form rather than
     warning — `missing-argument-label` today) and whether labeled arguments must
     also appear in **declaration order** are the remaining calls.
@@ -956,6 +955,21 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`external internal` parameter form retired** (2026-08, issue #158). A
+  parameter's external label is now always its own name. The form was used **12
+  times across ~2,000 functions**, every one of them a preposition label
+  (`from src`, `to dst`, `with replacement`) or a name-clash dodge
+  (`default value`) — and since none of those labels is a reserved word, all 12
+  collapsed to the single-name form with their public labels unchanged; only the
+  bodies' bindings moved (`normalize(from)`, `to.write(…)`). What is genuinely
+  lost is a **keyword label**: `fn find(in loc: String)` has no replacement,
+  because the name is read bare in the body. The corpus never did it, and the
+  parser now says so prescriptively — rename, or go positional. Downstream: the
+  checker's duplicate-label check is gone (a duplicate label _is_ a duplicate
+  name now), `self` in a parameter list is unconditionally the receiver, and
+  parameters left the "keywords as member names" set in the spec. Landed ahead
+  of #157 because it removes that change's one grammar ambiguity.
 
 - **Calling convention — the lint, and the corpus sweep** (2026-08, issue #134
   steps 2–3). Passing a labeled parameter positionally is now the
