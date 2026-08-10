@@ -1049,12 +1049,16 @@ Naming rule: **element membership is `contains`** (`List.contains`,
 spelled consistently across the collections, each by its own name.
 
 A second rule marks mutation: the **bare verb mutates in place**
-(`xs.sort(less)`, `xs.reverse()` — like `push`/`pop`, returning `Void`), and the
-**participle returns a new list** (`xs.sorted_by(less)`, `xs.reversed()`;
-`std.sort.sorted` is the `Ord`-driven form). Matching the cross-language prior
-for each spelling — `sort` is in-place everywhere, returns-new is everywhere
-marked (`sorted`, `toSorted`) — means a discarded `xs.sort(…);` does exactly
-what it says instead of silently doing nothing.
+(`xs.sort(less)`, `xs.reverse()`, `xs.insert(at, v)`, `xs.remove_at(i)`,
+`xs.extend(other)` — like `push`/`pop`), and the **participle returns a new
+list** (`xs.sorted_by(less)`, `xs.reversed()`; `std.sort.sorted` is the
+`Ord`-driven form). Matching the cross-language prior for each spelling — `sort`
+is in-place everywhere, returns-new is everywhere marked (`sorted`, `toSorted`)
+— means a discarded `xs.sort(…);` does exactly what it says instead of silently
+doing nothing. `concat(other)` is the one documented exception: it returns the
+joined list, because no mainstream `concat` mutates — the prior is unambiguous,
+so there is no silent-no-op risk to guard against (the in-place companion is
+`extend`).
 
 ### Indexing vs. `get`
 
@@ -1086,7 +1090,11 @@ let score = scores.get('bob').ok_or(error('no score for bob'))?;
 ```
 
 Both `List` and `Map` follow the same rule: `[]` traps on absence, `.get()`
-returns `Option`.
+returns `Option`. Positional editing follows the indexing contract too:
+`insert(at, v)` (where `at` may also be `len`, meaning append) and
+`remove_at(i)` trap on an out-of-range index. For iterating a map's keys and
+values together, `entries()` returns the pairs in insertion order as
+`Entry<K, V>` values (`.key`, `.value`).
 
 ### Pipelines
 

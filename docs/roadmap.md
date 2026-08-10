@@ -688,7 +688,9 @@ measurement instrument for this list.
   prior _without a compensating principle_, take the prior. The flagship case:
   `display()` vs `to_string()` — Thera's own named-for-its-result convention
   (`to_list`, `to_int`, `to_double`) argues for `to_string`, which is also the
-  name agents guess.
+  name agents guess. _Executed_ as #142 (2026-08; see the Changelog entries) —
+  the policy stands for future surfaces, and names that stayed deliberately
+  different got corrective hints instead.
 - **Diagnostics as the primary channel — policy.** The transcripts show agents
   fix nearly every idioms-list error on the first diagnostic, so every
   prescriptive message pays out at the exact moment of the mistake,
@@ -891,6 +893,19 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **List editing/query gaps filled; `Map.entries()`** (2026-08, #142's B2/B3 —
+  closing the stdlib naming audit). `List` gains the methods the transcript
+  mining showed agents reaching for: `insert(at, v)` / `remove_at(i)` (in-place
+  positional editing under the indexing contract — out of range traps),
+  `any`/`all`, `find`/`find_index`, `flat_map`, and `extend` (in place) /
+  `concat` (returns new — the documented exception to bare-verb-mutates, since
+  no mainstream `concat` mutates). `Map.entries()` returns the pairs in
+  insertion order as `Entry<K, V>` values (`.key`/`.value`, the map-shaped
+  sibling of `Indexed<T>`). `sum` stayed out — it needs a numeric bound Thera's
+  interfaces can't express yet — so the hints table teaches the `fold` form
+  instead, alongside new `some`/`every` → `any`/`all`, `remove` → `remove_at`,
+  and `items` → `entries` entries.
 
 - **`thera fmt` reflows comment prose** (2026-08, issue #127). Comment text was
   the last layout in the tree still hand-maintained: the formatter owned code
