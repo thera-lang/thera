@@ -20,11 +20,11 @@ impl Sized for Box {
     }
 }
 
-fn apply_box(_ f: (Box) -> Int) -> Int {
+fn apply_box(f: (Box) -> Int) -> Int {
     return f(Box { n: 7 });
 }
 
-fn apply_sized(_ f: (Sized) -> Int) -> Int {
+fn apply_sized(f: (Sized) -> Int) -> Int {
     return f(Box { n: 9 });
 }
 

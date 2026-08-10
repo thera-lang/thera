@@ -4,12 +4,12 @@ import std.testing;
 
 /// A function that returns the interface-typed Error from `error(...)` — the
 /// pattern domain code uses at boundaries.
-fn as_error(_ s: String) -> Error {
+fn as_error(s: String) -> Error {
     return error(s);
 }
 
 /// Read an Error through the interface (dynamic dispatch to the concrete type).
-fn describe(_ e: Error) -> String {
+fn describe(e: Error) -> String {
     return e.message();
 }
 

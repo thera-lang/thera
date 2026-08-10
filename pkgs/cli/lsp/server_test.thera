@@ -18,7 +18,7 @@ import '../parser/parser';
 // so `serve`'s read loop can be driven without a real stream.
 struct BurstReader { let data: Bytes; let mut pos: Int; }
 impl io.Reader for BurstReader {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         let end = (self.pos + max).min(self.data.len());
         let chunk = self.data.slice(self.pos, end);
         self.pos = end;
@@ -27,7 +27,7 @@ impl io.Reader for BurstReader {
 }
 
 // Count non-overlapping occurrences of `needle` in `haystack`.
-fn count_substr(_ haystack: String, _ needle: String) -> Int {
+fn count_substr(haystack: String, needle: String) -> Int {
     if needle.is_empty() {
         return 0;
     }
@@ -50,7 +50,7 @@ fn count_substr(_ haystack: String, _ needle: String) -> Int {
 // EOFs) and return everything the server wrote. Unlike `handled`/`capture` (which
 // go through the synchronous `handle`), this runs the real async transport: the
 // background workspace worker and the writer fiber, drained on the `exit`/EOF.
-fn served(_ frames: String) -> String {
+fn served(frames: String) -> String {
     let reader = BurstReader { data: frames.bytes(), pos: 0 };
     let out = io.StringWriter.new();
     serve(reader, out, Option.None);
@@ -58,7 +58,7 @@ fn served(_ frames: String) -> String {
 }
 
 // Run one message through a fresh server and return everything it wrote.
-fn handled(_ body: String) -> String {
+fn handled(body: String) -> String {
     let server = new_server(Option.None);
     let out = io.StringWriter.new();
     server.handle(out, body);
@@ -188,7 +188,7 @@ fn test_surface_edit_nudges_refresh_when_supported() -> Result<Void, Error> {
     // Change the signature (add a parameter) — a public-surface change.
     let out = io.StringWriter.new();
     server.handle(out, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
-        + '{"textDocument":{"uri":"file:///r.thera"},"contentChanges":[{"text":"fn f(_ n: Int) -> Int { return 1; }"}]}}');
+        + '{"textDocument":{"uri":"file:///r.thera"},"contentChanges":[{"text":"fn f(n: Int) -> Int { return 1; }"}]}}');
     let body = out.into_string().unwrap_or('');
     testing.assert(
         body.contains('workspace/diagnostic/refresh'),
@@ -307,7 +307,7 @@ fn test_document_pull_reports_errors() -> Result<Void, Error> {
 
 // The value of the first `"resultId":"…"` in a response body (empty if none) — so a
 // test can echo the server's resultId back on a re-pull.
-fn first_result_id(_ body: String) -> String {
+fn first_result_id(body: String) -> String {
     let key = '"resultId":"';
     return match body.find(key) {
         Some(i) => {
@@ -327,7 +327,7 @@ fn first_result_id(_ body: String) -> String {
 fn test_document_pull_unchanged_on_repull() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let _o = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
-        + '{"textDocument":{"uri":"file:///u.thera","text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }"}}}');
+        + '{"textDocument":{"uri":"file:///u.thera","text":"fn add(a: Int, b: Int) -> Int { return a + b; }"}}}');
     let first = capture(
         server,
         '{"jsonrpc":"2.0","id":1,"method":"textDocument/diagnostic","params":'
@@ -404,7 +404,7 @@ fn test_workspace_pull_unchanged_on_repull() -> Result<Void, Error> {
 fn test_document_pull_is_empty_when_clean() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let _o = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
-        + '{"textDocument":{"uri":"file:///ok.thera","text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }"}}}');
+        + '{"textDocument":{"uri":"file:///ok.thera","text":"fn add(a: Int, b: Int) -> Int { return a + b; }"}}}');
     let out = capture(server, '{"jsonrpc":"2.0","id":6,"method":"textDocument/diagnostic","params":'
         + '{"textDocument":{"uri":"file:///ok.thera"}}}');
     testing.assert(
@@ -451,7 +451,7 @@ fn test_hover_shows_declaration_signature() -> Result<Void, Error> {
     let opened = io.StringWriter.new();
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///h.thera",'
-        + '"text":"pub fn greet(_ n: String) -> String { return n; }"}}}');
+        + '"text":"pub fn greet(n: String) -> String { return n; }"}}}');
 
     // Hover on `greet` (line 0, character 8 falls inside the name).
     let asked = io.StringWriter.new();
@@ -491,7 +491,7 @@ fn test_signature_help_on_unterminated_call() -> Result<Void, Error> {
     let opened = io.StringWriter.new();
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///sh.thera",'
-        + '"text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\\nfn f() -> Int {\\n    return add(\\n}"}}}');
+        + '"text":"fn add(a: Int, b: Int) -> Int { return a + b; }\\nfn f() -> Int {\\n    return add(\\n}"}}}');
 
     // Line 2, character 15 sits just past the `(` of `return add(`.
     let asked = io.StringWriter.new();
@@ -729,7 +729,7 @@ fn test_references_to_a_field_are_semantic() -> Result<Void, Error> {
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///r.thera",'
         + '"text":"struct A { let n: Int; }\\nstruct B { let n: Int; }'
-        + '\\nfn use_a(_ a: A) -> Int { return a.n; }"}}}');
+        + '\\nfn use_a(a: A) -> Int { return a.n; }"}}}');
     // References on `A`'s field declaration (line 0, character 15 — the `n` in
     // `struct A { let n: Int; }`).
     let asked = io.StringWriter.new();
@@ -790,7 +790,7 @@ fn test_shutdown_responds_null() -> Result<Void, Error> {
 
 // Handle one message on an existing server (preserving its document state) and
 // return everything it wrote — for multi-message flows (open, then edit/close).
-fn capture(_ server: Server, _ body: String) -> String {
+fn capture(server: Server, body: String) -> String {
     let out = io.StringWriter.new();
     server.handle(out, body);
     return out.into_string().unwrap_or('');
@@ -802,7 +802,7 @@ fn test_edit_reflected_in_document_pull() -> Result<Void, Error> {
     // a fresh pull must reflect the new text.
     let server = new_server(Option.None);
     let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
-        + '{"textDocument":{"uri":"file:///e.thera","text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }"}}}');
+        + '{"textDocument":{"uri":"file:///e.thera","text":"fn add(a: Int, b: Int) -> Int { return a + b; }"}}}');
     let _changed = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///e.thera"},'
         + '"contentChanges":[{"text":"fn f() -> Int { return missing; }"}]}}');
@@ -1345,7 +1345,7 @@ fn test_code_action_offers_if_let() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///a.thera","text":'
-        + '"fn f(_ o: Option<Int>) { match o { Some(v) => { g(v); }, None => {} } }"}}}');
+        + '"fn f(o: Option<Int>) { match o { Some(v) => { g(v); }, None => {} } }"}}}');
     let out = capture(
         server,
         '{"jsonrpc":"2.0","id":20,"method":"textDocument/codeAction","params":'
@@ -1384,7 +1384,7 @@ fn test_code_action_offers_unwrap_or() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///c.thera","text":'
-        + '"fn f(_ o: Option<Int>) -> Int { return match o { Some(v) => v, None => 0 }; }"}}}');
+        + '"fn f(o: Option<Int>) -> Int { return match o { Some(v) => v, None => 0 }; }"}}}');
     let out = capture(
         server,
         '{"jsonrpc":"2.0","id":22,"method":"textDocument/codeAction","params":'
@@ -1398,11 +1398,11 @@ fn test_code_action_offers_unwrap_or() -> Result<Void, Error> {
 }
 
 // A convertible document + a codeAction request narrowed by `context.only`.
-fn code_action_with_only(_ only: String) -> String {
+fn code_action_with_only(only: String) -> String {
     let server = new_server(Option.None);
     let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///only.thera","text":'
-        + '"fn f(_ o: Option<Int>) { match o { Some(v) => { g(v); }, None => {} } }"}}}');
+        + '"fn f(o: Option<Int>) { match o { Some(v) => { g(v); }, None => {} } }"}}}');
     return capture(server, '{"jsonrpc":"2.0","id":30,"method":"textDocument/codeAction","params":'
         + '{"textDocument":{"uri":"file:///only.thera"},'
         + '"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":80}},'

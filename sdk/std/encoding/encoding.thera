@@ -25,7 +25,7 @@ import std.char;
 /// encoding.base64_encode('foobar'.bytes())   // 'Zm9vYmFy'
 /// encoding.base64_encode('f'.bytes())         // 'Zg=='
 /// ```
-pub fn base64_encode(_ data: Bytes) -> String {
+pub fn base64_encode(data: Bytes) -> String {
     let bytes = data.to_list();
     let n = bytes.len();
     let cps: List<Int> = [];
@@ -64,7 +64,7 @@ pub fn base64_encode(_ data: Bytes) -> String {
 /// ```thera
 /// encoding.base64_decode('Zm9vYmFy')?.to_string()?   // 'foobar'
 /// ```
-pub fn base64_decode(_ s: String) -> Result<Bytes, Error> {
+pub fn base64_decode(s: String) -> Result<Bytes, Error> {
     let cps = s.chars();
     let n = cps.len();
     if n % 4 != 0 {
@@ -114,7 +114,7 @@ pub fn base64_decode(_ s: String) -> Result<Bytes, Error> {
 /// ```thera
 /// encoding.hex_encode('hi'.bytes())   // '6869'
 /// ```
-pub fn hex_encode(_ data: Bytes) -> String {
+pub fn hex_encode(data: Bytes) -> String {
     let bytes = data.to_list();
     let cps: List<Int> = [];
     for p in bytes.enumerate() {
@@ -131,7 +131,7 @@ pub fn hex_encode(_ data: Bytes) -> String {
 /// ```thera
 /// encoding.hex_decode('6869')?.to_string()?   // 'hi'
 /// ```
-pub fn hex_decode(_ s: String) -> Result<Bytes, Error> {
+pub fn hex_decode(s: String) -> Result<Bytes, Error> {
     let cps = s.chars();
     if cps.len() % 2 != 0 {
         return Result.Err(error('hex_decode: odd-length input'));
@@ -161,7 +161,7 @@ pub fn hex_decode(_ s: String) -> Result<Bytes, Error> {
 /// encoding.url_encode('a b&c')   // 'a%20b%26c'
 /// encoding.url_encode('x-y_z')   // 'x-y_z'
 /// ```
-pub fn url_encode(_ s: String) -> String {
+pub fn url_encode(s: String) -> String {
     let bytes = s.bytes().to_list();
     let cps: List<Int> = [];
     for p in bytes.enumerate() {
@@ -184,7 +184,7 @@ pub fn url_encode(_ s: String) -> String {
 /// ```thera
 /// encoding.url_decode('a%20b%26c')?   // 'a b&c'
 /// ```
-pub fn url_decode(_ s: String) -> Result<String, Error> {
+pub fn url_decode(s: String) -> Result<String, Error> {
     let cps = s.chars();
     let n = cps.len();
     let bytes: List<Int> = [];
@@ -221,7 +221,7 @@ pub fn url_decode(_ s: String) -> Result<String, Error> {
 // --- private mapping helpers (arithmetic over std.char's ASCII constants) ---
 
 /// The base64 character (code point) for a 6-bit value 0..63.
-fn b64_char(_ v: Int) -> Int {
+fn b64_char(v: Int) -> Int {
     if v < 26 {
         return char.UPPER_A + v; // 'A'..'Z'
     }
@@ -239,7 +239,7 @@ fn b64_char(_ v: Int) -> Int {
 
 /// The 6-bit value of a base64 character (code point), or -1 if not in the alphabet
 /// (`=` padding included — it is handled by the caller).
-fn b64_value(_ cp: Int) -> Int {
+fn b64_value(cp: Int) -> Int {
     if char.is_upper(cp) {
         return cp - char.UPPER_A; // 'A'..'Z' -> 0..25
     }
@@ -260,7 +260,7 @@ fn b64_value(_ cp: Int) -> Int {
 
 /// The hex digit (code point) for a nibble 0..15 — lowercase, or uppercase when
 /// `upper` is set.
-fn hex_digit(_ nibble: Int, upper: Bool = false) -> Int {
+fn hex_digit(nibble: Int, named upper: Bool = false) -> Int {
     if nibble < 10 {
         return char.DIGIT_0 + nibble; // '0'..'9'
     }
@@ -273,7 +273,7 @@ fn hex_digit(_ nibble: Int, upper: Bool = false) -> Int {
 /// The value of a hex digit (code point), upper- or lowercase, or -1 if not hex.
 /// Delegates the classification to `std.char`, adapting its `Option` to the `-1`
 /// sentinel the decode loops use.
-fn hex_value(_ cp: Int) -> Int {
+fn hex_value(cp: Int) -> Int {
     return match char.hex_digit_value(cp) {
         Some(v) => v,
         None => -1,
@@ -282,7 +282,7 @@ fn hex_value(_ cp: Int) -> Int {
 
 /// True for the RFC 3986 unreserved bytes (`A-Z a-z 0-9 - _ . ~`), which never need
 /// percent-encoding.
-fn is_unreserved(_ b: Int) -> Bool {
+fn is_unreserved(b: Int) -> Bool {
     if char.is_alphanumeric(b) {
         return true;
     }

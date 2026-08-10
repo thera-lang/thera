@@ -10,12 +10,12 @@ import std.testing;
 import 'json' as _;
 
 /// A cursor on the document root of `text`.
-fn root(_ text: String) -> Result<Cursor, Error> {
+fn root(text: String) -> Result<Cursor, Error> {
     return Result.Ok(cursor(parse(text)?));
 }
 
 /// The message from a read that must fail.
-fn failure<T>(_ read: Result<T, DecodeError>) -> Result<String, Error> {
+fn failure<T>(read: Result<T, DecodeError>) -> Result<String, Error> {
     match read {
         Ok(_) => throw error('expected a DecodeError, got Ok'),
         Err(e) => return Result.Ok(e.message()),

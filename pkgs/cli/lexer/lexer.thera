@@ -61,7 +61,7 @@ struct Lexer {
 // Tokenize `source` into a `LexResult` (tokens end with `Eof`). `file` is the
 // canonical key of the file `source` came from (stamped onto every span for
 // diagnostic attribution — LD7); `''` for text-only input.
-pub fn tokenize(_ source: String, file: String = '') -> LexResult {
+pub fn tokenize(source: String, named file: String = '') -> LexResult {
     let lx = Lexer {
         source: source,
         file: file,
@@ -140,7 +140,7 @@ impl Lexer {
     }
 
     // Consume the current code point iff it equals `expected`.
-    fn match_ch(self, _ expected: Int) -> Bool {
+    fn match_ch(self, expected: Int) -> Bool {
         if self.at_end() || self.ch() != expected {
             return false;
         }
@@ -148,7 +148,7 @@ impl Lexer {
         return true;
     }
 
-    fn span_at(self, _ offset: Int, _ length: Int) -> SourceSpan {
+    fn span_at(self, offset: Int, length: Int) -> SourceSpan {
         return SourceSpan {
             source: self.source,
             file: self.file,
@@ -159,7 +159,7 @@ impl Lexer {
         };
     }
 
-    fn span_from(self, _ start_offset: Int, _ start_line: Int, _ start_col: Int)
+    fn span_from(self, start_offset: Int, start_line: Int, start_col: Int)
         -> SourceSpan {
         return SourceSpan {
             source: self.source,
@@ -175,14 +175,14 @@ impl Lexer {
     // index. `SourceSpan.text()` would re-slice the whole source (each call is
     // O(source length)); reusing `self.chars` keeps per-token extraction O(span
     // length), so lexing stays linear over a large file.
-    fn span_text(self, _ span: SourceSpan) -> String {
+    fn span_text(self, span: SourceSpan) -> String {
         return String.from_chars(self.chars.slice(span.offset, span.offset + span.length));
     }
 
     // --- token emission ---
 
     // Emit a value-less token spanning from the current token start to `pos`.
-    fn emit(self, _ kind: TokenKind) -> Void {
+    fn emit(self, kind: TokenKind) -> Void {
         self.tokens.push(Token {
             kind: kind,
             span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
@@ -192,13 +192,13 @@ impl Lexer {
     }
 
     // Record an error at the current token start.
-    fn error(self, _ message: String) -> Void {
+    fn error(self, message: String) -> Void {
         self.error_at(message, self.ts_offset, self.ts_line, self.ts_col);
     }
 
     // Record an error at an explicit start position (used for escapes, which start
     // partway through a string token).
-    fn error_at(self, _ message: String, _ o: Int, _ l: Int, _ c: Int) -> Void {
+    fn error_at(self, message: String, o: Int, l: Int, c: Int) -> Void {
         self.errors.push(diagnostic.at(message, self.span_from(o, l, c)));
     }
 
@@ -387,7 +387,7 @@ impl Lexer {
         }
     }
 
-    fn scan_string(self, _ quote: Int) -> Void {
+    fn scan_string(self, quote: Int) -> Void {
         let buf: List<Int> = [];
         let interps: List<SourceSpan> = [];
         while !self.at_end() && self.ch() != quote {
@@ -433,7 +433,7 @@ impl Lexer {
     //
     // The closing delimiter on its own line contributes the final newline; on a
     // content line it ends the value there.
-    fn scan_text_block(self, _ quote: Int) -> Void {
+    fn scan_text_block(self, quote: Int) -> Void {
         let interps: List<SourceSpan> = [];
         // The opening delimiter owns its line — only whitespace may follow it.
         while !self.at_end() && self.ch() != char.LF && char.is_whitespace(self.ch()) {
@@ -557,7 +557,7 @@ impl Lexer {
     // That leaves the token in the same shape as an ordinary literal's, so the
     // parser's splitter reads the whole thing back as a single text part and
     // nothing downstream has to know a raw string was involved.
-    fn scan_raw_string(self, _ quote: Int) -> Void {
+    fn scan_raw_string(self, quote: Int) -> Void {
         let buf: List<Int> = [];
         while !self.at_end() && self.ch() != quote {
             push_literal(buf, self.advance());
@@ -578,7 +578,7 @@ impl Lexer {
     // Capture a `${...}` interpolation verbatim into `buf` so the parser can split
     // it later. Tracks brace depth, but copies nested string literals whole so a
     // `}` inside one (e.g. `${ m['}'] }`) doesn't close it early.
-    fn scan_interpolation(self, _ buf: List<Int>, _ interps: List<SourceSpan>) -> Void {
+    fn scan_interpolation(self, buf: List<Int>, interps: List<SourceSpan>) -> Void {
         buf.push(char.DOLLAR);
         self.advance(); // $
         buf.push(char.LBRACE);
@@ -643,7 +643,7 @@ impl Lexer {
     // value's only *bare* `${` are interpolations, and the parser's splitter
     // decodes `\\`/`\$` back to their characters. Without this, `\$` de-escapes to
     // a bare `$` that the splitter mistakes for interpolation.
-    fn scan_string_escape(self, _ buf: List<Int>, _ o: Int, _ l: Int, _ c: Int)
+    fn scan_string_escape(self, buf: List<Int>, o: Int, l: Int, c: Int)
         -> Void {
         let e = self.ch();
         self.advance(); // consume the escape character
@@ -694,7 +694,7 @@ impl Lexer {
     }
 
     // `\xNN` — exactly two hex digits, a code point in 0x00..0xFF.
-    fn scan_hex_escape(self, _ buf: List<Int>, _ o: Int, _ l: Int, _ c: Int)
+    fn scan_hex_escape(self, buf: List<Int>, o: Int, l: Int, c: Int)
         -> Void {
         let mut value = 0;
         let mut i = 0;
@@ -711,7 +711,7 @@ impl Lexer {
     }
 
     // `\u{...}` — 1..6 hex digits in braces, naming a Unicode scalar value.
-    fn scan_unicode_escape(self, _ buf: List<Int>, _ o: Int, _ l: Int, _ c: Int)
+    fn scan_unicode_escape(self, buf: List<Int>, o: Int, l: Int, c: Int)
         -> Void {
         if self.ch() != char.LBRACE {
             self.error_at("'\\u' must be followed by '{...}'", o, l, c);
@@ -828,7 +828,7 @@ const LOWER_X: Int = 120;
 // literal `\` or `$` as `\\` / `\$`. This keeps the captured value's only bare `${`
 // sequences the real interpolations; the parser's splitter decodes the escapes
 // back. (Interpolation content is captured raw, not through here.)
-fn push_literal(_ buf: List<Int>, _ cp: Int) -> Void {
+fn push_literal(buf: List<Int>, cp: Int) -> Void {
     if cp == char.BACKSLASH || cp == char.DOLLAR {
         buf.push(char.BACKSLASH);
     }

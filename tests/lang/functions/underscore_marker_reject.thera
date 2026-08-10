@@ -1,0 +1,15 @@
+//! spec: fn-named-params
+//! mode: check
+
+// `_ name: T` was the positional marker until the default flipped in 2026-08.
+// Positional is the default now, so the marker is redundant — and it is rejected
+// rather than silently accepted, so there is exactly one spelling per call form.
+// This is a *parse* error, which is why it needs a fixture of its own.
+
+fn old_marker(_ a: Int) -> Int {   // expect error: `_` is no longer a parameter marker
+    return a;
+}
+
+fn main() -> Int {
+    return old_marker(1);
+}

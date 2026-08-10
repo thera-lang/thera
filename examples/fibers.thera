@@ -10,12 +10,12 @@
 
 import std.fiber;
 
-fn square(_ n: Int) -> Int {
+fn square(n: Int) -> Int {
     return n * n;
 }
 
 // Fan out independent work across fibers, then collect the results by joining.
-fn sum_of_squares(_ xs: List<Int>) -> Int {
+fn sum_of_squares(xs: List<Int>) -> Int {
     let handles: List<fiber.Fiber<Int>> = [];
     for x in xs {
         // The closure captures `x` by value, so each fiber squares its own item.
@@ -31,7 +31,7 @@ fn sum_of_squares(_ xs: List<Int>) -> Int {
 // A producer fiber feeds `count` values into a channel and closes it; the caller
 // consumes until the channel is drained. The channel's small buffer means the
 // producer blocks when it gets ahead and resumes as the consumer catches up.
-fn produce(_ ch: fiber.Channel<Int>, _ count: Int) -> Int {
+fn produce(ch: fiber.Channel<Int>, count: Int) -> Int {
     let mut i = 1;
     while i <= count {
         ch.send(i);

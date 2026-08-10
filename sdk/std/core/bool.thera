@@ -23,7 +23,7 @@ impl Debug for Bool {
 
 /// Bool is ordered `false < true` (so a sort groups the falses first).
 impl Ord for Bool {
-    fn compare(self, _ other: Bool) -> Ordering {
+    fn compare(self, other: Bool) -> Ordering {
         if self == other {
             return Ordering.Equal;
         }

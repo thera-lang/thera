@@ -29,7 +29,7 @@ pub interface Error: Display + Debug {
 /// — `error(...)` is the only door. This keeps `std.core` from claiming a common
 /// noun like `Message` in the always-in-scope prelude, where it would collide with
 /// user types.
-pub fn error(_ message: String) -> Error {
+pub fn error(message: String) -> Error {
     return ErrorMessage { text: message };
 }
 

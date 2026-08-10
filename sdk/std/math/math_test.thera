@@ -10,7 +10,7 @@ import std.testing;
 import 'math' as _;
 
 /// Within `eps` of each other (floats rarely compare exactly equal).
-fn close(_ a: Double, _ b: Double) -> Bool {
+fn close(a: Double, b: Double) -> Bool {
     return (a - b).abs() < 0.000001;
 }
 

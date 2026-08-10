@@ -11,7 +11,7 @@ fn f() -> Int {
 }
 
 // Fine: lambdas and fn-typed parameters are callable.
-fn apply(_ g: (Int) -> Int) -> Int {
+fn apply(g: (Int) -> Int) -> Int {
     return g(3);
 }
 

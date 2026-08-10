@@ -480,38 +480,55 @@ every call to a given function looks the same. That consistency matters for
 readers (human and LLM), while still letting the author put labels where they
 aid readability and drop them where they are noise.
 
-A parameter is **labeled by default**: its name becomes the call-site label and
-callers must write it. Labels make calls self-documenting — especially for
-booleans and several same-typed arguments:
+A parameter is **positional by default** — no marker, and the argument is passed
+by position:
 
 ```thera
-fn greet(name: String, times: Int) { ... }
-
-greet(name: 'alice', times: 3);
-```
-
-Mark a parameter **positional** with a leading `_` (read it as "the external
-label is _none_"). The label is then _forbidden_ and the argument is passed by
-position — for when the call already reads unambiguously without it:
-
-```thera
-fn println(_ msg: String) { ... }
+fn println(msg: String) { ... }
 
 println('hello');          // positional — reads naturally
 // println(msg: 'hello');  // error — this parameter has no label
 ```
 
-**Style.** Default to labeled; reach for `_` only when the label would be
-redundant — typically the single "subject" argument of a call (`log(msg)`,
-`read_text(path)`, `insert(item, at: index)`). Keep labels for booleans, for
-multiple same-typed arguments whose order is otherwise unclear, and for any role
-the name and value don't already make obvious.
+Mark a parameter **labeled** with a leading `named`. Its own name becomes the
+call-site label, and callers must write it. Labels make calls self-documenting —
+especially for booleans and several same-typed arguments:
+
+```thera
+fn greet(named name: String, named times: Int) { ... }
+
+greet(name: 'alice', times: 3);
+// greet('alice', 3);      // error — these parameters are labeled
+```
+
+`named` is **contextual**, not reserved: it is an ordinary identifier
+everywhere, and even here only when another name follows it. So `named: Int` is
+a parameter _called_ `named`, and `named other: Int` is a labeled parameter
+called `other`.
+
+Labeled parameters must form a **suffix** of the parameter list — once one is
+`named`, so is every parameter after it. That keeps positional arguments a
+prefix at every call site, so a reader counting positions never has to scan past
+a label:
+
+```thera
+fn pad(s: String, named width: Int = 80) { ... }   // ok
+// fn pad(named width: Int, s: String) { ... }     // error — positional after named
+```
+
+**Style.** Positional is the default because it is overwhelmingly what code
+wants — when this default was chosen, 95% of the corpus's ~3,700 parameters were
+positional. Reach for `named` when the label earns its place: booleans, several
+same-typed arguments whose order is otherwise unclear, and any role the name and
+value don't already make obvious (`insert(item, at: index)`,
+`assert_eq(actual: x, expected: y)`). Leave the subject argument bare
+(`log(msg)`, `read_text(path)`).
 
 A parameter's label **is** its name — there is no way to give it an external
 label that differs from the binding the body reads:
 
 ```thera
-fn flag(_ name: String, default: Bool) -> Bool { ... }
+fn flag(name: String, named default: Bool) -> Bool { ... }
 
 args.flag('--verbose', default: false);
 ```
@@ -523,17 +540,13 @@ the body (see [Keywords as member names](#keywords-as-member-names)). A two-name
 `external internal` form existed until 2026-08 and was retired: across ~2,000
 functions it was used 12 times, none of them for a keyword label.
 
-> **Enforcement status.** The single-call-form model above is the design intent;
-> the checker is currently **more permissive** than it. Today a labeled
-> parameter may _also_ be passed positionally, and labeled arguments may be
-> reordered — so more than one call form compiles for the same function.
->
-> The positional half of that gap is diagnosed but not yet rejected: passing a
-> labeled parameter positionally is the `missing-argument-label` **warning**,
-> which carries a mechanical fix (`thera check --fix` inserts the label). The
-> corpus has been migrated, so the remaining step is flipping the warning to an
-> error. Whether labeled arguments must also appear in **declaration order** is
-> still open. Both are tracked in [roadmap.md](roadmap.md).
+> **Enforcement status.** Two gaps remain between the model above and the
+> checker. Passing a labeled parameter positionally is diagnosed but not yet
+> rejected — it is the `missing-argument-label` **warning**, which carries a
+> mechanical fix (`thera check --fix` inserts the label); the corpus is clean,
+> so what remains is flipping the warning to an error. And whether labeled
+> arguments must also appear in **declaration order** (forbidding
+> `f(b: 2, a: 1)`) is still open. Both are tracked in [roadmap.md](roadmap.md).
 
 ### Default values
 

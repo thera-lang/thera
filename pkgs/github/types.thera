@@ -49,7 +49,7 @@ import std.time;
 /// where that cost lands: **once per format**, in a helper, not once per field.
 /// Twelve thousand `format` occurrences in GitHub's description reduce to a handful
 /// of functions like this one.
-pub fn date_time_at(_ at: json.Cursor) -> Result<time.DateTime, json.DecodeError> {
+pub fn date_time_at(at: json.Cursor) -> Result<time.DateTime, json.DecodeError> {
     let text = at.string()?;
     return match time.DateTime.parse_rfc3339(text) {
         Ok(when) => Result.Ok(when),
@@ -58,7 +58,7 @@ pub fn date_time_at(_ at: json.Cursor) -> Result<time.DateTime, json.DecodeError
 }
 
 /// `date_time_at` for a field that may be `null` or absent.
-pub fn opt_date_time_at(_ at: json.Cursor) -> Result<Option<time.DateTime>, json.DecodeError> {
+pub fn opt_date_time_at(at: json.Cursor) -> Result<Option<time.DateTime>, json.DecodeError> {
     return match at.opt_string()? {
         Some(text) => match time.DateTime.parse_rfc3339(text) {
             Ok(when) => Result.Ok(Option.Some(when)),
@@ -71,8 +71,8 @@ pub fn opt_date_time_at(_ at: json.Cursor) -> Result<Option<time.DateTime>, json
 /// `decode` applied to a value that may be `null` or absent — the reader for every
 /// nullable `$ref` in the description, of which there are a great many.
 pub fn optional<T>(
-    _ at: json.Cursor,
-    _ decode: (json.Cursor) -> Result<T, json.DecodeError>,
+    at: json.Cursor,
+    decode: (json.Cursor) -> Result<T, json.DecodeError>,
 ) -> Result<Option<T>, json.DecodeError> {
     return match at.opt_object()? {
         Some(inner) => Result.Ok(Option.Some(decode(inner)?)),
@@ -87,8 +87,8 @@ pub fn optional<T>(
 /// list-shaped response in the whole of GitHub. Both this and `optional` want to be
 /// `Cursor` methods in `std.json`; see docs/typed-json.md § The delta.
 pub fn each<T>(
-    _ at: json.Cursor,
-    _ decode: (json.Cursor) -> Result<T, json.DecodeError>,
+    at: json.Cursor,
+    decode: (json.Cursor) -> Result<T, json.DecodeError>,
 ) -> Result<List<T>, json.DecodeError> {
     let items: List<T> = [];
     for element in at.list()? {
@@ -112,7 +112,7 @@ pub struct User {
     let html_url: String;
 }
 
-pub fn user_from_json(_ at: json.Cursor) -> Result<User, json.DecodeError> {
+pub fn user_from_json(at: json.Cursor) -> Result<User, json.DecodeError> {
     let root = at.object()?;
     return Result.Ok(User {
         login: root.field('login').string()?,
@@ -136,7 +136,7 @@ pub struct Label {
     let description: Option<String>;
 }
 
-pub fn label_from_json(_ at: json.Cursor) -> Result<Label, json.DecodeError> {
+pub fn label_from_json(at: json.Cursor) -> Result<Label, json.DecodeError> {
     let root = at.object()?;
     return Result.Ok(Label {
         id: root.field('id').int()?,
@@ -176,7 +176,7 @@ impl IssueLabel {
     }
 }
 
-pub fn issue_label_from_json(_ at: json.Cursor) -> Result<IssueLabel, json.DecodeError> {
+pub fn issue_label_from_json(at: json.Cursor) -> Result<IssueLabel, json.DecodeError> {
     return match at.raw()?.kind() {
         'string' => Result.Ok(IssueLabel.Name(at.string()?)),
         'object' => Result.Ok(IssueLabel.Full(label_from_json(at)?)),
@@ -197,7 +197,7 @@ pub struct Ref {
     let sha: String;
 }
 
-pub fn ref_from_json(_ at: json.Cursor) -> Result<Ref, json.DecodeError> {
+pub fn ref_from_json(at: json.Cursor) -> Result<Ref, json.DecodeError> {
     let root = at.object()?;
     return Result.Ok(Ref {
         label: root.field('label').string()?,
@@ -254,7 +254,7 @@ impl PullRequest {
     }
 }
 
-pub fn pull_request_from_json(_ at: json.Cursor) -> Result<PullRequest, json.DecodeError> {
+pub fn pull_request_from_json(at: json.Cursor) -> Result<PullRequest, json.DecodeError> {
     let root = at.object()?;
     return Result.Ok(PullRequest {
         number: root.field('number').int()?,
@@ -304,7 +304,7 @@ pub struct Issue {
     let is_pull_request: Bool;
 }
 
-pub fn issue_from_json(_ at: json.Cursor) -> Result<Issue, json.DecodeError> {
+pub fn issue_from_json(at: json.Cursor) -> Result<Issue, json.DecodeError> {
     let root = at.object()?;
     return Result.Ok(Issue {
         number: root.field('number').int()?,

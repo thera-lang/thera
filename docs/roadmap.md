@@ -623,11 +623,12 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
     order is otherwise unclear, and any role the name and value don't already
     make obvious — and leave the subject argument bare.
 
-  Tracked as #157 (the change) and #158 (retiring the two-name form); the
-  declaration-order question stays in #156. This decision supersedes issue #134,
-  whose lint and corpus sweep landed under the old default; the sweep's 590
-  call-site labels are unaffected, since the functions that took them are
-  named-parameter functions either way.
+  **Landed** in #157 (the change) and #158 (the two-name form); the
+  declaration-order question stays in #156, and enforcement (warning → error) is
+  the last step. This decision superseded issue #134, whose lint and corpus
+  sweep landed under the old default; the sweep's 590 call-site labels were
+  unaffected, since the functions that took them are named-parameter functions
+  either way.
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
@@ -970,6 +971,35 @@ conformance specs. Newest first.
   name now), `self` in a parameter list is unconditionally the receiver, and
   parameters left the "keywords as member names" set in the spec. Landed ahead
   of #157 because it removes that change's one grammar ambiguity.
+
+- **Parameters are positional by default; `named` opts into a label** (2026-08,
+  issue #157). The default flipped, and the marker moved to the minority case:
+  `fn pad(s: String, named width: Int = 80)`, called `pad('x', width: 4)`.
+  `named` is contextual — an ordinary identifier everywhere, recognized only at
+  the head of a parameter and only when another name follows, so `named: Int` is
+  still a parameter _called_ `named`. Labeled parameters must be a **suffix** of
+  the list, which keeps positional arguments a prefix at every call site; the
+  corpus cost was 4 signatures, all a labeled destination ahead of a positional
+  payload (`write_all(named to:, data)`), each resolved by dropping the label to
+  match the sibling writers that were already destination-first
+  (`fs.write_text(path, text)`). `_` is retired and rejected rather than
+  silently accepted, so there is one spelling per call form.
+
+  The migration was **3,912 parameters across 265 files**, by a throwaway AST
+  codemod: it had to compute both edits (`_ x` → `x`, and `x` → `named x`) from
+  one parse of the original source, because once the `_` is stripped nothing in
+  the text distinguishes a formerly-positional parameter from a formerly-labeled
+  one. That also made it single-use by construction. A second regex pass caught
+  294 more inside embedded source snippets in test string literals, which the
+  AST pass could not see.
+
+  Landing it needed the **self-hosting ratchet**, in two commits: the bootstrap
+  snapshot has to _parse_ `named` before the corpus may _use_ it, so the syntax
+  landed alone (with `named` and the bare form as synonyms) and the snapshot was
+  refreshed before the default flipped. The intermediate snapshot reads the
+  migrated sources with the old meaning, which is safe precisely because
+  warnings don't gate compilation — every mismatch it could see is a
+  `missing-argument-label` warning, never an error.
 
 - **Calling convention — the lint, and the corpus sweep** (2026-08, issue #134
   steps 2–3). Passing a labeled parameter positionally is now the

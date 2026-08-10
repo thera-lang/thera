@@ -12,7 +12,7 @@ enum Pair {
 }
 
 // Statement form, no else: the block runs only on a match.
-fn describe(_ o: Option<Int>) -> String {
+fn describe(o: Option<Int>) -> String {
     if let Some(n) = o {
         return 'got ${n}';
     }
@@ -20,7 +20,7 @@ fn describe(_ o: Option<Int>) -> String {
 }
 
 // With an `else` branch.
-fn classify(_ o: Option<Int>) -> String {
+fn classify(o: Option<Int>) -> String {
     if let Some(n) = o {
         return 'present ${n}';
     } else {
@@ -29,12 +29,12 @@ fn classify(_ o: Option<Int>) -> String {
 }
 
 // Value position (requires `else`): the chosen branch's value.
-fn or_default(_ o: Option<Int>) -> Int {
+fn or_default(o: Option<Int>) -> Int {
     return if let Some(n) = o { n } else { -1 };
 }
 
 // `else if let` chain.
-fn first_of(_ a: Option<Int>, _ b: Option<Int>) -> String {
+fn first_of(a: Option<Int>, b: Option<Int>) -> String {
     if let Some(n) = a {
         return 'a=${n}';
     } else if let Some(m) = b {
@@ -45,7 +45,7 @@ fn first_of(_ a: Option<Int>, _ b: Option<Int>) -> String {
 }
 
 // Nested constructor pattern binds at the leaves.
-fn sum(_ p: Pair) -> Int {
+fn sum(p: Pair) -> Int {
     if let Both(x, y) = p {
         return x + y;
     }

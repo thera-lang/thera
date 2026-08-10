@@ -52,7 +52,7 @@ impl Result<T, E> {
     /// ```thera
     /// let doubled = parse(s).map((n) => n * 2);   // Result<Int, E>
     /// ```
-    pub fn map<U>(self, _ f: (T) -> U) -> Result<U, E> {
+    pub fn map<U>(self, f: (T) -> U) -> Result<U, E> {
         return match self {
             Ok(v) => Result.Ok(f(v)),
             Err(e) => Result.Err(e),
@@ -65,7 +65,7 @@ impl Result<T, E> {
     /// ```thera
     /// let n = read(path).map_err((e) => ConfigError.Io(e))?;
     /// ```
-    pub fn map_err<F>(self, _ f: (E) -> F) -> Result<T, F> {
+    pub fn map_err<F>(self, f: (E) -> F) -> Result<T, F> {
         return match self {
             Ok(v) => Result.Ok(v),
             Err(e) => Result.Err(f(e)),
@@ -79,7 +79,7 @@ impl Result<T, E> {
     /// ```thera
     /// let v = parse(s).and_then((n) => in_range(n));   // Result<Int, E>
     /// ```
-    pub fn and_then<U>(self, _ f: (T) -> Result<U, E>) -> Result<U, E> {
+    pub fn and_then<U>(self, f: (T) -> Result<U, E>) -> Result<U, E> {
         return match self {
             Ok(v) => f(v),
             Err(e) => Result.Err(e),
@@ -92,7 +92,7 @@ impl Result<T, E> {
     /// ```thera
     /// let port = parse(s).unwrap_or(8080);
     /// ```
-    pub fn unwrap_or(self, _ fallback: T) -> T {
+    pub fn unwrap_or(self, fallback: T) -> T {
         return match self {
             Ok(v) => v,
             Err(_) => fallback,
@@ -105,7 +105,7 @@ impl Result<T, E> {
     /// ```thera
     /// let n = parse(s).unwrap_or_else((e) => default_for(e));
     /// ```
-    pub fn unwrap_or_else(self, _ f: (E) -> T) -> T {
+    pub fn unwrap_or_else(self, f: (E) -> T) -> T {
         return match self {
             Ok(v) => v,
             Err(e) => f(e),

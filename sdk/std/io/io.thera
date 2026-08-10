@@ -35,12 +35,12 @@
 
 /// A source of bytes. `read` returns up to `max` bytes; an empty result is EOF.
 pub interface Reader {
-    fn read(self, max: Int) -> Result<Bytes, Error>;
+    fn read(self, named max: Int) -> Result<Bytes, Error>;
 }
 
 /// A sink for bytes. `write` consumes all of `data` and returns the count.
 pub interface Writer {
-    fn write(self, _ data: Bytes) -> Result<Int, Error>;
+    fn write(self, data: Bytes) -> Result<Int, Error>;
 }
 
 /// A closable resource (files, sockets). The standard streams don't close.
@@ -60,7 +60,7 @@ pub enum SeekFrom {
 pub interface Seek {
     /// Move the cursor as `to` describes; returns the new absolute offset from the
     /// start.
-    fn seek(self, _ to: SeekFrom) -> Result<Int, Error>;
+    fn seek(self, to: SeekFrom) -> Result<Int, Error>;
 }
 
 /// I/O failures. A domain error: implements the common `Error`.
@@ -87,7 +87,7 @@ impl Display for IoError {
 // --- combinators (over any Reader/Writer) ---
 
 /// Read `src` to end-of-stream, returning everything as one `Bytes`.
-pub fn read_all(_ src: Reader) -> Result<Bytes, Error> {
+pub fn read_all(src: Reader) -> Result<Bytes, Error> {
     let acc = BytesBuilder.new();
     let mut going = true;
     while going {
@@ -107,7 +107,7 @@ pub fn read_all(_ src: Reader) -> Result<Bytes, Error> {
 /// buffer is finite, and a non-blocking one takes only what fits right now. This
 /// loops over the remainder; prefer it to a bare `write` unless you are handling
 /// the short-write case yourself.
-pub fn write_all(to: Writer, _ data: Bytes) -> Result<Void, Error> {
+pub fn write_all(to: Writer, data: Bytes) -> Result<Void, Error> {
     let end = data.len();
     let mut sent = 0;
     while sent < end {
@@ -127,7 +127,7 @@ pub fn write_all(to: Writer, _ data: Bytes) -> Result<Void, Error> {
 }
 
 /// Copy `src` to `dst` until EOF; returns the number of bytes copied.
-pub fn copy(to: Writer, from: Reader) -> Result<Int, Error> {
+pub fn copy(named to: Writer, named from: Reader) -> Result<Int, Error> {
     let mut total = 0;
     let mut going = true;
     while going {
@@ -137,7 +137,7 @@ pub fn copy(to: Writer, from: Reader) -> Result<Int, Error> {
         } else {
             // `write_all`, not `write`: a short write would silently drop the tail
             // of the chunk (and miscount the total).
-            write_all(to: to, chunk)?;
+            write_all(to, chunk)?;
             total = total + chunk.len();
         }
     }
@@ -147,17 +147,17 @@ pub fn copy(to: Writer, from: Reader) -> Result<Int, Error> {
 // --- standard streams ---
 
 @extern('io_stdin_read')
-native fn read_stdin(_ max: Int) -> Result<Bytes, String>
+native fn read_stdin(max: Int) -> Result<Bytes, String>
 
 @extern('io_stdout_write')
-native fn write_stdout(_ data: Bytes) -> Result<Int, String>
+native fn write_stdout(data: Bytes) -> Result<Int, String>
 
 @extern('io_stderr_write')
-native fn write_stderr(_ data: Bytes) -> Result<Int, String>
+native fn write_stderr(data: Bytes) -> Result<Int, String>
 
 struct Stdin {}
 impl Reader for Stdin {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         return match read_stdin(max) {
             Ok(bytes) => Result.Ok(bytes),
             Err(msg) => Result.Err(IoError.Other(msg)),
@@ -167,7 +167,7 @@ impl Reader for Stdin {
 
 struct Stdout {}
 impl Writer for Stdout {
-    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+    pub fn write(self, data: Bytes) -> Result<Int, Error> {
         return match write_stdout(data) {
             Ok(n) => Result.Ok(n),
             Err(msg) => Result.Err(IoError.Other(msg)),
@@ -177,7 +177,7 @@ impl Writer for Stdout {
 
 struct Stderr {}
 impl Writer for Stderr {
-    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+    pub fn write(self, data: Bytes) -> Result<Int, Error> {
         return match write_stderr(data) {
             Ok(n) => Result.Ok(n),
             Err(msg) => Result.Err(IoError.Other(msg)),
@@ -225,7 +225,7 @@ impl StringWriter {
 }
 
 impl Writer for StringWriter {
-    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+    pub fn write(self, data: Bytes) -> Result<Int, Error> {
         self.builder.write_bytes(data);
         return Result.Ok(data.len());
     }
@@ -239,7 +239,7 @@ struct InMemReader {
 }
 
 impl Reader for InMemReader {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         let n = self.data.len();
         if self.pos >= n {
             return Result.Ok(Bytes.empty()); // EOF
@@ -252,12 +252,12 @@ impl Reader for InMemReader {
 }
 
 /// A Reader that yields the bytes of `data`.
-pub fn from_bytes(_ data: Bytes) -> Reader {
+pub fn from_bytes(data: Bytes) -> Reader {
     return InMemReader { data: data, pos: 0 };
 }
 
 /// A Reader that yields the UTF-8 bytes of `s`.
-pub fn from_string(_ s: String) -> Reader {
+pub fn from_string(s: String) -> Reader {
     return InMemReader { data: s.bytes(), pos: 0 };
 }
 
@@ -267,7 +267,7 @@ const LF: Int = 10; // '\n'
 const CR: Int = 13; // '\r'
 
 /// Index of the first `\n` in `b` at or after `from`, or `None`.
-fn index_of_lf(_ b: Bytes, _ from: Int) -> Option<Int> {
+fn index_of_lf(b: Bytes, from: Int) -> Option<Int> {
     let n = b.len();
     let mut i = from;
     while i < n {
@@ -280,7 +280,7 @@ fn index_of_lf(_ b: Bytes, _ from: Int) -> Option<Int> {
 }
 
 /// `b` without a single trailing `\r` (so a `\r\n` line strips to its content).
-fn strip_cr(_ b: Bytes) -> Bytes {
+fn strip_cr(b: Bytes) -> Bytes {
     let n = b.len();
     if n > 0 {
         if let Some(c) = b.get(n - 1) {
@@ -307,7 +307,7 @@ pub struct BufReader {
 
 impl BufReader {
     /// Wrap `source` to read it line by line.
-    pub fn new(_ source: Reader) -> BufReader {
+    pub fn new(source: Reader) -> BufReader {
         return BufReader {
             source: source,
             buf: Bytes.empty(),
@@ -379,6 +379,6 @@ impl Iterator<String> for BufReader {
 /// `Iterator<String>`: drive it with `for line in io.lines(src)` or an adapter
 /// chain. Use `BufReader.read_line` (or check `.error()` afterwards) when a
 /// mid-stream I/O error must be handled rather than treated as end-of-input.
-pub fn lines(_ src: Reader) -> BufReader {
+pub fn lines(src: Reader) -> BufReader {
     return BufReader.new(src);
 }

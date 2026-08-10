@@ -14,12 +14,12 @@ import '../bytecode/module' as _;
 import '../bytecode/encoder' as _;
 import 'codegen' as _;
 
-fn emit_bytes(_ src: String) -> List<Int> {
+fn emit_bytes(src: String) -> List<Int> {
     let result = compile_program(testkit.parse(src), [], [:], [:]);
     return encode_module(result.module).to_list();
 }
 
-fn errors_of(_ src: String) -> Int {
+fn errors_of(src: String) -> Int {
     return compile_program(testkit.parse(src), [], [:], [:]).errors.len();
 }
 
@@ -30,13 +30,13 @@ fn errors_of(_ src: String) -> Int {
 // e.g. a call-resolution branch picking the wrong opcode — fails here with a
 // located, readable assertion instead of only as a fixpoint/example break.
 
-fn module_of(_ src: String) -> Module {
+fn module_of(src: String) -> Module {
     return compile_program(testkit.parse(src), [], [:], [:]).module;
 }
 
 // The instruction stream of the unit named `fn_name` (a free function's bare name,
 // a method's `Type.method`), or empty if there's no such unit.
-fn code_of(_ src: String, _ fn_name: String) -> List<Instr> {
+fn code_of(src: String, fn_name: String) -> List<Instr> {
     for f in module_of(src).functions {
         if f.name == fn_name {
             return f.code;
@@ -46,7 +46,7 @@ fn code_of(_ src: String, _ fn_name: String) -> List<Instr> {
 }
 
 // The code of the first lifted-lambda unit (`__lambda_*`), or empty.
-fn lambda_code(_ src: String) -> List<Instr> {
+fn lambda_code(src: String) -> List<Instr> {
     for f in module_of(src).functions {
         if f.name.starts_with('__lambda') {
             return f.code;
@@ -58,7 +58,7 @@ fn lambda_code(_ src: String) -> List<Instr> {
 // A short tag for an instruction, for readable structural assertions. Operand-less
 // `Simple` ops are tagged by their opcode byte (`simple_<n>`); call/field
 // instructions get a name, and native/virtual calls carry their selector.
-fn instr_tag(_ i: Instr) -> String {
+fn instr_tag(i: Instr) -> String {
     return match i {
         Simple(op) => 'simple_${op.byte()}',
         Call(_, _) => 'call',
@@ -76,7 +76,7 @@ fn instr_tag(_ i: Instr) -> String {
     };
 }
 
-fn count_tag(_ code: List<Instr>, _ tag: String) -> Int {
+fn count_tag(code: List<Instr>, tag: String) -> Int {
     let mut n = 0;
     for i in code {
         if instr_tag(i) == tag {
@@ -89,7 +89,7 @@ fn count_tag(_ code: List<Instr>, _ tag: String) -> Int {
 // The argument count of the first `Call` (a method's `self` counts as an argument),
 // or -1 if there is none — distinguishes an instance call from a static one of the
 // same shape.
-fn first_call_argc(_ code: List<Instr>) -> Int {
+fn first_call_argc(code: List<Instr>) -> Int {
     for i in code {
         if let Call(_, argc) = i { return argc; }
     }
@@ -100,7 +100,7 @@ fn enum_tag_tag() -> String { return 'simple_${Op.EnumTag.byte()}'; }
 
 // The argument count of the first `CallVirtual` (the receiver counts as an
 // argument), or -1 if there is none.
-fn first_virtual_argc(_ code: List<Instr>) -> Int {
+fn first_virtual_argc(code: List<Instr>) -> Int {
     for i in code {
         if let CallVirtual(_, argc) = i { return argc; }
     }
@@ -108,7 +108,7 @@ fn first_virtual_argc(_ code: List<Instr>) -> Int {
 }
 
 // The argument counts of every `str_concat` call in `code`, in order.
-fn concat_argcs(_ code: List<Instr>) -> List<Int> {
+fn concat_argcs(code: List<Instr>) -> List<Int> {
     let out: List<Int> = [];
     for i in code {
         if let CallNative(name, argc) = i {
@@ -122,7 +122,7 @@ fn concat_argcs(_ code: List<Instr>) -> List<Int> {
 
 @test
 fn test_arithmetic_and_control_flow_byte_identical() -> Result<Void, Error> {
-    let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
+    let src = 'fn add(a: Int, b: Int) -> Int { return a + b; }\n'
         + 'fn main() -> Int {\n'
         + '    let x = add(2, 3);\n'
         + '    let mut sum = 0;\n'
@@ -171,12 +171,12 @@ fn test_bool_equality_byte_identical() -> Result<Void, Error> {
 fn test_if_else_and_double_byte_identical() -> Result<Void, Error> {
     // `if`-statement early return, an `if`-expression tail, comparisons, a Bool
     // local, and Double arithmetic (the F64 opcode + the 8-byte float constant).
-    let src = 'fn classify(_ n: Int) -> Int {\n'
+    let src = 'fn classify(n: Int) -> Int {\n'
         + '    if n < 0 { return -1; }\n'
         + '    let big = n > 100;\n'
         + '    return if big { 2 } else { 1 };\n'
         + '}\n'
-        + 'fn scale(_ x: Double) -> Double { return x * 2.0; }';
+        + 'fn scale(x: Double) -> Double { return x * 2.0; }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(
         actual: emit_bytes(src),
@@ -194,7 +194,7 @@ fn test_if_else_and_double_byte_identical() -> Result<Void, Error> {
 fn test_list_and_for_loop_byte_identical() -> Result<Void, Error> {
     // A `for x in list` index loop (the `list_len`/`list.get` lowering) and a list
     // literal — exercising the native-symbol pool and `list.new`.
-    let src = 'fn sum_list(_ xs: List<Int>) -> Int {\n'
+    let src = 'fn sum_list(xs: List<Int>) -> Int {\n'
         + '    let mut total = 0;\n'
         + '    for v in xs {\n'
         + '        total = total + v;\n'
@@ -220,7 +220,7 @@ fn test_list_and_for_loop_byte_identical() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-fn program_of(_ src: String, _ path: String) -> Program {
+fn program_of(src: String, path: String) -> Program {
     let prog = testkit.parse(src);
     prog.file_path = Option.Some(path);
     return prog;
@@ -236,12 +236,12 @@ fn test_same_file_first_resolution_byte_identical() -> Result<Void, Error> {
     // `file_bare_surface` (file → bare name → owning file) is what a real `as _`
     // import threads in; here it maps main's bare `lib_pick` to lib.thera.
     let lib = program_of(
-        'pub fn lib_pick(_ a: Int, _ b: Int) -> Int { return combine(a, b); }\n'
-        + 'fn combine(_ x: Int, _ y: Int) -> Int { return x + y; }',
+        'pub fn lib_pick(a: Int, b: Int) -> Int { return combine(a, b); }\n'
+        + 'fn combine(x: Int, y: Int) -> Int { return x + y; }',
         'lib.thera',
     );
     let main_prog = program_of(
-        'fn combine(_ x: Int) -> Int { return x * 100; }\n'
+        'fn combine(x: Int) -> Int { return x * 100; }\n'
         + 'fn use_both() -> Int { return combine(3) + lib_pick(4, 5); }',
         'main.thera',
     );
@@ -267,7 +267,7 @@ fn test_match_byte_identical() -> Result<Void, Error> {
     // payload-free variant, a wildcard arg, a nested constructor pattern
     // (`Node(l, r)`), and recursion inside arms.
     let src = 'enum Shape { Circle(Int), Square(Int), Point }\n'
-        + 'fn area(_ s: Shape) -> Int {\n'
+        + 'fn area(s: Shape) -> Int {\n'
         + '    return match s {\n'
         + '        Circle(r) => r * r * 3,\n'
         + '        Square(w) => w * w,\n'
@@ -275,13 +275,13 @@ fn test_match_byte_identical() -> Result<Void, Error> {
         + '    };\n'
         + '}\n'
         + 'enum Tree { Leaf(Int), Node(Tree, Tree) }\n'
-        + 'fn depth(_ t: Tree) -> Int {\n'
+        + 'fn depth(t: Tree) -> Int {\n'
         + '    return match t {\n'
         + '        Leaf(_) => 1,\n'
         + '        Node(l, r) => 1 + max2(depth(l), depth(r)),\n'
         + '    };\n'
         + '}\n'
-        + 'fn max2(_ a: Int, _ b: Int) -> Int {\n'
+        + 'fn max2(a: Int, b: Int) -> Int {\n'
         + '    return if a > b { a } else { b };\n'
         + '}';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
@@ -308,7 +308,7 @@ fn test_match_dispatch_byte_identical() -> Result<Void, Error> {
     // hoisted once and dispatched via a balanced binary search (`<`/`>` branches)
     // instead of the linear chain.
     let src = 'enum Dir { N, NE, E, SE, S, SW, W, NW }\n'
-        + 'fn turns(_ d: Dir) -> Int {\n'
+        + 'fn turns(d: Dir) -> Int {\n'
         + '    return match d {\n'
         + '        N => 0,\n'
         + '        NE => 1,\n'
@@ -344,13 +344,13 @@ fn test_method_calls_nondispatch_byte_identical() -> Result<Void, Error> {
     // and an instance `native fn` (`s.sides()` → the receiver pushed as the
     // native's first argument).
     let src = 'enum Shape { Circle(Int), Square(Int), Point }\n'
-        + 'fn make_circle(_ r: Int) -> Shape { return Shape.Circle(r); }\n'
+        + 'fn make_circle(r: Int) -> Shape { return Shape.Circle(r); }\n'
         + 'fn make_point() -> Shape { return Shape.Point; }\n'
-        + 'fn label(_ s: Shape) -> String { return s.name(); }\n'
+        + 'fn label(s: Shape) -> String { return s.name(); }\n'
         + 'impl Shape {\n'
         + '    @extern(\'shape_sides\') native fn sides(self) -> Int\n'
         + '}\n'
-        + 'fn sides_of(_ s: Shape) -> Int { return s.sides(); }';
+        + 'fn sides_of(s: Shape) -> Int { return s.sides(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(
         actual: emit_bytes(src),
@@ -379,12 +379,12 @@ fn test_method_calls_dispatch_byte_identical() -> Result<Void, Error> {
         + '    fn sum(self) -> Int { return self.x + self.y; }\n'
         + '    fn origin() -> Point { return Point { x: 0, y: 0 }; }\n'
         + '}\n'
-        + 'fn use_point(_ p: Point) -> Int { return p.sum(); }\n'
+        + 'fn use_point(p: Point) -> Int { return p.sum(); }\n'
         + 'fn make() -> Point { return Point.origin(); }\n'
         + 'interface Greeter { fn greet(self) -> Int; }\n'
-        + 'fn dispatch(_ g: Greeter) -> Int { return g.greet(); }\n'
+        + 'fn dispatch(g: Greeter) -> Int { return g.greet(); }\n'
         + 'struct Box { let run: () -> Int; }\n'
-        + 'fn call_it(_ b: Box) -> Int { return b.run(); }';
+        + 'fn call_it(b: Box) -> Int { return b.run(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(
         actual: emit_bytes(src),
@@ -409,9 +409,9 @@ fn test_lambdas_byte_identical() -> Result<Void, Error> {
     // lambda returned as a closure (`(x) => x + n` captures `n`), and calling a
     // closure held in a local (`add5(10)` → call.indirect). Each lambda lifts to a
     // `__lambda_N` unit whose body types via the param stash.
-    let src = 'fn apply(_ f: (Int) -> Int, _ x: Int) -> Int { return f(x); }\n'
-        + 'fn double_it(_ n: Int) -> Int { return apply((v) => v * 2, n); }\n'
-        + 'fn adder(_ n: Int) -> (Int) -> Int { return (x) => x + n; }\n'
+    let src = 'fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }\n'
+        + 'fn double_it(n: Int) -> Int { return apply((v) => v * 2, n); }\n'
+        + 'fn adder(n: Int) -> (Int) -> Int { return (x) => x + n; }\n'
         + 'fn use_adder() -> Int {\n'
         + '    let add5 = adder(5);\n'
         + '    return add5(10);\n'
@@ -477,7 +477,7 @@ fn test_lowering_enum_ctor_emits_enum_new() -> Result<Void, Error> {
 @test
 fn test_lowering_enum_name_hoists_one_tag() -> Result<Void, Error> {
     let src = 'enum Color { Red, Green, Blue }\n'
-        + 'fn label(_ c: Color) -> String { return c.name(); }';
+        + 'fn label(c: Color) -> String { return c.name(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(actual: count_tag(code_of(src, 'label'), enum_tag_tag()), expected: 1)?;
     return Result.Ok(void);
@@ -495,7 +495,7 @@ fn test_lowering_declared_enum_name_beats_the_builtin() -> Result<Void, Error> {
     let src = 'enum Tag { Name(String), Count(Int) }\n'
         + 'impl Tag { fn name(self) -> String { return match self '
         + '{ Name(n) => n, Count(_) => \'?\' }; } }\n'
-        + 'fn label(_ t: Tag) -> String { return t.name(); }';
+        + 'fn label(t: Tag) -> String { return t.name(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(actual: count_tag(code_of(src, 'label'), enum_tag_tag()), expected: 0)?;
     testing.assert_eq(actual: count_tag(code_of(src, 'label'), 'call'), expected: 1)?;
@@ -518,7 +518,7 @@ fn test_lowering_user_static_method_emits_receiverless_call() -> Result<Void, Er
 fn test_lowering_user_instance_method_pushes_self() -> Result<Void, Error> {
     let src = 'struct Box { let v: Int; }\n'
         + 'impl Box { fn get(self) -> Int { return self.v; } }\n'
-        + 'fn read(_ b: Box) -> Int { return b.get(); }';
+        + 'fn read(b: Box) -> Int { return b.get(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     // Same `Call` shape as the static case, but `self` makes argc 1.
     testing.assert_eq(actual: count_tag(code_of(src, 'read'), 'call'), expected: 1)?;
@@ -530,7 +530,7 @@ fn test_lowering_user_instance_method_pushes_self() -> Result<Void, Error> {
 fn test_lowering_native_instance_method_emits_call_native() -> Result<Void, Error> {
     let src = 'struct Buf { let n: Int; }\n'
         + 'impl Buf { native fn size(self) -> Int; }\n'
-        + 'fn go(_ b: Buf) -> Int { return b.size(); }';
+        + 'fn go(b: Buf) -> Int { return b.size(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(actual: count_tag(code_of(src, 'go'), 'call_native:size'), expected: 1)?;
     return Result.Ok(void);
@@ -558,7 +558,7 @@ fn test_lowering_free_native_fn_emits_call_native() -> Result<Void, Error> {
 @test
 fn test_lowering_field_call_emits_field_get_and_call_indirect() -> Result<Void, Error> {
     let src = 'struct Holder { let f: () -> Int; }\n'
-        + 'fn go(_ h: Holder) -> Int { return h.f(); }';
+        + 'fn go(h: Holder) -> Int { return h.f(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     let code = code_of(src, 'go');
     testing.assert_eq(actual: count_tag(code, 'field_get'), expected: 1)?;
@@ -569,7 +569,7 @@ fn test_lowering_field_call_emits_field_get_and_call_indirect() -> Result<Void, 
 @test
 fn test_lowering_interface_receiver_emits_call_virtual() -> Result<Void, Error> {
     let src = 'interface Shape { fn area(self) -> Int; }\n'
-        + 'fn describe(_ s: Shape) -> Int { return s.area(); }';
+        + 'fn describe(s: Shape) -> Int { return s.area(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(
         actual: count_tag(code_of(src, 'describe'), 'call_virtual:area'),
@@ -583,7 +583,7 @@ fn test_lowering_virtual_call_fills_parameter_default() -> Result<Void, Error> {
     // An omitted defaulted argument at a virtual site materializes from the
     // interface's signature: `call.virtual` carries receiver + filled default.
     let src = 'interface Shape { fn area(self, scale: Int = 2) -> Int; }\n'
-        + 'fn describe(_ s: Shape) -> Int { return s.area(); }';
+        + 'fn describe(s: Shape) -> Int { return s.area(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(actual: first_virtual_argc(code_of(src, 'describe')), expected: 2)?;
     return Result.Ok(void);
@@ -595,7 +595,7 @@ fn test_lowering_match_bisection_hoists_tag_vs_linear() -> Result<Void, Error> {
     // each arm; a large flat-constructor `match` bisects, hoisting the tag once
     // into a slot and branching on it (a balanced binary search).
     let small = 'enum Tri { A, B, C }\n'
-        + 'fn pick(_ t: Tri) -> Int { return match t { A => 0, B => 1, C => 2 }; }';
+        + 'fn pick(t: Tri) -> Int { return match t { A => 0, B => 1, C => 2 }; }';
     testing.assert_eq(actual: errors_of(small), expected: 0)?;
     testing.assert(
         count_tag(code_of(small, 'pick'), enum_tag_tag()) > 1,
@@ -603,7 +603,7 @@ fn test_lowering_match_bisection_hoists_tag_vs_linear() -> Result<Void, Error> {
     )?;
 
     let big = 'enum Dir { N, NE, E, SE, S, SW, W, NW }\n'
-        + 'fn turns(_ d: Dir) -> Int {\n'
+        + 'fn turns(d: Dir) -> Int {\n'
         + '    return match d { N => 0, NE => 1, E => 2, SE => 3, S => 4, SW => 5, W => 6, _ => 7 };\n'
         + '}';
     testing.assert_eq(actual: errors_of(big), expected: 0)?;

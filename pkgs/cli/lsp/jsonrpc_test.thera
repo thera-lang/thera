@@ -9,7 +9,7 @@ import 'jsonrpc' as _;
 // loop can be driven without a real stream (empty read = EOF).
 struct FakeReader { let data: Bytes; let mut pos: Int; }
 impl io.Reader for FakeReader {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         let end = (self.pos + max).min(self.data.len());
         let chunk = self.data.slice(self.pos, end);
         self.pos = end;

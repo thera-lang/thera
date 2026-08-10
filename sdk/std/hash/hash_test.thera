@@ -6,7 +6,7 @@ import std.encoding;
 import 'hash' as _;
 
 // Render a digest as lowercase hex, the form test vectors are published in.
-fn hex_of(_ data: Bytes) -> String {
+fn hex_of(data: Bytes) -> String {
     return encoding.hex_encode(data);
 }
 

@@ -7,21 +7,21 @@ import 'defaultsub';
 const LOCAL_PAD: Int = 7;
 
 // A default naming a file-local const.
-pub fn padded(_ n: Int, pad: Int = LOCAL_PAD) -> Int {
+pub fn padded(n: Int, named pad: Int = LOCAL_PAD) -> Int {
     return n + pad;
 }
 
 // A default naming a member of an import only this file has.
-pub fn scaled(_ n: Int, by: Int = defaultsub.FACTOR) -> Int {
+pub fn scaled(n: Int, named by: Int = defaultsub.FACTOR) -> Int {
     return n * by;
 }
 
-pub fn tag(_ at: SourceLoc) -> Int {
+pub fn tag(at: SourceLoc) -> Int {
     return at.line;
 }
 
 // The composite: the default needs `tag` from *this* file's scope and `#loc`
 // from the call site. Neither end alone is enough.
-pub fn caller_line(at: Int = tag(#loc)) -> Int {
+pub fn caller_line(named at: Int = tag(#loc)) -> Int {
     return at;
 }

@@ -93,7 +93,7 @@ impl Display for NetError {
 
 // The native error payload is "<kind>\u{1}<message>"; map the kind tag to the
 // matching variant so callers can `match` on the cause.
-fn to_net_error(_ raw: String) -> NetError {
+fn to_net_error(raw: String) -> NetError {
     let parts = raw.split('\u{1}');
     let kind = parts.get(0).unwrap_or('other');
     let msg = parts.get(1).unwrap_or(raw);
@@ -133,37 +133,37 @@ fn to_net_error(_ raw: String) -> NetError {
 // --- native bindings (private; errors come back kind-tagged) ---
 
 @extern('socket_listen')
-native fn _listen(_ addr: String) -> Result<Int, String>
+native fn _listen(addr: String) -> Result<Int, String>
 
 @extern('socket_accept')
-native fn _accept(_ handle: Int) -> Result<Int, String>
+native fn _accept(handle: Int) -> Result<Int, String>
 
 @extern('socket_connect')
-native fn _connect(_ addr: String) -> Result<Int, String>
+native fn _connect(addr: String) -> Result<Int, String>
 
 @extern('socket_connect_finish')
-native fn _connect_finish(_ handle: Int) -> Result<Void, String>
+native fn _connect_finish(handle: Int) -> Result<Void, String>
 
 @extern('socket_read')
-native fn _read(_ handle: Int, _ max: Int) -> Result<Bytes, String>
+native fn _read(handle: Int, max: Int) -> Result<Bytes, String>
 
 @extern('socket_write')
-native fn _write(_ handle: Int, _ data: Bytes) -> Result<Int, String>
+native fn _write(handle: Int, data: Bytes) -> Result<Int, String>
 
 @extern('socket_close')
-native fn _close(_ handle: Int) -> Result<Void, String>
+native fn _close(handle: Int) -> Result<Void, String>
 
 @extern('socket_local_addr')
-native fn _local_addr(_ handle: Int) -> Result<String, String>
+native fn _local_addr(handle: Int) -> Result<String, String>
 
 @extern('socket_peer_addr')
-native fn _peer_addr(_ handle: Int) -> Result<String, String>
+native fn _peer_addr(handle: Int) -> Result<String, String>
 
 @extern('socket_resolve')
-native fn _resolve(_ host: String, _ port: Int) -> Result<String, String>
+native fn _resolve(host: String, port: Int) -> Result<String, String>
 
 @extern('socket_is_ready')
-native fn _is_ready(_ handle: Int) -> Bool
+native fn _is_ready(handle: Int) -> Bool
 
 // TLS. `_tls_connect` wraps an already-connected socket and hands back the *same*
 // handle — the session is layered onto the registry entry in place, so the poller
@@ -171,24 +171,24 @@ native fn _is_ready(_ handle: Int) -> Bool
 // working on it while `_read`/`_write` stop (they would bypass the session).
 
 @extern('tls_connect')
-native fn _tls_connect(_ handle: Int, _ host: String, _ roots_pem: String) -> Result<Int, String>
+native fn _tls_connect(handle: Int, host: String, roots_pem: String) -> Result<Int, String>
 
 // The server mirror, wrapping an *accepted* socket the same way. Bound only for
 // `accept_tls` below — there is no public server-TLS surface, by design.
 @extern('tls_accept')
-native fn _tls_accept(_ handle: Int, _ cert_pem: String, _ key_pem: String) -> Result<Int, String>
+native fn _tls_accept(handle: Int, cert_pem: String, key_pem: String) -> Result<Int, String>
 
 @extern('tls_handshake')
-native fn _tls_handshake(_ handle: Int) -> Result<Void, String>
+native fn _tls_handshake(handle: Int) -> Result<Void, String>
 
 @extern('tls_read')
-native fn _tls_read(_ handle: Int, _ max: Int) -> Result<Bytes, String>
+native fn _tls_read(handle: Int, max: Int) -> Result<Bytes, String>
 
 @extern('tls_write')
-native fn _tls_write(_ handle: Int, _ data: Bytes) -> Result<Int, String>
+native fn _tls_write(handle: Int, data: Bytes) -> Result<Int, String>
 
 @extern('tls_close')
-native fn _tls_close(_ handle: Int) -> Result<Void, String>
+native fn _tls_close(handle: Int) -> Result<Void, String>
 
 // --- streams ---
 
@@ -206,7 +206,7 @@ pub struct TcpStream {
 impl io.Reader for TcpStream {
     /// Up to `max` bytes. An **empty** result means the peer closed its end (EOF),
     /// which is the normal end of a stream — not an error.
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         return match _read(self.handle, max) {
             Ok(b) => Result.Ok(b),
             Err(e) => Result.Err(to_net_error(e)),
@@ -218,7 +218,7 @@ impl io.Writer for TcpStream {
     /// Writes what the socket accepts now and returns that count, which may be
     /// **short** — the kernel's send buffer is finite. Use `io.write_all` unless
     /// you are handling the remainder yourself.
-    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+    pub fn write(self, data: Bytes) -> Result<Int, Error> {
         return match _write(self.handle, data) {
             Ok(n) => Result.Ok(n),
             Err(e) => Result.Err(to_net_error(e)),
@@ -300,7 +300,7 @@ impl TlsStream {
     /// `TlsStream` (same descriptor), and on failure it is closed. Either way the
     /// original value is spent — reading or writing it afterwards is a
     /// `NetError.Other`, deliberately, so plaintext can't slip past the session.
-    pub fn connect(_ stream: TcpStream, host: String) -> Result<TlsStream, NetError> {
+    pub fn connect(stream: TcpStream, named host: String) -> Result<TlsStream, NetError> {
         return connect_trusting(stream, host: host, roots_pem: '');
     }
 }
@@ -314,9 +314,9 @@ impl TlsStream {
 /// "trust this too". The roots are additional, never a replacement, so it cannot
 /// turn verification off even where it is reachable.
 fn connect_trusting(
-    _ stream: TcpStream,
-    host: String,
-    roots_pem: String,
+    stream: TcpStream,
+    named host: String,
+    named roots_pem: String,
 ) -> Result<TlsStream, NetError> {
     let handle = match _tls_connect(stream.handle, host, roots_pem) {
         Ok(h) => h,
@@ -350,9 +350,9 @@ fn connect_trusting(
 /// nothing else. Note what it does **not** do — a server session verifies nothing
 /// about its peer, so a completed handshake here says only that someone speaks TLS.
 fn accept_tls(
-    _ stream: TcpStream,
-    cert_pem: String,
-    key_pem: String,
+    stream: TcpStream,
+    named cert_pem: String,
+    named key_pem: String,
 ) -> Result<TlsStream, NetError> {
     let handle = match _tls_accept(stream.handle, cert_pem, key_pem) {
         Ok(h) => h,
@@ -377,7 +377,7 @@ impl io.Reader for TlsStream {
     /// `close_notify`. A connection that ends without one is a `NetError.Tls`
     /// instead: silently accepting a truncated stream is how a response gets
     /// trimmed by someone who is not the server.
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         return match _tls_read(self.handle, max) {
             Ok(b) => Result.Ok(b),
             Err(e) => Result.Err(to_net_error(e)),
@@ -389,7 +389,7 @@ impl io.Writer for TlsStream {
     /// Encrypts and sends what the session accepts now, returning that count —
     /// **short writes are normal**, exactly as for a `TcpStream`. Use
     /// `io.write_all` unless you are handling the remainder yourself.
-    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+    pub fn write(self, data: Bytes) -> Result<Int, Error> {
         return match _tls_write(self.handle, data) {
             Ok(n) => Result.Ok(n),
             Err(e) => Result.Err(to_net_error(e)),
@@ -483,7 +483,7 @@ impl io.Closer for TcpListener {
 ///
 /// Takes an address, not a host name: binding is to an interface this host owns, so
 /// there is nothing to resolve. `connect` is the one that takes a host.
-pub fn listen(_ addr: String) -> Result<TcpListener, NetError> {
+pub fn listen(addr: String) -> Result<TcpListener, NetError> {
     return match _listen(addr) {
         Ok(h) => Result.Ok(TcpListener { handle: h }),
         Err(e) => Result.Err(to_net_error(e)),
@@ -492,7 +492,7 @@ pub fn listen(_ addr: String) -> Result<TcpListener, NetError> {
 
 /// Resolve `host` and connect to it, trying each address until one answers. `host`
 /// may be a name (`'example.com'`) or a literal IP.
-pub fn connect(_ host: String, _ port: Int) -> Result<TcpStream, NetError> {
+pub fn connect(host: String, port: Int) -> Result<TcpStream, NetError> {
     let addrs = resolve(host, port)?;
     // `resolve` yields at least one address (it errors otherwise), so `last` is a
     // real error by construction.
@@ -511,13 +511,13 @@ pub fn connect(_ host: String, _ port: Int) -> Result<TcpStream, NetError> {
 ///
 /// `host` must be the **name** to verify (`'example.com'`), which is also what is
 /// dialled; a literal IP works only if the certificate is issued for that IP.
-pub fn connect_tls(_ host: String, _ port: Int) -> Result<TlsStream, NetError> {
+pub fn connect_tls(host: String, port: Int) -> Result<TlsStream, NetError> {
     return TlsStream.connect(connect(host, port)?, host: host);
 }
 
 /// Connect to a single already-resolved `<ip>:<port>`. `connect` is the one to
 /// reach for; this skips resolution (and its fallback across addresses).
-pub fn connect_addr(_ addr: String) -> Result<TcpStream, NetError> {
+pub fn connect_addr(addr: String) -> Result<TcpStream, NetError> {
     // Two natives: `_connect` starts the connect and hands back the socket, then
     // `_connect_finish` parks until the handshake lands. They are split because a
     // parked native re-runs on wake, and re-issuing connect(2) on a pending socket
@@ -538,7 +538,7 @@ pub fn connect_addr(_ addr: String) -> Result<TcpStream, NetError> {
 
 /// Resolve `host` to its `<ip>:<port>` addresses (DNS, or the hosts file). Errors
 /// if the name resolves to nothing.
-pub fn resolve(_ host: String, _ port: Int) -> Result<List<String>, NetError> {
+pub fn resolve(host: String, port: Int) -> Result<List<String>, NetError> {
     return match _resolve(host, port) {
         Ok(joined) => Result.Ok(joined.split('\u{1}')),
         Err(e) => Result.Err(to_net_error(e)),

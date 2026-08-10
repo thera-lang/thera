@@ -11,7 +11,7 @@ import std.testing;
 import 'requests' as _;
 
 /// A request as the text that would be sent.
-fn body(_ req: Request) -> String {
+fn body(req: Request) -> String {
     return json.stringify(request_to_json(req));
 }
 

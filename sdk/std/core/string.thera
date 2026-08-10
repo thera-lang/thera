@@ -32,7 +32,7 @@ impl String {
     /// 'hello'.slice(1, 4)   // 'ell'
     /// ```
     @extern('str_slice')
-    pub native fn slice(self, _ start: Int, _ end: Int) -> String
+    pub native fn slice(self, start: Int, end: Int) -> String
 
     /// The substring in the half-open **UTF-8 byte** range `[start, end)` — the
     /// byte-offset counterpart to [slice], for callers that work in byte positions
@@ -43,7 +43,7 @@ impl String {
     /// 'héllo'.byte_slice(0, 1)   // 'h'  ('é' is 2 bytes, so byte 3 ends it)
     /// ```
     @extern('str_byte_slice')
-    pub native fn byte_slice(self, _ start: Int, _ end: Int) -> String
+    pub native fn byte_slice(self, start: Int, end: Int) -> String
 
     /// A copy with leading and trailing whitespace removed.
     @extern('str_trim')
@@ -59,13 +59,13 @@ impl String {
 
     /// Substring / prefix / suffix tests.
     @extern('str_contains')
-    pub native fn contains(self, _ needle: String) -> Bool
+    pub native fn contains(self, needle: String) -> Bool
 
     @extern('str_starts_with')
-    pub native fn starts_with(self, _ prefix: String) -> Bool
+    pub native fn starts_with(self, prefix: String) -> Bool
 
     @extern('str_ends_with')
-    pub native fn ends_with(self, _ suffix: String) -> Bool
+    pub native fn ends_with(self, suffix: String) -> Bool
 
     /// Case conversion.
     @extern('str_to_uppercase')
@@ -84,7 +84,7 @@ impl String {
 
     /// Split on each occurrence of `sep`.
     @extern('str_split')
-    pub native fn split(self, _ sep: String) -> List<String>
+    pub native fn split(self, sep: String) -> List<String>
 
     /// A copy with every occurrence of `from` replaced by `to`. An empty `from`
     /// matches nothing (the string is returned unchanged) rather than splitting
@@ -93,7 +93,7 @@ impl String {
     /// ```thera
     /// 'a-b-c'.replace('-', '_')   // 'a_b_c'
     /// ```
-    pub fn replace(self, _ from: String, _ to: String) -> String {
+    pub fn replace(self, from: String, to: String) -> String {
         if from.is_empty() {
             return self;
         }
@@ -105,7 +105,7 @@ impl String {
     /// ```thera
     /// 'ab'.repeat(3)   // 'ababab'
     /// ```
-    pub fn repeat(self, _ count: Int) -> String {
+    pub fn repeat(self, count: Int) -> String {
         // Double-and-add (exponentiation by squaring), not a `count`-long append
         // loop: appending `self` one at a time recopies the growing result each
         // step, which is quadratic in the output length. Doubling keeps the total
@@ -144,7 +144,7 @@ impl String {
     /// 'hello'.find('ll')   // Some(2)
     /// 'hello'.find('z')    // None
     /// ```
-    pub fn find(self, _ needle: String) -> Option<Int> {
+    pub fn find(self, needle: String) -> Option<Int> {
         let hay = self.chars();
         let pat = needle.chars();
         let n = hay.len();
@@ -173,7 +173,7 @@ impl String {
     /// ```thera
     /// '7'.pad_start(3, '0')   // '007'
     /// ```
-    pub fn pad_start(self, _ width: Int, _ pad: String) -> String {
+    pub fn pad_start(self, width: Int, pad: String) -> String {
         let fill = self.padding(width, pad);
         return fill + self;
     }
@@ -183,14 +183,14 @@ impl String {
     /// ```thera
     /// '7'.pad_end(3, '.')   // '7..'
     /// ```
-    pub fn pad_end(self, _ width: Int, _ pad: String) -> String {
+    pub fn pad_end(self, width: Int, pad: String) -> String {
         let fill = self.padding(width, pad);
         return self + fill;
     }
 
     /// The padding string needed to bring `self` up to `width` code points using
     /// `pad` (repeated then truncated); empty when no padding is needed.
-    fn padding(self, _ width: Int, _ pad: String) -> String {
+    fn padding(self, width: Int, pad: String) -> String {
         let deficit = width - self.len();
         if deficit <= 0 || pad.is_empty() {
             return '';
@@ -244,7 +244,7 @@ impl String {
     /// signed value — mirroring the front-end's `0x…` literal handling. Pure Thera
     /// over wrapping `*`/`+`; the ASCII digit ranges are inlined to avoid a
     /// std.core → std.char dependency.
-    pub fn to_int_radix(self, _ radix: Int) -> Option<Int> {
+    pub fn to_int_radix(self, radix: Int) -> Option<Int> {
         let cps = self.chars();
         let n = cps.len();
         if n == 0 {
@@ -279,7 +279,7 @@ impl String {
     /// surrogate, out of range, or negative) becomes U+FFFD (�). Use
     /// `try_from_chars` to reject such input instead.
     @extern('str_from_chars')
-    pub native fn from_chars(_ cps: List<Int>) -> String
+    pub native fn from_chars(cps: List<Int>) -> String
 
     /// Like `from_chars`, but returns None if any element is not a valid Unicode
     /// scalar value — for callers that must reject malformed input rather than
@@ -290,13 +290,13 @@ impl String {
     /// String.try_from_chars([0xD800])     // None (a lone surrogate)
     /// ```
     @extern('str_try_from_chars')
-    pub native fn try_from_chars(_ cps: List<Int>) -> Option<String>
+    pub native fn try_from_chars(cps: List<Int>) -> Option<String>
 }
 
 /// The value 0..35 of an ASCII alphanumeric code point (`0-9`, `a-z`, `A-Z`), or -1
 /// for anything else. Used by `to_int_radix`; the caller checks the value against
 /// the radix. Inlined ASCII ranges keep std.core independent of std.char.
-fn digit_value_for(_ cp: Int) -> Int {
+fn digit_value_for(cp: Int) -> Int {
     if cp >= 48 && cp <= 57 { // '0'..'9'
         return cp - 48;
     }
@@ -329,5 +329,5 @@ impl Debug for String {
 /// comparison via the runtime fallback).
 impl Ord for String {
     @extern('str_compare')
-    pub native fn compare(self, _ other: String) -> Ordering
+    pub native fn compare(self, other: String) -> Ordering
 }

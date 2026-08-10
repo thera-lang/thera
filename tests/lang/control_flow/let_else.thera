@@ -6,7 +6,7 @@
 // "bind-or-bail" guard. Single binding, sequential guards, `throw`-diverge, and
 // the no-binding assertion form.
 
-fn need(_ o: Option<Int>) -> Int {
+fn need(o: Option<Int>) -> Int {
     let Some(n) = o else {
         return -1;
     };
@@ -14,14 +14,14 @@ fn need(_ o: Option<Int>) -> Int {
 }
 
 // Sequential guards keep the happy path un-indented.
-fn two(_ a: Option<Int>, _ b: Option<Int>) -> Int {
+fn two(a: Option<Int>, b: Option<Int>) -> Int {
     let Some(x) = a else { return 100; };
     let Some(y) = b else { return 200; };
     return x + y;
 }
 
 // A Result pattern, diverging with `throw`.
-fn checked(_ o: Option<Int>) -> Result<Int, Error> {
+fn checked(o: Option<Int>) -> Result<Int, Error> {
     let Some(n) = o else {
         throw error('absent');
     };
@@ -29,7 +29,7 @@ fn checked(_ o: Option<Int>) -> Result<Int, Error> {
 }
 
 // The no-binding assertion form: refute-or-diverge, binds nothing.
-fn assert_ok(_ r: Result<Int, Error>) -> String {
+fn assert_ok(r: Result<Int, Error>) -> String {
     let Ok(_) = r else {
         return 'err';
     };

@@ -14,7 +14,7 @@ fn outer() -> Result<Void, Error> {
     inner()?;
 }
 
-fn early(_ b: Bool) -> Result<Void, Error> {
+fn early(b: Bool) -> Result<Void, Error> {
     if b {
         return;
     }

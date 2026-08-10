@@ -30,7 +30,7 @@ pub let separator: String = if env.os() == 'windows' { '\\' } else { '/' };
 /// ```thera
 /// path.to_native('src/main.thera')  // 'src/main.thera' (POSIX) | 'src\main.thera' (Windows)
 /// ```
-pub fn to_native(_ p: String) -> String {
+pub fn to_native(p: String) -> String {
     return p.split('/').join(separator);
 }
 
@@ -42,7 +42,7 @@ pub fn to_native(_ p: String) -> String {
 /// ```thera
 /// path.from_native('src\\main.thera')  // 'src/main.thera' (Windows)
 /// ```
-pub fn from_native(_ p: String) -> String {
+pub fn from_native(p: String) -> String {
     return p.split(separator).join('/');
 }
 
@@ -55,7 +55,7 @@ pub fn from_native(_ p: String) -> String {
 /// path.components('/usr/bin')       // ['', 'usr', 'bin']
 /// path.components('a//b/')          // ['a', 'b']
 /// ```
-pub fn components(_ path: String) -> List<String> {
+pub fn components(path: String) -> List<String> {
     let raw = path.split('/');
     let result: List<String> = [];
     for p in raw.enumerate() {
@@ -76,7 +76,7 @@ pub fn components(_ path: String) -> List<String> {
 /// path.join('src/', 'main.thera')  // 'src/main.thera'
 /// path.join('', 'main.thera')      // 'main.thera'
 /// ```
-pub fn join(_ base: String, _ part: String) -> String {
+pub fn join(base: String, part: String) -> String {
     if base.is_empty() {
         return part;
     }
@@ -102,7 +102,7 @@ pub fn join(_ base: String, _ part: String) -> String {
 /// path.join_all(['a', '', 'b'])           // 'a/b'
 /// path.join_all(['x', '/abs', 'y'])       // '/abs/y'
 /// ```
-pub fn join_all(_ segments: List<String>) -> String {
+pub fn join_all(segments: List<String>) -> String {
     let mut result = '';
     for seg in segments {
         result = join(result, seg);
@@ -119,7 +119,7 @@ pub fn join_all(_ segments: List<String>) -> String {
 /// path.dirname('/usr/bin/thera')  // '/usr/bin'
 /// path.dirname('/file')          // '/'
 /// ```
-pub fn dirname(_ path: String) -> String {
+pub fn dirname(path: String) -> String {
     let parts = components(path);
     if parts.len() <= 1 {
         // Either the root marker alone ('/') or a bare name with no separator.
@@ -148,7 +148,7 @@ pub fn dirname(_ path: String) -> String {
 /// path.basename('src/main.thera')  // 'main.thera'
 /// path.basename('/usr/bin/thera')  // 'thera'
 /// ```
-pub fn basename(_ path: String) -> String {
+pub fn basename(path: String) -> String {
     let parts = components(path);
     if parts.len() == 0 {
         return path;
@@ -170,7 +170,7 @@ pub fn basename(_ path: String) -> String {
 /// path.extension('Makefile')       // ''
 /// path.extension('.bashrc')        // ''
 /// ```
-pub fn extension(_ path: String) -> String {
+pub fn extension(path: String) -> String {
     let name = basename(path);
     let parts = name.split('.');
     if parts.len() < 2 {
@@ -190,7 +190,7 @@ pub fn extension(_ path: String) -> String {
 /// path.stem('archive.tar.gz')  // 'archive.tar'
 /// path.stem('Makefile')        // 'Makefile'
 /// ```
-pub fn stem(_ path: String) -> String {
+pub fn stem(path: String) -> String {
     let name = basename(path);
     if extension(name).is_empty() {
         return name;
@@ -215,7 +215,7 @@ pub fn stem(_ path: String) -> String {
 /// path.with_extension('main.thera', '.txt')     // 'main.txt'
 /// path.with_extension('main.thera', '')         // 'main'
 /// ```
-pub fn with_extension(_ path: String, _ ext: String) -> String {
+pub fn with_extension(path: String, ext: String) -> String {
     let mut dot_ext = ext;
     if !ext.is_empty() && !ext.starts_with('.') {
         dot_ext = '.${ext}';
@@ -234,7 +234,7 @@ pub fn with_extension(_ path: String, _ ext: String) -> String {
 /// path.is_absolute('/usr/bin')  // true
 /// path.is_absolute('src/main')  // false
 /// ```
-pub fn is_absolute(_ path: String) -> Bool {
+pub fn is_absolute(path: String) -> Bool {
     return path.starts_with('/');
 }
 
@@ -252,7 +252,7 @@ pub fn is_absolute(_ path: String) -> Bool {
 /// path.normalize('/..')          // '/'
 /// path.normalize('')             // '.'
 /// ```
-pub fn normalize(_ path: String) -> String {
+pub fn normalize(path: String) -> String {
     let is_abs = is_absolute(path);
     let parts = components(path);
     let mut stack: List<String> = [];
@@ -299,7 +299,7 @@ pub fn normalize(_ path: String) -> String {
 /// path.relative(from: '/a', to: '/a/b/c')     // Ok('b/c')
 /// path.relative(from: 'x/y', to: 'x/y')       // Ok('.')
 /// ```
-pub fn relative(from: String, to: String) -> Result<String, Error> {
+pub fn relative(named from: String, named to: String) -> Result<String, Error> {
     let b = normalize(from);
     let t = normalize(to);
     if b == t {
@@ -341,7 +341,7 @@ pub fn relative(from: String, to: String) -> Result<String, Error> {
 
 /// A normalized path's components without the absolute-root marker, and with a lone
 /// `.` treated as no components — the form [relative] diffs.
-fn path_parts(_ p: String) -> List<String> {
+fn path_parts(p: String) -> List<String> {
     if p == '.' {
         return [];
     }

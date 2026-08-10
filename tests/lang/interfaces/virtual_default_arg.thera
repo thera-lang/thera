@@ -7,7 +7,7 @@
 // the interface-typed parameter fill the omitted `punct`.
 
 interface Greeter {
-    fn greet(self, punct: String = '!') -> String;
+    fn greet(self, named punct: String = '!') -> String;
 }
 
 struct Person {
@@ -15,12 +15,12 @@ struct Person {
 }
 
 impl Greeter for Person {
-    fn greet(self, punct: String = '!') -> String {
+    fn greet(self, named punct: String = '!') -> String {
         return self.name + punct;
     }
 }
 
-fn show(_ g: Greeter) -> Void {
+fn show(g: Greeter) -> Void {
     println(g.greet());
 }
 

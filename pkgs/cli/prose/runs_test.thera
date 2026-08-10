@@ -8,7 +8,7 @@ import 'runs' as _;
 
 // Each run as `<marker>@<indent>[<content lines joined by |>]`, so a case pins
 // grouping and extraction in one string.
-fn shape(_ source: String) -> String {
+fn shape(source: String) -> String {
     let parts: List<String> = [];
     for r in comment_runs(source, tokenize(source)) {
         parts.push('${r.marker}@${r.indent.len()}[${r.lines.join('|')}]');

@@ -1,6 +1,6 @@
 import 'even_side';
 
-pub fn is_odd(_ n: Int) -> Bool {
+pub fn is_odd(n: Int) -> Bool {
     if n == 0 {
         return false;
     }

@@ -1,22 +1,22 @@
 //! spec: warn-missing-argument-label
 //! mode: check
 
-// The calling convention gives each parameter exactly one call form: a labeled
-// parameter is passed with its label, a `_` one without. Passing a labeled
+// The calling convention gives each parameter exactly one call form: a `named`
+// parameter is passed with its label, a plain one without. Passing a `named`
 // parameter positionally is a **warning** for now — the checker still accepts it,
 // ahead of the enforcement flip.
 
-fn greet(name: String, times: Int) -> String {
+fn greet(named name: String, named times: Int) -> String {
     return '${name} x${times}';
 }
 
 // A label is the parameter's name; `default` is not a reserved word, so it is
 // both the label the call site owes and the binding the body reads.
-fn flag(_ name: String, default: Bool) -> Bool {
+fn flag(name: String, named default: Bool) -> Bool {
     return default;
 }
 
-fn pad(_ s: String, width: Int = 4) -> String {
+fn pad(s: String, named width: Int = 4) -> String {
     return '${s}${width}';
 }
 

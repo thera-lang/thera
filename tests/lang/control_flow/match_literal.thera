@@ -1,7 +1,7 @@
 //! spec: cf-match-literal
 //! mode: run
 
-fn count(_ n: Int) -> String {
+fn count(n: Int) -> String {
     return match n {
         0 => 'zero',
         1 => 'one',
@@ -9,7 +9,7 @@ fn count(_ n: Int) -> String {
     };
 }
 
-fn bit(_ b: Bool) -> String {
+fn bit(b: Bool) -> String {
     return match b {
         true => 'on',
         false => 'off',

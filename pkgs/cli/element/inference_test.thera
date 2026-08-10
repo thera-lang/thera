@@ -13,11 +13,11 @@ import 'element' as _;
 import 'resolver' as _;
 import 'inference' as _;
 
-fn lib_of(_ src: String) -> LibraryElement {
+fn lib_of(src: String) -> LibraryElement {
     return build_library(parse_tokens(tokenize(src).tokens).program, [], [:], [:]);
 }
 
-fn type_of(_ src: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn type_of(src: String, scope: Map<String, Type>, ctx: InferCtx) -> Type {
     return infer_in(parse_expression(tokenize(src).tokens), scope, ctx);
 }
 
@@ -28,7 +28,7 @@ fn empty_scope() -> Map<String, Type> {
 
 // An expected named type built the way inference builds one — owner stamped from
 // the registry — so structural equality matches the inferred type's `TypeId`.
-fn mk_iface(_ ctx: InferCtx, _ name: String, _ args: List<Type>) -> Type {
+fn mk_iface(ctx: InferCtx, name: String, args: List<Type>) -> Type {
     return named_type(ctx.library.type_defs, name, args);
 }
 
@@ -168,7 +168,7 @@ fn test_generic_method_instantiates_from_receiver() -> Result<Void, Error> {
 
 @test
 fn test_free_function_call_return_type() -> Result<Void, Error> {
-    let ctx = new_ctx(lib_of('fn twice(_ n: Int) -> Int { return n + n; }'));
+    let ctx = new_ctx(lib_of('fn twice(n: Int) -> Int { return n + n; }'));
     testing.assert_eq(
         actual: type_of('twice(21)', empty_scope(), ctx),
         expected: Type.Primitive(Primitive.Int),
@@ -279,7 +279,7 @@ fn test_forward_flow_unpinned_stays_unknown() -> Result<Void, Error> {
 
 // ---- enum construction recovers parameters from the expected type ----
 
-fn type_of_expecting(_ src: String, _ ctx: InferCtx, _ expected: Type) -> Type {
+fn type_of_expecting(src: String, ctx: InferCtx, expected: Type) -> Type {
     return infer_expr(
         parse_expression(tokenize(src).tokens),
         empty_scope(),

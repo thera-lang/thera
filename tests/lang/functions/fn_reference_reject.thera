@@ -8,15 +8,15 @@
 // "not a local variable", a message about the compiler's lookup rather than the
 // mistake.
 
-fn takes_string(_ s: String) -> Int {
+fn takes_string(s: String) -> Int {
     return s.len();
 }
 
-fn takes_two(_ a: Int, _ b: Int) -> Int {
+fn takes_two(a: Int, b: Int) -> Int {
     return a + b;
 }
 
-fn apply(_ f: (Int) -> Int, _ n: Int) -> Int {
+fn apply(f: (Int) -> Int, n: Int) -> Int {
     return f(n);
 }
 

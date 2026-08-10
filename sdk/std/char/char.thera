@@ -69,12 +69,12 @@ pub const DEL: Int = 127;
 // --- Predicates (ASCII only; pure Thera — no native fn required) ---
 
 /// True for an ASCII decimal digit, 0-9.
-pub fn is_digit(_ cp: Int) -> Bool {
+pub fn is_digit(cp: Int) -> Bool {
     return cp >= DIGIT_0 && cp <= DIGIT_9;
 }
 
 /// True for an ASCII hexadecimal digit: 0-9, a-f, or A-F.
-pub fn is_hex_digit(_ cp: Int) -> Bool {
+pub fn is_hex_digit(cp: Int) -> Bool {
     if is_digit(cp) {
         return true;
     }
@@ -83,32 +83,32 @@ pub fn is_hex_digit(_ cp: Int) -> Bool {
 }
 
 /// True for an ASCII uppercase letter, A-Z.
-pub fn is_upper(_ cp: Int) -> Bool {
+pub fn is_upper(cp: Int) -> Bool {
     return cp >= UPPER_A && cp <= UPPER_Z;
 }
 
 /// True for an ASCII lowercase letter, a-z.
-pub fn is_lower(_ cp: Int) -> Bool {
+pub fn is_lower(cp: Int) -> Bool {
     return cp >= LOWER_A && cp <= LOWER_Z;
 }
 
 /// True for an ASCII letter, A-Z or a-z.
-pub fn is_alpha(_ cp: Int) -> Bool {
+pub fn is_alpha(cp: Int) -> Bool {
     return is_upper(cp) || is_lower(cp);
 }
 
 /// True for an ASCII letter or digit.
-pub fn is_alphanumeric(_ cp: Int) -> Bool {
+pub fn is_alphanumeric(cp: Int) -> Bool {
     return is_alpha(cp) || is_digit(cp);
 }
 
 /// True for ASCII whitespace: space, tab, newline, or carriage return.
-pub fn is_whitespace(_ cp: Int) -> Bool {
+pub fn is_whitespace(cp: Int) -> Bool {
     return cp == SPACE || cp == TAB || cp == LF || cp == CR;
 }
 
 /// Return the numeric value of an ASCII decimal digit, or None if not a digit.
-pub fn digit_value(_ cp: Int) -> Option<Int> {
+pub fn digit_value(cp: Int) -> Option<Int> {
     if is_digit(cp) {
         return Option.Some(cp - DIGIT_0);
     }
@@ -116,7 +116,7 @@ pub fn digit_value(_ cp: Int) -> Option<Int> {
 }
 
 /// Return the value 0..15 of an ASCII hex digit (0-9, a-f, A-F), or None.
-pub fn hex_digit_value(_ cp: Int) -> Option<Int> {
+pub fn hex_digit_value(cp: Int) -> Option<Int> {
     if is_digit(cp) {
         return Option.Some(cp - DIGIT_0);
     }
@@ -131,7 +131,7 @@ pub fn hex_digit_value(_ cp: Int) -> Option<Int> {
 
 /// Return the lowercase equivalent of an uppercase ASCII letter; other code points
 /// are returned unchanged.
-pub fn to_lowercase(_ cp: Int) -> Int {
+pub fn to_lowercase(cp: Int) -> Int {
     if is_upper(cp) {
         return cp + 32;
     }
@@ -140,7 +140,7 @@ pub fn to_lowercase(_ cp: Int) -> Int {
 
 /// Return the uppercase equivalent of a lowercase ASCII letter; other code points
 /// are returned unchanged.
-pub fn to_uppercase(_ cp: Int) -> Int {
+pub fn to_uppercase(cp: Int) -> Int {
     if is_lower(cp) {
         return cp - 32;
     }

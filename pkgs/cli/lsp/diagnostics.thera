@@ -13,7 +13,7 @@ import 'positions'; // span_to_range
 // publishes per-URI, so keep only this document's own diagnostics — an imported
 // file's surface when *it* is the open document. Attribution (`d.file`) is
 // canonical, so `canon` must be too.
-pub fn render_diagnostics(_ diags: List<diagnostic.Diagnostic>, _ canon: String) -> Json {
+pub fn render_diagnostics(diags: List<diagnostic.Diagnostic>, canon: String) -> Json {
     let items: List<Json> = [];
     for d in diags {
         if diagnostic_in_file(d, canon) {
@@ -31,10 +31,10 @@ pub fn render_diagnostics(_ diags: List<diagnostic.Diagnostic>, _ canon: String)
 // owning file. Companion to `render_diagnostics` (the single-file, per-URI path);
 // this is the project-wide, group-by-owner path.
 pub fn group_by_file(
-    _ diags: List<diagnostic.Diagnostic>,
-    _ primary: String,
-    _ into: Map<String, List<Json>>,
-    _ seen: Set<String>,
+    diags: List<diagnostic.Diagnostic>,
+    primary: String,
+    into: Map<String, List<Json>>,
+    seen: Set<String>,
 ) -> Void {
     for d in diags {
         let owner = match d.file {
@@ -56,14 +56,14 @@ pub fn group_by_file(
 
 // Whether `d` belongs to the (canonical) `path` — its own file, or unattributed
 // (the primary).
-fn diagnostic_in_file(_ d: diagnostic.Diagnostic, _ path: String) -> Bool {
+fn diagnostic_in_file(d: diagnostic.Diagnostic, path: String) -> Bool {
     return match d.file {
         Some(f) => f == path,
         None => true,
     };
 }
 
-fn diagnostic_to_json(_ d: diagnostic.Diagnostic) -> Json {
+fn diagnostic_to_json(d: diagnostic.Diagnostic) -> Json {
     return json.obj([
         'range': positions.span_to_range(d.span),
         'severity': json.int(lsp_severity(d.severity)),
@@ -74,7 +74,7 @@ fn diagnostic_to_json(_ d: diagnostic.Diagnostic) -> Json {
 
 // Thera `Severity` -> the LSP `DiagnosticSeverity` code (1 Error, 2 Warning, 3
 // Information). Every compile-phase diagnostic is an Error today.
-fn lsp_severity(_ s: diagnostic.Severity) -> Int {
+fn lsp_severity(s: diagnostic.Severity) -> Int {
     return match s {
         Error => 1,
         Warning => 2,

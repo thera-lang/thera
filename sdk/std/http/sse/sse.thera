@@ -68,7 +68,7 @@ pub struct Decoder {
 
 impl Decoder {
     /// Decode `src` as an event stream.
-    pub fn new(_ src: io.Reader) -> Decoder {
+    pub fn new(src: io.Reader) -> Decoder {
         return Decoder {
             lines: io.lines(src),
             last_id: Option.None,
@@ -168,7 +168,7 @@ impl Iterator<Event> for Decoder {
 /// `Iterator<Event>`: drive it with `for ev in sse.events(src)` or an adapter
 /// chain. Use `Decoder.read_event` (or check `.error()` afterwards) when a
 /// mid-stream I/O failure must be handled rather than treated as the end.
-pub fn events(_ src: io.Reader) -> Decoder {
+pub fn events(src: io.Reader) -> Decoder {
     return Decoder.new(src);
 }
 
@@ -181,7 +181,7 @@ pub fn events(_ src: io.Reader) -> Decoder {
 
 /// The field name: everything before the first colon, or the whole line when there
 /// is none — a bare `data` line is the `data` field with an empty value.
-fn field_of(_ line: String) -> String {
+fn field_of(line: String) -> String {
     return match line.find(':') {
         Some(i) => line.slice(0, i),
         None => line,
@@ -190,7 +190,7 @@ fn field_of(_ line: String) -> String {
 
 /// The value: everything after the first colon, minus **one** leading space.
 /// Exactly one, because `data:  x` has to keep its second.
-fn value_of(_ line: String) -> String {
+fn value_of(line: String) -> String {
     return match line.find(':') {
         Some(i) => {
             let raw = line.slice(i + 1, line.len());
@@ -204,7 +204,7 @@ fn value_of(_ line: String) -> String {
 /// a `retry:` that isn't is ignored rather than guessed at, and `to_int` alone
 /// would accept a leading sign — a negative reconnection delay being exactly the
 /// sort of value that becomes a busy loop somewhere downstream.
-fn digits_to_int(_ value: String) -> Option<Int> {
+fn digits_to_int(value: String) -> Option<Int> {
     if value.is_empty() {
         return Option.None;
     }
@@ -217,7 +217,7 @@ fn digits_to_int(_ value: String) -> Option<Int> {
 }
 
 /// Whether `value` contains a NUL code point.
-fn has_nul(_ value: String) -> Bool {
+fn has_nul(value: String) -> Bool {
     for c in value.chars() {
         if c == 0 {
             return true;

@@ -6,7 +6,7 @@
 // signature set keeps each method's declaring parameters).
 
 interface Greeter {
-    fn greet(self, punct: String = '!') -> String;
+    fn greet(self, named punct: String = '!') -> String;
 }
 
 interface NamedGreeter: Greeter {
@@ -18,7 +18,7 @@ struct Person {
 }
 
 impl Greeter for Person {
-    fn greet(self, punct: String = '!') -> String {
+    fn greet(self, named punct: String = '!') -> String {
         return self.name + punct;
     }
 }
@@ -29,7 +29,7 @@ impl NamedGreeter for Person {
     }
 }
 
-fn show(_ g: NamedGreeter) -> Void {
+fn show(g: NamedGreeter) -> Void {
     println(g.greet());          // expect: hi!
     println('${g.id()}');        // expect: 7
 }

@@ -1,0 +1,39 @@
+//! spec: fn-named-params-suffix
+//! mode: check
+
+// Named parameters must form a *suffix* of the parameter list: once one is
+// `named`, every parameter after it is too. That keeps positional arguments a
+// prefix at every call site, so a reader counting positions never has to scan
+// past a label.
+
+fn ok_all_positional(a: Int, b: Int) -> Int {
+    return a + b;
+}
+
+fn ok_named_suffix(a: Int, named b: Int, named c: Int) -> Int {
+    return a + b + c;
+}
+
+fn ok_all_named(named a: Int, named b: Int) -> Int {
+    return a + b;
+}
+
+fn interleaved(named a: Int, b: Int) -> Int {   // expect error: positional parameter `b` after a `named` one
+    return a + b;
+}
+
+// The receiver is exempt — it is not a labeled parameter and never was.
+struct S {
+    let n: Int;
+}
+
+impl S {
+    fn scale(self, k: Int, named by: Int) -> Int {
+        return self.n * k * by;
+    }
+}
+
+fn main() -> Int {
+    return ok_all_positional(1, 2) + ok_named_suffix(1, b: 2, c: 3)
+        + ok_all_named(a: 1, b: 2) + S { n: 1 }.scale(2, by: 3) + interleaved(a: 1, 2);
+}

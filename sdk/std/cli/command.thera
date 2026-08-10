@@ -134,7 +134,7 @@ impl CliError {
     // A copy of this error with `name` pushed onto the front of the path — the
     // parser rewraps a subcommand's error as it unwinds, so the path reads
     // root-to-leaf.
-    fn under(self, _ name: String) -> CliError {
+    fn under(self, name: String) -> CliError {
         let p: List<String> = [name];
         for c in self.path {
             p.push(c);
@@ -162,7 +162,7 @@ impl Display for CliError {
 }
 
 // A root-level error (empty path); the parser adds the path as it unwinds.
-fn cli_error(_ kind: CliErrorKind) -> CliError {
+fn cli_error(kind: CliErrorKind) -> CliError {
     return CliError { kind: kind, path: [] };
 }
 
@@ -195,7 +195,7 @@ pub enum Action {
 
 impl Command {
     /// A new command named `name`, with a `--help` / `-h` flag already declared.
-    pub fn new(_ name: String) -> Command {
+    pub fn new(name: String) -> Command {
         let c = Command {
             name: name,
             about_text: '',
@@ -217,14 +217,14 @@ impl Command {
     }
 
     /// A one-line description, shown in `help()` and in a parent's command list.
-    pub fn about(self, _ text: String) -> Command {
+    pub fn about(self, text: String) -> Command {
         self.about_text = text;
         return self;
     }
 
     /// A longer description for this command's own `help()` — shown after the
     /// one-line `about` (progressive disclosure). May span multiple lines.
-    pub fn details(self, _ text: String) -> Command {
+    pub fn details(self, text: String) -> Command {
         self.details_text = text;
         return self;
     }
@@ -234,11 +234,11 @@ impl Command {
     /// when the flag is absent.
     pub fn flag(
         self,
-        _ name: String,
-        help: String = '',
-        abbr: String = '',
-        negatable: Bool = false,
-        default: Bool = false,
+        name: String,
+        named help: String = '',
+        named abbr: String = '',
+        named negatable: Bool = false,
+        named default: Bool = false,
     ) -> Command {
         self.flags.push(Flag {
             name: name,
@@ -251,13 +251,13 @@ impl Command {
     }
 
     /// Declare a `--name value` option.
-    pub fn option(self, _ name: String, help: String = '', abbr: String = '') -> Command {
+    pub fn option(self, name: String, named help: String = '', named abbr: String = '') -> Command {
         self.options.push(Opt { name: name, help: help, abbr: abbr });
         return self;
     }
 
     /// Declare a positional argument (named only for `--help`).
-    pub fn positional(self, _ name: String, help: String = '') -> Command {
+    pub fn positional(self, name: String, named help: String = '') -> Command {
         self.positionals.push(Positional { name: name, help: help });
         return self;
     }
@@ -268,20 +268,20 @@ impl Command {
     /// a wrapped program — `thera run <file> --flag` passes `--flag` to `<file>`,
     /// no `--` separator needed. The command's own flags must precede the first
     /// positional.
-    pub fn trailing_var_arg(self, _ enabled: Bool) -> Command {
+    pub fn trailing_var_arg(self, enabled: Bool) -> Command {
         self.trailing_var_arg = enabled;
         return self;
     }
 
     /// Attach a subcommand. When the command has subcommands, the first bare token
     /// selects one and the remaining arguments are parsed under it.
-    pub fn subcommand(self, _ cmd: Command) -> Command {
+    pub fn subcommand(self, cmd: Command) -> Command {
         self.subcommands.push(cmd);
         return self;
     }
 
     /// Parse `args` against this command's declarations.
-    pub fn parse(self, _ args: List<String>) -> Result<Matches, CliError> {
+    pub fn parse(self, args: List<String>) -> Result<Matches, CliError> {
         let m = Matches {
             flag_values: [:],
             option_values: [:],
@@ -444,7 +444,7 @@ impl Command {
     ///     }
     /// }
     /// ```
-    pub fn run(self, _ argv: List<String>) -> Action {
+    pub fn run(self, argv: List<String>) -> Action {
         let m = match self.parse(argv) {
             Ok(parsed) => parsed,
             Err(e) => {
@@ -578,13 +578,13 @@ impl Command {
     /// command's own help when no such subcommand exists. This is the
     /// "`<tool> <command> --help`" text — a client (or the `run` adapter) shows it
     /// for the selected subcommand.
-    pub fn help_for(self, _ name: String) -> String {
+    pub fn help_for(self, name: String) -> String {
         return self.help_along([name]);
     }
 
     // The `help()` of the command reached by following `path` from here (`[]` =
     // this command); falls back to this command's help if the path goes astray.
-    fn help_along(self, _ path: List<String>) -> String {
+    fn help_along(self, path: List<String>) -> String {
         if path.len() == 0 {
             return self.help();
         }
@@ -601,7 +601,7 @@ impl Command {
 impl Matches {
     /// Whether `name` resolved to true (positive form present, or its default; a
     /// negated `--no-name` and absence both yield the false/default value).
-    pub fn flag(self, _ name: String) -> Bool {
+    pub fn flag(self, name: String) -> Bool {
         return match self.flag_values.get(name) {
             Some(v) => v,
             None => false,
@@ -609,12 +609,12 @@ impl Matches {
     }
 
     /// The value given for option `name`, if any.
-    pub fn option(self, _ name: String) -> Option<String> {
+    pub fn option(self, name: String) -> Option<String> {
         return self.option_values.get(name);
     }
 
     /// The positional at `index`, if present.
-    pub fn positional(self, _ index: Int) -> Option<String> {
+    pub fn positional(self, index: Int) -> Option<String> {
         return self.positional_values.get(index);
     }
 
@@ -654,7 +654,7 @@ impl Matches {
 /// A help row: `head`, then `help` on the same line at the shared description
 /// column (`width`) with a two-space gutter. A row with no description is just its
 /// head — no trailing whitespace.
-fn describe(_ head: String, _ help: String, _ width: Int) -> String {
+fn describe(head: String, help: String, width: Int) -> String {
     if help == '' {
         return head;
     }
@@ -662,7 +662,7 @@ fn describe(_ head: String, _ help: String, _ width: Int) -> String {
 }
 
 /// The `--name, -a (negatable)` head for a flag in `help()`.
-fn flag_head(_ f: Flag) -> String {
+fn flag_head(f: Flag) -> String {
     let mut head = '  --${f.name}';
     if f.abbr != '' {
         head = '${head}, -${f.abbr}';
@@ -674,7 +674,7 @@ fn flag_head(_ f: Flag) -> String {
 }
 
 /// The `--name, -a <value>` head for an option in `help()`.
-fn opt_head(_ o: Opt) -> String {
+fn opt_head(o: Opt) -> String {
     let mut head = '  --${o.name}';
     if o.abbr != '' {
         head = '${head}, -${o.abbr}';
@@ -683,7 +683,7 @@ fn opt_head(_ o: Opt) -> String {
 }
 
 /// Index of the flag/option/subcommand named `name`, or -1.
-fn flag_index(_ flags: List<Flag>, _ name: String) -> Int {
+fn flag_index(flags: List<Flag>, name: String) -> Int {
     for p in flags.enumerate() {
         if p.value.name == name {
             return p.index;
@@ -692,7 +692,7 @@ fn flag_index(_ flags: List<Flag>, _ name: String) -> Int {
     return -1;
 }
 
-fn opt_index(_ opts: List<Opt>, _ name: String) -> Int {
+fn opt_index(opts: List<Opt>, name: String) -> Int {
     for p in opts.enumerate() {
         if p.value.name == name {
             return p.index;
@@ -701,7 +701,7 @@ fn opt_index(_ opts: List<Opt>, _ name: String) -> Int {
     return -1;
 }
 
-fn cmd_index(_ cmds: List<Command>, _ name: String) -> Int {
+fn cmd_index(cmds: List<Command>, name: String) -> Int {
     for p in cmds.enumerate() {
         if p.value.name == name {
             return p.index;
@@ -711,7 +711,7 @@ fn cmd_index(_ cmds: List<Command>, _ name: String) -> Int {
 }
 
 /// Index of the flag/option with abbreviation `abbr` (never the empty abbr).
-fn flag_abbr_index(_ flags: List<Flag>, _ abbr: String) -> Int {
+fn flag_abbr_index(flags: List<Flag>, abbr: String) -> Int {
     if abbr == '' {
         return -1;
     }
@@ -723,7 +723,7 @@ fn flag_abbr_index(_ flags: List<Flag>, _ abbr: String) -> Int {
     return -1;
 }
 
-fn opt_abbr_index(_ opts: List<Opt>, _ abbr: String) -> Int {
+fn opt_abbr_index(opts: List<Opt>, abbr: String) -> Int {
     if abbr == '' {
         return -1;
     }

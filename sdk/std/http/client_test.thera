@@ -24,7 +24,7 @@ import 'common';
 import 'server';
 
 /// Serve `handler` on loopback and return its base `http://127.0.0.1:<port>`.
-fn serving(_ handler: (common.Request) -> Result<common.Response, Error>) -> Result<String, Error> {
+fn serving(handler: (common.Request) -> Result<common.Response, Error>) -> Result<String, Error> {
     let listener = net.listen('127.0.0.1:0')?;
     let addr = listener.local_addr()?;
     fiber.spawn(() => server.serve_listener(listener, handler));
@@ -33,7 +33,7 @@ fn serving(_ handler: (common.Request) -> Result<common.Response, Error>) -> Res
 
 /// Echoes the request back as JSON, so a test can assert on what the server
 /// actually received — the client's real output.
-fn echo(_ req: common.Request) -> Result<common.Response, Error> {
+fn echo(req: common.Request) -> Result<common.Response, Error> {
     let seen: Map<String, json.Json> = [:];
     for key in req.headers.keys() {
         seen[key] = json.str(req.headers[key]);
@@ -47,7 +47,7 @@ fn echo(_ req: common.Request) -> Result<common.Response, Error> {
 }
 
 /// A field of the echo handler's JSON report.
-fn field(_ resp: common.Response, _ name: String) -> Result<String, Error> {
+fn field(resp: common.Response, name: String) -> Result<String, Error> {
     let doc = resp.json()?;
     return match doc {
         Object(fields) => match fields.get(name) {
@@ -62,7 +62,7 @@ fn field(_ resp: common.Response, _ name: String) -> Result<String, Error> {
 }
 
 /// A header as the server saw it.
-fn seen_header(_ resp: common.Response, _ name: String) -> Result<String, Error> {
+fn seen_header(resp: common.Response, name: String) -> Result<String, Error> {
     let doc = resp.json()?;
     return match doc {
         Object(fields) => match fields.get('headers') {
@@ -208,7 +208,7 @@ fn reads_a_chunked_response() -> Result<Void, Error> {
         let conn = listener.accept()?;
         // Drain the request head so the client's write completes.
         let _ = common.Wire.new(conn).read_request()?;
-        io.write_all(to: conn, ('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        io.write_all(conn, ('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
             + '4\r\nchun\r\n' + '4\r\nked!\r\n' + '0\r\n\r\n').bytes())?;
         return conn.close();
     });
@@ -366,7 +366,7 @@ fn a_truncated_response_is_a_body_error() -> Result<Void, Error> {
         let conn = listener.accept()?;
         let _ = common.Wire.new(conn).read_request()?;
         // Promise ten bytes, send four, hang up.
-        io.write_all(to: conn, 'HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nfour'.bytes())?;
+        io.write_all(conn, 'HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nfour'.bytes())?;
         return conn.close();
     });
     let failed = match http.get('http://' + addr + '/t') {
@@ -387,7 +387,7 @@ fn a_non_http_peer_is_a_protocol_error() -> Result<Void, Error> {
     let addr = listener.local_addr()?;
     fiber.spawn(() => {
         let conn = listener.accept()?;
-        io.write_all(to: conn, 'GARBAGE\r\n\r\n'.bytes())?;
+        io.write_all(conn, 'GARBAGE\r\n\r\n'.bytes())?;
         return conn.close();
     });
     let failed = match http.get('http://' + addr + '/g') {
@@ -404,12 +404,12 @@ fn a_non_http_peer_is_a_protocol_error() -> Result<Void, Error> {
 
 /// A GET as a `common.Request`, since the streaming entry points take one directly
 /// — there is no `http.stream_get`, and there shouldn't be.
-fn get_request(_ url: String) -> common.Request {
+fn get_request(url: String) -> common.Request {
     return common.Request { method: 'GET', url: url, headers: [:], body: Bytes.empty() };
 }
 
 /// A handler that answers with an event stream.
-fn event_source(_ req: common.Request) -> Result<common.Response, Error> {
+fn event_source(req: common.Request) -> Result<common.Response, Error> {
     let body = 'event: message_start\ndata: {"n":0}\n\n'
         + ': keep-alive\n\n'
         + 'event: message_stop\ndata: {"n":1}\n\n';
@@ -420,7 +420,7 @@ fn event_source(_ req: common.Request) -> Result<common.Response, Error> {
     });
 }
 
-fn event_name(_ ev: Option<sse.Event>) -> String {
+fn event_name(ev: Option<sse.Event>) -> String {
     return match ev {
         Some(e) => e.name,
         None => '<no event>',
@@ -431,7 +431,7 @@ fn event_name(_ ev: Option<sse.Event>) -> String {
 /// runtime refuses a second close, which is what makes the first one observable
 /// from out here. Reading would not do — the body may still have buffered bytes to
 /// hand back long after the socket underneath is gone.
-fn already_closed(_ s: http.Stream) -> Bool {
+fn already_closed(s: http.Stream) -> Bool {
     return match s.close() {
         Ok(_) => false,
         Err(_) => true,
@@ -542,14 +542,14 @@ fn events_arrive_while_the_server_is_still_writing() -> Result<Void, Error> {
 /// Serve one event stream in two writes with a bounded wait between them. Returns
 /// whether the go-ahead arrived — that is, whether the client really was reading
 /// incrementally — rather than waiting forever to find out that it wasn't.
-fn push_two_events(_ listener: net.TcpListener, _ go: fiber.Channel<Bool>) -> Bool {
+fn push_two_events(listener: net.TcpListener, go: fiber.Channel<Bool>) -> Bool {
     return match write_two_events(listener, go) {
         Ok(signalled) => signalled,
         Err(_) => false,
     };
 }
 
-fn write_two_events(_ listener: net.TcpListener, _ go: fiber.Channel<Bool>) -> Result<Bool, Error> {
+fn write_two_events(listener: net.TcpListener, go: fiber.Channel<Bool>) -> Result<Bool, Error> {
     let first = 'event: a\ndata: 1\n\n';
     let second = 'event: b\ndata: 2\n\n';
     let conn = listener.accept()?;
@@ -561,12 +561,12 @@ fn write_two_events(_ listener: net.TcpListener, _ go: fiber.Channel<Bool>) -> R
         + 'content-length: '
         + (first.byte_len() + second.byte_len()).to_string()
         + '\r\n\r\n';
-    io.write_all(to: conn, (head + first).bytes())?;
+    io.write_all(conn, (head + first).bytes())?;
     let signalled = fiber.select([go, fiber.after(time.Duration.seconds(2))]) == 0;
     if signalled {
         let _ = go.receive();
     }
-    io.write_all(to: conn, second.bytes())?;
+    io.write_all(conn, second.bytes())?;
     let _ = conn.close();
     return Result.Ok(signalled);
 }

@@ -19,11 +19,11 @@ pub struct InputMessage {
     let content: String;
 }
 
-pub fn user(_ content: String) -> InputMessage {
+pub fn user(content: String) -> InputMessage {
     return InputMessage { role: 'user', content: content };
 }
 
-pub fn assistant(_ content: String) -> InputMessage {
+pub fn assistant(content: String) -> InputMessage {
     return InputMessage { role: 'assistant', content: content };
 }
 
@@ -53,15 +53,15 @@ pub struct Request {
 /// (`.with_temperature(0.7)`) is 30-odd lines of library code to work around the
 /// absence of exactly the feature Thera has.
 pub fn create(
-    model: String,
-    messages: List<InputMessage>,
-    max_tokens: Int,
-    system: Option<String> = Option.None,
-    temperature: Option<Double> = Option.None,
-    top_p: Option<Double> = Option.None,
-    top_k: Option<Int> = Option.None,
-    stop_sequences: Option<List<String>> = Option.None,
-    stream: Option<Bool> = Option.None,
+    named model: String,
+    named messages: List<InputMessage>,
+    named max_tokens: Int,
+    named system: Option<String> = Option.None,
+    named temperature: Option<Double> = Option.None,
+    named top_p: Option<Double> = Option.None,
+    named top_k: Option<Int> = Option.None,
+    named stop_sequences: Option<List<String>> = Option.None,
+    named stream: Option<Bool> = Option.None,
 ) -> Request {
     return Request {
         model: model,
@@ -82,7 +82,7 @@ pub fn create(
 /// to `Json.Null` via `json.opt` and is then dropped, so there is no conditional
 /// insert and no `mut` map — and the function reads as the request's shape, the
 /// same way the decoders read as the response's.
-pub fn request_to_json(_ req: Request) -> json.Json {
+pub fn request_to_json(req: Request) -> json.Json {
     return json.obj([
         'model': json.str(req.model),
         'messages': json.arr(req.messages.map(message_to_json)),
@@ -96,12 +96,12 @@ pub fn request_to_json(_ req: Request) -> json.Json {
     ], omit_nulls: true);
 }
 
-fn message_to_json(_ msg: InputMessage) -> json.Json {
+fn message_to_json(msg: InputMessage) -> json.Json {
     return json.obj(['role': json.str(msg.role), 'content': json.str(msg.content)]);
 }
 
 /// A `List<String>` as a JSON array — the encoder `json.opt` needs for a field
 /// whose payload isn't a single leaf.
-fn strings(_ values: List<String>) -> json.Json {
+fn strings(values: List<String>) -> json.Json {
     return json.arr(values.map(json.str));
 }

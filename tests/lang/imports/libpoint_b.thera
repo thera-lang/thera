@@ -26,7 +26,7 @@ impl Display for Point {
     }
 }
 
-pub fn total(_ p: Point) -> Int {
+pub fn total(p: Point) -> Int {
     return p.lat + p.lng + p.label.b_id;
 }
 

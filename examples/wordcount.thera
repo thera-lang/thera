@@ -7,7 +7,7 @@ struct Counts {
     let bytes: Int;
 }
 
-fn count(_ text: String) -> Counts {
+fn count(text: String) -> Counts {
     return Counts {
         lines: text.lines().len(),
         words: text.split_whitespace().len(),
@@ -15,7 +15,7 @@ fn count(_ text: String) -> Counts {
     };
 }
 
-fn main(parameters: List<String>) -> Result<Int, Error> {
+fn main(named parameters: List<String>) -> Result<Int, Error> {
     let args = cli.Args.new(parameters);
     let path = args.positional(0).ok_or('usage: wordcount <file>')?;
     let text = fs.read_text(path)?;

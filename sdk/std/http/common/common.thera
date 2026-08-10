@@ -89,7 +89,7 @@ impl Display for HttpError {
     }
 }
 
-fn protocol<T>(_ msg: String) -> Result<T, HttpError> {
+fn protocol<T>(msg: String) -> Result<T, HttpError> {
     return Result.Err(HttpError.Protocol(msg));
 }
 
@@ -131,7 +131,7 @@ pub let SENSITIVE_HEADERS: List<String> = [
 /// Exposed because a caller that logs its own headers wants the same treatment, and
 /// because the alternative to a shared helper is each one writing a different
 /// denylist.
-pub fn redact_headers(_ headers: Map<String, String>) -> Map<String, String> {
+pub fn redact_headers(headers: Map<String, String>) -> Map<String, String> {
     let safe: Map<String, String> = [:];
     for name in headers.keys() {
         safe[name] = if str_list_has(SENSITIVE_HEADERS, name.to_lowercase()) {
@@ -143,7 +143,7 @@ pub fn redact_headers(_ headers: Map<String, String>) -> Map<String, String> {
     return safe;
 }
 
-fn str_list_has(_ names: List<String>, _ name: String) -> Bool {
+fn str_list_has(names: List<String>, name: String) -> Bool {
     for n in names {
         if n == name {
             return true;
@@ -212,7 +212,7 @@ impl Request {
 // These are *readers*, and Thera has no overloading, so `std.http.server`'s
 // response *constructors* are free functions named distinctly (`server.text`,
 // `server.json`) — see docs/stdlib.md § `std.http`.
-fn parse_json_body(_ body: Bytes) -> Result<json.Json, Error> {
+fn parse_json_body(body: Bytes) -> Result<json.Json, Error> {
     let text = body.to_string()?;
     return match json.parse(text) {
         Ok(v) => Result.Ok(v),
@@ -239,7 +239,7 @@ fn parse_json_body(_ body: Bytes) -> Result<json.Json, Error> {
 
 /// Add `value` under `name`, folding a repeat into the existing entry per the rules
 /// above.
-fn add_header(_ headers: Map<String, String>, _ name: String, _ value: String) -> Void {
+fn add_header(headers: Map<String, String>, name: String, value: String) -> Void {
     let key = name.to_lowercase();
     match headers.get(key) {
         Some(prior) => {
@@ -251,7 +251,7 @@ fn add_header(_ headers: Map<String, String>, _ name: String, _ value: String) -
 }
 
 /// The value of `name` (case-insensitively), or `None`.
-pub fn header(_ headers: Map<String, String>, _ name: String) -> Option<String> {
+pub fn header(headers: Map<String, String>, name: String) -> Option<String> {
     return headers.get(name.to_lowercase());
 }
 
@@ -261,7 +261,7 @@ pub fn header(_ headers: Map<String, String>, _ name: String) -> Option<String> 
 /// a simple server actually emits are spelled out; anything else reports its class,
 /// which is all a recipient may rely on anyway (RFC 9110 §15: the phrase is
 /// advisory, and clients ignore it).
-pub fn reason_phrase(_ status: Int) -> String {
+pub fn reason_phrase(status: Int) -> String {
     if status == 200 { return 'OK'; }
     if status == 201 { return 'Created'; }
     if status == 202 { return 'Accepted'; }
@@ -298,7 +298,7 @@ pub fn reason_phrase(_ status: Int) -> String {
 /// Whether a response with this status carries no body at all, regardless of its
 /// headers (RFC 9110 §6.4.1). Reading one anyway would block until the peer closed,
 /// or eat the next response on a kept-alive connection.
-fn status_has_no_body(_ status: Int) -> Bool {
+fn status_has_no_body(status: Int) -> Bool {
     return (status >= 100 && status < 200) || status == 204 || status == 304;
 }
 
@@ -309,24 +309,24 @@ fn status_has_no_body(_ status: Int) -> Bool {
 /// `content-length` is supplied from the body; a caller-set one is overwritten
 /// rather than trusted, since a length that disagrees with the bytes is a request
 /// smuggling primitive, not a preference.
-pub fn write_request(to: io.Writer, _ req: Request) -> Result<Void, Error> {
+pub fn write_request(to: io.Writer, req: Request) -> Result<Void, Error> {
     let head = BytesBuilder.new();
     head.write_str(req.method + ' ' + req.url + ' HTTP/1.1' + CRLF);
     write_headers(head, req.headers, req.body.len());
-    return finish_message(to: to, head, req.body);
+    return finish_message(to, head, req.body);
 }
 
 /// Serialize `resp` to `dst` as an HTTP/1.1 response.
-pub fn write_response(to: io.Writer, _ resp: Response) -> Result<Void, Error> {
+pub fn write_response(to: io.Writer, resp: Response) -> Result<Void, Error> {
     let head = BytesBuilder.new();
     head.write_str('HTTP/1.1 ' + resp.status.to_string() + ' ' + reason_phrase(resp.status) + CRLF);
     write_headers(head, resp.headers, resp.body.len());
-    return finish_message(to: to, head, resp.body);
+    return finish_message(to, head, resp.body);
 }
 
 /// The header block plus the blank line that ends it. `content-length` and any
 /// framing header the codec owns are written here, not copied from `headers`.
-fn write_headers(_ head: BytesBuilder, _ headers: Map<String, String>, _ body_len: Int) -> Void {
+fn write_headers(head: BytesBuilder, headers: Map<String, String>, body_len: Int) -> Void {
     for key in headers.keys() {
         // The codec owns framing: a caller-set length or transfer-encoding is
         // dropped in favour of the one that matches the bytes actually sent.
@@ -346,12 +346,12 @@ fn write_headers(_ head: BytesBuilder, _ headers: Map<String, String>, _ body_le
     head.write_str(CRLF);
 }
 
-fn finish_message(to: io.Writer, _ head: BytesBuilder, _ body: Bytes) -> Result<Void, Error> {
+fn finish_message(to: io.Writer, head: BytesBuilder, body: Bytes) -> Result<Void, Error> {
     // One write for the head, one for the body: the head is small and the body may
     // be large, so concatenating them would copy the body for nothing.
-    io.write_all(to: to, head.finish())?;
+    io.write_all(to, head.finish())?;
     if body.len() > 0 {
-        io.write_all(to: to, body)?;
+        io.write_all(to, body)?;
     }
     return Result.Ok(void);
 }
@@ -372,7 +372,7 @@ pub struct Wire {
 }
 
 impl Wire {
-    pub fn new(_ source: io.Reader) -> Wire {
+    pub fn new(source: io.Reader) -> Wire {
         return Wire { source: source, buf: Bytes.empty(), pos: 0, eof: false };
     }
 
@@ -445,7 +445,7 @@ impl Wire {
     /// needs *exactly* `n` bytes (a `content-length` body, a chunk) tracks the
     /// remainder itself and calls again, rather than making the codec block until a
     /// whole frame has arrived.
-    fn take_buffered(self, _ max: Int) -> Result<Bytes, HttpError> {
+    fn take_buffered(self, max: Int) -> Result<Bytes, HttpError> {
         if max <= 0 {
             // Not a no-op worth skipping but a hazard: falling through would
             // `fill`, which blocks for bytes the caller didn't ask for and may
@@ -538,7 +538,7 @@ impl Wire {
     /// `to_head` must say whether the request was a `HEAD`: the response then
     /// describes a body it does not send, and reading one would hang until the peer
     /// closed (or eat the next response).
-    pub fn stream_response(self, to_head: Bool = false) -> Result<ResponseStream, HttpError> {
+    pub fn stream_response(self, named to_head: Bool = false) -> Result<ResponseStream, HttpError> {
         let line = match self.read_line()? {
             Some(l) => l,
             None => { return protocol('no response (the connection closed first)'); },
@@ -574,7 +574,7 @@ impl Wire {
 
     /// The next response, body and all — `stream_response` plus a capped drain.
     /// This is the common case, and the only one `MAX_BODY_BYTES` applies to.
-    pub fn read_response(self, to_head: Bool = false) -> Result<Response, HttpError> {
+    pub fn read_response(self, named to_head: Bool = false) -> Result<Response, HttpError> {
         return self.stream_response(to_head: to_head)?.buffered();
     }
 }
@@ -600,7 +600,7 @@ enum Framing {
 /// contradictory or unsupported. `until_eof` says what the *absence* of framing
 /// means: for a response the close delimits, for a request there is simply no body,
 /// since the client isn't going to close.
-fn framing_of(_ headers: Map<String, String>, until_eof: Bool) -> Result<Framing, HttpError> {
+fn framing_of(headers: Map<String, String>, named until_eof: Bool) -> Result<Framing, HttpError> {
     // `transfer-encoding` wins over `content-length` (RFC 9110 §6.3), and a message
     // bearing both is an outright smuggling attempt.
     let te = header(headers, 'transfer-encoding');
@@ -651,7 +651,7 @@ pub struct BodyReader {
 }
 
 impl BodyReader {
-    fn new(_ wire: Wire, _ framing: Framing) -> BodyReader {
+    fn new(wire: Wire, framing: Framing) -> BodyReader {
         let declared = match framing {
             Length(n) => n,
             _ => 0,
@@ -673,7 +673,7 @@ impl BodyReader {
     /// Up to `max` more bytes. An empty result means the body is **complete**, not
     /// that the peer has nothing right now: a read blocks (parking the fiber) until
     /// bytes arrive or the stream ends.
-    pub fn read_some(self, max: Int) -> Result<Bytes, HttpError> {
+    pub fn read_some(self, named max: Int) -> Result<Bytes, HttpError> {
         if self.done || max <= 0 {
             return Result.Ok(Bytes.empty());
         }
@@ -693,7 +693,7 @@ impl BodyReader {
 
     /// A `content-length` body: `remaining` more bytes, and an early end-of-stream
     /// is an error — the peer promised them.
-    fn read_counted(self, _ max: Int) -> Result<Bytes, HttpError> {
+    fn read_counted(self, max: Int) -> Result<Bytes, HttpError> {
         if self.remaining == 0 {
             self.done = true; // `content-length: 0` — a body that is over on arrival
             return Result.Ok(Bytes.empty());
@@ -711,7 +711,7 @@ impl BodyReader {
 
     /// A chunked body, walked one frame at a time: the size line, then that many
     /// bytes (over as many reads as it takes), then the CRLF closing the chunk.
-    fn read_chunked(self, _ max: Int) -> Result<Bytes, HttpError> {
+    fn read_chunked(self, max: Int) -> Result<Bytes, HttpError> {
         if self.remaining == 0 {
             if !self.next_chunk()? {
                 return Result.Ok(Bytes.empty()); // the zero-size chunk ended it
@@ -801,7 +801,7 @@ impl BodyReader {
 }
 
 impl io.Reader for BodyReader {
-    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+    pub fn read(self, named max: Int) -> Result<Bytes, Error> {
         return match self.read_some(max: max) {
             Ok(b) => Result.Ok(b),
             Err(e) => Result.Err(e),
@@ -836,7 +836,7 @@ impl ResponseStream {
     }
 }
 
-fn truncated<T>(_ left: Int, _ what: String) -> Result<T, HttpError> {
+fn truncated<T>(left: Int, what: String) -> Result<T, HttpError> {
     return Result.Err(HttpError.Body(
         'stream ended with ' + left.to_string() + ' bytes of ' + what + ' left',
     ));
@@ -851,7 +851,7 @@ fn too_large<T>() -> Result<T, HttpError> {
 /// Accept the HTTP/1.x versions we can actually frame. HTTP/1.0 differs only in
 /// defaults this codec already handles (no keep-alive, close-delimited bodies); 0.9
 /// and 2+ are different protocols wearing a similar prefix.
-fn check_version(_ token: String) -> Result<Void, HttpError> {
+fn check_version(token: String) -> Result<Void, HttpError> {
     if token == 'HTTP/1.1' || token == 'HTTP/1.0' {
         return Result.Ok(void);
     }

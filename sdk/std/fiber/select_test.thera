@@ -126,7 +126,7 @@ fn select_over_a_socket_and_a_timer() -> Result<Void, Error> {
 
     // Now data is waiting: the socket wins, and the read still sees the bytes —
     // is_ready peeks rather than consumes.
-    io.write_all(to: conn, 'hi'.bytes())?;
+    io.write_all(conn, 'hi'.bytes())?;
     testing.assert_eq(
         actual: fiber.select([client, fiber.after(time.Duration.seconds(2))]),
         expected: 0,
@@ -183,7 +183,7 @@ fn repeated_selects_over_the_same_sources_stay_healthy() -> Result<Void, Error> 
             }
         } else {
             // Socket wins: the fiber stays listed under the timer.
-            io.write_all(to: conn, 'x'.bytes())?;
+            io.write_all(conn, 'x'.bytes())?;
             if fiber.select([client, fiber.after(time.Duration.seconds(2))]) == 0 {
                 socket_wins = socket_wins + 1;
                 client.read(max: 1)?;

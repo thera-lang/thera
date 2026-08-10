@@ -11,7 +11,7 @@ import std.json;
 // The LSP `TextEdit[]` for `text` (the open buffer), replacing the whole document
 // with its formatted version. If formatting makes no changes, returns an empty
 // list.
-pub fn format_document(_ text: String) -> List<json.Json> {
+pub fn format_document(text: String) -> List<json.Json> {
     let formatted = fmt.format_source(text);
     if formatted == text {
         return [];

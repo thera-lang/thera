@@ -21,7 +21,7 @@ const GAMMA: Int = 0x9E3779B97F4A7C15;
 /// 64-bit pattern. `>>>` is the logical (zero-fill) right shift, and `*` wraps on
 /// overflow — so this is bit-for-bit the reference SplitMix64 over the Int's
 /// two's-complement bits.
-fn mix(_ state: Int) -> Int {
+fn mix(state: Int) -> Int {
     let mut z = state;
     z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9;
     z = (z ^ (z >>> 27)) * 0x94D049BB133111EB;
@@ -31,7 +31,7 @@ fn mix(_ state: Int) -> Int {
 /// Map a uniform 64-bit pattern to a Double in [0, 1) using its top 53 bits (the
 /// f64 mantissa width). `>>> 11` zero-fills, so the result is in `[0, 2^53)` and
 /// converts to a Double exactly.
-fn to_unit(_ bits: Int) -> Double {
+fn to_unit(bits: Int) -> Double {
     return (bits >>> 11).to_double() / 9007199254740992.0; // 2^53
 }
 
@@ -52,7 +52,7 @@ pub struct Rng {
 /// ```thera
 /// let rng = random.seeded(42);
 /// ```
-pub fn seeded(_ seed: Int) -> Rng {
+pub fn seeded(seed: Int) -> Rng {
     return Rng { state: seed };
 }
 
@@ -83,7 +83,7 @@ impl Rng {
     /// ```thera
     /// let dice = rng.int(1, 7);   // 1..=6
     /// ```
-    pub fn int(self, low: Int, high: Int) -> Int {
+    pub fn int(self, named low: Int, named high: Int) -> Int {
         if high <= low {
             return low;
         }
@@ -101,7 +101,7 @@ impl Rng {
     /// ```thera
     /// let pick = rng.choice(['rock', 'paper', 'scissors']);
     /// ```
-    pub fn choice<T>(self, _ items: List<T>) -> Option<T> {
+    pub fn choice<T>(self, items: List<T>) -> Option<T> {
         let n = items.len();
         if n == 0 {
             return Option.None;
@@ -111,7 +111,7 @@ impl Rng {
 
     /// A new list with the elements of `items` in a uniformly random order
     /// (Fisher-Yates). The input list is not modified.
-    pub fn shuffle<T>(self, _ items: List<T>) -> List<T> {
+    pub fn shuffle<T>(self, items: List<T>) -> List<T> {
         let result = items.map((x) => x);
         let mut i = result.len() - 1;
         while i > 0 {

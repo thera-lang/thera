@@ -23,6 +23,6 @@ impl Shape for SquareB {
     }
 }
 
-pub fn b_describe(_ s: Shape) -> String {
+pub fn b_describe(s: Shape) -> String {
     return s.describe();
 }

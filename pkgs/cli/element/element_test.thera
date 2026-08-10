@@ -14,7 +14,7 @@ fn defs() -> Map<String, TypeDefElement> {
 // Wrap a by-name def map into a minimal LibraryElement whose defs are all owned by
 // file key 't' (matching the fixture TypeIds) — `is_assignable` resolves identities
 // through the per-file tables.
-fn lib_with(_ m: Map<String, TypeDefElement>) -> LibraryElement {
+fn lib_with(m: Map<String, TypeDefElement>) -> LibraryElement {
     let file_type_defs: Map<String, Map<String, TypeDefElement>> = [:];
     file_type_defs['t'] = m;
     let file_functions: Map<String, Map<String, FunctionElement>> = [:];

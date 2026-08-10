@@ -17,7 +17,7 @@ import 'loader' as _;
 // Parse `src`, stamping a distinct `path` as its `file_path` — the loader keys
 // re-export-cycle detection on `file_path` (Thera has no object identity), which
 // `parse_file_or_null` sets for every real file.
-fn prog_of(_ src: String, _ path: String) -> Program {
+fn prog_of(src: String, path: String) -> Program {
     return testkit.parse_at(src, path);
 }
 
@@ -127,7 +127,7 @@ fn test_canonical_identity_across_root_spellings() -> Result<Void, Error> {
 
 // Read + parse `path`'s file and load its closure (no SDK — no prelude), also
 // asserting the root program's `file_path` is re-stamped canonical.
-fn load_root(_ path: String) -> Result<LoadedImports, Error> {
+fn load_root(path: String) -> Result<LoadedImports, Error> {
     return match fs.read_text(path) {
         Ok(src) => {
             let prog = testkit.parse(src);
@@ -151,7 +151,7 @@ fn load_root(_ path: String) -> Result<LoadedImports, Error> {
 // root unit), both files' namespaces resolved, and — the two files being distinct
 // libraries — the cycle diagnosed on both participating imports (loading still
 // links best-effort; the error gates).
-fn check_root_closure(_ loaded: LoadedImports) -> Result<Void, Error> {
+fn check_root_closure(loaded: LoadedImports) -> Result<Void, Error> {
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
     for d in loaded.diagnostics {
         testing.assert(
@@ -202,7 +202,7 @@ fn check_root_closure(_ loaded: LoadedImports) -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-fn fs_ok(_ r: Result<Void, fs.FsError>, _ what: String) -> Result<Void, Error> {
+fn fs_ok(r: Result<Void, fs.FsError>, what: String) -> Result<Void, Error> {
     return match r {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(error('${what}: ${e.message()}')),

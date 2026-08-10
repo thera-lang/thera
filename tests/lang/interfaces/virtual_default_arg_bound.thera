@@ -5,7 +5,7 @@
 // omitted argument fills from the bound interface's declared default.
 
 interface Greeter {
-    fn greet(self, punct: String = '!') -> String;
+    fn greet(self, named punct: String = '!') -> String;
 }
 
 struct Person {
@@ -13,12 +13,12 @@ struct Person {
 }
 
 impl Greeter for Person {
-    fn greet(self, punct: String = '!') -> String {
+    fn greet(self, named punct: String = '!') -> String {
         return self.name + punct;
     }
 }
 
-fn show<T: Greeter>(_ g: T) -> Void {
+fn show<T: Greeter>(g: T) -> Void {
     println(g.greet());    // expect: hi!
     println(g.greet(punct: '?')); // expect: hi?
 }

@@ -98,7 +98,7 @@ pub enum TokenKind {
 // The reserved keyword for `text`, or None for an ordinary identifier. (`type` is
 // deliberately absent: it is a contextual keyword — an ordinary identifier that the
 // parser gives meaning only in `native type`.)
-pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
+pub fn keyword_kind(text: String) -> Option<TokenKind> {
     return match text {
         'as' => Option.Some(TokenKind.KwAs),
         'break' => Option.Some(TokenKind.KwBreak),
@@ -133,7 +133,7 @@ pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
 // Whether `kind` is a reserved keyword. Member positions (field names, field access
 // after `.`, call-site and parameter labels) accept these as ordinary names — the
 // parser's `expect_member_name` — since no other production can appear there.
-pub fn is_keyword(_ kind: TokenKind) -> Bool {
+pub fn is_keyword(kind: TokenKind) -> Bool {
     return match kind {
         KwAs => true,
         KwBreak => true,

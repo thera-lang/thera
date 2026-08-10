@@ -1,19 +1,31 @@
 //! spec: fn-named-params
 //! mode: run
 
-fn greet(name: String, times: Int) -> String {
+// Parameters are positional by default; `named` opts one into a call-site label,
+// and the label is simply the parameter's name (there is no separate external
+// label). Named parameters must be a suffix of the list — see named_params_reject
+// for the violations.
+
+fn greet(named name: String, named times: Int) -> String {
     return '${name} x${times}';
 }
 
-// A label is simply the parameter's name — there is no separate external label.
-// `default` is not a reserved word, so it serves as both.
-fn flag(_ name: String, default: Bool) -> Bool {
+// `default` is not a reserved word, so it serves as both the call-site label and
+// the body's binding. `name` takes no marker: positional is the default.
+fn flag(name: String, named default: Bool) -> Bool {
     return default;
+}
+
+// `named` is contextual, not reserved — an ordinary name everywhere, including as
+// a parameter's own name.
+fn marker_is_contextual(named: Int, named other: Int) -> Int {
+    return named + other;
 }
 
 fn main() -> Int {
     println(greet(name: 'a', times: 3));   // expect: a x3
     let f = flag('-v', default: true);
     println('${f}');                        // expect: true
+    println('${marker_is_contextual(1, other: 2)}'); // expect: 3
     return 0;
 }

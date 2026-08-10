@@ -13,7 +13,7 @@
 // The corrective hint for a missing `ns.member`, if `member` is a known guess
 // against that namespace. Keyed on the conventional (unaliased) import name; an
 // aliased import simply gets no hint.
-pub fn namespace_hint(_ ns: String, _ member: String) -> Option<String> {
+pub fn namespace_hint(ns: String, member: String) -> Option<String> {
     return match '${ns}.${member}' {
         'time.monotonic_ms' => Option.Some(
             'the monotonic clock is typed — '
@@ -33,7 +33,7 @@ pub fn namespace_hint(_ ns: String, _ member: String) -> Option<String> {
 // The corrective hint for a missing method, if `method` is a known guess against
 // the receiver's base type (`rendered` as `type_to_string` gives it, e.g.
 // `Option<Int>`; generic arguments are stripped here).
-pub fn method_hint(_ rendered: String, _ method: String) -> Option<String> {
+pub fn method_hint(rendered: String, method: String) -> Option<String> {
     let base = match rendered.find('<') {
         Some(i) => rendered.slice(0, i),
         None => rendered,

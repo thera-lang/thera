@@ -55,13 +55,13 @@ impl Issues {
     /// answer.
     pub fn create(
         self,
-        owner: String,
-        repo: String,
-        title: String,
-        body: Option<String> = Option.None,
-        assignees: Option<List<String>> = Option.None,
-        labels: Option<List<String>> = Option.None,
-        milestone: Option<Int> = Option.None,
+        named owner: String,
+        named repo: String,
+        named title: String,
+        named body: Option<String> = Option.None,
+        named assignees: Option<List<String>> = Option.None,
+        named labels: Option<List<String>> = Option.None,
+        named milestone: Option<Int> = Option.None,
     ) -> Result<Issue, GitHubError> {
         let payload = json.obj([
             'title': json.str(title),
@@ -80,6 +80,6 @@ impl Issues {
 /// whose payload is not a single leaf. `pkgs/anthropic` has the identical function,
 /// which is two occurrences and therefore a shape `std.json` should probably carry
 /// itself.
-fn strings(_ values: List<String>) -> json.Json {
+fn strings(values: List<String>) -> json.Json {
     return json.arr(values.map(json.str));
 }

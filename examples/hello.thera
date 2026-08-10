@@ -4,7 +4,7 @@
 
 import std.cli;
 
-fn main(parameters: List<String>) -> Result<Int, Error> {
+fn main(named parameters: List<String>) -> Result<Int, Error> {
     let args = cli.Args.new(parameters);
     let name = args.option('--name').unwrap_or('world');
     let loud = args.flag('--loud', default: false);

@@ -25,9 +25,9 @@ pub struct SignatureInfo {
 // (or the callee doesn't resolve). `self` is dropped from the parameter list, so an
 // instance call's first argument is parameter 0.
 pub fn signature_help_at(
-    _ ctx: resolve.ResolveCtx,
-    _ text: String,
-    _ offset: Int,
+    ctx: resolve.ResolveCtx,
+    text: String,
+    offset: Int,
 ) -> Option<SignatureInfo> {
     // An unterminated call's span ends at its last real token, so a cursor in the
     // trailing whitespace (`add(1, `) sits past every AST span — snap it back onto
@@ -62,7 +62,7 @@ pub fn signature_help_at(
 
 // The cursor snapped back onto code: in trailing whitespace it anchors at the
 // previous token's end; inside (or at the end of) a token it keeps its own offset.
-fn snap_to_code(_ toks: List<Token>, _ offset: Int) -> Int {
+fn snap_to_code(toks: List<Token>, offset: Int) -> Int {
     let mut anchor = 0;
     for t in toks {
         let s = t.span;
@@ -78,7 +78,7 @@ fn snap_to_code(_ toks: List<Token>, _ offset: Int) -> Int {
 }
 
 // The LSP `SignatureHelp` (as JSON) for `offset` in `text`, or JSON null.
-pub fn handle_signature_help(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Json {
+pub fn handle_signature_help(ctx: resolve.ResolveCtx, text: String, offset: Int) -> Json {
     return match signature_help_at(ctx, text, offset) {
         Some(info) => json.obj([
             'signatures': json.arr([json.obj([

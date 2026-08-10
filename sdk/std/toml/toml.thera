@@ -122,7 +122,7 @@ impl Toml {
     /// — a missing key, a non-table in the middle, a non-table self. Segments are
     /// matched literally after splitting on `.`, so quoted keys containing dots are
     /// not addressable here (use `as_table`).
-    pub fn get(self, _ path: String) -> Option<Toml> {
+    pub fn get(self, path: String) -> Option<Toml> {
         let mut cur = self;
         for seg in path.split('.') {
             let next = match cur {
@@ -141,7 +141,7 @@ impl Toml {
     }
 
     /// An array element by index (None if not an array or out of range).
-    pub fn at(self, _ index: Int) -> Option<Toml> {
+    pub fn at(self, index: Int) -> Option<Toml> {
         return match self {
             Array(items) => items.get(index),
             _ => Option.None,
@@ -216,27 +216,27 @@ impl Toml {
     // The typed path reads — `get` composed with one `as_*`, since that pair is
     // what a config consumer writes every time.
 
-    pub fn get_bool(self, _ path: String) -> Option<Bool> {
+    pub fn get_bool(self, path: String) -> Option<Bool> {
         return self.get(path).and_then((v) => v.as_bool());
     }
 
-    pub fn get_int(self, _ path: String) -> Option<Int> {
+    pub fn get_int(self, path: String) -> Option<Int> {
         return self.get(path).and_then((v) => v.as_int());
     }
 
-    pub fn get_double(self, _ path: String) -> Option<Double> {
+    pub fn get_double(self, path: String) -> Option<Double> {
         return self.get(path).and_then((v) => v.as_double());
     }
 
-    pub fn get_string(self, _ path: String) -> Option<String> {
+    pub fn get_string(self, path: String) -> Option<String> {
         return self.get(path).and_then((v) => v.as_string());
     }
 
-    pub fn get_array(self, _ path: String) -> Option<List<Toml>> {
+    pub fn get_array(self, path: String) -> Option<List<Toml>> {
         return self.get(path).and_then((v) => v.as_array());
     }
 
-    pub fn get_table(self, _ path: String) -> Option<Map<String, Toml>> {
+    pub fn get_table(self, path: String) -> Option<Map<String, Toml>> {
         return self.get(path).and_then((v) => v.as_table());
     }
 }
@@ -281,7 +281,7 @@ impl Display for DecodeError {
 /// typed.
 ///
 /// ```thera
-/// fn auth_from_toml(_ at: toml.Cursor) -> Result<Auth, toml.DecodeError> {
+/// fn auth_from_toml(at: toml.Cursor) -> Result<Auth, toml.DecodeError> {
 ///     return Result.Ok(Auth {
 ///         header: at.field('header').string()?,
 ///         env: at.field('env').opt_string()?,
@@ -313,7 +313,7 @@ pub struct Cursor {
 
 /// A cursor on `value` as a document root (its path is empty; errors at the root
 /// itself say `the document root`).
-pub fn cursor(_ value: Toml) -> Cursor {
+pub fn cursor(value: Toml) -> Cursor {
     return Cursor { value: value, path: '', present: true };
 }
 
@@ -322,7 +322,7 @@ impl Cursor {
 
     /// The cursor at `key` of this table — at the extended path, marked absent if
     /// this is not a table or has no such key.
-    pub fn field(self, _ key: String) -> Cursor {
+    pub fn field(self, key: String) -> Cursor {
         let mut at = key;
         if self.path != '' {
             at = '${self.path}.${key}';
@@ -338,7 +338,7 @@ impl Cursor {
 
     /// The cursor at element `i` of this array — marked absent if this is not an
     /// array or `i` is out of range.
-    pub fn index(self, _ i: Int) -> Cursor {
+    pub fn index(self, i: Int) -> Cursor {
         let at = '${self.path}[${i}]';
         return match self.value {
             Array(items) => match items.get(i) {
@@ -428,14 +428,14 @@ impl Cursor {
 
     /// A `Shape` error at this cursor's path, for a check the readers can't make:
     /// `at.field('spec_hash').unexpected('a 40-char hex digest')`.
-    pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError> {
+    pub fn unexpected<T>(self, expected: String) -> Result<T, DecodeError> {
         return Result.Err(DecodeError.Shape(self.spot(), expected, self.value.kind()));
     }
 
     // --- the two readers everything above shares ---
 
     /// Absent is `Missing`; the wrong kind is `Shape`; otherwise the value.
-    fn require<T>(self, _ expected: String, _ read: Option<T>) -> Result<T, DecodeError> {
+    fn require<T>(self, expected: String, read: Option<T>) -> Result<T, DecodeError> {
         if !self.present {
             return Result.Err(DecodeError.Missing(self.spot()));
         }
@@ -448,7 +448,7 @@ impl Cursor {
     /// Absent is `None`; the wrong kind is still `Shape`. Tolerating an absent key
     /// is not tolerating a key of the wrong type — the first is the schema saying
     /// "optional", the second is a bug in the document.
-    fn allow<T>(self, _ expected: String, _ read: Option<T>) -> Result<Option<T>, DecodeError> {
+    fn allow<T>(self, expected: String, read: Option<T>) -> Result<Option<T>, DecodeError> {
         if !self.present {
             return Result.Ok(Option.None);
         }
@@ -487,7 +487,7 @@ impl Cursor {
 
 /// An absent cursor. The placeholder value is unobservable through the readers —
 /// `require`/`allow` answer on `present` before looking at it.
-fn absent(_ path: String) -> Cursor {
+fn absent(path: String) -> Cursor {
     return Cursor { value: Toml.Bool(false), path: path, present: false };
 }
 
@@ -505,7 +505,7 @@ struct Parser {
 /// enough to collide.
 let path_sep: String = String.from_chars([0]);
 
-pub fn parse(_ text: String) -> Result<Toml, TomlError> {
+pub fn parse(text: String) -> Result<Toml, TomlError> {
     let cps = text.chars();
     let p = Parser { chars: cps, pos: 0, len: cps.len() };
     // The document root, built line by line. `states` records how each table was
@@ -585,7 +585,7 @@ impl Parser {
     }
 
     /// The code point at an absolute index, or -1 out of range.
-    fn cp_at(self, _ i: Int) -> Int {
+    fn cp_at(self, i: Int) -> Int {
         if i < 0 || i >= self.len {
             return -1;
         }
@@ -606,7 +606,7 @@ impl Parser {
         return void;
     }
 
-    fn syntax(self, _ msg: String) -> TomlError {
+    fn syntax(self, msg: String) -> TomlError {
         return TomlError.Syntax('${msg} at ${self.position()}');
     }
 
@@ -628,7 +628,7 @@ impl Parser {
     }
 
     /// True (and consumes) if the upcoming code points spell `lit`.
-    fn match_literal(self, _ lit: String) -> Bool {
+    fn match_literal(self, lit: String) -> Bool {
         let want = lit.chars();
         for p in want.enumerate() {
             if self.cp_at(self.pos + p.index) != p.value {
@@ -727,12 +727,12 @@ impl Parser {
     /// is closed to dotted extension.
     fn insert(
         self,
-        _ base: Map<String, Toml>,
-        _ states: Map<String, String>,
-        _ prefix: String,
-        _ block: Int,
-        _ path: List<String>,
-        _ value: Toml,
+        base: Map<String, Toml>,
+        states: Map<String, String>,
+        prefix: String,
+        block: Int,
+        path: List<String>,
+        value: Toml,
     ) -> Result<Void, TomlError> {
         let mut cur = base;
         let mut marks = states;
@@ -788,10 +788,10 @@ impl Parser {
     /// is a redefinition error.
     fn open_table(
         self,
-        _ root: Map<String, Toml>,
-        _ states: Map<String, String>,
-        _ path: List<String>,
-        _ is_array: Bool,
+        root: Map<String, Toml>,
+        states: Map<String, String>,
+        path: List<String>,
+        is_array: Bool,
     ) -> Result<BlockTarget, TomlError> {
         let mut cur = root;
         let mut marks = states;
@@ -1140,7 +1140,7 @@ impl Parser {
     }
 
     /// How many consecutive `quote` chars start at the current position.
-    fn quotes_ahead(self, _ quote: Int) -> Int {
+    fn quotes_ahead(self, quote: Int) -> Int {
         let mut n = 0;
         while self.cp_at(self.pos + n) == quote {
             n = n + 1;
@@ -1151,7 +1151,7 @@ impl Parser {
     /// The current position starts a run of >= 3 `quote`s: the last three are the
     /// closing delimiter, up to two before it belong to the content, and three or
     /// more before it are malformed.
-    fn close_ml_delimiter(self, _ quote: Int, _ out: List<Int>) -> Result<Void, TomlError> {
+    fn close_ml_delimiter(self, quote: Int, out: List<Int>) -> Result<Void, TomlError> {
         let run = self.quotes_ahead(quote);
         if run > 5 {
             return Result.Err(self.syntax('too many quotes in multiline string'));
@@ -1196,7 +1196,7 @@ impl Parser {
     /// Decode one escape sequence (the `\` is already consumed) into `out`. TOML's
     /// set — note `\/` is not in it, and `\uXXXX`/`\UXXXXXXXX` must name a Unicode
     /// scalar value (no surrogates, unlike JSON's pairing).
-    fn parse_escape(self, _ out: List<Int>) -> Result<Void, TomlError> {
+    fn parse_escape(self, out: List<Int>) -> Result<Void, TomlError> {
         let e = self.peek();
         if e == -1 {
             return Result.Err(self.syntax('unterminated escape'));
@@ -1227,7 +1227,7 @@ impl Parser {
     }
 
     /// `digits` hex digits naming a Unicode scalar value.
-    fn parse_unicode_escape(self, _ digits: Int) -> Result<Int, TomlError> {
+    fn parse_unicode_escape(self, digits: Int) -> Result<Int, TomlError> {
         let mut value = 0;
         let mut i = 0;
         while i < digits {
@@ -1277,7 +1277,7 @@ impl Parser {
     /// leap year. Which of the four kinds this is falls out of what follows the
     /// date: nothing (LocalDate), a time (LocalDateTime), a time plus `Z` or a
     /// numeric offset (OffsetDateTime).
-    fn parse_datetime(self, _ with_date: Bool) -> Result<Toml, TomlError> {
+    fn parse_datetime(self, with_date: Bool) -> Result<Toml, TomlError> {
         let mut out: List<Int> = [];
         let mut kind = DatetimeKind.LocalTime;
         if with_date {
@@ -1359,7 +1359,7 @@ impl Parser {
     }
 
     /// Exactly `n` ASCII digits, appended to `out`; returns their value.
-    fn read_fixed_digits(self, _ n: Int, _ out: List<Int>) -> Result<Int, TomlError> {
+    fn read_fixed_digits(self, n: Int, out: List<Int>) -> Result<Int, TomlError> {
         let mut value = 0;
         let mut i = 0;
         while i < n {
@@ -1376,7 +1376,7 @@ impl Parser {
     }
 
     /// The exact code point, appended to `out`.
-    fn expect_cp(self, _ cp: Int, _ out: List<Int>) -> Result<Void, TomlError> {
+    fn expect_cp(self, cp: Int, out: List<Int>) -> Result<Void, TomlError> {
         if self.peek() != cp {
             return Result.Err(self.syntax('malformed date-time'));
         }
@@ -1500,7 +1500,7 @@ impl Parser {
 
     /// A `0x`/`0o`/`0b` integer (the `0` is current; the marker is next). Leading
     /// zeros are legal here; the value must fit in a 64-bit signed integer.
-    fn parse_radix_int(self, _ base: Int) -> Result<Toml, TomlError> {
+    fn parse_radix_int(self, base: Int) -> Result<Toml, TomlError> {
         self.pos = self.pos + 2; // consume '0x' / '0o' / '0b'
         let mut digits: List<Int> = [];
         let mut seen = false;
@@ -1559,18 +1559,18 @@ impl Parser {
 // --- helpers ---
 
 /// Bare keys are ASCII letters, digits, `_`, and `-`.
-fn is_bare_key_char(_ c: Int) -> Bool {
+fn is_bare_key_char(c: Int) -> Bool {
     return char.is_alphanumeric(c) || c == char.UNDERSCORE || c == char.MINUS;
 }
 
 /// Raw control characters are not permitted in any string form; tab is the one
 /// exception (newlines are handled by each form's own rules).
-fn is_forbidden_string_char(_ c: Int) -> Bool {
+fn is_forbidden_string_char(c: Int) -> Bool {
     return (c < char.SPACE && c != char.TAB) || c == char.DEL;
 }
 
 /// The table inside a `Toml.Table` — caller has already established the kind.
-fn table_of(_ v: Toml) -> Map<String, Toml> {
+fn table_of(v: Toml) -> Map<String, Toml> {
     return match v {
         Table(m) => m,
         _ => [:],
@@ -1578,7 +1578,7 @@ fn table_of(_ v: Toml) -> Map<String, Toml> {
 }
 
 /// The list inside a `Toml.Array` — caller has already established the kind.
-fn array_of(_ v: Toml) -> List<Toml> {
+fn array_of(v: Toml) -> List<Toml> {
     return match v {
         Array(items) => items,
         _ => [],
@@ -1586,7 +1586,7 @@ fn array_of(_ v: Toml) -> List<Toml> {
 }
 
 /// Days in a month, honoring the Gregorian leap-year rule.
-fn days_in_month(_ year: Int, _ month: Int) -> Int {
+fn days_in_month(year: Int, month: Int) -> Int {
     if month == 2 {
         let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
         if leap {
@@ -1601,7 +1601,7 @@ fn days_in_month(_ year: Int, _ month: Int) -> Int {
 }
 
 /// The first `count + 1` segments of a key path, dotted, for error messages.
-fn render_path(_ path: List<String>, _ last: Int) -> String {
+fn render_path(path: List<String>, last: Int) -> String {
     let mut parts: List<String> = [];
     let mut i = 0;
     while i <= last {
@@ -1613,7 +1613,7 @@ fn render_path(_ path: List<String>, _ last: Int) -> String {
 
 /// Does a decimal magnitude (digit code points, no leading zeros) exceed the i64
 /// range for its sign? Compared textually so overflow never wraps.
-fn exceeds_i64(_ digits: List<Int>, _ negative: Bool) -> Bool {
+fn exceeds_i64(digits: List<Int>, negative: Bool) -> Bool {
     let mut limit = '9223372036854775807'.chars();
     if negative {
         limit = '9223372036854775808'.chars();

@@ -46,7 +46,7 @@ struct StringPool {
 
 impl StringPool {
     // Intern `s`, returning its pool index (reusing an existing entry).
-    fn intern(self, _ s: String) -> Int {
+    fn intern(self, s: String) -> Int {
         if let Some(i) = self.index.get(s) {
             return i;
         }
@@ -60,13 +60,13 @@ impl StringPool {
     // referenced string in its first pass, so a miss is a codegen/encoder bug —
     // indexing traps loudly (a missing key) rather than returning a −1 that
     // `write_uvarint` would silently encode as a garbage index.
-    fn index_of(self, _ s: String) -> Int {
+    fn index_of(self, s: String) -> Int {
         return self.index[s];
     }
 }
 
 // Encode a module to the wire format.
-pub fn encode_module(_ m: module.Module) -> Bytes {
+pub fn encode_module(m: module.Module) -> Bytes {
     // First pass: intern every string the module references — type names, string
     // literals, and the names of called natives/selectors — in the same order the
     // runtime does, so the pools (and therefore the bytes) match exactly.
@@ -201,7 +201,7 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
 
 // The index of the function named `name`, or -1 if absent. `encode_module` uses it
 // to derive the Entry section's `main`/`<init>` indices (as `index + 1`).
-fn find_func(_ fns: List<module.FuncDef>, _ name: String) -> Int {
+fn find_func(fns: List<module.FuncDef>, name: String) -> Int {
     for p in fns.enumerate() {
         if p.value.name == name {
             return p.index;
@@ -212,19 +212,19 @@ fn find_func(_ fns: List<module.FuncDef>, _ name: String) -> Int {
 
 // A length-prefixed string: uvarint byte-length, then the raw UTF-8 bytes.
 // (`write_str` appends UTF-8 with no prefix, so the length goes ahead of it.)
-fn write_str_lp(_ w: BytesBuilder, _ s: String) -> Void {
+fn write_str_lp(w: BytesBuilder, s: String) -> Void {
     w.write_uvarint(s.byte_len());
     w.write_str(s);
 }
 
 // Append `payload` as a section: id byte, uvarint length, then the raw bytes.
-fn write_section(_ w: BytesBuilder, _ id: Int, _ payload: Bytes) -> Void {
+fn write_section(w: BytesBuilder, id: Int, payload: Bytes) -> Void {
     w.write_u8(id);
     w.write_uvarint(payload.len());
     w.write_bytes(payload);
 }
 
-fn encode_function(_ w: BytesBuilder, _ f: module.FuncDef, _ pool: StringPool) -> Void {
+fn encode_function(w: BytesBuilder, f: module.FuncDef, pool: StringPool) -> Void {
     w.write_uvarint(f.param_count);
     w.write_uvarint(f.local_count);
     w.write_uvarint(f.code.len());
@@ -233,7 +233,7 @@ fn encode_function(_ w: BytesBuilder, _ f: module.FuncDef, _ pool: StringPool) -
     }
 }
 
-fn encode_instr(_ w: BytesBuilder, _ instr: Instr, _ pool: StringPool) -> Void {
+fn encode_instr(w: BytesBuilder, instr: Instr, pool: StringPool) -> Void {
     match instr {
         Simple(op) => {
             w.write_u8(op.byte());

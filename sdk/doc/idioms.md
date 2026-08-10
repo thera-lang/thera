@@ -105,11 +105,14 @@ Each of these is a real first-contact error, most-frequent first.
    or discard explicitly: `let _ = fs.remove(path);`. Dropping an `Option` is
    fine.
 
-7. **Arguments are labeled by default.** A parameter declared `name: T` must be
-   called as `f(name: v)`; only `_ name: T` parameters are positional. So:
+7. **Arguments are positional by default; `named` opts into a label.** A
+   parameter declared `name: T` is passed by position; one declared
+   `named name: T` must be called as `f(name: v)`. Labeled parameters come last
+   (a positional one after a `named` one is an error). So:
    `testing.assert_eq(actual: got, expected: want)?`,
-   `process.run('git', args: […])`. Dropping the label is the
-   `missing-argument-label` warning; `thera check --fix` inserts it for you.
+   `process.run('git', args: […])`, but `path.join(base, part)`. Dropping a
+   label that is owed is the `missing-argument-label` warning;
+   `thera check --fix` inserts it for you.
 
 8. **Qualify everything cross-library.** `import std.fs;` then `fs.read_text(…)`
    — a bare `read_text` is an error, as is `assert_eq` without `testing.`. Only

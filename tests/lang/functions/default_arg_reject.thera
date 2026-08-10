@@ -7,11 +7,11 @@
 // These used to reach `emit` unchecked (an unresolvable default) or run
 // unchecked (a mismatched one), so a check-clean program failed to compile.
 
-fn pad(width: Int = MISSING) -> Int { // expect error: undefined name: MISSING
+fn pad(named width: Int = MISSING) -> Int { // expect error: undefined name: MISSING
     return width;
 }
 
-fn label(text: String = 7) -> String { // expect error: default value for 'text': expected String, found Int
+fn label(named text: String = 7) -> String { // expect error: default value for 'text': expected String, found Int
     return text;
 }
 

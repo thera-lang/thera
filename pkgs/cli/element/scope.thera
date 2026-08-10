@@ -41,10 +41,10 @@ pub struct FileScope {
 // Resolve an optional type reference; a missing one (omitted annotation) is
 // Unknown.
 pub fn resolve_opt_in(
-    _ ref: Option<TypeRef>,
-    _ scope: FileScope,
-    _ type_params: Set<String>,
-    _ self_type: Option<Type>,
+    ref: Option<TypeRef>,
+    scope: FileScope,
+    type_params: Set<String>,
+    self_type: Option<Type>,
 ) -> Type {
     return match ref {
         Some(r) => resolve_type_ref_in(r, scope, type_params, self_type),
@@ -53,10 +53,10 @@ pub fn resolve_opt_in(
 }
 
 pub fn resolve_type_ref_in(
-    _ ref: TypeRef,
-    _ scope: FileScope,
-    _ type_params: Set<String>,
-    _ self_type: Option<Type>,
+    ref: TypeRef,
+    scope: FileScope,
+    type_params: Set<String>,
+    self_type: Option<Type>,
 ) -> Type {
     return match ref {
         Named(nt) => resolve_named_in(nt, scope, type_params, self_type),
@@ -68,10 +68,10 @@ pub fn resolve_type_ref_in(
 }
 
 fn resolve_named_in(
-    _ nt: NamedType,
-    _ scope: FileScope,
-    _ type_params: Set<String>,
-    _ self_type: Option<Type>,
+    nt: NamedType,
+    scope: FileScope,
+    type_params: Set<String>,
+    self_type: Option<Type>,
 ) -> Type {
     // A qualifier that isn't one of this file's namespaces resolves to Unknown —
     // never a bare-name fallback, which would mint a *different* identity for the
@@ -101,7 +101,7 @@ fn resolve_named_in(
     return Type.Interface(TypeId { owner: owner, name: nt.name }, args);
 }
 
-pub fn file_scope(_ library: LibraryElement, _ file: Option<String>) -> FileScope {
+pub fn file_scope(library: LibraryElement, file: Option<String>) -> FileScope {
     return FileScope { library: library, file: file };
 }
 
@@ -114,7 +114,7 @@ impl FileScope {
     // table — so a bare value resolves to its owning library, not a flat global
     // table (Phase 2e S4). There is no cross-file fallback: a name that is neither
     // same-file nor bare-legal is unresolved (the checker's gate rejects it).
-    fn bare_owner(self, _ name: String) -> Option<String> {
+    fn bare_owner(self, name: String) -> Option<String> {
         if file_owns(self.library, self.file, name) {
             return Option.Some(file_key(self.file));
         }
@@ -126,7 +126,7 @@ impl FileScope {
 
     // The free function `name` resolves to — this file's, or a bare-legal one from
     // the prelude / an `as _` import, fetched from the owning file's table.
-    pub fn resolve_function(self, _ name: String) -> Option<FunctionElement> {
+    pub fn resolve_function(self, name: String) -> Option<FunctionElement> {
         return match self.bare_owner(name) {
             Some(owner) => match self.library.file_functions.get(owner) {
                 Some(m) => m.get(name),
@@ -137,7 +137,7 @@ impl FileScope {
     }
 
     // The const `name` resolves to — likewise within its owning file.
-    pub fn resolve_const(self, _ name: String) -> Option<ConstElement> {
+    pub fn resolve_const(self, name: String) -> Option<ConstElement> {
         return match self.bare_owner(name) {
             Some(owner) => match self.library.file_consts.get(owner) {
                 Some(m) => m.get(name),
@@ -153,7 +153,7 @@ impl FileScope {
     // namespace this file binds (the receiver of `ns.fn`). The lexical
     // `scope.has(name)` is the caller's to add — this is the non-lexical half of
     // the old `is_defined_name`.
-    pub fn binds_value(self, _ name: String) -> Bool {
+    pub fn binds_value(self, name: String) -> Bool {
         return file_owns(self.library, self.file, name)
             || bare_surface_has(self.library, self.file, name)
             || self.is_builtin_type(name)
@@ -174,7 +174,7 @@ impl FileScope {
 
     // The file (key) that owns public member `name` of namespace `ns`, or None.
     // Public so codegen can map a qualified call to its owning file's unit.
-    pub fn member_owner(self, _ ns: String, _ name: String) -> Option<String> {
+    pub fn member_owner(self, ns: String, name: String) -> Option<String> {
         return match self.namespace_surface(ns) {
             Some(surface) => surface.origin.get(name),
             None => Option.None,
@@ -183,8 +183,8 @@ impl FileScope {
 
     pub fn resolve_qualified_function(
         self,
-        _ ns: String,
-        _ name: String,
+        ns: String,
+        name: String,
     ) -> Option<FunctionElement> {
         return match self.member_owner(ns, name) {
             Some(owner) => match self.library.file_functions.get(owner) {
@@ -195,7 +195,7 @@ impl FileScope {
         };
     }
 
-    pub fn resolve_qualified_const(self, _ ns: String, _ name: String) -> Option<ConstElement> {
+    pub fn resolve_qualified_const(self, ns: String, name: String) -> Option<ConstElement> {
         return match self.member_owner(ns, name) {
             Some(owner) => match self.library.file_consts.get(owner) {
                 Some(m) => m.get(name),
@@ -205,11 +205,7 @@ impl FileScope {
         };
     }
 
-    pub fn resolve_qualified_type_def(
-        self,
-        _ ns: String,
-        _ name: String,
-    ) -> Option<TypeDefElement> {
+    pub fn resolve_qualified_type_def(self, ns: String, name: String) -> Option<TypeDefElement> {
         return match self.member_owner(ns, name) {
             Some(owner) => match self.library.file_type_defs.get(owner) {
                 Some(m) => m.get(name),
@@ -230,7 +226,7 @@ impl FileScope {
     // `file_type_defs`. Type names are still globally unique (the flip is T4), so
     // under uniqueness this returns the same element the global lookup did — which
     // the SDK fixpoint confirms.
-    pub fn resolve_type_def(self, _ id: TypeId) -> Option<TypeDefElement> {
+    pub fn resolve_type_def(self, id: TypeId) -> Option<TypeDefElement> {
         return def_by_id(self.library, id);
     }
 
@@ -238,7 +234,7 @@ impl FileScope {
     // being constructed, an interface bound) or a primitive's element. Still a
     // global by-name lookup: these names carry no owner, and owner-correct source
     // resolution (picking among same-named types via this file's scope) is T4.
-    pub fn resolve_type_def_by_name(self, _ name: String) -> Option<TypeDefElement> {
+    pub fn resolve_type_def_by_name(self, name: String) -> Option<TypeDefElement> {
         return self.library.type_defs.get(name);
     }
 
@@ -252,7 +248,7 @@ impl FileScope {
     // closure (the value-side version of this shortcut produced the `find_method`
     // miscompile). The tier order (own file → bare surface → built-in) is
     // language.md's "bare type name" algorithm.
-    pub fn resolve_type_owner(self, _ name: String, _ namespace: Option<String>) -> String {
+    pub fn resolve_type_owner(self, name: String, namespace: Option<String>) -> String {
         if let Some(ns) = namespace {
             if let Some(owner) = self.member_owner(ns, name) {
                 return owner;
@@ -277,7 +273,7 @@ impl FileScope {
     // (prelude / `as _`). A type that is only *qualifiable* via an import is not
     // known bare (the caller turns that into "qualify as `ns.T`"). Mirrors the old
     // `name_known`.
-    pub fn is_type_known(self, _ name: String, _ type_params: Set<String>) -> Bool {
+    pub fn is_type_known(self, name: String, type_params: Set<String>) -> Bool {
         if name == 'Self' {
             return true;
         }
@@ -307,7 +303,7 @@ impl FileScope {
     // floor-owned entry of any kind counts too: the hermetic floor's
     // `Eq`/`Display`/`Debug` are interfaces, and only surface when no real
     // declaration shadows them.
-    pub fn is_builtin_type(self, _ name: String) -> Bool {
+    pub fn is_builtin_type(self, name: String) -> Bool {
         return match self.library.type_defs.get(name) {
             Some(def) => def.kind == TypeDefKind.Builtin || def.owner_file == BUILTIN_OWNER,
             None => false,
@@ -317,19 +313,19 @@ impl FileScope {
     // --- namespaces (the `ns` in `ns.name`) ---
 
     // Whether `name` is an import namespace this file binds.
-    pub fn is_namespace(self, _ name: String) -> Bool {
+    pub fn is_namespace(self, name: String) -> Bool {
         return namespaces_in(self.library, self.file).has(name);
     }
 
     // The public surface bound to namespace `ns` in this file, or None.
-    pub fn namespace_surface(self, _ ns: String) -> Option<LibraryNamespace> {
+    pub fn namespace_surface(self, ns: String) -> Option<LibraryNamespace> {
         return namespaces_in(self.library, self.file).get(ns);
     }
 
     // Whether namespace `ns` (imported by this file) exposes public member `name`.
     // False when `ns` is not a namespace of this file — the caller decides whether
     // that is an error (an access against an unknown surface is handled elsewhere).
-    pub fn namespace_exposes(self, _ ns: String, _ name: String) -> Bool {
+    pub fn namespace_exposes(self, ns: String, name: String) -> Bool {
         return match self.namespace_surface(ns) {
             Some(surface) => namespace_exposes(surface, name),
             None => false,
@@ -342,7 +338,7 @@ impl FileScope {
     // "qualify as `ns.T`" hints. When several qualify, the first in import order
     // wins (map iteration is insertion-ordered, so this is deterministic — EL17);
     // the hint names *a* valid qualifier, not the only one.
-    pub fn qualifying_namespace(self, _ name: String) -> Option<String> {
+    pub fn qualifying_namespace(self, name: String) -> Option<String> {
         let nss = namespaces_in(self.library, self.file);
         for ns in nss.keys() {
             if namespace_exposes(nss[ns], name) {

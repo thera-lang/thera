@@ -93,7 +93,7 @@ pub struct Message {
 }
 
 /// Decode a Messages response body.
-pub fn message_from_json(_ at: json.Cursor) -> Result<Message, json.DecodeError> {
+pub fn message_from_json(at: json.Cursor) -> Result<Message, json.DecodeError> {
     let root = at.object()?;
     let mut content: List<ContentBlock> = [];
     for block in root.field('content').list()? {
@@ -115,7 +115,7 @@ pub fn message_from_json(_ at: json.Cursor) -> Result<Message, json.DecodeError>
 /// The dispatch is a `match` on the discriminator's string value, which reads much
 /// the way the spec's `oneOf` does — one arm per branch, the fallback arm carrying
 /// the forward-compatibility rule.
-pub fn block_from_json(_ at: json.Cursor) -> Result<ContentBlock, json.DecodeError> {
+pub fn block_from_json(at: json.Cursor) -> Result<ContentBlock, json.DecodeError> {
     let block = at.object()?;
     return match block.field('type').string()? {
         'text' => Result.Ok(ContentBlock.Text(TextBlock { text: block.field('text').string()? })),
@@ -135,7 +135,7 @@ pub fn block_from_json(_ at: json.Cursor) -> Result<ContentBlock, json.DecodeErr
     };
 }
 
-fn usage_from_json(_ at: json.Cursor) -> Result<Usage, json.DecodeError> {
+fn usage_from_json(at: json.Cursor) -> Result<Usage, json.DecodeError> {
     return Result.Ok(Usage {
         input_tokens: at.field('input_tokens').int()?,
         output_tokens: at.field('output_tokens').int()?,
@@ -147,7 +147,7 @@ fn usage_from_json(_ at: json.Cursor) -> Result<Usage, json.DecodeError> {
 /// The wire tag as a `StopReason`. Total by construction: an unrecognized tag is
 /// `Unknown`, never an error — which is what lets `message_from_json` reach it
 /// through `Option.map` rather than a `match` on the read.
-pub fn stop_reason_of(_ tag: String) -> StopReason {
+pub fn stop_reason_of(tag: String) -> StopReason {
     return match tag {
         'end_turn' => StopReason.EndTurn,
         'max_tokens' => StopReason.MaxTokens,

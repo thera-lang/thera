@@ -21,11 +21,11 @@ import 'paths';
 // false, the declaration's own name occurrence is dropped. Shared by
 // find-references and rename (which rewrites exactly these spans).
 pub fn matching_spans(
-    _ ctx: resolve.ResolveCtx,
-    _ text: String,
-    _ doc_path: String,
-    _ target: resolve.SymbolId,
-    _ include_decl: Bool,
+    ctx: resolve.ResolveCtx,
+    text: String,
+    doc_path: String,
+    target: resolve.SymbolId,
+    include_decl: Bool,
 ) -> List<SourceSpan> {
     let spans: List<SourceSpan> = [];
     // One tokenization for the whole scan of this document — `resolve_at` below
@@ -49,12 +49,12 @@ pub fn matching_spans(
 // through `ctx`) into `out` as LSP `Location`s (LSP `context.includeDeclaration`
 // via `include_decl`).
 pub fn collect_in(
-    _ ctx: resolve.ResolveCtx,
-    _ text: String,
-    _ uri: String,
-    _ target: resolve.SymbolId,
-    _ include_decl: Bool,
-    _ out: List<json.Json>,
+    ctx: resolve.ResolveCtx,
+    text: String,
+    uri: String,
+    target: resolve.SymbolId,
+    include_decl: Bool,
+    out: List<json.Json>,
 ) -> Void {
     for span in matching_spans(ctx, text, paths.uri_to_path(uri), target, include_decl) {
         out.push(location(uri, span));
@@ -63,13 +63,13 @@ pub fn collect_in(
 
 // Whether this occurrence is the target's own declaration name — the token that
 // sits exactly at the declaration's name span in its owning file.
-fn is_declaration(_ tok: Token, _ doc_path: String, _ target: resolve.SymbolId) -> Bool {
+fn is_declaration(tok: Token, doc_path: String, target: resolve.SymbolId) -> Bool {
     return match target.name_span() {
         Some(ns) => doc_path == target.file() && tok.span.offset == ns.offset,
         None => false,
     };
 }
 
-fn location(_ uri: String, _ span: SourceSpan) -> json.Json {
+fn location(uri: String, span: SourceSpan) -> json.Json {
     return json.obj(['uri': json.str(uri), 'range': positions.span_to_range(span)]);
 }

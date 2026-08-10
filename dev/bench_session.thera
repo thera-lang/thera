@@ -13,7 +13,7 @@ import std.fs;
 import std.time;
 
 // Check `p` through the session, returning elapsed milliseconds.
-fn check_ms(_ sess: session.Session, _ p: String) -> Int {
+fn check_ms(sess: session.Session, p: String) -> Int {
     let canon = loader.canonical_path(p);
     let src = match fs.read_text(canon) {
         Ok(s) => s,

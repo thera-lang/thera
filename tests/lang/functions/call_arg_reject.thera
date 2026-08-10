@@ -6,8 +6,8 @@
 // argument-precise spans. Covers the type mismatch, an unknown label, and a
 // bound violation (anchored to the argument that bound the type parameter).
 
-fn greet(_ name: String, times: Int) -> Void { println('${name} x${times}'); }
-fn show<T: Display>(_ x: T) -> Void { println('${x}'); }
+fn greet(name: String, named times: Int) -> Void { println('${name} x${times}'); }
+fn show<T: Display>(x: T) -> Void { println('${x}'); }
 struct Opaque { let v: Int; }
 
 fn main() -> Void {

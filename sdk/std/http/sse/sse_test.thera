@@ -7,7 +7,7 @@ import std.io;
 import 'sse' as _;
 
 /// Decode `raw` completely, the way a `for` loop would.
-fn decode(_ raw: String) -> List<sse.Event> {
+fn decode(raw: String) -> List<sse.Event> {
     return sse.events(io.from_string(raw)).to_list();
 }
 
@@ -205,7 +205,7 @@ fn an_id_containing_nul_is_ignored() -> Result<Void, Error> {
 /// reports the end as `Ok(None)` rather than as an error. The `data` of an event,
 /// or a stand-in — so a missing event fails an assertion with a readable message
 /// instead of needing a `match` at every call.
-fn data_of(_ ev: Option<sse.Event>) -> String {
+fn data_of(ev: Option<sse.Event>) -> String {
     return match ev {
         Some(e) => e.data,
         None => '<no event>',

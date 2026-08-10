@@ -14,7 +14,7 @@ import 'paths'; // path_to_uri
 
 // The LSP `Location` (as JSON) for the definition of the symbol at `offset`, or
 // JSON null when nothing resolves to a navigable declaration.
-pub fn handle_definition(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Json {
+pub fn handle_definition(ctx: resolve.ResolveCtx, text: String, offset: Int) -> Json {
     return match resolve.resolve_at(ctx, text, offset) {
         Some(r) => match r.def_span() {
             Some(span) => match r.def_file() {
@@ -27,7 +27,7 @@ pub fn handle_definition(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: In
     };
 }
 
-fn location(_ file: String, _ span: SourceSpan) -> Json {
+fn location(file: String, span: SourceSpan) -> Json {
     return json.obj([
         'uri': json.str(paths.path_to_uri(file)),
         'range': positions.span_to_range(span),

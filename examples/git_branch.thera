@@ -15,7 +15,7 @@ fn all_branches() -> Result<List<String>, Error> {
     return Result.Ok(branches);
 }
 
-fn main(parameters: List<String>) -> Result<Int, Error> {
+fn main(named parameters: List<String>) -> Result<Int, Error> {
     let args = cli.Args.new(parameters);
     let show_all = args.flag('--all', default: false);
 

@@ -25,6 +25,6 @@ impl time.Clock for FixedClock {
     }
 }
 
-pub fn fixed_clock(_ millis: Int) -> time.Clock {
+pub fn fixed_clock(millis: Int) -> time.Clock {
     return FixedClock { millis: millis };
 }

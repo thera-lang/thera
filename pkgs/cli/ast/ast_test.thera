@@ -16,7 +16,7 @@ fn sp() -> SourceSpan {
 
 // `fn main() -> Int { return 0; }` as a hand-built Program — exercises Decl →
 // FnDecl → Block → Stmt → Expr → TypeRef nesting in one tree.
-fn sample(_ ret: Int) -> Program {
+fn sample(ret: Int) -> Program {
     return Program {
         decls: [
             Decl.Fn(FnDecl {

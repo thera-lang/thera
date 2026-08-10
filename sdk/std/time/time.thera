@@ -61,7 +61,7 @@ pub fn system_clock() -> Clock {
 native fn _monotonic_nanos() -> Int
 
 @extern('time_sleep_millis')
-native fn _sleep_millis(_ millis: Int) -> Void
+native fn _sleep_millis(millis: Int) -> Void
 
 // --- Duration: a signed span, stored as nanoseconds ---
 
@@ -70,23 +70,23 @@ pub struct Duration {
 }
 
 impl Duration {
-    pub fn nanos(_ n: Int) -> Duration {
+    pub fn nanos(n: Int) -> Duration {
         return Duration { nanos: n };
     }
 
-    pub fn millis(_ n: Int) -> Duration {
+    pub fn millis(n: Int) -> Duration {
         return Duration { nanos: n * 1000000 };
     }
 
-    pub fn seconds(_ n: Int) -> Duration {
+    pub fn seconds(n: Int) -> Duration {
         return Duration { nanos: n * 1000000000 };
     }
 
-    pub fn minutes(_ n: Int) -> Duration {
+    pub fn minutes(n: Int) -> Duration {
         return Duration { nanos: n * 60000000000 };
     }
 
-    pub fn hours(_ n: Int) -> Duration {
+    pub fn hours(n: Int) -> Duration {
         return Duration { nanos: n * 3600000000000 };
     }
 
@@ -104,11 +104,11 @@ impl Duration {
         return self.nanos / 1000000000;
     }
 
-    pub fn plus(self, _ other: Duration) -> Duration {
+    pub fn plus(self, other: Duration) -> Duration {
         return Duration { nanos: self.nanos + other.nanos };
     }
 
-    pub fn minus(self, _ other: Duration) -> Duration {
+    pub fn minus(self, other: Duration) -> Duration {
         return Duration { nanos: self.nanos - other.nanos };
     }
 }
@@ -131,14 +131,14 @@ impl Instant {
     }
 
     /// The duration from `earlier` to this instant.
-    pub fn duration_since(self, _ earlier: Instant) -> Duration {
+    pub fn duration_since(self, earlier: Instant) -> Duration {
         return Duration { nanos: self.nanos - earlier.nanos };
     }
 }
 
 /// Block for `d` (whole milliseconds; sub-millisecond spans don't sleep). Blocks
 /// the thread today; parks the fiber once cooperative fibers land.
-pub fn sleep(_ d: Duration) -> Void {
+pub fn sleep(d: Duration) -> Void {
     _sleep_millis(d.as_millis());
     return void;
 }
@@ -155,11 +155,11 @@ pub fn now() -> DateTime {
 }
 
 impl DateTime {
-    pub fn from_unix_millis(_ millis: Int) -> DateTime {
+    pub fn from_unix_millis(millis: Int) -> DateTime {
         return DateTime { millis: millis };
     }
 
-    pub fn from_unix_seconds(_ secs: Int) -> DateTime {
+    pub fn from_unix_seconds(secs: Int) -> DateTime {
         return DateTime { millis: secs * 1000 };
     }
 
@@ -193,7 +193,7 @@ impl DateTime {
 
     /// Parse an RFC 3339 timestamp: 'YYYY-MM-DDTHH:MM:SS', an optional '.fff'
     /// fraction, and a zone that is 'Z' or '±HH:MM'. Returns the instant in UTC.
-    pub fn parse_rfc3339(_ s: String) -> Result<DateTime, Error> {
+    pub fn parse_rfc3339(s: String) -> Result<DateTime, Error> {
         let cs = s.chars();
         if cs.len() < 20 {
             return parse_fail('timestamp too short');
@@ -273,11 +273,11 @@ impl DateTime {
 
 // --- internal helpers ---
 
-fn parse_fail(_ why: String) -> Result<DateTime, Error> {
+fn parse_fail(why: String) -> Result<DateTime, Error> {
     return Result.Err(error('invalid RFC 3339 timestamp: ${why}'));
 }
 
-fn check_range(_ value: Int, _ low: Int, _ high: Int, _ what: String) -> Result<Void, Error> {
+fn check_range(value: Int, low: Int, high: Int, what: String) -> Result<Void, Error> {
     if value < low || value > high {
         return Result.Err(error('${what} out of range: ${value}'));
     }
@@ -285,7 +285,7 @@ fn check_range(_ value: Int, _ low: Int, _ high: Int, _ what: String) -> Result<
 }
 
 /// Read exactly `count` decimal digits at `start`, as a non-negative Int.
-fn read_digits(_ cs: List<Int>, _ start: Int, _ count: Int) -> Result<Int, Error> {
+fn read_digits(cs: List<Int>, start: Int, count: Int) -> Result<Int, Error> {
     if start + count > cs.len() {
         return Result.Err(error('unexpected end of timestamp'));
     }
@@ -303,7 +303,7 @@ fn read_digits(_ cs: List<Int>, _ start: Int, _ count: Int) -> Result<Int, Error
     return Result.Ok(value);
 }
 
-fn expect_code(_ cs: List<Int>, _ i: Int, _ code: Int) -> Result<Void, Error> {
+fn expect_code(cs: List<Int>, i: Int, code: Int) -> Result<Void, Error> {
     if i >= cs.len() || cs[i] != code {
         return Result.Err(error('malformed timestamp'));
     }
@@ -312,7 +312,7 @@ fn expect_code(_ cs: List<Int>, _ i: Int, _ code: Int) -> Result<Void, Error> {
 
 /// Floor division for a positive divisor (rounds toward negative infinity), so
 /// pre-1970 instants split into seconds/days correctly.
-fn floor_div(_ a: Int, _ b: Int) -> Int {
+fn floor_div(a: Int, b: Int) -> Int {
     let q = a / b;
     if a % b != 0 && a < 0 {
         return q - 1;
@@ -322,7 +322,7 @@ fn floor_div(_ a: Int, _ b: Int) -> Int {
 
 /// Days since 1970-01-01 for a civil (proleptic Gregorian) date. Algorithm from
 /// Howard Hinnant's chrono date paper (truncating integer division).
-fn days_from_civil(_ y0: Int, _ m: Int, _ d: Int) -> Int {
+fn days_from_civil(y0: Int, m: Int, d: Int) -> Int {
     let mut y = y0;
     if m <= 2 {
         y = y0 - 1;
@@ -342,7 +342,7 @@ fn days_from_civil(_ y0: Int, _ m: Int, _ d: Int) -> Int {
 }
 
 /// The inverse: [year, month, day] for a count of days since 1970-01-01.
-fn civil_from_days(_ days: Int) -> List<Int> {
+fn civil_from_days(days: Int) -> List<Int> {
     let z = days + 719468;
     let mut era = z / 146097;
     if z < 0 {
@@ -365,14 +365,14 @@ fn civil_from_days(_ days: Int) -> List<Int> {
     return [year, m, d];
 }
 
-fn pad2(_ n: Int) -> String {
+fn pad2(n: Int) -> String {
     if n < 10 {
         return '0${n}';
     }
     return '${n}';
 }
 
-fn pad3(_ n: Int) -> String {
+fn pad3(n: Int) -> String {
     if n < 10 {
         return '00${n}';
     }
@@ -382,7 +382,7 @@ fn pad3(_ n: Int) -> String {
     return '${n}';
 }
 
-fn pad4(_ n: Int) -> String {
+fn pad4(n: Int) -> String {
     if n < 10 {
         return '000${n}';
     }

@@ -6,7 +6,7 @@
 // `return`/`throw`) is exempt. (Previously never unified: the mismatch checked
 // clean and the binding held the wrong type on the else path.)
 
-fn pick(_ c: Bool) -> Int {
+fn pick(c: Bool) -> Int {
     let x = if c { 1 } else { 'a' };   // expect error: `if`/`else` branches have incompatible types: Int and String
 
     // Agreeing branches, and an exempt exiting branch, are fine.

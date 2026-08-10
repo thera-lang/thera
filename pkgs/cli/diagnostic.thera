@@ -47,7 +47,7 @@ impl Display for Diagnostic {
 
 // An `Error` diagnostic whose owning file is derived from the span (the span knows
 // its file; a file-less hermetic span yields None).
-pub fn at(_ message: String, _ span: source.SourceSpan) -> Diagnostic {
+pub fn at(message: String, span: source.SourceSpan) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
     return Diagnostic {
         message: message,
@@ -62,7 +62,7 @@ pub fn at(_ message: String, _ span: source.SourceSpan) -> Diagnostic {
 // An `Error` diagnostic attributed to an explicit owning file — used by the loader,
 // which stamps each import-closure error with the file it came from regardless of
 // the span's own key.
-pub fn in_file(_ message: String, _ span: source.SourceSpan, _ file: String) -> Diagnostic {
+pub fn in_file(message: String, span: source.SourceSpan, file: String) -> Diagnostic {
     return Diagnostic {
         message: message,
         span: span,
@@ -75,7 +75,7 @@ pub fn in_file(_ message: String, _ span: source.SourceSpan, _ file: String) -> 
 
 // A `Warning` diagnostic: a named, suppressable rule (`// ignore: <rule>` on the
 // offending line, or the line above, silences it at that site).
-pub fn warning(_ message: String, _ span: source.SourceSpan, _ rule: String) -> Diagnostic {
+pub fn warning(message: String, span: source.SourceSpan, rule: String) -> Diagnostic {
     return warning_fix(message, span, rule, Option.None);
 }
 
@@ -83,10 +83,10 @@ pub fn warning(_ message: String, _ span: source.SourceSpan, _ rule: String) -> 
 // `thera check --fix`. `fix` is None for the plain case (`warning` above delegates
 // here), so one constructor covers both.
 pub fn warning_fix(
-    _ message: String,
-    _ span: source.SourceSpan,
-    _ rule: String,
-    _ fix: Option<edit.TextEdit>,
+    message: String,
+    span: source.SourceSpan,
+    rule: String,
+    fix: Option<edit.TextEdit>,
 ) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
     return Diagnostic {
@@ -101,7 +101,7 @@ pub fn warning_fix(
 
 // Whether `d` is an error (the severity that gates compile/run/exit codes) — the
 // filter every gate uses now that warnings share the diagnostics list.
-pub fn is_error(_ d: Diagnostic) -> Bool {
+pub fn is_error(d: Diagnostic) -> Bool {
     return match d.severity {
         Error => true,
         _ => false,
@@ -109,6 +109,6 @@ pub fn is_error(_ d: Diagnostic) -> Bool {
 }
 
 // How many entries are errors (gates key on this, not `len()`).
-pub fn error_count(_ diags: List<Diagnostic>) -> Int {
+pub fn error_count(diags: List<Diagnostic>) -> Int {
     return diags.filter((d) => is_error(d)).len();
 }

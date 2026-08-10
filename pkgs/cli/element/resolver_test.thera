@@ -11,13 +11,13 @@ import 'element' as _;
 import 'resolver' as _;
 import 'scope' as _;
 
-fn lib_of(_ src: String) -> LibraryElement {
+fn lib_of(src: String) -> LibraryElement {
     return build_library(testkit.parse(src), [], [:], [:]);
 }
 
 // Parse `src` stamped with `path` — for the multi-file / layered-build tests, which
 // need real per-file identities.
-fn prog_of(_ src: String, _ path: String) -> Program {
+fn prog_of(src: String, path: String) -> Program {
     return testkit.parse_at(src, path);
 }
 
@@ -46,7 +46,7 @@ fn test_struct_fields_resolve() -> Result<Void, Error> {
 @test
 fn test_function_signature_resolves() -> Result<Void, Error> {
     let lib = lib_of('struct Point { let x: Int; let y: Int; }\n'
-        + 'fn origin(_ p: Point) -> Int { return p.x; }');
+        + 'fn origin(p: Point) -> Int { return p.x; }');
     match file_scope(lib, Option.None).resolve_function('origin') {
         Some(f) => {
             testing.assert_eq(actual: f.return_type, expected: Type.Primitive(Primitive.Int))?;

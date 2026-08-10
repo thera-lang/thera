@@ -7,7 +7,7 @@
 //! import std.http;
 //! import std.http.server;
 //!
-//! fn hello(_ req: http.Request) -> Result<http.Response, Error> {
+//! fn hello(req: http.Request) -> Result<http.Response, Error> {
 //!     return Result.Ok(server.text(200, 'hello ' + req.url));
 //! }
 //!
@@ -44,7 +44,7 @@ import '../common';
 // distinctly from reading one (docs/stdlib.md § `std.http`).
 
 /// A `text/plain` response.
-pub fn text(_ status: Int, _ body: String) -> common.Response {
+pub fn text(status: Int, body: String) -> common.Response {
     return common.Response {
         status: status,
         headers: ['content-type': 'text/plain; charset=utf-8'],
@@ -53,7 +53,7 @@ pub fn text(_ status: Int, _ body: String) -> common.Response {
 }
 
 /// An `application/json` response.
-pub fn json(_ status: Int, _ value: Json) -> common.Response {
+pub fn json(status: Int, value: Json) -> common.Response {
     return common.Response {
         status: status,
         headers: ['content-type': 'application/json'],
@@ -62,7 +62,7 @@ pub fn json(_ status: Int, _ value: Json) -> common.Response {
 }
 
 /// A response with no body — for a 204, or a 3xx whose `location` says it all.
-pub fn empty(_ status: Int) -> common.Response {
+pub fn empty(status: Int) -> common.Response {
     return common.Response { status: status, headers: [:], body: Bytes.empty() };
 }
 
@@ -102,9 +102,9 @@ impl Router {
     /// Add a route. Returns the same `Router`, so calls chain.
     pub fn route(
         self,
-        _ method: String,
-        _ path: String,
-        _ handler: (common.Request) -> Result<common.Response, Error>,
+        method: String,
+        path: String,
+        handler: (common.Request) -> Result<common.Response, Error>,
     ) -> Router {
         self.routes.push(Route { method: method.to_uppercase(), path: path, handler: handler });
         return self;
@@ -136,7 +136,7 @@ impl Router {
 
 /// The path half of a request target — `/a/b?q=1` is the path `/a/b`. Matching on
 /// the query string too would make every route depend on parameter order.
-pub fn path_of(_ url: String) -> String {
+pub fn path_of(url: String) -> String {
     match url.find('?') {
         Some(i) => { return url.slice(0, i); },
         None => { return url; },
@@ -153,8 +153,8 @@ pub fn path_of(_ url: String) -> String {
 /// (docs/roadmap.md § Networking punchlist). Use `serve_listener` when you need the
 /// bound address first.
 pub fn serve(
-    _ addr: String,
-    _ handler: (common.Request) -> Result<common.Response, Error>,
+    addr: String,
+    handler: (common.Request) -> Result<common.Response, Error>,
 ) -> Result<Void, common.HttpError> {
     let listener = match net.listen(addr) {
         Ok(l) => l,
@@ -166,8 +166,8 @@ pub fn serve(
 /// Serve an already-bound listener. The form to use when the port matters and you
 /// don't know it yet: bind `:0`, read it back with `local_addr`, *then* serve.
 pub fn serve_listener(
-    _ listener: net.TcpListener,
-    _ handler: (common.Request) -> Result<common.Response, Error>,
+    listener: net.TcpListener,
+    handler: (common.Request) -> Result<common.Response, Error>,
 ) -> Result<Void, common.HttpError> {
     while true {
         let conn = match listener.accept() {
@@ -183,8 +183,8 @@ pub fn serve_listener(
 /// Serve one connection to its end: read a request, answer it, repeat while the
 /// connection stays alive. Always closes the socket.
 pub fn serve_connection(
-    _ conn: net.TcpStream,
-    _ handler: (common.Request) -> Result<common.Response, Error>,
+    conn: net.TcpStream,
+    handler: (common.Request) -> Result<common.Response, Error>,
 ) -> Void {
     let w = common.Wire.new(conn);
     let mut going = true;
@@ -213,9 +213,9 @@ pub fn serve_connection(
 /// Run `handler` over `req` and send its response. Returns whether the connection
 /// stays open for another request.
 fn answer(
-    _ conn: net.TcpStream,
-    _ req: common.Request,
-    _ handler: (common.Request) -> Result<common.Response, Error>,
+    conn: net.TcpStream,
+    req: common.Request,
+    handler: (common.Request) -> Result<common.Response, Error>,
 ) -> Bool {
     // Decide before handing `req` over — a handler is free to mutate its headers.
     let keep_alive = wants_keep_alive(req);
@@ -234,11 +234,11 @@ fn answer(
 
 /// Write `resp`, tagging it with the connection disposition. Returns whether the
 /// write succeeded.
-fn respond(_ conn: net.TcpStream, _ resp: common.Response, keep_alive: Bool) -> Bool {
+fn respond(conn: net.TcpStream, resp: common.Response, named keep_alive: Bool) -> Bool {
     if !keep_alive {
         resp.headers['connection'] = 'close';
     }
-    return match common.write_response(to: conn, resp) {
+    return match common.write_response(conn, resp) {
         Ok(_) => true,
         Err(_) => false,
     };
@@ -252,7 +252,7 @@ fn respond(_ conn: net.TcpStream, _ resp: common.Response, keep_alive: Bool) -> 
 /// carries a `content-length`, so a 1.0 client can frame the response without
 /// waiting for EOF, and simply closes when it is done — which this loop then sees
 /// as a clean end-of-stream.
-fn wants_keep_alive(_ req: common.Request) -> Bool {
+fn wants_keep_alive(req: common.Request) -> Bool {
     return match common.header(req.headers, 'connection') {
         Some(v) => v.to_lowercase().trim() != 'close',
         None => true,
@@ -261,13 +261,13 @@ fn wants_keep_alive(_ req: common.Request) -> Bool {
 
 /// Which status a malformed request earns. A body that was too big is the one case
 /// the client can act on specifically.
-fn status_for(_ e: common.HttpError) -> Int {
+fn status_for(e: common.HttpError) -> Int {
     return match e {
         Body(_) => 413,
         _ => 400,
     };
 }
 
-fn error_response(_ status: Int, _ e: Error) -> common.Response {
+fn error_response(status: Int, e: Error) -> common.Response {
     return text(status, e.message());
 }

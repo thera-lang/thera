@@ -15,7 +15,7 @@ import 'type_definition';
 
 // A resolution context with the primary's committed-type record populated the way
 // `analyze_at` does (straight from the hermetic checker).
-fn typed_ctx(_ program: Program) -> ResolveCtx {
+fn typed_ctx(program: Program) -> ResolveCtx {
     let nss: Map<String, Map<String, LibraryNamespace>> = [:];
     let bare: Map<String, Map<String, String>> = [:];
     return ResolveCtx {
@@ -30,20 +30,20 @@ fn typed_ctx(_ program: Program) -> ResolveCtx {
 
 // The type-definition target offset resolved at `use_offset`, or -1 when nothing
 // navigable.
-fn target_offset(_ src: String, _ use_offset: Int) -> Int {
+fn target_offset(src: String, use_offset: Int) -> Int {
     let program = testkit.parse_at(src, 't.thera');
     return type_definition.type_target_offset(typed_ctx(program), src, use_offset)
         .unwrap_or(-1);
 }
 
 // The offset `delta` code points past the first occurrence of `marker`.
-fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
+fn at(src: String, marker: String, delta: Int) -> Int {
     return src.find(marker).unwrap_or(0) + delta;
 }
 
 const SRC: String = 'struct Point { let x: Int; }\n'
     + 'fn make() -> Point { let p = Point { x: 1 }; return p; }\n'
-    + 'fn id(_ pt: Point) -> Point { return pt; }\n';
+    + 'fn id(pt: Point) -> Point { return pt; }\n';
 
 // Where `struct Point`'s name is declared — where every case below must land.
 fn point_decl() -> Int {
@@ -69,10 +69,10 @@ fn test_inferred_local_at_its_let_name() -> Result<Void, Error> {
 
 @test
 fn test_annotated_param_at_its_declaration() -> Result<Void, Error> {
-    // The `pt` of `_ pt: Point` — no use-site record at a parameter's own name, so
+    // The `pt` of `pt: Point` — no use-site record at a parameter's own name, so
     // the written annotation's named head answers.
     testing.assert_eq(
-        actual: target_offset(SRC, at(SRC, '_ pt: Point', 2)),
+        actual: target_offset(SRC, at(SRC, 'pt: Point', 0)),
         expected: point_decl(),
     )?;
     return Result.Ok(void);

@@ -82,9 +82,9 @@ impl Client {
     /// let prs = gh.pulls().list(owner: 'thera-lang', repo: 'thera')?;
     /// ```
     pub fn new(
-        token: Option<String> = Option.None,
-        base_url: String = API_BASE,
-        user_agent: String = USER_AGENT,
+        named token: Option<String> = Option.None,
+        named base_url: String = API_BASE,
+        named user_agent: String = USER_AGENT,
     ) -> Client {
         return Client {
             base_url: without_trailing_slash(base_url),
@@ -98,7 +98,7 @@ impl Client {
     ///
     /// `Map` iterates in insertion order, so the query string is a function of the
     /// call — which is what lets a test compare a URL as text.
-    pub fn url(self, _ path: String, query: Map<String, String> = [:]) -> String {
+    pub fn url(self, path: String, named query: Map<String, String> = [:]) -> String {
         let head = self.base_url + path;
         if query.is_empty() {
             return head;
@@ -123,9 +123,9 @@ impl Client {
     /// handled it.
     pub fn request(
         self,
-        _ method: String,
-        _ url: String,
-        body: Option<json.Json> = Option.None,
+        method: String,
+        url: String,
+        named body: Option<json.Json> = Option.None,
     ) -> Result<http.Response, GitHubError> {
         let headers = self.headers();
         let payload = match body {
@@ -176,7 +176,10 @@ impl Client {
 /// the server would have done. The missing credential surfaces where it actually
 /// bites — as a `Status` 401 on the first call that needs one — which is a better
 /// error than anything this function could say, because it names the operation.
-pub fn from_env(_ environment: env.Env = env.system_env(), base_url: String = API_BASE) -> Client {
+pub fn from_env(
+    environment: env.Env = env.system_env(),
+    named base_url: String = API_BASE,
+) -> Client {
     let token = match environment.get('GITHUB_TOKEN') {
         Some(t) => Option.Some(t),
         None => environment.get('GH_TOKEN'),
@@ -191,8 +194,8 @@ pub fn from_env(_ environment: env.Env = env.system_env(), base_url: String = AP
 /// message. `json.DecodeError` already carries the failing path, so the third case
 /// names the field.
 pub fn decoded<T>(
-    _ resp: http.Response,
-    _ decode: (json.Cursor) -> Result<T, json.DecodeError>,
+    resp: http.Response,
+    decode: (json.Cursor) -> Result<T, json.DecodeError>,
 ) -> Result<T, GitHubError> {
     let text = match resp.body.to_string() {
         Ok(s) => s,
@@ -228,7 +231,7 @@ pub fn decoded<T>(
 ///     'per_page': Option.Some(per_page.to_string()),
 /// ]));
 /// ```
-pub fn params(_ values: Map<String, Option<String>>) -> Map<String, String> {
+pub fn params(values: Map<String, Option<String>>) -> Map<String, String> {
     let supplied: Map<String, String> = [:];
     for key in values.keys() {
         if let Some(value) = values[key] {
@@ -241,7 +244,7 @@ pub fn params(_ values: Map<String, Option<String>>) -> Map<String, String> {
 /// A response body as text, or `''` if it is not UTF-8 — for the error path, where
 /// there is nothing useful to do about undecodable bytes and failing would replace
 /// the server's refusal with our complaint about it.
-fn text_of(_ resp: http.Response) -> String {
+fn text_of(resp: http.Response) -> String {
     return match resp.body.to_string() {
         Ok(s) => s,
         Err(_) => '',
@@ -249,7 +252,7 @@ fn text_of(_ resp: http.Response) -> String {
 }
 
 /// `base_url` without a trailing slash, so `base + '/repos/...'` never doubles it.
-fn without_trailing_slash(_ url: String) -> String {
+fn without_trailing_slash(url: String) -> String {
     if url.ends_with('/') {
         return url.slice(0, url.len() - 1);
     }

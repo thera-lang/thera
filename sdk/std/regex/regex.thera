@@ -17,25 +17,25 @@
 // --- native engine bindings (the compiled pattern is a runtime-held handle) ---
 
 @extern('regex_compile')
-native fn _compile(_ pattern: String) -> Result<Int, String>
+native fn _compile(pattern: String) -> Result<Int, String>
 
 @extern('regex_is_match')
-native fn _is_match(_ handle: Int, _ text: String) -> Bool
+native fn _is_match(handle: Int, text: String) -> Bool
 
 @extern('regex_find')
-native fn _find(_ handle: Int, _ text: String) -> List<Int>
+native fn _find(handle: Int, text: String) -> List<Int>
 
 @extern('regex_find_all')
-native fn _find_all(_ handle: Int, _ text: String) -> List<Int>
+native fn _find_all(handle: Int, text: String) -> List<Int>
 
 @extern('regex_captures')
-native fn _captures(_ handle: Int, _ text: String) -> List<Int>
+native fn _captures(handle: Int, text: String) -> List<Int>
 
 @extern('regex_replace')
-native fn _replace(_ handle: Int, _ text: String, _ replacement: String) -> String
+native fn _replace(handle: Int, text: String, replacement: String) -> String
 
 @extern('regex_replace_all')
-native fn _replace_all(_ handle: Int, _ text: String, _ replacement: String) -> String
+native fn _replace_all(handle: Int, text: String, replacement: String) -> String
 
 /// A pattern that failed to compile.
 pub enum RegexError {
@@ -78,7 +78,7 @@ impl Captures {
 
     /// The `index`-th group, or `None` if it is out of range or did not participate
     /// in the match.
-    pub fn group(self, _ index: Int) -> Option<String> {
+    pub fn group(self, index: Int) -> Option<String> {
         if index < 0 || index >= self.groups.len() {
             return Option.None;
         }
@@ -103,7 +103,7 @@ impl Regex {
     /// ```thera
     /// let re = regex.Regex.compile(r'(\w+)@(\w+)')?;
     /// ```
-    pub fn compile(_ pattern: String) -> Result<Regex, RegexError> {
+    pub fn compile(pattern: String) -> Result<Regex, RegexError> {
         return match _compile(pattern) {
             Ok(h) => Result.Ok(Regex { handle: h }),
             Err(msg) => Result.Err(RegexError.Syntax(msg)),
@@ -111,12 +111,12 @@ impl Regex {
     }
 
     /// True if the pattern matches anywhere in `text`.
-    pub fn is_match(self, _ text: String) -> Bool {
+    pub fn is_match(self, text: String) -> Bool {
         return _is_match(self.handle, text);
     }
 
     /// The first match in `text`, or `None`.
-    pub fn find(self, _ text: String) -> Option<Match> {
+    pub fn find(self, text: String) -> Option<Match> {
         let span = _find(self.handle, text);
         if span.len() < 2 {
             return Option.None;
@@ -125,7 +125,7 @@ impl Regex {
     }
 
     /// Every non-overlapping match in `text`, left to right.
-    pub fn find_all(self, _ text: String) -> List<Match> {
+    pub fn find_all(self, text: String) -> List<Match> {
         let spans = _find_all(self.handle, text);
         let result: List<Match> = [];
         let mut i = 0;
@@ -137,7 +137,7 @@ impl Regex {
     }
 
     /// The first match's capture groups, or `None` if there is no match.
-    pub fn captures(self, _ text: String) -> Option<Captures> {
+    pub fn captures(self, text: String) -> Option<Captures> {
         let spans = _captures(self.handle, text);
         if spans.len() == 0 {
             return Option.None;
@@ -164,17 +164,17 @@ impl Regex {
     /// interpolation, so prefer the bare `$1` form in a Thera string literal (use a
     /// non-word character after a numbered group when text follows it, e.g.
     /// `'$1-$2'`).
-    pub fn replace(self, _ text: String, with: String) -> String {
+    pub fn replace(self, text: String, named with: String) -> String {
         return _replace(self.handle, text, with);
     }
 
     /// Replace every non-overlapping match in `text`.
-    pub fn replace_all(self, _ text: String, with: String) -> String {
+    pub fn replace_all(self, text: String, named with: String) -> String {
         return _replace_all(self.handle, text, with);
     }
 }
 
 /// Build a [Match] for the byte span `[start, end)` of `text`.
-fn match_at(_ text: String, _ start: Int, _ end: Int) -> Match {
+fn match_at(text: String, start: Int, end: Int) -> Match {
     return Match { text: text.byte_slice(start, end), start: start, end: end };
 }

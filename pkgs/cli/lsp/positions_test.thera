@@ -10,7 +10,7 @@ import 'positions' as _;
 
 // A span over `source[offset..offset+length)`; line/column derived by walking (test
 // spans stay on real line starts, so the walk is simple).
-fn span_of(_ source: String, _ offset: Int, _ length: Int) -> SourceSpan {
+fn span_of(source: String, offset: Int, length: Int) -> SourceSpan {
     let mut line = 1;
     let mut column = 1;
     for cp in source.slice(0, offset).chars() {
@@ -32,7 +32,7 @@ fn span_of(_ source: String, _ offset: Int, _ length: Int) -> SourceSpan {
 }
 
 // `span_to_range`'s JSON as a compact `line:char-line:char` string (0-based).
-fn fmt_range(_ r: Json) -> String {
+fn fmt_range(r: Json) -> String {
     let s = r.get('start');
     let e = r.get('end');
     return '${s.get('line').as_int().unwrap_or(-1)}:${s.get('character').as_int().unwrap_or(-1)}'

@@ -19,11 +19,11 @@ impl Box<Int> for IntBox {
     }
 }
 
-fn wants_ints(_ b: Box<Int>) -> Int {
+fn wants_ints(b: Box<Int>) -> Int {
     return b.get();
 }
 
-fn wants_strings(_ b: Box<String>) -> Int {
+fn wants_strings(b: Box<String>) -> Int {
     return 0;
 }
 

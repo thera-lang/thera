@@ -22,7 +22,7 @@ enum Verdict {
     Fail(String),     // reason
 }
 
-fn main(parameters: List<String>) -> Result<Int, Error> {
+fn main(named parameters: List<String>) -> Result<Int, Error> {
     if parameters.len() < 1 {
         eprintln('usage: thera run tests/integration_runner.thera <thera-cmd>');
         return Result.Ok(2);
@@ -99,7 +99,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 // exercises the actual stdout transport — the in-process server @tests use a
 // StringWriter and so can't catch a framing/flushing regression. The body
 // carries "capabilities", so finding it proves the full message arrived.
-fn guard_lsp(_ thera: String) -> Verdict {
+fn guard_lsp(thera: String) -> Verdict {
     let body = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}';
     let frame = 'Content-Length: ${body.bytes().len()}\r\n\r\n${body}';
 
@@ -137,7 +137,7 @@ fn guard_lsp(_ thera: String) -> Verdict {
 // end. Its headline property for agents is *determinism* — instruction-budget
 // sampling, not wall-clock — so two runs of the same program must produce a
 // byte-identical profile.
-fn guard_profiler(_ thera: String, _ work: String) -> Verdict {
+fn guard_profiler(thera: String, work: String) -> Verdict {
     let prog = path.join(work, 'p.thera');
     let src = 'fn main() -> Int { let mut s = 0; let mut i = 0; while i < 5000 { s = s + i; i = i + 1; } return s; }\n';
     match fs.write_text(prog, src) {
@@ -168,7 +168,7 @@ fn guard_profiler(_ thera: String, _ work: String) -> Verdict {
 // `thera check`'s product is its diagnostics (it emits no artifact), so they go to
 // stdout — like `thera test` and like linters (eslint/ruff/mypy). Assert that a
 // diagnostic lands on stdout and not stderr, so the convention can't regress.
-fn guard_check_stream(_ thera: String, _ work: String) -> Verdict {
+fn guard_check_stream(thera: String, work: String) -> Verdict {
     let bad = path.join(work, 'bad.thera');
     match fs.write_text(bad, 'fn f() -> Int { return missing; }\n') {
         Ok(_) => {},
@@ -187,7 +187,7 @@ fn guard_check_stream(_ thera: String, _ work: String) -> Verdict {
 // `thera fmt --check` must not modify files, list the ones needing formatting on
 // stdout, and exit 0 (all formatted) / 1 (some need formatting) — the CI /
 // pre-commit contract.
-fn guard_fmt_check(_ thera: String, _ work: String) -> Verdict {
+fn guard_fmt_check(thera: String, work: String) -> Verdict {
     let clean = path.join(work, 'clean.thera');
     let dirty = path.join(work, 'dirty.thera');
     let dirty_src = 'fn g() {\ny();\n}\n';
@@ -234,7 +234,7 @@ fn guard_fmt_check(_ thera: String, _ work: String) -> Verdict {
 // entrypoint that triggered the compile — a diagnostic span carries source text,
 // not a path, so the reporter resolves the owning file. Covers both a
 // name/method error and a parse error in the import.
-fn guard_attribution(_ thera: String, _ work: String) -> Verdict {
+fn guard_attribution(thera: String, work: String) -> Verdict {
     let helper = path.join(work, 'helper.thera');
     let app = path.join(work, 'app.thera');
     match fs.write_text(app, "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n") {
@@ -244,7 +244,7 @@ fn guard_attribution(_ thera: String, _ work: String) -> Verdict {
 
     // (1) A method error in the import: the diagnostic line naming `frobnicate`
     // must point at helper.thera, not app.thera, and the run must fail.
-    match fs.write_text(helper, 'pub fn greet(_ n: String) -> String { return n.frobnicate(); }\n') {
+    match fs.write_text(helper, 'pub fn greet(n: String) -> String { return n.frobnicate(); }\n') {
         Ok(_) => {},
         Err(e) => { return Verdict.Fail('writing helper.thera failed: ${e.message()}'); },
     };
@@ -270,7 +270,7 @@ fn guard_attribution(_ thera: String, _ work: String) -> Verdict {
 
     // (2) A parse error in the import must be surfaced (not dropped under exit 0)
     // and attributed to helper.thera at the right line.
-    match fs.write_text(helper, 'pub fn greet(_ n: String) -> String {\n    let x = ;\n    return n;\n}\n') {
+    match fs.write_text(helper, 'pub fn greet(n: String) -> String {\n    let x = ;\n    return n;\n}\n') {
         Ok(_) => {},
         Err(e) => { return Verdict.Fail('rewriting helper.thera failed: ${e.message()}'); },
     };
@@ -291,7 +291,7 @@ fn guard_attribution(_ thera: String, _ work: String) -> Verdict {
 // A warning-only file (an unused import) must exit 0 by default — warnings
 // inform — but exit 1 under `--fatal-warnings`, the CI knob for a warning-free
 // tree. A clean file must exit 0 either way.
-fn guard_fatal_warnings(_ thera: String, _ work: String) -> Verdict {
+fn guard_fatal_warnings(thera: String, work: String) -> Verdict {
     let warn = path.join(work, 'warn.thera');
     match fs.write_text(warn, 'import std.fs;\nfn main() -> Int { return 0; }\n') {
         Ok(_) => {},
@@ -321,7 +321,7 @@ fn guard_fatal_warnings(_ thera: String, _ work: String) -> Verdict {
 
 // `test --verbose` renders each test's wall-clock duration as a trailing column
 // and a `(N tests, T ms)` rollup per file — the view for spotting a slow test.
-fn guard_test_timing(_ thera: String, _ work: String) -> Verdict {
+fn guard_test_timing(thera: String, work: String) -> Verdict {
     let dir = path.join(work, 'timing');
     match fs.create_dir_all(dir) {
         Ok(_) => {},
@@ -373,7 +373,7 @@ fn make_workdir() -> Result<String, Error> {
 }
 
 // The first line of `text` that contains `needle`, or None.
-fn line_containing(_ text: String, _ needle: String) -> Option<String> {
+fn line_containing(text: String, needle: String) -> Option<String> {
     for line in text.lines() {
         if line.contains(needle) {
             return Option.Some(line);

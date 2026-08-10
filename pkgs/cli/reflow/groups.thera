@@ -22,7 +22,7 @@ import '../lexer' as _; // Token, TokenKind
 
 // The source offsets of every struct-literal `{` in `p`, ascending. Any `{` not in
 // this list is `AlwaysSplit`.
-pub fn fit_brace_offsets(_ p: Program, _ tokens: List<Token>) -> List<Int> {
+pub fn fit_brace_offsets(p: Program, tokens: List<Token>) -> List<Int> {
     let spans: List<SourceSpan> = [];
     for d in p.decls {
         walk_decl(d, spans);
@@ -38,7 +38,7 @@ pub fn fit_brace_offsets(_ p: Program, _ tokens: List<Token>) -> List<Int> {
 
 // The offset of the first `{` inside `span` — a struct literal's span starts at its
 // type name, so its brace is the first one within it.
-fn first_brace_in(_ tokens: List<Token>, _ span: SourceSpan) -> Option<Int> {
+fn first_brace_in(tokens: List<Token>, span: SourceSpan) -> Option<Int> {
     let stop = span.offset + span.length;
     for t in tokens {
         if t.span.offset >= span.offset && t.span.offset < stop
@@ -54,7 +54,7 @@ fn first_brace_in(_ tokens: List<Token>, _ span: SourceSpan) -> Option<Int> {
 // Mirrors `lint.thera`'s traversal: every node kind is visited, and the only thing
 // collected is a struct literal's span.
 
-fn walk_decl(_ d: Decl, _ out: List<SourceSpan>) -> Void {
+fn walk_decl(d: Decl, out: List<SourceSpan>) -> Void {
     match d {
         Fn(f) => { walk_fn(f, out); },
         Impl(i) => {
@@ -75,21 +75,21 @@ fn walk_decl(_ d: Decl, _ out: List<SourceSpan>) -> Void {
     }
 }
 
-fn walk_fn(_ f: FnDecl, _ out: List<SourceSpan>) -> Void {
+fn walk_fn(f: FnDecl, out: List<SourceSpan>) -> Void {
     for p in f.params {
         if let Some(e) = p.default_value { walk_expr(e, out); }
     }
     if let Some(b) = f.body { walk_block(b, out); }
 }
 
-fn walk_block(_ b: Block, _ out: List<SourceSpan>) -> Void {
+fn walk_block(b: Block, out: List<SourceSpan>) -> Void {
     for s in b.stmts {
         walk_stmt(s, out);
     }
     if let Some(e) = b.tail { walk_expr(e, out); }
 }
 
-fn walk_stmt(_ s: Stmt, _ out: List<SourceSpan>) -> Void {
+fn walk_stmt(s: Stmt, out: List<SourceSpan>) -> Void {
     match s {
         Let(l) => { walk_expr(l.value, out); },
         Return(_, v) => { walk_opt_expr(v, out); },
@@ -117,7 +117,7 @@ fn walk_stmt(_ s: Stmt, _ out: List<SourceSpan>) -> Void {
     }
 }
 
-fn walk_expr(_ e: Expr, _ out: List<SourceSpan>) -> Void {
+fn walk_expr(e: Expr, out: List<SourceSpan>) -> Void {
     match e {
         Struct(x) => {
             out.push(x.span);
@@ -187,10 +187,10 @@ fn walk_expr(_ e: Expr, _ out: List<SourceSpan>) -> Void {
     }
 }
 
-fn walk_opt_expr(_ e: Option<Expr>, _ out: List<SourceSpan>) -> Void {
+fn walk_opt_expr(e: Option<Expr>, out: List<SourceSpan>) -> Void {
     if let Some(inner) = e { walk_expr(inner, out); }
 }
 
-fn walk_opt_block(_ b: Option<Block>, _ out: List<SourceSpan>) -> Void {
+fn walk_opt_block(b: Option<Block>, out: List<SourceSpan>) -> Void {
     if let Some(inner) = b { walk_block(inner, out); }
 }

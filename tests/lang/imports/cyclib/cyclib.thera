@@ -4,7 +4,7 @@
 pub import 'even_side';
 pub import 'odd_side';
 
-pub fn describe(_ n: Int) -> String {
+pub fn describe(n: Int) -> String {
     if odd_side.is_odd(n) {
         return 'odd:${n}';
     }

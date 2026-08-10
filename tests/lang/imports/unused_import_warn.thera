@@ -14,7 +14,7 @@ import std.time;
 // ignore: unused-import
 import std.math;
 
-fn tick(_ c: time.Clock) -> Int {
+fn tick(c: time.Clock) -> Int {
     return c.now_millis();
 }
 

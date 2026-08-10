@@ -19,7 +19,7 @@ impl Set<T> {
     /// ```thera
     /// let s = Set.from([1, 2, 2, 3]);   // {1, 2, 3}
     /// ```
-    pub fn from(_ items: List<T>) -> Set<T> {
+    pub fn from(items: List<T>) -> Set<T> {
         let result = Set { items: [:] };
         for item in items {
             result.add(item);
@@ -28,18 +28,18 @@ impl Set<T> {
     }
 
     /// Add `value` (no-op if already present).
-    pub fn add(self, _ value: T) -> Void {
+    pub fn add(self, value: T) -> Void {
         self.items[value] = true;
     }
 
     /// True if `value` is a member. (Element membership is `contains`, matching
     /// `List.contains`; *key* presence — `Map.has` — stays `has`.)
-    pub fn contains(self, _ value: T) -> Bool {
+    pub fn contains(self, value: T) -> Bool {
         return self.items.has(value);
     }
 
     /// Remove `value`; returns whether it was present.
-    pub fn remove(self, _ value: T) -> Bool {
+    pub fn remove(self, value: T) -> Bool {
         return self.items.remove(value).is_some();
     }
 

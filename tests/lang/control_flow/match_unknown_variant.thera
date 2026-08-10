@@ -17,14 +17,14 @@ enum Wrap {
     Empty,
 }
 
-fn f(_ c: Color) -> String {
+fn f(c: Color) -> String {
     return match c {
         Rd => 'red',        // expect error: unknown variant `Rd`
         _ => 'other',
     };
 }
 
-fn g(_ w: Wrap) -> String {
+fn g(w: Wrap) -> String {
     return match w {
         One(Grn) => 'green',   // expect error: unknown variant `Grn`
         One(_) => 'one',

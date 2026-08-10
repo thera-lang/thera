@@ -12,12 +12,12 @@ struct Cheer {
 }
 
 impl g.Exclaimer for Cheer {
-    fn exclaim(self, punct: String = '!') -> String {
+    fn exclaim(self, named punct: String = '!') -> String {
         return self.word + punct;
     }
 }
 
-fn shout(_ e: g.Exclaimer) -> Void {
+fn shout(e: g.Exclaimer) -> Void {
     println(e.exclaim());
 }
 

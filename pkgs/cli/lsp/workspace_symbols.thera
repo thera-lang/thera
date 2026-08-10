@@ -10,7 +10,7 @@ import 'symbols';
 import 'paths';
 
 // The LSP `SymbolInformation[]` (as JSON) matching the query string.
-pub fn handle_workspace_symbols(_ programs: List<Program>, _ query: String) -> json.Json {
+pub fn handle_workspace_symbols(programs: List<Program>, query: String) -> json.Json {
     let q = query.to_lowercase();
     let result: List<json.Json> = [];
 

@@ -12,7 +12,7 @@ pub fn blue() -> Color {
     return Color.Blue;
 }
 
-pub fn tag(_ c: Color) -> Int {
+pub fn tag(c: Color) -> Int {
     return match c {
         Blue => 10,
         Cyan(n) => n + 100,

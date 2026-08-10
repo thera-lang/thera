@@ -24,70 +24,70 @@ pub let NAN: Double = 0.0 / 0.0;
 
 /// The square root of `x`.
 @extern('math_sqrt')
-pub native fn sqrt(_ x: Double) -> Double
+pub native fn sqrt(x: Double) -> Double
 
 /// `base` raised to the power `exp`.
 @extern('math_pow')
-pub native fn pow(_ base: Double, _ exp: Double) -> Double
+pub native fn pow(base: Double, exp: Double) -> Double
 
 // --- Rounding (each returns a Double; chain `.to_int()` for an Int) ---
 
 /// Largest integer value <= x.
 @extern('math_floor')
-pub native fn floor(_ x: Double) -> Double
+pub native fn floor(x: Double) -> Double
 
 /// Smallest integer value >= x.
 @extern('math_ceil')
-pub native fn ceil(_ x: Double) -> Double
+pub native fn ceil(x: Double) -> Double
 
 /// Nearest integer value, rounding halves away from zero.
 @extern('math_round')
-pub native fn round(_ x: Double) -> Double
+pub native fn round(x: Double) -> Double
 
 /// The integer part of x (rounds toward zero).
 @extern('math_trunc')
-pub native fn trunc(_ x: Double) -> Double
+pub native fn trunc(x: Double) -> Double
 
 // --- Exponentials and logarithms ---
 
 /// e raised to the power x.
 @extern('math_exp')
-pub native fn exp(_ x: Double) -> Double
+pub native fn exp(x: Double) -> Double
 
 /// The natural logarithm (base e) of x.
 @extern('math_ln')
-pub native fn ln(_ x: Double) -> Double
+pub native fn ln(x: Double) -> Double
 
 /// The base-10 logarithm of x.
 @extern('math_log10')
-pub native fn log10(_ x: Double) -> Double
+pub native fn log10(x: Double) -> Double
 
 // --- Trigonometry (angles in radians) ---
 
 @extern('math_sin')
-pub native fn sin(_ x: Double) -> Double
+pub native fn sin(x: Double) -> Double
 
 @extern('math_cos')
-pub native fn cos(_ x: Double) -> Double
+pub native fn cos(x: Double) -> Double
 
 @extern('math_tan')
-pub native fn tan(_ x: Double) -> Double
+pub native fn tan(x: Double) -> Double
 
 /// Inverse trigonometry (results in radians).
 @extern('math_asin')
-pub native fn asin(_ x: Double) -> Double
+pub native fn asin(x: Double) -> Double
 
 @extern('math_acos')
-pub native fn acos(_ x: Double) -> Double
+pub native fn acos(x: Double) -> Double
 
 @extern('math_atan')
-pub native fn atan(_ x: Double) -> Double
+pub native fn atan(x: Double) -> Double
 
 /// The angle (radians) from the positive x-axis to the point (x, y). Unlike
 /// `atan(y / x)`, it gets the quadrant right and handles x == 0.
 @extern('math_atan2')
-pub native fn atan2(_ y: Double, _ x: Double) -> Double
+pub native fn atan2(y: Double, x: Double) -> Double
 
 /// The length of the hypotenuse sqrt(x*x + y*y), avoiding overflow/underflow.
 @extern('math_hypot')
-pub native fn hypot(_ x: Double, _ y: Double) -> Double
+pub native fn hypot(x: Double, y: Double) -> Double

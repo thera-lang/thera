@@ -136,7 +136,7 @@ struct ReportResult {
     let unchanged: Bool;
 }
 
-pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
+pub fn new_analysis(sdk_root: Option<String>) -> Analysis {
     return Analysis {
         docs: [:],
         session: session.new_session(sdk_root),
@@ -192,7 +192,7 @@ impl Analysis {
     // status so the next analysis re-sees the change. The edit marks the document —
     // and every open document that transitively imports it — dirty for the next
     // diagnostics flush.
-    pub fn set_document(self, _ uri: String, _ text: String, _ version: Option<Int>) -> Void {
+    pub fn set_document(self, uri: String, text: String, version: Option<Int>) -> Void {
         self.input_generation = self.input_generation + 1;
         self.docs[uri] = text;
         if let Some(v) = version {
@@ -209,7 +209,7 @@ impl Analysis {
     // a workspace refresh is warranted (`ws_dirty`). A body-only edit leaves the
     // signature identical and the flag untouched. The parse populates the session's
     // parse cache, so the diagnostics check that follows reuses it (no re-parse).
-    fn note_surface_change(self, _ uri: String, _ text: String) -> Void {
+    fn note_surface_change(self, uri: String, text: String) -> Void {
         let path = paths.uri_to_path(uri);
         let canon = loader.canonical_path(path);
         let sig = surface.surface_signature(self.session.parse(text, path), text);
@@ -228,7 +228,7 @@ impl Analysis {
     // marks dirty (the flush nudges a re-pull): the client refetches, and a loose
     // file drops out of the workspace report. (Under the push model this instead
     // *cleared* the dirty mark; pull inverts it.)
-    pub fn close_document(self, _ uri: String) -> Void {
+    pub fn close_document(self, uri: String) -> Void {
         self.input_generation = self.input_generation + 1;
         match self.docs.remove(uri) {
             Some(_) => void,
@@ -263,7 +263,7 @@ impl Analysis {
     // Mark every *open* document in `uri`'s invalidation cone dirty: an edit to a
     // dependency changes its importers' diagnostics (editing `b.thera` re-publishes
     // an open `a.thera` that imports it on the next flush).
-    fn mark_open_dependents_dirty(self, _ uri: String) -> Void {
+    fn mark_open_dependents_dirty(self, uri: String) -> Void {
         let affected: Set<String> = Set.new();
         for k in self.session.dependents_of(paths.uri_to_path(uri)) {
             affected.add(k);
@@ -294,7 +294,7 @@ impl Analysis {
     //
     // Marks the workspace dirty rather than nudging: a branch switch reports every
     // file it touched, and the server's flush collapses them into one re-pull.
-    pub fn note_watched_change(self, _ uri: String) -> Void {
+    pub fn note_watched_change(self, uri: String) -> Void {
         self.input_generation = self.input_generation + 1;
         self.session.invalidate(paths.uri_to_path(uri));
         // The whole on-disk scan, not just this file: a create or delete changes
@@ -323,7 +323,7 @@ impl Analysis {
     // emitted *and* the client echoed that id (so it genuinely holds this content);
     // otherwise assigns a fresh id, caches the items, and re-sends. Updates the
     // cache.
-    fn report_result(self, _ canon: String, _ items: Json, _ prev: Option<String>) -> ReportResult {
+    fn report_result(self, canon: String, items: Json, prev: Option<String>) -> ReportResult {
         return self.report_result_content(canon, json.stringify(items), prev);
     }
 
@@ -331,9 +331,9 @@ impl Analysis {
     // once and share the string with their `ws_emitted` bookkeeping.
     fn report_result_content(
         self,
-        _ canon: String,
-        _ content: String,
-        _ prev: Option<String>,
+        canon: String,
+        content: String,
+        prev: Option<String>,
     ) -> ReportResult {
         if let Some(stored) = self.diag_reports.get(canon) {
             if stored.content == content {
@@ -349,7 +349,7 @@ impl Analysis {
 
     // Assign a fresh resultId for `canon` now holding `content`, remembering the
     // pair for the next pull's full-vs-`unchanged` decision.
-    fn record_report(self, _ canon: String, _ content: String) -> String {
+    fn record_report(self, canon: String, content: String) -> String {
         let id = '${self.next_result_id}';
         self.next_result_id = self.next_result_id + 1;
         self.diag_reports[canon] = DiagReport { result_id: id, content: content };
@@ -361,7 +361,7 @@ impl Analysis {
     // fresh. What a streamed delta stamps on its reports — there is no client
     // `prev` to consult mid-stream, the diff against `ws_emitted` already decided
     // the file must be re-sent.
-    fn id_for(self, _ canon: String, _ content: String) -> String {
+    fn id_for(self, canon: String, content: String) -> String {
         if let Some(stored) = self.diag_reports.get(canon) {
             if stored.content == content {
                 return stored.result_id;
@@ -372,14 +372,14 @@ impl Analysis {
 
     // The client-reported version for an open buffer's report item; JSON null for a
     // file with no buffer open, per the spec.
-    fn version_of(self, _ uri: String) -> Json {
+    fn version_of(self, uri: String) -> Json {
         return match self.versions.get(uri) {
             Some(v) => int(v),
             None => null(),
         };
     }
 
-    pub fn text(self, _ uri: String) -> Option<String> {
+    pub fn text(self, uri: String) -> Option<String> {
         return self.docs.get(uri);
     }
 
@@ -389,7 +389,7 @@ impl Analysis {
 
     // Record the workspace roots the client opened (`initialize`). Idempotent — a
     // re-`initialize` replaces the set. Paths, not URIs (the caller decodes).
-    pub fn set_roots(self, _ roots: List<String>) -> Void {
+    pub fn set_roots(self, roots: List<String>) -> Void {
         self.input_generation = self.input_generation + 1;
         self.roots = roots;
         // Which files a scan even sees is derived from these, so last scan's result
@@ -404,7 +404,7 @@ impl Analysis {
 
     // Record the `thera.exclude` globs (`initialize` / `didChangeConfiguration`).
     // Idempotent — a new set replaces the old.
-    pub fn set_exclude(self, _ patterns: List<String>) -> Void {
+    pub fn set_exclude(self, patterns: List<String>) -> Void {
         self.input_generation = self.input_generation + 1;
         self.exclude = patterns;
         // The scan cache holds diagnostics computed under the *old* globs, and
@@ -420,7 +420,7 @@ impl Analysis {
     // Whether `path`'s diagnostics are suppressed by a `thera.exclude` glob —
     // matched against the file's path relative to the workspace root that contains
     // it (the form the client's globs are written in, e.g. `tests/lang/**`).
-    pub fn is_excluded(self, _ path: String) -> Bool {
+    pub fn is_excluded(self, path: String) -> Bool {
         if self.exclude.len() == 0 {
             return false;
         }
@@ -438,7 +438,7 @@ impl Analysis {
     // (`is_excluded` filters files, which is correct but pays for the walk first —
     // and a build tree is almost all of a walk). Only `<base>/**` patterns prune,
     // so this can never hide a file `is_excluded` would have kept.
-    fn prunes_dir(self, _ dir: String) -> Bool {
+    fn prunes_dir(self, dir: String) -> Bool {
         if self.exclude.len() == 0 {
             return false;
         }
@@ -455,13 +455,13 @@ impl Analysis {
     // scope in which a declared `// expect error:` diagnostic is dropped from the
     // editor report (`fixtures.suppress_declared`). Keyed on the workspace-relative
     // path, so the marker convention can't leak into an arbitrary user project.
-    fn is_fixture(self, _ path: String) -> Bool {
+    fn is_fixture(self, path: String) -> Bool {
         return fixtures.is_fixture_rel(self.workspace_relative(loader.canonical_path(path)));
     }
 
     // `canon` (canonical) relative to the first root that contains it, `/`-joined;
     // the path unchanged when it's under no root (a loose file).
-    fn workspace_relative(self, _ canon: String) -> String {
+    fn workspace_relative(self, canon: String) -> String {
         for root in self.roots {
             let prefix = loader.canonical_path(root) + '/';
             if canon.starts_with(prefix) {
@@ -474,7 +474,7 @@ impl Analysis {
     // The parsed AST of an open document, through the session's parse cache — the
     // entry for the parse-only requests (document symbols, code actions, workspace
     // symbols), which used to re-tokenize the buffer per request.
-    pub fn parsed(self, _ uri: String) -> Option<Program> {
+    pub fn parsed(self, uri: String) -> Option<Program> {
         return self.docs.get(uri).map((text) => self.session.parse(text, paths.uri_to_path(uri)));
     }
 
@@ -482,7 +482,7 @@ impl Analysis {
     // import closure plus the loader's surfaces (LS1) and the committed-type record
     // (CH19). Works for any file, open or on disk — the caller supplies the text
     // (an open buffer's overlay, or the on-disk contents for a scan).
-    fn ctx_for(self, _ path: String, _ text: String) -> resolve.ResolveCtx {
+    fn ctx_for(self, path: String, text: String) -> resolve.ResolveCtx {
         let closure = self.session.load_closure(text, path);
         return resolve.ResolveCtx {
             program: closure.program,
@@ -496,7 +496,7 @@ impl Analysis {
 
     // The resolution context for an open document, or None when it isn't open. The
     // shared setup behind hover/definition.
-    fn doc_ctx(self, _ uri: String) -> Option<resolve.ResolveCtx> {
+    fn doc_ctx(self, uri: String) -> Option<resolve.ResolveCtx> {
         return self.docs.get(uri).map((text) => self.ctx_for(paths.uri_to_path(uri), text));
     }
 
@@ -591,7 +591,7 @@ impl Analysis {
     // workspace file that imports the target but was never loaded this session is
     // still found. That keeps this exactly as correct as the old whole-project
     // scan, only cheaper.
-    fn cone_files(self, _ target: resolve.SymbolId) -> List<ScanFile> {
+    fn cone_files(self, target: resolve.SymbolId) -> List<ScanFile> {
         let files = self.scan_files();
         let texts: Map<String, String> = [:];
         for f in files {
@@ -615,7 +615,7 @@ impl Analysis {
     // code-point offset — the shared setup for hover/definition. None when the
     // document isn't open. Imports are loaded so a name from an imported library (a
     // stdlib function/type) resolves too.
-    pub fn analyze_at(self, _ uri: Option<String>, _ position: Json) -> Option<DocAnalysis> {
+    pub fn analyze_at(self, uri: Option<String>, position: Json) -> Option<DocAnalysis> {
         return match uri {
             Some(u) => match self.docs.get(u) {
                 Some(text) => match self.doc_ctx(u) {
@@ -641,7 +641,7 @@ impl Analysis {
     // occurrences that resolve to the *same declaration* are returned (SymbolId
     // identity), so unrelated same-named symbols are excluded. With no roots
     // announced, scope is just the open documents.
-    pub fn references_at(self, _ uri: String, _ position: Json, _ include_decl: Bool) -> Json {
+    pub fn references_at(self, uri: String, position: Json, include_decl: Bool) -> Json {
         let target = match self.analyze_at(Option.Some(uri), position) {
             Some(a) => match resolve.resolve_at(a.ctx, a.text, a.offset) {
                 Some(r) => match r.symbol() {
@@ -675,7 +675,7 @@ impl Analysis {
     // name is already bound in its top-level name space, the rename is a
     // `Collision` (the server surfaces the reason) rather than an edit the checker
     // would reject on the next publish (see rename.collision).
-    pub fn rename_at(self, _ uri: String, _ position: Json, _ new_name: String) -> RenameOutcome {
+    pub fn rename_at(self, uri: String, position: Json, new_name: String) -> RenameOutcome {
         if !rename.is_identifier(new_name) {
             return RenameOutcome.Decline;
         }
@@ -731,7 +731,7 @@ impl Analysis {
     // `textDocument/diagnostic` report. The document is always rechecked: its
     // overlay text is the request's input, never a cached result, so its key must
     // not linger in the checked-clean set (`force_recheck` evicts it).
-    pub fn diagnostics(self, _ uri: String, _ text: String) -> Json {
+    pub fn diagnostics(self, uri: String, text: String) -> Json {
         let p = paths.uri_to_path(uri);
         self.session.force_recheck(p);
         return diagnostics.render_diagnostics(
@@ -745,7 +745,7 @@ impl Analysis {
     // buffer when present, else the on-disk contents (a closed file can be pulled).
     // With the client's `prev` resultId, an unchanged file returns a light
     // `unchanged` report instead of re-sending items (LSP 3.17 pull caching).
-    pub fn document_report(self, _ uri: String, _ prev: Option<String>) -> Json {
+    pub fn document_report(self, uri: String, prev: Option<String>) -> Json {
         let canon = loader.canonical_path(paths.uri_to_path(uri));
         let items = self.document_items(uri);
         let r = self.report_result(canon, items, prev);
@@ -759,7 +759,7 @@ impl Analysis {
     // reports clean — the editor shows nothing for it, though it's still analyzed
     // for its importers (this only withholds its own report). A `tests/lang/`
     // fixture keeps its report, minus the errors it declared (`suppress_declared`).
-    fn document_items(self, _ uri: String) -> Json {
+    fn document_items(self, uri: String) -> Json {
         let path = paths.uri_to_path(uri);
         if self.is_excluded(path) {
             return arr([]);
@@ -794,8 +794,8 @@ impl Analysis {
     // caching) instead of re-sending, so a re-pull re-emits only changed files.
     pub fn workspace_report_interruptible(
         self,
-        _ prev_ids: Map<String, String>,
-        _ still_current: () -> Bool,
+        prev_ids: Map<String, String>,
+        still_current: () -> Bool,
     ) -> Option<Json> {
         // Bail before even scanning if a newer pull/cancel already won — so a
         // superseded worker never touches the disk, and an empty workspace (no
@@ -864,7 +864,7 @@ impl Analysis {
     //
     // None when a newer pull or a cancel superseded this scan, exactly as
     // `workspace_report_interruptible`.
-    pub fn workspace_delta_interruptible(self, _ still_current: () -> Bool) -> Option<Json> {
+    pub fn workspace_delta_interruptible(self, still_current: () -> Bool) -> Option<Json> {
         if !still_current() {
             return Option.None;
         }
@@ -929,8 +929,8 @@ impl Analysis {
     // None when a newer pull or a cancel superseded this scan.
     fn scan_by_file(
         self,
-        _ files: List<ScanFile>,
-        _ still_current: () -> Bool,
+        files: List<ScanFile>,
+        still_current: () -> Bool,
     ) -> Option<Map<String, List<Json>>> {
         if let Some(cached) = self.reusable_by_file(files) {
             return Option.Some(cached);
@@ -1015,7 +1015,7 @@ impl Analysis {
     // Skipping the check does not strand the query layer: `records_for` re-checks
     // on demand for an open buffer with no stored records, and hover/definition
     // only ever run against open buffers.
-    fn reusable_by_file(self, _ files: List<ScanFile>) -> Option<Map<String, List<Json>>> {
+    fn reusable_by_file(self, files: List<ScanFile>) -> Option<Map<String, List<Json>>> {
         let cache = match self.scan_cache {
             Some(c) => c,
             None => return Option.None,
@@ -1046,6 +1046,6 @@ impl Analysis {
 // An empty `full` report for `uri` — the retraction shape. The empty items release
 // the client's diagnostics for the file; carrying no resultId makes the client drop
 // its stored id too, so the uri stops appearing in `previousResultIds`.
-fn retraction_item(_ uri: String) -> Json {
+fn retraction_item(uri: String) -> Json {
     return obj(['kind': str('full'), 'uri': str(uri), 'version': null(), 'items': arr([])]);
 }

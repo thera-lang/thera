@@ -72,23 +72,23 @@ pub fn null() -> Json {
     return Json.Null;
 }
 
-pub fn bool(_ b: Bool) -> Json {
+pub fn bool(b: Bool) -> Json {
     return Json.Bool(b);
 }
 
-pub fn int(_ n: Int) -> Json {
+pub fn int(n: Int) -> Json {
     return Json.Int(n);
 }
 
-pub fn double(_ x: Double) -> Json {
+pub fn double(x: Double) -> Json {
     return Json.Double(x);
 }
 
-pub fn str(_ s: String) -> Json {
+pub fn str(s: String) -> Json {
     return Json.Str(s);
 }
 
-pub fn arr(_ items: List<Json>) -> Json {
+pub fn arr(items: List<Json>) -> Json {
     return Json.Array(items);
 }
 
@@ -109,7 +109,7 @@ pub fn arr(_ items: List<Json>) -> Json {
 /// It applies to this object's own entries, not recursively, and it is per-call —
 /// so an API that distinguishes "field absent" from "field explicitly null" builds
 /// the null-carrying part with `omit_nulls` off.
-pub fn obj(_ fields: Map<String, Json>, omit_nulls: Bool = false) -> Json {
+pub fn obj(fields: Map<String, Json>, named omit_nulls: Bool = false) -> Json {
     if !omit_nulls {
         return Json.Object(fields);
     }
@@ -127,7 +127,7 @@ pub fn obj(_ fields: Map<String, Json>, omit_nulls: Bool = false) -> Json {
 /// optional field be written unconditionally, then dropped by `obj`'s `omit_nulls`.
 /// `encode` is normally one of the constructors above:
 /// `json.opt(req.top_k, json.int)`.
-pub fn opt<T>(_ value: Option<T>, _ encode: (T) -> Json) -> Json {
+pub fn opt<T>(value: Option<T>, encode: (T) -> Json) -> Json {
     return match value {
         Some(inner) => encode(inner),
         None => Json.Null,
@@ -139,7 +139,7 @@ pub fn opt<T>(_ value: Option<T>, _ encode: (T) -> Json) -> Json {
 impl Json {
     /// An object field by key (Null if not an object or the key is absent). Null
     /// -on-miss keeps navigation chainable: `j.get('a').get('b').as_int()`.
-    pub fn get(self, _ key: String) -> Json {
+    pub fn get(self, key: String) -> Json {
         return match self {
             Object(m) => match m.get(key) {
                 Some(v) => v,
@@ -150,7 +150,7 @@ impl Json {
     }
 
     /// An array element by index (Null if not an array or out of range).
-    pub fn at(self, _ index: Int) -> Json {
+    pub fn at(self, index: Int) -> Json {
         return match self {
             Array(items) => match items.get(index) {
                 Some(v) => v,
@@ -228,7 +228,7 @@ impl Json {
     }
 }
 
-fn int_if_integral(_ x: Double) -> Option<Int> {
+fn int_if_integral(x: Double) -> Option<Int> {
     let n = x.to_int(); // truncates toward zero
     return if n.to_double() == x { Option.Some(n) } else { Option.None };
 }
@@ -280,7 +280,7 @@ impl Display for DecodeError {
 /// accumulates the path and the readers can report it.
 ///
 /// ```thera
-/// fn usage_from_json(_ at: json.Cursor) -> Result<Usage, json.DecodeError> {
+/// fn usage_from_json(at: json.Cursor) -> Result<Usage, json.DecodeError> {
 ///     return Result.Ok(Usage {
 ///         input_tokens: at.field('input_tokens').int()?,
 ///         output_tokens: at.field('output_tokens').int()?,
@@ -313,7 +313,7 @@ pub struct Cursor {
 }
 
 /// A cursor on `value` as a document root, whose path is `$`.
-pub fn cursor(_ value: Json) -> Cursor {
+pub fn cursor(value: Json) -> Cursor {
     return Cursor { value: value, path: '$', present: true };
 }
 
@@ -322,7 +322,7 @@ impl Cursor {
 
     /// The cursor at `key` of this object — at the extended path, marked absent if
     /// this is not an object or has no such key.
-    pub fn field(self, _ key: String) -> Cursor {
+    pub fn field(self, key: String) -> Cursor {
         let at = '${self.path}.${key}';
         return match self.value {
             Object(fields) => match fields.get(key) {
@@ -335,7 +335,7 @@ impl Cursor {
 
     /// The cursor at element `i` of this array — marked absent if this is not an
     /// array or `i` is out of range.
-    pub fn index(self, _ i: Int) -> Cursor {
+    pub fn index(self, i: Int) -> Cursor {
         let at = '${self.path}[${i}]';
         return match self.value {
             Array(items) => match items.get(i) {
@@ -421,14 +421,14 @@ impl Cursor {
 
     /// A `Shape` error at this cursor's path, for a check the readers can't make:
     /// `at.field('created_at').unexpected('an ISO-8601 timestamp')`.
-    pub fn unexpected<T>(self, _ expected: String) -> Result<T, DecodeError> {
+    pub fn unexpected<T>(self, expected: String) -> Result<T, DecodeError> {
         return Result.Err(DecodeError.Shape(self.path, expected, self.value.kind()));
     }
 
     // --- the two readers everything above shares ---
 
     /// Absent is `Missing`; the wrong kind is `Shape`; otherwise the value.
-    fn require<T>(self, _ expected: String, _ read: Option<T>) -> Result<T, DecodeError> {
+    fn require<T>(self, expected: String, read: Option<T>) -> Result<T, DecodeError> {
         if !self.present {
             return Result.Err(DecodeError.Missing(self.path));
         }
@@ -441,7 +441,7 @@ impl Cursor {
     /// Absent or null is `None`; the wrong kind is still `Shape`. Tolerating an
     /// absent field is not tolerating a field of the wrong type — the first is the
     /// schema saying "optional", the second is a bug or a breaking change.
-    fn allow<T>(self, _ expected: String, _ read: Option<T>) -> Result<Option<T>, DecodeError> {
+    fn allow<T>(self, expected: String, read: Option<T>) -> Result<Option<T>, DecodeError> {
         if !self.present || self.value.is_null() {
             return Result.Ok(Option.None);
         }
@@ -470,7 +470,7 @@ impl Cursor {
     }
 }
 
-fn absent(_ path: String) -> Cursor {
+fn absent(path: String) -> Cursor {
     return Cursor { value: Json.Null, path: path, present: false };
 }
 
@@ -483,7 +483,7 @@ struct Scanner {
     let len: Int;
 }
 
-pub fn parse(_ text: String) -> Result<Json, JsonError> {
+pub fn parse(text: String) -> Result<Json, JsonError> {
     let cps = text.chars();
     let s = Scanner { chars: cps, pos: 0, len: cps.len() };
     let value = s.parse_value()?;
@@ -528,7 +528,7 @@ impl Scanner {
         return void;
     }
 
-    fn syntax(self, _ msg: String) -> JsonError {
+    fn syntax(self, msg: String) -> JsonError {
         return JsonError.Syntax('${msg} at ${self.position()}');
     }
 
@@ -550,7 +550,7 @@ impl Scanner {
     }
 
     /// True (and consumes) if the upcoming code points spell `lit`.
-    fn match_literal(self, _ lit: String) -> Bool {
+    fn match_literal(self, lit: String) -> Bool {
         let want = lit.chars();
         for p in want.enumerate() {
             if self.pos + p.index >= self.len {
@@ -684,7 +684,7 @@ impl Scanner {
     }
 
     /// Decode one escape sequence (the '\' is already consumed) into `out`.
-    fn parse_escape(self, _ out: List<Int>) -> Result<Void, JsonError> {
+    fn parse_escape(self, out: List<Int>) -> Result<Void, JsonError> {
         if self.pos >= self.len {
             return Result.Err(self.syntax('unterminated escape'));
         }
@@ -825,7 +825,7 @@ impl Scanner {
 }
 
 /// The hex value of an ASCII hex digit, or -1.
-fn hex_value(_ c: Int) -> Int {
+fn hex_value(c: Int) -> Int {
     if char.is_digit(c) {
         return c - char.DIGIT_0;
     }
@@ -838,13 +838,13 @@ fn hex_value(_ c: Int) -> Int {
 
 // --- serializing ---
 
-pub fn stringify(_ value: Json, pretty: Bool = false) -> String {
+pub fn stringify(value: Json, named pretty: Bool = false) -> String {
     let mut parts: List<String> = [];
     write_value(value, pretty, 0, parts);
     return parts.join('');
 }
 
-fn write_value(_ v: Json, _ pretty: Bool, _ indent: Int, _ out: List<String>) -> Void {
+fn write_value(v: Json, pretty: Bool, indent: Int, out: List<String>) -> Void {
     return match v {
         Null => out.push('null'),
         Bool(b) => out.push('${b}'),
@@ -856,7 +856,7 @@ fn write_value(_ v: Json, _ pretty: Bool, _ indent: Int, _ out: List<String>) ->
     };
 }
 
-fn write_array(_ items: List<Json>, _ pretty: Bool, _ indent: Int, _ out: List<String>) -> Void {
+fn write_array(items: List<Json>, pretty: Bool, indent: Int, out: List<String>) -> Void {
     if items.len() == 0 {
         out.push('[]');
         return void;
@@ -881,10 +881,10 @@ fn write_array(_ items: List<Json>, _ pretty: Bool, _ indent: Int, _ out: List<S
 }
 
 fn write_object(
-    _ fields: Map<String, Json>,
-    _ pretty: Bool,
-    _ indent: Int,
-    _ out: List<String>,
+    fields: Map<String, Json>,
+    pretty: Bool,
+    indent: Int,
+    out: List<String>,
 ) -> Void {
     let keys = fields.keys();
     if keys.len() == 0 {
@@ -921,7 +921,7 @@ fn write_object(
 }
 
 /// A JSON string literal: `s` escaped and double-quoted.
-fn quote(_ s: String) -> String {
+fn quote(s: String) -> String {
     let cps = s.chars();
     let mut out: List<Int> = [];
     out.push(char.DQUOTE);
@@ -965,14 +965,14 @@ fn quote(_ s: String) -> String {
 }
 
 /// The ASCII code of the hex digit for 0..15.
-fn hex_char(_ n: Int) -> Int {
+fn hex_char(n: Int) -> Int {
     if n < 10 {
         return char.DIGIT_0 + n;
     }
     return 97 + n - 10; // a..f
 }
 
-fn indent_str(_ level: Int) -> String {
+fn indent_str(level: Int) -> String {
     let out: List<Int> = [];
     let mut i = 0;
     while i < level * 2 {

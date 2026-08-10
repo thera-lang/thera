@@ -8,7 +8,7 @@
 struct Version { let major: Int; let minor: Int; }
 
 impl Ord for Version {
-    fn compare(self, _ other: Version) -> Ordering {
+    fn compare(self, other: Version) -> Ordering {
         let m = self.major.compare(other.major);
         if m.is_ne() {
             return m;
@@ -19,7 +19,7 @@ impl Ord for Version {
 
 // A generic over `Ord`: `compare` resolves through the bound and dispatches
 // dynamically, so this works for any `Ord` type (primitive or user).
-fn min2<T: Ord>(_ a: T, _ b: T) -> T {
+fn min2<T: Ord>(a: T, b: T) -> T {
     if a.compare(b).is_le() {
         return a;
     }

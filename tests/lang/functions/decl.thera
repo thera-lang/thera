@@ -1,12 +1,12 @@
 //! spec: fn-decl
 //! mode: run
 
-fn add(a: Int, b: Int) -> Int {
+fn add(named a: Int, named b: Int) -> Int {
     return a + b;
 }
 
 // No return type annotation — defaults to Void.
-fn log(_ msg: String) {
+fn log(msg: String) {
     println(msg);
 }
 

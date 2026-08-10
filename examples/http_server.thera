@@ -22,7 +22,7 @@ import std.http.server;
 // A handler is `(Request) -> Result<Response, Error>`. Errors are values here too:
 // return a 4xx/5xx `Response` for an expected failure, or propagate an `Error` and
 // the server renders a 500.
-fn greet(_ req: http.Request) -> Result<http.Response, Error> {
+fn greet(req: http.Request) -> Result<http.Response, Error> {
     let name = server.path_of(req.url).slice(1, server.path_of(req.url).len());
     if name.is_empty() {
         return Result.Ok(server.text(400, 'usage: GET /<name>\n'));

@@ -24,15 +24,15 @@ impl Bytes {
 
     /// The byte (0..=255) at `i`, or None if out of range.
     @extern('bytes_get')
-    pub native fn get(self, _ i: Int) -> Option<Int>
+    pub native fn get(self, i: Int) -> Option<Int>
 
     /// The sub-buffer `[start, end)`, clamped to the valid range.
     @extern('bytes_slice')
-    pub native fn slice(self, _ start: Int, _ end: Int) -> Bytes
+    pub native fn slice(self, start: Int, end: Int) -> Bytes
 
     /// This buffer followed by `other`.
     @extern('bytes_concat')
-    pub native fn concat(self, _ other: Bytes) -> Bytes
+    pub native fn concat(self, other: Bytes) -> Bytes
 
     /// Decode as UTF-8 text. Errs if the bytes are not valid UTF-8.
     @extern('bytes_to_string')
@@ -48,7 +48,7 @@ impl Bytes {
 
     /// Build from byte values; errs if any value is outside 0..=255.
     @extern('bytes_from_list')
-    pub native fn from_list(_ values: List<Int>) -> Result<Bytes, Error>
+    pub native fn from_list(values: List<Int>) -> Result<Bytes, Error>
 }
 
 /// A Bytes value's `Debug` form: `Bytes[hh hh …]` (space-joined hex), matching the
@@ -69,15 +69,15 @@ impl BytesBuilder {
 
     /// Append a single byte (the low 8 bits of `byte`).
     @extern('bytesbuilder_write_u8')
-    pub native fn write_u8(self, _ byte: Int) -> Void
+    pub native fn write_u8(self, byte: Int) -> Void
 
     /// Append a `Bytes`.
     @extern('bytesbuilder_write_bytes')
-    pub native fn write_bytes(self, _ data: Bytes) -> Void
+    pub native fn write_bytes(self, data: Bytes) -> Void
 
     /// Append a string's UTF-8 encoding.
     @extern('bytesbuilder_write_str')
-    pub native fn write_str(self, _ s: String) -> Void
+    pub native fn write_str(self, s: String) -> Void
 
     /// The number of bytes accumulated so far.
     @extern('bytesbuilder_len')
@@ -95,13 +95,13 @@ impl BytesBuilder {
     // extracts each byte of the raw bit pattern regardless of sign.
 
     /// The low 16 bits of `v`, little-endian (2 bytes).
-    pub fn write_u16_le(self, _ v: Int) -> Void {
+    pub fn write_u16_le(self, v: Int) -> Void {
         self.write_u8(v);
         self.write_u8(v >>> 8);
     }
 
     /// The low 32 bits of `v`, little-endian (4 bytes).
-    pub fn write_u32_le(self, _ v: Int) -> Void {
+    pub fn write_u32_le(self, v: Int) -> Void {
         self.write_u8(v);
         self.write_u8(v >>> 8);
         self.write_u8(v >>> 16);
@@ -109,7 +109,7 @@ impl BytesBuilder {
     }
 
     /// All 64 bits of `v`, little-endian (8 bytes).
-    pub fn write_u64_le(self, _ v: Int) -> Void {
+    pub fn write_u64_le(self, v: Int) -> Void {
         self.write_u8(v);
         self.write_u8(v >>> 8);
         self.write_u8(v >>> 16);
@@ -121,18 +121,18 @@ impl BytesBuilder {
     }
 
     /// The 8 IEEE-754 bytes of `d`, little-endian.
-    pub fn write_f64_le(self, _ d: Double) -> Void {
+    pub fn write_f64_le(self, d: Double) -> Void {
         self.write_u64_le(d.to_bits());
     }
 
     /// The low 16 bits of `v`, big-endian (2 bytes, most-significant first).
-    pub fn write_u16_be(self, _ v: Int) -> Void {
+    pub fn write_u16_be(self, v: Int) -> Void {
         self.write_u8(v >>> 8);
         self.write_u8(v);
     }
 
     /// The low 32 bits of `v`, big-endian (4 bytes).
-    pub fn write_u32_be(self, _ v: Int) -> Void {
+    pub fn write_u32_be(self, v: Int) -> Void {
         self.write_u8(v >>> 24);
         self.write_u8(v >>> 16);
         self.write_u8(v >>> 8);
@@ -140,7 +140,7 @@ impl BytesBuilder {
     }
 
     /// All 64 bits of `v`, big-endian (8 bytes).
-    pub fn write_u64_be(self, _ v: Int) -> Void {
+    pub fn write_u64_be(self, v: Int) -> Void {
         self.write_u8(v >>> 56);
         self.write_u8(v >>> 48);
         self.write_u8(v >>> 40);
@@ -152,7 +152,7 @@ impl BytesBuilder {
     }
 
     /// The 8 IEEE-754 bytes of `d`, big-endian.
-    pub fn write_f64_be(self, _ d: Double) -> Void {
+    pub fn write_f64_be(self, d: Double) -> Void {
         self.write_u64_be(d.to_bits());
     }
 
@@ -160,7 +160,7 @@ impl BytesBuilder {
 
     /// Unsigned LEB128 of `v`'s 64-bit pattern (the encoding used for lengths and
     /// indices). `>>>` treats `v` as unsigned, so the full range round-trips.
-    pub fn write_uvarint(self, _ v: Int) -> Void {
+    pub fn write_uvarint(self, v: Int) -> Void {
         let mut x = v;
         let mut more = true;
         while more {
@@ -178,7 +178,7 @@ impl BytesBuilder {
     /// Signed LEB128 of `v` (the encoding used for `Int` immediates). `>>` is
     /// arithmetic, so the sign extends; the high bit of the final group encodes the
     /// sign.
-    pub fn write_ivarint(self, _ v: Int) -> Void {
+    pub fn write_ivarint(self, v: Int) -> Void {
         let mut x = v;
         let mut more = true;
         while more {
@@ -209,7 +209,7 @@ pub struct BytesReader {
 
 impl BytesReader {
     /// A reader positioned at the start of `data`.
-    pub fn new(_ data: Bytes) -> BytesReader {
+    pub fn new(data: Bytes) -> BytesReader {
         return BytesReader { data: data, pos: 0 };
     }
 
@@ -236,7 +236,7 @@ impl BytesReader {
 
     /// The next `n` bytes as a `Bytes` and advance, or None if fewer than `n`
     /// remain (or `n` is negative).
-    pub fn read_bytes(self, _ n: Int) -> Option<Bytes> {
+    pub fn read_bytes(self, n: Int) -> Option<Bytes> {
         if n < 0 || self.remaining() < n {
             return Option.None;
         }
@@ -258,7 +258,7 @@ impl BytesReader {
 
     /// Assemble the next `n` little-endian bytes into an Int, or None if fewer than
     /// `n` remain.
-    fn read_le(self, _ n: Int) -> Option<Int> {
+    fn read_le(self, n: Int) -> Option<Int> {
         let b = self.read_bytes(n)?;
         let mut result = 0;
         let mut i = 0;

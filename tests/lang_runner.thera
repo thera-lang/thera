@@ -54,7 +54,7 @@ enum Verdict {
     Fail(String),     // reason
 }
 
-fn main(parameters: List<String>) -> Result<Int, Error> {
+fn main(named parameters: List<String>) -> Result<Int, Error> {
     if parameters.len() < 2 {
         eprintln('usage: thera run tests/lang_runner.thera <thera-cmd> <test-root>');
         return Result.Ok(2);
@@ -128,7 +128,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 
 // --- parsing ---
 
-fn parse_test(_ path: String) -> Result<Test, Error> {
+fn parse_test(path: String) -> Result<Test, Error> {
     let source = fs.read_text(path)?;
     let mut mode = '';
     let mut spec = '';
@@ -207,7 +207,7 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
 
 // --- execution & comparison ---
 
-fn run_test(_ thera: String, _ test: Test) -> Verdict {
+fn run_test(thera: String, test: Test) -> Verdict {
     if test.mode == 'check' {
         return run_check(thera, test);
     }
@@ -216,7 +216,7 @@ fn run_test(_ thera: String, _ test: Test) -> Verdict {
 
 // `check` mode: type-check the file and match the emitted diagnostics against the
 // `// expect error:` lines — every expectation matched, and no surprise errors.
-fn run_check(_ thera: String, _ test: Test) -> Verdict {
+fn run_check(thera: String, test: Test) -> Verdict {
     let result = match process.run(thera, args: ['check', test.path]) {
         Ok(r) => r,
         Err(e) => { return Verdict.Fail('could not run check: ${e.message()}'); },
@@ -260,7 +260,7 @@ fn run_check(_ thera: String, _ test: Test) -> Verdict {
 // trap:` (non-zero exit + stderr), `// expect exit:` (exact code), `// expect
 // stderr:` (substrings), and the ordered `// expect:` stdout lines. The
 // exit/stderr/stdout checks compose, so a test can assert all three at once.
-fn run_run(_ thera: String, _ test: Test) -> Verdict {
+fn run_run(thera: String, test: Test) -> Verdict {
     let result = match process.run(thera, args: ['run', test.path]) {
         Ok(r) => r,
         Err(e) => { return Verdict.Fail('could not run program: ${e.message()}'); },
@@ -314,7 +314,7 @@ struct Diagnostic {
 // Parse the CLI's diagnostic lines from `check` stdout. A diagnostic starts with
 // the file path we asked about (`path:line:col: message`); other stdout content
 // (build noise lands on stderr) is ignored.
-fn parse_diagnostics(_ stdout: String, _ path: String) -> List<Diagnostic> {
+fn parse_diagnostics(stdout: String, path: String) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for raw in stdout.lines() {
         if !raw.starts_with('${path}:') {
@@ -344,7 +344,7 @@ fn continue_skip() -> Void {}
 // registered IDs (informational), and any IDs a test cites that are NOT
 // registered (a typo or a missing map entry). Returns true on the latter — an
 // unregistered citation is an error that should fail the suite.
-fn report_coverage(_ map_path: String, _ specs: List<String>) -> Bool {
+fn report_coverage(map_path: String, specs: List<String>) -> Bool {
     let source = match fs.read_text(map_path) {
         Ok(s) => s,
         Err(_) => {
@@ -392,7 +392,7 @@ fn report_coverage(_ map_path: String, _ specs: List<String>) -> Bool {
 // column is a backtick-quoted id-shaped token (`lex-int`, `decorators`).
 // Requiring the first column skips the notation/legend tables (whose IDs, if
 // any, sit in later columns) and prose in the Findings.
-fn extract_registered_ids(_ source: String) -> List<String> {
+fn extract_registered_ids(source: String) -> List<String> {
     let ids: List<String> = [];
     let seen: Set<String> = Set.new();
     for raw in source.lines() {
@@ -416,7 +416,7 @@ fn extract_registered_ids(_ source: String) -> List<String> {
 }
 
 // Whether `s` matches `[a-z][a-z0-9-]*` — the shape of a spec ID.
-fn is_id_token(_ s: String) -> Bool {
+fn is_id_token(s: String) -> Bool {
     let cs = s.chars();
     if cs.len() == 0 {
         return false;
@@ -444,7 +444,7 @@ struct Split {
 }
 
 // Split `s` at the first occurrence of `sep`, or None when absent.
-fn split_once(_ s: String, _ sep: String) -> Option<Split> {
+fn split_once(s: String, sep: String) -> Option<Split> {
     if !s.contains(sep) {
         return Option.None;
     }
@@ -462,7 +462,7 @@ fn split_once(_ s: String, _ sep: String) -> Option<Split> {
 }
 
 // The trimmed text after `marker` in `line`, or None when the marker is absent.
-fn after_marker(_ line: String, _ marker: String) -> Option<String> {
+fn after_marker(line: String, marker: String) -> Option<String> {
     if !line.contains(marker) {
         return Option.None;
     }
@@ -472,7 +472,7 @@ fn after_marker(_ line: String, _ marker: String) -> Option<String> {
 
 // Split `s` into lines, dropping a single trailing empty line (the newline a
 // program's final `println` leaves behind).
-fn nonempty_lines(_ s: String) -> List<String> {
+fn nonempty_lines(s: String) -> List<String> {
     let all = s.lines();
     if all.len() > 0 && all[all.len() - 1] == '' {
         let out: List<String> = [];
@@ -486,7 +486,7 @@ fn nonempty_lines(_ s: String) -> List<String> {
     return all;
 }
 
-fn render_diags(_ diags: List<Diagnostic>) -> String {
+fn render_diags(diags: List<Diagnostic>) -> String {
     if diags.len() == 0 {
         return 'no diagnostics were emitted.';
     }
@@ -497,7 +497,7 @@ fn render_diags(_ diags: List<Diagnostic>) -> String {
     return s;
 }
 
-fn render_lines(_ expected: List<String>, _ got: List<String>) -> String {
+fn render_lines(expected: List<String>, got: List<String>) -> String {
     let mut s = '--- expected ---';
     for line in expected { s = '${s}\n${line}'; }
     s = '${s}\n--- got ---';
@@ -507,7 +507,7 @@ fn render_lines(_ expected: List<String>, _ got: List<String>) -> String {
 
 // --- file discovery ---
 
-fn collect_thera_files(_ dir: String, _ found: List<String>) -> Void {
+fn collect_thera_files(dir: String, found: List<String>) -> Void {
     if let Ok(names) = fs.list_dir(dir) {
         for name in names {
             let full = path.join(dir, name);
@@ -526,7 +526,7 @@ fn collect_thera_files(_ dir: String, _ found: List<String>) -> Void {
 }
 
 // Lexicographic selection sort by Unicode code point (no List.sort yet).
-fn sort_strings(_ items: List<String>) -> List<String> {
+fn sort_strings(items: List<String>) -> List<String> {
     let n = items.len();
     let mut i = 0;
     while i < n {
@@ -546,7 +546,7 @@ fn sort_strings(_ items: List<String>) -> List<String> {
     return items;
 }
 
-fn str_less(_ a: String, _ b: String) -> Bool {
+fn str_less(a: String, b: String) -> Bool {
     let ca = a.chars();
     let cb = b.chars();
     let mut i = 0;

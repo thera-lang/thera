@@ -91,12 +91,12 @@ const MINIMAL: String =
 
 // --- helpers ---
 
-fn decode(_ body: String) -> Result<Message, Error> {
+fn decode(body: String) -> Result<Message, Error> {
     return Result.Ok(message_from_json(json.cursor(json.parse(body)?))?);
 }
 
 /// The message from a decode that must fail.
-fn decode_error(_ body: String) -> Result<String, Error> {
+fn decode_error(body: String) -> Result<String, Error> {
     match message_from_json(json.cursor(json.parse(body)?)) {
         Ok(_) => throw error('expected a decode failure, got Ok'),
         Err(e) => return Result.Ok(e.message()),
@@ -104,7 +104,7 @@ fn decode_error(_ body: String) -> Result<String, Error> {
 }
 
 /// The text of content block `i`, or a failure naming what was there instead.
-fn text_at(_ msg: Message, _ i: Int) -> Result<String, Error> {
+fn text_at(msg: Message, i: Int) -> Result<String, Error> {
     match msg.content[i] {
         Text(block) => return Result.Ok(block.text),
         _ => throw error('content[${i}] is not a text block'),

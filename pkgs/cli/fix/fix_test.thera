@@ -9,7 +9,7 @@ import 'fix' as _;
 
 // Assert `fix_source(src)` equals `want`, and that the result is a fixpoint (a
 // second pass is a no-op — the emitted `if let` must not re-fire).
-fn check(_ src: String, _ want: String) -> Result<Void, Error> {
+fn check(src: String, want: String) -> Result<Void, Error> {
     let once = fix_source(src);
     testing.assert_eq(actual: once, expected: want)?;
     testing.assert_eq(actual: fix_source(once), expected: want)?;
@@ -19,8 +19,8 @@ fn check(_ src: String, _ want: String) -> Result<Void, Error> {
 @test
 fn rewrites_some_none_on_one_line() -> Result<Void, Error> {
     return check(
-        'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => { return v; }, None => {} }\n    return 0;\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    match o { Some(v) => { return v; }, None => {} }\n    return 0;\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n',
     );
 }
 
@@ -28,7 +28,7 @@ fn rewrites_some_none_on_one_line() -> Result<Void, Error> {
 fn reindents_a_multiline_body() -> Result<Void, Error> {
     // The Some-arm block is sliced verbatim (at its arm indent) and the formatter
     // pass corrects the indentation of the rewritten region.
-    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let src = 'fn f(o: Option<Int>) -> Int {\n'
         + '    match o {\n'
         + '        Some(v) => {\n'
         + '            return v;\n'
@@ -36,7 +36,7 @@ fn reindents_a_multiline_body() -> Result<Void, Error> {
         + '        None => {},\n'
         + '    }\n'
         + '    return 0;\n}\n';
-    let want = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let want = 'fn f(o: Option<Int>) -> Int {\n'
         + '    if let Some(v) = o {\n'
         + '        return v;\n'
         + '    }\n'
@@ -48,8 +48,8 @@ fn reindents_a_multiline_body() -> Result<Void, Error> {
 fn wraps_a_bare_body_in_braces() -> Result<Void, Error> {
     // `if let` needs a block; a bare-expression arm is wrapped.
     return check(
-        'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => process(v), _ => {} }\n    return 0;\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { process(v) }\n    return 0;\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    match o { Some(v) => process(v), _ => {} }\n    return 0;\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    if let Some(v) = o { process(v) }\n    return 0;\n}\n',
     );
 }
 
@@ -58,15 +58,15 @@ fn wraps_a_bare_return_body_as_a_statement() -> Result<Void, Error> {
     // A bare *diverging* arm body needs a `;` inside the block — a `return` can't
     // be a block's tail expression (unlike a value body, which can).
     return check(
-        'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => return v, None => {} }\n    return 0;\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    match o { Some(v) => return v, None => {} }\n    return 0;\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n',
     );
 }
 
 @test
 fn leaves_non_convertible_match_untouched() -> Result<Void, Error> {
     // Both arms act — not the empty-catch-all shape.
-    let src = 'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => { return v; }, None => { return 0; } }\n}\n';
+    let src = 'fn f(o: Option<Int>) -> Int {\n    match o { Some(v) => { return v; }, None => { return 0; } }\n}\n';
     testing.assert_eq(actual: fix_source(src), expected: src)?;
     return Result.Ok(void);
 }
@@ -74,7 +74,7 @@ fn leaves_non_convertible_match_untouched() -> Result<Void, Error> {
 @test
 fn preserves_a_comment_in_the_body() -> Result<Void, Error> {
     // Source-slicing keeps the body verbatim, comments and all.
-    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let src = 'fn f(o: Option<Int>) -> Int {\n'
         + '    match o {\n'
         + '        Some(v) => {\n'
         + '            // keep me\n'
@@ -83,7 +83,7 @@ fn preserves_a_comment_in_the_body() -> Result<Void, Error> {
         + '        None => {},\n'
         + '    }\n'
         + '    return 0;\n}\n';
-    let want = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let want = 'fn f(o: Option<Int>) -> Int {\n'
         + '    if let Some(v) = o {\n'
         + '        // keep me\n'
         + '        return v;\n'
@@ -96,12 +96,12 @@ fn preserves_a_comment_in_the_body() -> Result<Void, Error> {
 fn is_a_minimal_edit_leaving_the_rest_untouched() -> Result<Void, Error> {
     // Only the rewritten span changes; formatting drift elsewhere (a blank-line run
     // a whole-file format would collapse) survives — fixing is not formatting.
-    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let src = 'fn f(o: Option<Int>) -> Int {\n'
         + '    match o { Some(v) => { return v; }, None => {} }\n'
         + '\n'
         + '\n'
         + '    return 0;\n}\n';
-    let want = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let want = 'fn f(o: Option<Int>) -> Int {\n'
         + '    if let Some(v) = o { return v; }\n'
         + '\n'
         + '\n'
@@ -114,7 +114,7 @@ fn is_a_minimal_edit_leaving_the_rest_untouched() -> Result<Void, Error> {
 fn handles_nested_convertible_matches() -> Result<Void, Error> {
     // An outer match whose kept arm contains another convertible match — the edits
     // would overlap, so they are applied across passes (outer first, then inner).
-    let src = 'fn f(_ o: Option<Option<Int>>) -> Int {\n'
+    let src = 'fn f(o: Option<Option<Int>>) -> Int {\n'
         + '    match o {\n'
         + '        Some(inner) => {\n'
         + '            match inner { Some(v) => { return v; }, None => {} }\n'
@@ -122,7 +122,7 @@ fn handles_nested_convertible_matches() -> Result<Void, Error> {
         + '        None => {},\n'
         + '    }\n'
         + '    return 0;\n}\n';
-    let want = 'fn f(_ o: Option<Option<Int>>) -> Int {\n'
+    let want = 'fn f(o: Option<Option<Int>>) -> Int {\n'
         + '    if let Some(inner) = o {\n'
         + '        if let Some(v) = inner { return v; }\n'
         + '    }\n'
@@ -137,13 +137,13 @@ fn skips_a_match_in_value_position() -> Result<Void, Error> {
     // initializer must be left alone (regression: an arm body was once rewritten
     // into `if let … { … }` with no `else`, which does not parse in value
     // position).
-    let arm_body = 'fn f(_ o: Option<Option<Int>>) -> Void {\n'
+    let arm_body = 'fn f(o: Option<Option<Int>>) -> Void {\n'
         + '    match o {\n'
         + '        Some(x) => use(x),\n'
         + '        None => match g() { Some(v) => use(v), None => void },\n'
         + '    }\n}\n';
     testing.assert_eq(actual: fix_source(arm_body), expected: arm_body)?;
-    let initializer = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let initializer = 'fn f(o: Option<Int>) -> Int {\n'
         + '    let x = match o { Some(v) => { v }, None => {} };\n'
         + '    return 0;\n}\n';
     testing.assert_eq(actual: fix_source(initializer), expected: initializer)?;
@@ -154,19 +154,19 @@ fn skips_a_match_in_value_position() -> Result<Void, Error> {
 fn handles_a_complex_subject() -> Result<Void, Error> {
     // The scrutinee is sliced verbatim, however complex.
     return check(
-        'fn f(_ m: Map<String, Int>) -> Int {\n    match m.get(name) { Some(v) => { return v; }, None => {} }\n    return 0;\n}\n',
-        'fn f(_ m: Map<String, Int>) -> Int {\n    if let Some(v) = m.get(name) { return v; }\n    return 0;\n}\n',
+        'fn f(m: Map<String, Int>) -> Int {\n    match m.get(name) { Some(v) => { return v; }, None => {} }\n    return 0;\n}\n',
+        'fn f(m: Map<String, Int>) -> Int {\n    if let Some(v) = m.get(name) { return v; }\n    return 0;\n}\n',
     );
 }
 
 @test
 fn rewrites_every_site() -> Result<Void, Error> {
     return check(
-        'fn f(_ a: Option<Int>, _ b: Option<Int>) -> Int {\n'
+        'fn f(a: Option<Int>, b: Option<Int>) -> Int {\n'
         + '    match a { Some(v) => { return v; }, None => {} }\n'
         + '    match b { Some(w) => { return w; }, None => {} }\n'
         + '    return 0;\n}\n',
-        'fn f(_ a: Option<Int>, _ b: Option<Int>) -> Int {\n'
+        'fn f(a: Option<Int>, b: Option<Int>) -> Int {\n'
         + '    if let Some(v) = a { return v; }\n'
         + '    if let Some(w) = b { return w; }\n'
         + '    return 0;\n}\n',
@@ -180,8 +180,8 @@ fn unwrap_or_eager_for_a_cheap_fallback() -> Result<Void, Error> {
     // A literal / qualified-variant fallback is pure, so `unwrap_or` (eager) is
     // behavior-preserving.
     return check(
-        'fn f(_ o: Option<Int>) -> Int {\n    return match o { Some(v) => v, None => 0 };\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    return o.unwrap_or(0);\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    return match o { Some(v) => v, None => 0 };\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    return o.unwrap_or(0);\n}\n',
     );
 }
 
@@ -190,8 +190,8 @@ fn unwrap_or_else_for_a_computed_fallback() -> Result<Void, Error> {
     // A call fallback must stay lazy — the `match` only evaluated it in the `None`
     // case — so it becomes `unwrap_or_else`.
     return check(
-        'fn f(_ o: Option<Int>) -> Int {\n    return match o { Some(v) => v, None => compute() };\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    return o.unwrap_or_else(() => compute());\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    return match o { Some(v) => v, None => compute() };\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    return o.unwrap_or_else(() => compute());\n}\n',
     );
 }
 
@@ -200,16 +200,16 @@ fn unwrap_or_else_threads_the_error_binding() -> Result<Void, Error> {
     // `Result`'s `unwrap_or_else` closure receives the error, so an `Err(e)` arm
     // that uses `e` carries it through.
     return check(
-        'fn f(_ r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(e) => recover(e) };\n}\n',
-        'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or_else((e) => recover(e));\n}\n',
+        'fn f(r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(e) => recover(e) };\n}\n',
+        'fn f(r: Result<Int, Error>) -> Int {\n    return r.unwrap_or_else((e) => recover(e));\n}\n',
     );
 }
 
 @test
 fn unwrap_or_eager_for_a_discarded_result_error() -> Result<Void, Error> {
     return check(
-        'fn f(_ r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(_) => fallback };\n}\n',
-        'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or(fallback);\n}\n',
+        'fn f(r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(_) => fallback };\n}\n',
+        'fn f(r: Result<Int, Error>) -> Int {\n    return r.unwrap_or(fallback);\n}\n',
     );
 }
 
@@ -218,10 +218,10 @@ fn unwrap_or_eager_for_a_discarded_result_error() -> Result<Void, Error> {
 @test
 fn rewrites_result_propagation_to_question() -> Result<Void, Error> {
     return check(
-        'fn f(_ r: Result<Int, Error>) -> Result<Int, Error> {\n'
+        'fn f(r: Result<Int, Error>) -> Result<Int, Error> {\n'
         + '    let v = match r { Ok(x) => x, Err(e) => return Result.Err(e) };\n'
         + '    return Result.Ok(v);\n}\n',
-        'fn f(_ r: Result<Int, Error>) -> Result<Int, Error> {\n'
+        'fn f(r: Result<Int, Error>) -> Result<Int, Error> {\n'
         + '    let v = r?;\n'
         + '    return Result.Ok(v);\n}\n',
     );
@@ -230,10 +230,10 @@ fn rewrites_result_propagation_to_question() -> Result<Void, Error> {
 @test
 fn rewrites_option_propagation_to_question() -> Result<Void, Error> {
     return check(
-        'fn f(_ o: Option<Int>) -> Option<Int> {\n'
+        'fn f(o: Option<Int>) -> Option<Int> {\n'
         + '    let v = match o { Some(x) => x, None => return Option.None };\n'
         + '    return Option.Some(v);\n}\n',
-        'fn f(_ o: Option<Int>) -> Option<Int> {\n'
+        'fn f(o: Option<Int>) -> Option<Int> {\n'
         + '    let v = o?;\n'
         + '    return Option.Some(v);\n}\n',
     );
@@ -244,9 +244,9 @@ fn question_parenthesizes_a_loose_subject() -> Result<Void, Error> {
     // `?` is postfix, so a binary subject is wrapped to keep it applying to the
     // sum.
     return check(
-        'fn f(_ a: Result<Int, Error>) -> Result<Int, Error> {\n'
+        'fn f(a: Result<Int, Error>) -> Result<Int, Error> {\n'
         + '    return match a + b { Ok(x) => x, Err(e) => return Result.Err(e) };\n}\n',
-        'fn f(_ a: Result<Int, Error>) -> Result<Int, Error> {\n'
+        'fn f(a: Result<Int, Error>) -> Result<Int, Error> {\n'
         + '    return (a + b)?;\n}\n',
     );
 }
@@ -256,8 +256,8 @@ fn question_parenthesizes_a_loose_subject() -> Result<Void, Error> {
 @test
 fn rewrites_a_some_rewrap_to_map() -> Result<Void, Error> {
     return check(
-        'fn f(_ o: Option<Int>) -> Option<Int> {\n    return match o { Some(v) => Option.Some(v + 1), None => Option.None };\n}\n',
-        'fn f(_ o: Option<Int>) -> Option<Int> {\n    return o.map((v) => v + 1);\n}\n',
+        'fn f(o: Option<Int>) -> Option<Int> {\n    return match o { Some(v) => Option.Some(v + 1), None => Option.None };\n}\n',
+        'fn f(o: Option<Int>) -> Option<Int> {\n    return o.map((v) => v + 1);\n}\n',
     );
 }
 
@@ -266,14 +266,14 @@ fn rewrites_a_some_rewrap_to_map() -> Result<Void, Error> {
 @test
 fn rewrites_a_let_bound_match_to_let_else() -> Result<Void, Error> {
     return check(
-        'fn f(_ o: Option<Int>) -> Int {\n    let x = match o { Some(v) => v, None => { return 0; } };\n    return x;\n}\n',
-        'fn f(_ o: Option<Int>) -> Int {\n    let Some(x) = o else { return 0; };\n    return x;\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    let x = match o { Some(v) => v, None => { return 0; } };\n    return x;\n}\n',
+        'fn f(o: Option<Int>) -> Int {\n    let Some(x) = o else { return 0; };\n    return x;\n}\n',
     );
 }
 
 @test
 fn let_else_reindents_a_multiline_else() -> Result<Void, Error> {
-    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let src = 'fn f(o: Option<Int>) -> Int {\n'
         + '    let x = match o {\n'
         + '        Some(v) => v,\n'
         + '        None => {\n'
@@ -282,7 +282,7 @@ fn let_else_reindents_a_multiline_else() -> Result<Void, Error> {
         + '        },\n'
         + '    };\n'
         + '    return x;\n}\n';
-    let want = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let want = 'fn f(o: Option<Int>) -> Int {\n'
         + '    let Some(x) = o else {\n'
         + '        log(msg);\n'
         + '        return 0;\n'
@@ -294,7 +294,7 @@ fn let_else_reindents_a_multiline_else() -> Result<Void, Error> {
 @test
 fn only_filter_restricts_to_named_rules() -> Result<Void, Error> {
     // `--only` applies just the named rule(s); a non-matching filter is a no-op.
-    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+    let src = 'fn f(o: Option<Int>) -> Int {\n'
         + '    match o { Some(v) => { return v; }, None => {} }\n'
         + '    return 0;\n}\n';
     testing.assert_eq(actual: fix_source(src, only: ['match-to-unwrap-or']), expected: src)?;

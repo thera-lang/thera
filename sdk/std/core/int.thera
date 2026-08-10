@@ -20,7 +20,7 @@ impl Int {
     }
 
     /// The smaller of `self` and `other`.
-    pub fn min(self, _ other: Int) -> Int {
+    pub fn min(self, other: Int) -> Int {
         if self < other {
             return self;
         }
@@ -28,7 +28,7 @@ impl Int {
     }
 
     /// The larger of `self` and `other`.
-    pub fn max(self, _ other: Int) -> Int {
+    pub fn max(self, other: Int) -> Int {
         if self > other {
             return self;
         }
@@ -36,7 +36,7 @@ impl Int {
     }
 
     /// Constrain to the inclusive range [low, high]. Assumes low <= high.
-    pub fn clamp(self, _ low: Int, _ high: Int) -> Int {
+    pub fn clamp(self, low: Int, high: Int) -> Int {
         if self < low {
             return low;
         }
@@ -68,7 +68,7 @@ impl Debug for Int {
 /// `std.sort` and any `<T: Ord>` use; the generic/virtual path resolves to the
 /// runtime's built-in comparison.
 impl Ord for Int {
-    fn compare(self, _ other: Int) -> Ordering {
+    fn compare(self, other: Int) -> Ordering {
         if self < other {
             return Ordering.Less;
         }

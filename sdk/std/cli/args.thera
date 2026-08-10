@@ -20,12 +20,12 @@ pub struct Args {
 
 impl Args {
     /// Wrap the raw program arguments.
-    pub fn new(_ parameters: List<String>) -> Args {
+    pub fn new(parameters: List<String>) -> Args {
         return Args { parameters: parameters };
     }
 
     /// The positional argument at `index`, or None if out of range.
-    pub fn positional(self, _ index: Int) -> Option<String> {
+    pub fn positional(self, index: Int) -> Option<String> {
         if index < self.parameters.len() {
             return Option.Some(self.parameters[index]);
         }
@@ -38,7 +38,7 @@ impl Args {
     }
 
     /// True if `name` (e.g. '--verbose') appears in the arguments.
-    pub fn has(self, _ name: String) -> Bool {
+    pub fn has(self, name: String) -> Bool {
         for p in self.parameters {
             if p == name {
                 return true;
@@ -51,7 +51,7 @@ impl Args {
     ///
     /// TODO: support negation — `--no-<name>` should yield false — so a flag can be
     /// explicitly disabled, not just defaulted.
-    pub fn flag(self, _ name: String, default: Bool) -> Bool {
+    pub fn flag(self, name: String, named default: Bool) -> Bool {
         if self.has(name) {
             return true;
         }
@@ -62,7 +62,7 @@ impl Args {
     ///
     /// TODO: also accept the `--name=value` form (today only the space-separated
     /// `--name value` form is recognized).
-    pub fn option(self, _ name: String) -> Option<String> {
+    pub fn option(self, name: String) -> Option<String> {
         for p in self.parameters.enumerate() {
             if p.value == name {
                 if p.index + 1 < self.parameters.len() {

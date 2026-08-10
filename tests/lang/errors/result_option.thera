@@ -2,7 +2,7 @@
 //! mode: run
 
 // Option is an ordinary prelude enum, constructed qualified.
-fn find(_ key: String) -> Option<Int> {
+fn find(key: String) -> Option<Int> {
     if key == 'a' {
         return Option.Some(1);
     }

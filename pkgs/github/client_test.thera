@@ -21,7 +21,7 @@ import 'client' as _;
 import 'errors' as _;
 
 /// Serve `handler` on loopback and return a `Client` pointed at it.
-fn serving(_ handler: (http.Request) -> Result<http.Response, Error>) -> Result<Client, Error> {
+fn serving(handler: (http.Request) -> Result<http.Response, Error>) -> Result<Client, Error> {
     let listener = net.listen('127.0.0.1:0')?;
     let addr = listener.local_addr()?;
     fiber.spawn(() => server.serve_listener(listener, handler));
@@ -30,9 +30,9 @@ fn serving(_ handler: (http.Request) -> Result<http.Response, Error>) -> Result<
 
 /// A handler that answers every request with `status` and `body`, plus `headers`.
 fn answering(
-    _ status: Int,
-    _ body: String,
-    headers: Map<String, String> = [:],
+    status: Int,
+    body: String,
+    named headers: Map<String, String> = [:],
 ) -> (http.Request) -> Result<http.Response, Error> {
     return (_req) => {
         let all: Map<String, String> = ['content-type': 'application/json'];
@@ -44,7 +44,7 @@ fn answering(
 }
 
 /// Echoes the request back as JSON, so a test can assert on what the client sent.
-fn echo(_ req: http.Request) -> Result<http.Response, Error> {
+fn echo(req: http.Request) -> Result<http.Response, Error> {
     let seen: Map<String, json.Json> = [:];
     for key in req.headers.keys() {
         seen[key] = json.str(req.headers[key]);
@@ -66,7 +66,7 @@ struct Seen {
     let headers: Map<String, String>;
 }
 
-fn seen_from_json(_ at: json.Cursor) -> Result<Seen, json.DecodeError> {
+fn seen_from_json(at: json.Cursor) -> Result<Seen, json.DecodeError> {
     let root = at.object()?;
     let headers: Map<String, String> = [:];
     for key in root.field('headers').object()?.value.as_object().unwrap_or([:]).keys() {
@@ -81,13 +81,13 @@ fn seen_from_json(_ at: json.Cursor) -> Result<Seen, json.DecodeError> {
 }
 
 /// GET `path` on `client` and decode the echo report.
-fn observe(_ client: Client, _ path: String) -> Result<Seen, GitHubError> {
+fn observe(client: Client, path: String) -> Result<Seen, GitHubError> {
     let resp = client.request('GET', client.url(path))?;
     return decoded(resp, seen_from_json);
 }
 
 /// The failure a call produced, or an error if it unexpectedly succeeded.
-fn failure<T>(_ outcome: Result<T, GitHubError>) -> Result<GitHubError, Error> {
+fn failure<T>(outcome: Result<T, GitHubError>) -> Result<GitHubError, Error> {
     return match outcome {
         Ok(_) => Result.Err(error('expected the call to fail')),
         Err(e) => Result.Ok(e),
@@ -96,7 +96,7 @@ fn failure<T>(_ outcome: Result<T, GitHubError>) -> Result<GitHubError, Error> {
 
 /// Which `GitHubError` variant this is — the coarse classification a caller
 /// branches on, and the thing most of these tests are really asserting.
-fn kind(_ e: GitHubError) -> String {
+fn kind(e: GitHubError) -> String {
     return match e {
         Transport(_) => 'transport',
         RateLimited(_) => 'rate-limited',

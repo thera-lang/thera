@@ -9,14 +9,14 @@ import 'toml' as _;
 // on escape support in Thera's own string literals.
 let sq: String = String.from_chars([39]);
 
-fn len_of(_ items: Option<List<Toml>>) -> Int {
+fn len_of(items: Option<List<Toml>>) -> Int {
     return match items {
         Some(l) => l.len(),
         None => -1,
     };
 }
 
-fn key_count(_ table: Option<Map<String, Toml>>) -> Int {
+fn key_count(table: Option<Map<String, Toml>>) -> Int {
     return match table {
         Some(m) => m.keys().len(),
         None => -1,
@@ -323,7 +323,7 @@ fn test_document_errors() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-fn datetime_of(_ v: Option<Toml>) -> Datetime {
+fn datetime_of(v: Option<Toml>) -> Datetime {
     let fallback = Datetime { kind: DatetimeKind.LocalDate, text: 'missing' };
     return match v {
         Some(t) => t.as_datetime().unwrap_or(fallback),
@@ -651,7 +651,7 @@ fn test_cursor_errors_name_paths() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-fn decode_msg(_ r: Result<String, DecodeError>) -> String {
+fn decode_msg(r: Result<String, DecodeError>) -> String {
     return match r {
         Ok(v) => 'ok: ${v}',
         Err(e) => e.message(),
@@ -707,7 +707,7 @@ struct ApiManifest {
     let overrides: List<ApiOverride>;
 }
 
-fn manifest_from_toml(_ at: Cursor) -> Result<ApiManifest, DecodeError> {
+fn manifest_from_toml(at: Cursor) -> Result<ApiManifest, DecodeError> {
     let root = at.table()?;
     let mut operations: List<String> = [];
     for op in root.field('generate').field('operations').list()? {

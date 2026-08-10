@@ -4,7 +4,7 @@
 // `#loc` evaluates to a `SourceLoc`. As a *default parameter value* it captures
 // the call site (defaults are materialized there), so two calls on consecutive
 // lines differ by one in `line`. Used directly, it is its own location.
-fn line_of(at: SourceLoc = #loc) -> Int {
+fn line_of(named at: SourceLoc = #loc) -> Int {
     return at.line;
 }
 

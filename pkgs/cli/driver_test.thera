@@ -12,7 +12,7 @@ import 'loader';
 
 @test
 fn test_check_clean_source_has_no_diagnostics() -> Result<Void, Error> {
-    let diags = check_source('fn add(_ a: Int, _ b: Int) -> Int { return a + b; }');
+    let diags = check_source('fn add(a: Int, b: Int) -> Int { return a + b; }');
     testing.assert_eq(actual: diags.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -153,7 +153,7 @@ fn test_checked_set_records_only_clean_files() -> Result<Void, Error> {
 fn test_compile_source_byte_identical() -> Result<Void, Error> {
     // The full pipeline (tokenize → parse → check → codegen → encode) as one call,
     // byte-identical to the Dart oracle for the same program.
-    let outcome = compile_source('fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
+    let outcome = compile_source('fn add(a: Int, b: Int) -> Int { return a + b; }\n'
         + 'fn main() -> Int {\n'
         + '    let x = add(2, 3);\n'
         + '    let mut sum = 0;\n'
@@ -231,7 +231,7 @@ fn test_identical_imports_attribute_independently() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-fn str_list_has_suffix(_ xs: List<String>, _ suffix: String) -> Bool {
+fn str_list_has_suffix(xs: List<String>, suffix: String) -> Bool {
     for x in xs {
         if x.ends_with(suffix) {
             return true;

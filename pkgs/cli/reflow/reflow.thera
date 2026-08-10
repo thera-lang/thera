@@ -91,7 +91,7 @@ pub struct FlatSpan {
 // literal (whose newlines are content, not layout). A trailing comma is no longer a
 // blocker: the join deletes it, since `g(a, b, )` is not an acceptable result and
 // the grammar makes the comma optional in every list.
-pub fn join_spans(_ source: String, _ width: Int) -> List<FlatSpan> {
+pub fn join_spans(source: String, width: Int) -> List<FlatSpan> {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
         return [];
@@ -134,7 +134,7 @@ pub fn join_spans(_ source: String, _ width: Int) -> List<FlatSpan> {
 // `(` and `[` join when they fit; `{` does not, unless it opens a struct literal. A
 // statement block, `match` body, or declaration body stays expanded however short
 // it is.
-fn is_fit(_ p: Pair, _ fit_braces: List<Int>) -> Bool {
+fn is_fit(p: Pair, fit_braces: List<Int>) -> Bool {
     return match p.kind {
         LParen => true,
         LBracket => true,
@@ -143,7 +143,7 @@ fn is_fit(_ p: Pair, _ fit_braces: List<Int>) -> Bool {
     };
 }
 
-fn spans_comment(_ comments: List<Comment>, _ p: Pair) -> Bool {
+fn spans_comment(comments: List<Comment>, p: Pair) -> Bool {
     for c in comments {
         if c.span.offset > p.open && c.span.offset < p.close {
             return true;
@@ -152,7 +152,7 @@ fn spans_comment(_ comments: List<Comment>, _ p: Pair) -> Bool {
     return false;
 }
 
-fn spans_multiline_string(_ tokens: List<Token>, _ chars: List<Int>, _ p: Pair) -> Bool {
+fn spans_multiline_string(tokens: List<Token>, chars: List<Int>, p: Pair) -> Bool {
     for t in tokens {
         if t.kind == TokenKind.StringLiteral && t.span.offset > p.open
             && t.span.offset < p.close {
@@ -172,7 +172,7 @@ fn spans_multiline_string(_ tokens: List<Token>, _ chars: List<Int>, _ p: Pair) 
 // The width of `[from, to)` once its interior line breaks collapse to single spaces
 // — i.e. the width of the line joining would produce. Leading indentation counts;
 // it survives the join.
-fn flat_width(_ chars: List<Int>, _ from: Int, _ to: Int) -> Int {
+fn flat_width(chars: List<Int>, from: Int, to: Int) -> Int {
     let mut w = 0;
     let mut pending_space = false;
     let mut started = false;
@@ -199,7 +199,7 @@ fn flat_width(_ chars: List<Int>, _ from: Int, _ to: Int) -> Int {
 }
 
 // Offsets at which each 1-based line starts; index 0 is unused.
-fn line_start_offsets(_ chars: List<Int>) -> List<Int> {
+fn line_start_offsets(chars: List<Int>) -> List<Int> {
     let out: List<Int> = [];
     out.push(0);
     out.push(0);
@@ -213,11 +213,11 @@ fn line_start_offsets(_ chars: List<Int>) -> List<Int> {
     return out;
 }
 
-fn line_start_at(_ starts: List<Int>, _ line: Int) -> Int {
+fn line_start_at(starts: List<Int>, line: Int) -> Int {
     return starts.get(line).unwrap_or(0);
 }
 
-fn line_end_at(_ starts: List<Int>, _ chars: List<Int>, _ line: Int) -> Int {
+fn line_end_at(starts: List<Int>, chars: List<Int>, line: Int) -> Int {
     return starts.get(line + 1).unwrap_or(chars.len() + 1) - 1;
 }
 
@@ -229,7 +229,7 @@ fn line_end_at(_ starts: List<Int>, _ chars: List<Int>, _ line: Int) -> Int {
 // One round: each over-width line contributes at most one group. The caller
 // re-formats and calls again until this returns empty, so a line needing two levels
 // of splitting gets them on successive rounds.
-pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
+pub fn break_edits(source: String, width: Int) -> List<BreakEdit> {
     let lex = tokenize(source);
     if lex.errors.len() > 0 {
         return [];
@@ -313,7 +313,7 @@ pub fn break_edits(_ source: String, _ width: Int) -> List<BreakEdit> {
 // **merged** rather than one dropped. A trailing comma and the closer's own line
 // break routinely coincide — `gamma)` has no space between them — and the result
 // must be `,\n`, not one or the other.
-fn sorted_unique(_ xs: List<BreakEdit>) -> List<BreakEdit> {
+fn sorted_unique(xs: List<BreakEdit>) -> List<BreakEdit> {
     let out: List<BreakEdit> = [];
     for x in xs.sorted_by((a, b) => a.offset < b.offset) {
         if out.len() > 0 && out[out.len() - 1].offset == x.offset {
@@ -327,7 +327,7 @@ fn sorted_unique(_ xs: List<BreakEdit>) -> List<BreakEdit> {
 }
 
 // The comma always precedes the break.
-fn merge_text(_ a: String, _ b: String) -> String {
+fn merge_text(a: String, b: String) -> String {
     let mut t = '';
     if a.contains(',') || b.contains(',') {
         t = ',';
@@ -341,7 +341,7 @@ fn merge_text(_ a: String, _ b: String) -> String {
 // Match every bracket in the token stream, recording each pair's break points. An
 // unbalanced stream (which a clean lex shouldn't produce) yields the pairs matched
 // so far rather than failing.
-fn bracket_pairs(_ tokens: List<Token>, _ delims: parser.GenericDelims) -> List<Pair> {
+fn bracket_pairs(tokens: List<Token>, delims: parser.GenericDelims) -> List<Pair> {
     let out: List<Pair> = [];
     // Parallel stacks: the open token, and the break offsets accumulated for it.
     let open_toks: List<Token> = [];
@@ -416,7 +416,7 @@ fn bracket_pairs(_ tokens: List<Token>, _ delims: parser.GenericDelims) -> List<
 // each round, and the line stays over-width regardless: a `.details('…')` argument
 // spanning twenty lines used to pry apart the entire builder chain around it, one
 // group per round, without ever shortening the line it was chasing.
-fn verbatim_lines(_ tokens: List<Token>, _ chars: List<Int>, _ width: Int) -> Set<Int> {
+fn verbatim_lines(tokens: List<Token>, chars: List<Int>, width: Int) -> Set<Int> {
     let out: Set<Int> = Set.new();
     for t in tokens {
         if t.kind != TokenKind.StringLiteral {
@@ -443,7 +443,7 @@ fn verbatim_lines(_ tokens: List<Token>, _ chars: List<Int>, _ width: Int) -> Se
 }
 
 // The 1-based line numbers whose rendered width exceeds `width`.
-fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
+fn over_width_lines(source: String, width: Int) -> List<Int> {
     let out: List<Int> = [];
     let mut line = 1;
     for text in source.lines() {
@@ -470,12 +470,12 @@ fn over_width_lines(_ source: String, _ width: Int) -> List<Int> {
 // trailing comment, or only groups already fully broken. Those lines are left
 // alone; no line breaking can shorten them.
 fn group_breaks_for_line(
-    _ pairs: List<Pair>,
-    _ line: Int,
-    _ from: Int,
-    _ to: Int,
-    _ chars: List<Int>,
-    _ width: Int,
+    pairs: List<Pair>,
+    line: Int,
+    from: Int,
+    to: Int,
+    chars: List<Int>,
+    width: Int,
 ) -> List<BreakEdit> {
     let on_line: List<Pair> = [];
     for p in pairs {
@@ -564,7 +564,7 @@ fn group_breaks_for_line(
 // The unfiltered pair `p` was narrowed from — the one whose `breaks` are every
 // break point of the group rather than only those still untaken. Matched on the
 // opening offset, which is unique per group.
-fn original_of(_ p: Pair, _ all: List<Pair>) -> Pair {
+fn original_of(p: Pair, all: List<Pair>) -> Pair {
     for o in all {
         if o.open == p.open {
             return o;
@@ -576,7 +576,7 @@ fn original_of(_ p: Pair, _ all: List<Pair>) -> Pair {
 // Turn chosen break offsets into edits. The break that puts the closer on its own
 // line also carries the trailing comma, where the group is a comma list that
 // doesn't already end in one.
-fn to_edits(_ p: Pair, _ offsets: List<Int>, _ chars: List<Int>) -> List<BreakEdit> {
+fn to_edits(p: Pair, offsets: List<Int>, chars: List<Int>) -> List<BreakEdit> {
     let out: List<BreakEdit> = [];
     if p.has_comma && !p.trailing_comma {
         out.push(BreakEdit { offset: end_of_last_element(chars, p), text: ',' });
@@ -590,7 +590,7 @@ fn to_edits(_ p: Pair, _ offsets: List<Int>, _ chars: List<Int>) -> List<BreakEd
 // Whether this is a `[…]` of plain scalars — every element a single bare token, no
 // call, no nested collection, no operator. Such a list is packed rather than split
 // one-per-line: a byte fixture of 90 numbers does not want 90 lines.
-fn is_scalar_list(_ p: Pair, _ chars: List<Int>) -> Bool {
+fn is_scalar_list(p: Pair, chars: List<Int>) -> Bool {
     if p.kind != TokenKind.LBracket || p.breaks.len() < 4 {
         return false; // not a list, or too short for packing to matter
     }
@@ -612,7 +612,7 @@ fn is_scalar_list(_ p: Pair, _ chars: List<Int>) -> Bool {
 // punctuation rather than an element — rejecting it would make every scalar list
 // that had already been given its trailing comma look non-scalar, which is to say
 // every one the reflow pass has already touched.
-fn is_scalar_element(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
+fn is_scalar_element(chars: List<Int>, from: Int, to: Int) -> Bool {
     let mut seen = false;
     let mut i = from;
     while i < to && i < chars.len() {
@@ -635,7 +635,7 @@ fn is_scalar_element(_ chars: List<Int>, _ from: Int, _ to: Int) -> Bool {
 // Break points that pack a scalar list into rows within `width`, rather than one
 // element per line: after the opener, before each element that would overflow the
 // current row, and before the closer.
-fn fill_breaks(_ p: Pair, _ chars: List<Int>, _ width: Int) -> List<Int> {
+fn fill_breaks(p: Pair, chars: List<Int>, width: Int) -> List<Int> {
     let indent = line_indent_of(chars, p.open) + 4;
     let out: List<Int> = [];
     out.push(p.breaks[0]);
@@ -655,7 +655,7 @@ fn fill_breaks(_ p: Pair, _ chars: List<Int>, _ width: Int) -> List<Int> {
 }
 
 // The width of `[from, to)` ignoring surrounding whitespace.
-fn trimmed_width(_ chars: List<Int>, _ from: Int, _ to: Int) -> Int {
+fn trimmed_width(chars: List<Int>, from: Int, to: Int) -> Int {
     let mut a = from;
     while a < to && a < chars.len() && is_layout(chars[a]) {
         a = a + 1;
@@ -668,7 +668,7 @@ fn trimmed_width(_ chars: List<Int>, _ from: Int, _ to: Int) -> Int {
 }
 
 // The number of leading spaces on the line containing `off`.
-fn line_indent_of(_ chars: List<Int>, _ off: Int) -> Int {
+fn line_indent_of(chars: List<Int>, off: Int) -> Int {
     let mut start = off;
     while start > 0 && chars[start - 1] != char.LF {
         start = start - 1;
@@ -680,7 +680,7 @@ fn line_indent_of(_ chars: List<Int>, _ off: Int) -> Int {
     return n;
 }
 
-fn is_layout(_ c: Int) -> Bool {
+fn is_layout(c: Int) -> Bool {
     return c == char.SPACE || c == char.TAB || c == char.CR || c == char.LF;
 }
 
@@ -694,7 +694,7 @@ const COLON: Int = 58;
 // of `breaks` falling on it — everything past that break moves down, so this is
 // what the line is left with. `-1` when no break falls on the line, i.e. the group
 // has nothing to offer it.
-fn head_width(_ breaks: List<Int>, _ from: Int, _ to: Int) -> Int {
+fn head_width(breaks: List<Int>, from: Int, to: Int) -> Int {
     for o in breaks {
         if o >= from && o <= to {
             return o - from;
@@ -705,7 +705,7 @@ fn head_width(_ breaks: List<Int>, _ from: Int, _ to: Int) -> Int {
 
 // A group's break points minus the ones already taken — inserting a newline where
 // the author (or an earlier round) already put one would open a blank line.
-fn usable_breaks(_ p: Pair, _ chars: List<Int>) -> List<Int> {
+fn usable_breaks(p: Pair, chars: List<Int>) -> List<Int> {
     let out: List<Int> = [];
     for b in p.breaks {
         if !at_line_boundary(chars, b) {
@@ -718,7 +718,7 @@ fn usable_breaks(_ p: Pair, _ chars: List<Int>) -> List<Int> {
 // Whether offset `off` already sits at a line boundary — a newline immediately
 // follows it (`,⏎`, the "after" break points) or immediately precedes it (`⏎    )`,
 // the "before the closer" point), ignoring horizontal whitespace.
-fn at_line_boundary(_ chars: List<Int>, _ off: Int) -> Bool {
+fn at_line_boundary(chars: List<Int>, off: Int) -> Bool {
     let mut i = off;
     while i < chars.len() {
         let c = chars[i];
@@ -748,7 +748,7 @@ fn at_line_boundary(_ chars: List<Int>, _ off: Int) -> Bool {
 // The offset just past the last content character before the closer — where a
 // trailing comma belongs. Inserting at the closer itself would land *after* the
 // indentation, giving `\n    ,)`.
-fn end_of_last_element(_ chars: List<Int>, _ p: Pair) -> Int {
+fn end_of_last_element(chars: List<Int>, p: Pair) -> Int {
     let mut i = p.close;
     while i > p.open + 1 && is_layout(chars[i - 1]) {
         i = i - 1;
@@ -756,7 +756,7 @@ fn end_of_last_element(_ chars: List<Int>, _ p: Pair) -> Int {
     return i;
 }
 
-fn contained_in_another(_ p: Pair, _ others: List<Pair>) -> Bool {
+fn contained_in_another(p: Pair, others: List<Pair>) -> Bool {
     for o in others {
         if o.open < p.open && o.close > p.close {
             return true;
@@ -765,7 +765,7 @@ fn contained_in_another(_ p: Pair, _ others: List<Pair>) -> Bool {
     return false;
 }
 
-fn is_opener(_ k: TokenKind) -> Bool {
+fn is_opener(k: TokenKind) -> Bool {
     return match k {
         LParen => true,
         LBracket => true,
@@ -774,7 +774,7 @@ fn is_opener(_ k: TokenKind) -> Bool {
     };
 }
 
-fn is_closer(_ k: TokenKind) -> Bool {
+fn is_closer(k: TokenKind) -> Bool {
     return match k {
         RParen => true,
         RBracket => true,
@@ -783,7 +783,7 @@ fn is_closer(_ k: TokenKind) -> Bool {
     };
 }
 
-fn matches(_ open: TokenKind, _ close: TokenKind) -> Bool {
+fn matches(open: TokenKind, close: TokenKind) -> Bool {
     return match open {
         LParen => close == TokenKind.RParen,
         LBracket => close == TokenKind.RBracket,

@@ -31,7 +31,7 @@ impl a.Shape for Disc2 {
     }
 }
 
-fn wants_b(_ s: b.Shape) -> Int {
+fn wants_b(s: b.Shape) -> Int {
     return s.area();
 }
 

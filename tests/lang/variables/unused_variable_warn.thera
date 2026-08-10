@@ -13,7 +13,7 @@ fn unused() -> Int {
     return 2;
 }
 
-fn unused_shadow(_ b: Bool) -> Int {
+fn unused_shadow(b: Bool) -> Int {
     let x = 1;
     let total = x + 1; // the outer x — the inner shadow below is still unused
     if b {

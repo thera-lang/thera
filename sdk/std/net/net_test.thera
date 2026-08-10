@@ -25,13 +25,13 @@ fn connect_and_echo() -> Result<Void, Error> {
     let server = fiber.spawn(() => {
         let conn = listener.accept()?;
         let got = conn.read(max: 64)?;
-        io.write_all(to: conn, got)?;
+        io.write_all(conn, got)?;
         conn.close()?;
         return Result.Ok(void);
     });
 
     let client = net.connect('127.0.0.1', port_of(addr)?)?;
-    io.write_all(to: client, 'ping'.bytes())?;
+    io.write_all(client, 'ping'.bytes())?;
     let echoed = io.read_all(client)?;
     testing.assert_eq(actual: echoed.to_string()?, expected: 'ping')?;
 
@@ -80,7 +80,7 @@ fn many_concurrent_connections() -> Result<Void, Error> {
             // One fiber per connection — the shape `std.http.server` will use.
             fiber.spawn(() => {
                 let got = conn.read(max: 64)?;
-                io.write_all(to: conn, got)?;
+                io.write_all(conn, got)?;
                 return conn.close();
             });
             accepted = accepted + 1;
@@ -91,7 +91,7 @@ fn many_concurrent_connections() -> Result<Void, Error> {
     let mut clients = [];
     for i in 0..count {
         let c = net.connect_addr(addr)?;
-        io.write_all(to: c, ('hello ' + i.to_string()).bytes())?;
+        io.write_all(c, ('hello ' + i.to_string()).bytes())?;
         clients.push(c);
     }
     for p in clients.enumerate() {
@@ -121,7 +121,7 @@ fn large_transfer_survives_short_writes() -> Result<Void, Error> {
 
     let server = fiber.spawn(() => {
         let conn = listener.accept()?;
-        io.write_all(to: conn, payload.bytes())?;
+        io.write_all(conn, payload.bytes())?;
         return conn.close();
     });
 
@@ -198,7 +198,7 @@ fn using_a_closed_socket_is_an_error() -> Result<Void, Error> {
 }
 
 /// The port half of an `<ip>:<port>`.
-fn port_of(_ addr: String) -> Result<Int, Error> {
+fn port_of(addr: String) -> Result<Int, Error> {
     let parts = addr.split(':');
     let last = parts.get(parts.len() - 1).unwrap_or('');
     return match last.to_int() {
@@ -260,7 +260,7 @@ fn a_handshake_against_a_plaintext_server_fails_as_tls() -> Result<Void, Error> 
         // Echo the ClientHello back. To the client that is a *server* record it
         // cannot make sense of: a protocol violation, decided by TLS.
         let got = conn.read(max: 4096)?;
-        let _ = io.write_all(to: conn, got); // the client may have hung up by now
+        let _ = io.write_all(conn, got); // the client may have hung up by now
         let _ = conn.close();
         return Result.Ok(void);
     });
@@ -397,7 +397,7 @@ fn a_tls_client_and_server_echo_over_loopback() -> Result<Void, Error> {
         let conn = listener.accept()?;
         let tls = accept_tls(conn, cert_pem: TEST_CERT_PEM, key_pem: TEST_KEY_PEM)?;
         let got = tls.read(max: 64)?;
-        io.write_all(to: tls, got)?;
+        io.write_all(tls, got)?;
         // `close` sends `close_notify`, which is what lets the client tell a
         // finished stream from a truncated one.
         tls.close()?;
@@ -408,7 +408,7 @@ fn a_tls_client_and_server_echo_over_loopback() -> Result<Void, Error> {
     // and the socket is `127.0.0.1`.
     let sock = net.connect_addr(addr)?;
     let tls = connect_trusting(sock, host: 'localhost', roots_pem: TEST_CA_PEM)?;
-    io.write_all(to: tls, 'hello over TLS'.bytes())?;
+    io.write_all(tls, 'hello over TLS'.bytes())?;
     let echoed = io.read_all(tls)?;
     tls.close()?;
 
@@ -486,7 +486,7 @@ fn a_live_https_endpoint_verifies_against_the_bundled_roots() -> Result<Void, Er
         return Result.Ok(void);
     }
     let tls = net.connect_tls('example.com', 443)?;
-    io.write_all(to: tls, 'GET / HTTP/1.0\r\nhost: example.com\r\n\r\n'.bytes())?;
+    io.write_all(tls, 'GET / HTTP/1.0\r\nhost: example.com\r\n\r\n'.bytes())?;
     let reply = io.read_all(tls)?;
     tls.close()?;
     let status = reply.to_string()?.lines().get(0).unwrap_or('(empty)');
