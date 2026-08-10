@@ -540,13 +540,17 @@ the body (see [Keywords as member names](#keywords-as-member-names)). A two-name
 `external internal` form existed until 2026-08 and was retired: across ~2,000
 functions it was used 12 times, none of them for a keyword label.
 
-> **Enforcement status.** Two gaps remain between the model above and the
-> checker. Passing a labeled parameter positionally is diagnosed but not yet
+Labeled arguments may appear in **any order** — freedom from order is what a
+label buys, and their evaluation order is the order they are written (see
+[Argument evaluation order](#argument-evaluation-order)). The author fixes which
+parameters carry labels; how the caller arranges them is the caller's.
+
+> **Enforcement status.** One gap remains between the model above and the
+> checker: passing a labeled parameter positionally is diagnosed but not yet
 > rejected — it is the `missing-argument-label` **warning**, which carries a
-> mechanical fix (`thera check --fix` inserts the label); the corpus is clean,
-> so what remains is flipping the warning to an error. And whether labeled
-> arguments must also appear in **declaration order** (forbidding
-> `f(b: 2, a: 1)`) is still open. Both are tracked in [roadmap.md](roadmap.md).
+> mechanical fix (`thera check --fix` inserts the label). The corpus is clean,
+> so what remains is flipping the warning to an error. Tracked in
+> [roadmap.md](roadmap.md).
 
 ### Default values
 
@@ -578,6 +582,29 @@ Defaults follow the **static type** of the call. A call through an
 interface-typed value (or a bounded generic) fills omitted arguments from the
 _interface's_ declared defaults; a direct call on the concrete type uses the
 impl's. Write the same defaults in both places unless you mean them to differ.
+
+### Argument evaluation order
+
+Arguments written at a call site evaluate **left to right, in source order** —
+the order they are written, not the order the parameters are declared in. So a
+call that names its labeled arguments out of declaration order still runs their
+expressions in the order the line reads:
+
+```thera
+fn plot(named x: Int, named y: Int) -> Point { ... }
+
+plot(y: next(), x: next());   // `y`'s argument evaluates first
+```
+
+This is what makes labeled arguments safe to reorder: the code means what it
+reads, so rearranging a call is a pure edit to how it looks. Omitted arguments
+materialize their defaults after the written ones, in parameter order.
+
+> **Implementation status.** The front-end currently evaluates arguments in
+> **parameter** order, so a reordered call's side effects run in an order the
+> line does not show. That is a bug against this spec, not an alternative
+> reading — it is tracked in [roadmap.md](roadmap.md), and the conformance suite
+> pins the intended behavior as an `xfail` until it lands.
 
 ---
 

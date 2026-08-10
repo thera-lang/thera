@@ -1,0 +1,28 @@
+//! spec: fn-arg-eval-order
+//! mode: run
+//! xfail: front-end evaluates arguments in parameter order, not source order
+
+// Arguments evaluate left to right, in the order they are *written* — not the
+// order the parameters are declared in. That is what makes labeled arguments
+// safe to reorder: the code means what it reads.
+//
+// Today the front-end resolves arguments into parameter order before emitting
+// them (`resolve_args` in codegen), so a reordered call runs its side effects in
+// an order the line does not show. This test pins the spec, and is `xfail` until
+// that is fixed — an XPASS is the cue to delete the marker.
+
+fn trace(tag: String) -> Int {
+    println(tag);
+    return 1;
+}
+
+fn plot(named x: Int, named y: Int) -> Int {
+    return x + y;
+}
+
+fn main() -> Int {
+    // Written y-first, so `y`'s argument runs first.
+    let _ = plot(y: trace('y'), x: trace('x'));   // expect: y
+                                                  // expect: x
+    return 0;
+}
