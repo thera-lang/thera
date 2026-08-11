@@ -653,24 +653,24 @@ What the verification faces on day one:
 **Measured, not estimated.** The extraction and wrapper above were prototyped
 and run against all 109 `sdk/std` blocks (`dev/doc_example_survey.py`):
 
-| Outcome                                                      | Blocks |
-| ------------------------------------------------------------ | ------ |
-| compile clean already                                        | **49** |
-| reference a name they never bind — `names.sort(…)`           | **41** |
-| elide, with `...` or `…`                                     | 7      |
-| reference a type or library they never import (`Auth`, `io`) | 2      |
-| everything else                                              | 10     |
+| Outcome                                               | Blocks |
+| ----------------------------------------------------- | ------ |
+| compile clean already                                 | **49** |
+| reference a name they never bind — `names.sort(…)`    | **42** |
+| elide, with `...` or `…`                              | 7      |
+| reference a type they never declare (`Auth`, `Usage`) | 2      |
+| everything else                                       | 8      |
 
-Of that last row, six are artifacts of the prototype's line-based extraction
-(the real pass is parser-based) — and **two are genuinely broken
-documentation**, which is the point of the exercise, found in an afternoon:
-`sdk/std/net/net.thera` documents `'…'.to_bytes()`, a method that does not exist
-(it is `bytes()`), and `sdk/std/testing/env.thera` documents
+That last row is entirely artifacts of the prototype's line-based extraction;
+the real pass is parser-based. It also held, until they were fixed, **two
+genuinely broken doc comments** — which is the point of the exercise, found in
+an afternoon: `sdk/std/net/net.thera` documented `'…'.to_bytes()`, a method that
+does not exist (it is `bytes()`), and `sdk/std/testing/env.thera` documented
 `fixed_env({ 'PORT': '8080' }, …)` using `{…}` map-literal syntax, which is not
-Thera. Both are exactly the rot class this arc exists to stop, and both had
+Thera. Both were exactly the rot class this arc exists to stop, and both had
 survived review.
 
-So phase 1 is verification **and** a bounded migration: roughly 41 blocks gain
-the binding or import they assume, 7 settle on `...`, 3 gain a non-Thera tag,
-and 2 get fixed. That is the honest cost, and it is one sweep, once — after
-which the default keeps it swept.
+So phase 1 is verification **and** a bounded migration: roughly 42 blocks gain
+the binding or import they assume, 7 settle on `...`, 2 declare the type they
+use, and 3 gain a non-Thera tag. That is the honest cost, and it is one sweep,
+once — after which the default keeps it swept.

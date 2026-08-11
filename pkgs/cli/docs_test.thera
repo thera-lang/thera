@@ -268,3 +268,224 @@ fn test_summary_of_an_empty_doc_is_empty() -> Result<Void, Error> {
     testing.assert_eq(actual: summary_of(src), expected: '')?;
     return Result.Ok(void);
 }
+
+// --- Code examples ---
+
+// The examples in a source string's first doc run.
+fn examples_of(src: String) -> List<DocExample> {
+    return doc_examples(doc_runs(tokenize(src).comments)[0]);
+}
+
+// A doc comment carrying one fence with the given info string and one body line.
+fn one_fence(info: String) -> DocExample {
+    return examples_of(
+        '/// ```${info}\n/// let x = 1;\n/// ```\nfn f() -> Int { return 0; }\n',
+    )[0];
+}
+
+@test
+fn test_bare_fence_in_a_doc_comment_is_thera() -> Result<Void, Error> {
+    // The default that makes a new example verified without anyone tagging it.
+    let ex = one_fence('');
+    testing.assert_eq(actual: ex.lang, expected: '')?;
+    testing.assert(ex.verified, message: 'a bare fence is Thera and verified')?;
+    testing.assert(ex.runnable, message: 'and runnable')?;
+    testing.assert_eq(actual: ex.problems, expected: [])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_explicit_thera_tag_is_the_same() -> Result<Void, Error> {
+    let ex = one_fence('thera');
+    testing.assert_eq(actual: ex.lang, expected: 'thera')?;
+    testing.assert(ex.verified, message: 'verified')?;
+    testing.assert(ex.runnable, message: 'runnable')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_another_language_is_not_thera() -> Result<Void, Error> {
+    // The escape now that bare means Thera: a flag table or a shell transcript.
+    for tag in ['text', 'sh', 'json'] {
+        let ex = one_fence(tag);
+        testing.assert(!ex.verified, message: '`${tag}` is not checked')?;
+        testing.assert(!ex.runnable, message: '`${tag}` is not run')?;
+        testing.assert_eq(actual: ex.problems, expected: [])?;
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_no_run_compiles_but_does_not_run() -> Result<Void, Error> {
+    let ex = one_fence('thera,no_run');
+    testing.assert_eq(actual: ex.attrs, expected: ['no_run'])?;
+    testing.assert(ex.verified, message: 'still compile-checked')?;
+    testing.assert(!ex.runnable, message: 'never run')?;
+    testing.assert_eq(actual: ex.problems, expected: [])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_no_check_disables_both() -> Result<Void, Error> {
+    // The ladder: no_check turns off the stage no_run leaves on.
+    let ex = one_fence('thera,no_check');
+    testing.assert(!ex.verified, message: 'not compile-checked')?;
+    testing.assert(!ex.runnable, message: 'and so not run either')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_space_after_the_comma_is_accepted() -> Result<Void, Error> {
+    let ex = one_fence('thera, no_run');
+    testing.assert_eq(actual: ex.lang, expected: 'thera')?;
+    testing.assert_eq(actual: ex.attrs, expected: ['no_run'])?;
+    testing.assert_eq(actual: ex.problems, expected: [])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_both_attributes_compose() -> Result<Void, Error> {
+    let ex = one_fence('thera,no_check,no_run');
+    testing.assert_eq(actual: ex.attrs, expected: ['no_check', 'no_run'])?;
+    testing.assert(!ex.verified, message: 'no_check wins')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unknown_attribute_is_reported_not_obeyed() -> Result<Void, Error> {
+    // The point of the rule: a typo must not quietly switch verification off.
+    let ex = one_fence('thera,norun');
+    testing.assert(ex.verified, message: 'still verified despite the typo')?;
+    testing.assert(ex.runnable, message: 'and still runnable')?;
+    testing.assert_eq(actual: ex.problems.len(), expected: 1)?;
+    testing.assert(
+        ex.problems[0].contains('unknown fence attribute `norun`'),
+        message: 'names the offending attribute, got: ${ex.problems[0]}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_space_separated_attributes_are_reported_not_ignored() -> Result<Void, Error> {
+    // `thera no_run` would otherwise read as an unknown language and skip
+    // verification silently — the one outcome the contract cannot allow.
+    let ex = one_fence('thera no_run');
+    testing.assert_eq(actual: ex.lang, expected: 'thera')?;
+    testing.assert_eq(actual: ex.attrs, expected: ['no_run'])?;
+    testing.assert(
+        ex.problems[0].contains('comma-separated'),
+        message: 'says how to spell it, got: ${ex.problems[0]}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_attribute_without_a_tag_is_reported() -> Result<Void, Error> {
+    let ex = one_fence(',no_run');
+    testing.assert(
+        ex.problems.join(' ').contains('needs the explicit `thera` tag'),
+        message: 'got: ${ex.problems.join(" | ")}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_attribute_on_a_non_thera_fence_is_reported() -> Result<Void, Error> {
+    let ex = one_fence('text,no_run');
+    testing.assert(!ex.verified, message: 'still not Thera')?;
+    testing.assert(
+        ex.problems.join(' ').contains('apply to `thera` blocks'),
+        message: 'got: ${ex.problems.join(" | ")}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_body_excludes_the_fences_and_keeps_indentation() -> Result<Void, Error> {
+    // Indentation inside a block is the author's structure, not ours to strip.
+    let ex = examples_of(
+        '/// ```\n/// if c {\n///     work();\n/// }\n/// ```\nfn f() -> Int { return 0; }\n',
+    )[0];
+    testing.assert_eq(actual: ex.lines, expected: ['if c {', '    work();', '}'])?;
+    testing.assert_eq(actual: ex.text(), expected: 'if c {\n    work();\n}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_fence_span_and_index_locate_the_block() -> Result<Void, Error> {
+    // `path:line` identity, and the offset a diagnostic inside the block needs.
+    let ex = examples_of(
+        '/// Summary.\n///\n/// ```\n/// let x = 1;\n/// ```\nfn f() -> Int { return 0; }\n',
+    )[0];
+    testing.assert_eq(actual: ex.fence_index, expected: 2)?;
+    testing.assert_eq(actual: ex.span.line, expected: 3)?;
+    testing.assert_eq(actual: ex.span.text(), expected: '/// ```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_several_fences_in_one_doc() -> Result<Void, Error> {
+    let exs = examples_of(
+        '/// ```\n/// let a = 1;\n/// ```\n/// prose\n/// ```text\n/// output\n/// ```\n'
+        + 'fn f() -> Int { return 0; }\n',
+    );
+    testing.assert_eq(actual: exs.len(), expected: 2)?;
+    testing.assert(exs[0].verified, message: 'the first is Thera')?;
+    testing.assert(!exs[1].verified, message: 'the second is not')?;
+    testing.assert_eq(actual: exs[1].lines, expected: ['output'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_module_doc_fences_are_found_too() -> Result<Void, Error> {
+    // A barrel's `//!` header is where a library's headline example lives.
+    let exs = doc_examples(
+        doc_runs(tokenize('//! A lib.\n//!\n//! ```\n//! go();\n//! ```\n').comments)[0]
+    );
+    testing.assert_eq(actual: exs.len(), expected: 1)?;
+    testing.assert_eq(actual: exs[0].lines, expected: ['go();'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unterminated_fence_is_reported() -> Result<Void, Error> {
+    // The run ends before the closing fence. Report it — dropping the block would
+    // be a silent loss of verification.
+    let exs = examples_of('/// ```\n/// let x = 1;\nfn f() -> Int { return 0; }\n');
+    testing.assert_eq(actual: exs.len(), expected: 1)?;
+    testing.assert_eq(actual: exs[0].lines, expected: ['let x = 1;'])?;
+    testing.assert(
+        exs[0].problems.join(' ').contains('unterminated'),
+        message: 'got: ${exs[0].problems.join(" | ")}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty_block() -> Result<Void, Error> {
+    let ex = examples_of('/// ```\n/// ```\nfn f() -> Int { return 0; }\n')[0];
+    testing.assert_eq(actual: ex.lines, expected: [])?;
+    testing.assert_eq(actual: ex.text(), expected: '')?;
+    testing.assert_eq(actual: ex.problems, expected: [])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_doc_with_no_fence_has_no_examples() -> Result<Void, Error> {
+    testing.assert_eq(
+        actual: examples_of('/// Just prose.\nfn f() -> Int { return 0; }\n').len(),
+        expected: 0,
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_four_backticks_nest_a_three_backtick_fence() -> Result<Void, Error> {
+    // How documentation.md shows a doc comment that itself contains a fence.
+    let ex = examples_of(
+        '/// ````\n/// /// ```thera\n/// /// x\n/// /// ```\n/// ````\nfn f() -> Int { return 0; }\n',
+    )[0];
+    testing.assert_eq(actual: ex.lines.len(), expected: 3)?;
+    testing.assert_eq(actual: ex.problems, expected: [])?;
+    return Result.Ok(void);
+}
