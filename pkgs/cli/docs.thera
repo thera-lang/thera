@@ -707,13 +707,29 @@ fn bracket_delta(k: TokenKind) -> Int {
 
 // Whether the block already imports `std.<lib>`, so the auto-import is not doubled.
 fn imports_library(toks: List<Token>, lib: String) -> Bool {
+    let want = 'std.${lib}';
     for t in toks.enumerate() {
-        if t.value.kind == TokenKind.KwImport && t.index + 1 < toks.len() {
-            if toks[t.index + 1].value == Option.Some('std') {
-                if t.index + 3 < toks.len() && toks[t.index + 3].value == Option.Some(lib) {
-                    return true;
-                }
+        if t.value.kind != TokenKind.KwImport {
+            continue;
+        }
+        // Rebuild the dotted path that follows, so a nested library
+        // (`import std.http.server;`) is compared whole rather than one segment
+        // deep.
+        let mut got = '';
+        let mut i = t.index + 1;
+        while i < toks.len() {
+            let k = toks[i].kind;
+            if k == TokenKind.Dot {
+                got = got + '.';
+            } else if k == TokenKind.Identifier {
+                got = got + toks[i].value.unwrap_or('');
+            } else {
+                break;
             }
+            i = i + 1;
+        }
+        if got == want {
+            return true;
         }
     }
     return false;

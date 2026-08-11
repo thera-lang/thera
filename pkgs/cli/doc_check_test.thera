@@ -26,6 +26,11 @@ fn in_std(lib: String, name: String) -> String {
     return path.join(path.join(std, lib), name);
 }
 
+// A path inside a *nested* SDK library, e.g. `std/http/server/`.
+fn in_std_nested(a: String, b: String, name: String) -> String {
+    return path.join(path.join(in_std(a, ''), b), name);
+}
+
 // Diagnostics for a source string, checked as if it were a file in `std.path` so
 // the documented-library auto-import is in play.
 fn check_at(name: String, src: String) -> List<Diagnostic> {
@@ -165,5 +170,27 @@ fn test_the_shared_cache_gains_no_phantom_entries() -> Result<Void, Error> {
             message: 'the synthetic file was left in the cache: ${k}',
         )?;
     }
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_nested_library_is_auto_imported_whole() -> Result<Void, Error> {
+    // `std.http` fronts `http/server/`, `http/sse/` and `http/common/`, so a doc
+    // comment in `http/server/server.thera` documents `std.http.server` and writes
+    // `server.…`. Importing only `std.http` left `server` undefined, and the
+    // diagnostics then blamed whatever the block did next.
+    let src = '/// ```\n/// server.text(200, \'ok\')\n/// ```\npub fn f() -> Int { return 0; }\n';
+    let where = in_std_nested('http', 'server', 'probe.thera');
+    let ds = check_file(where, src, find_sdk_root());
+    testing.assert_eq(actual: ds.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_nested_auto_import_is_not_doubled() -> Result<Void, Error> {
+    let src = '/// ```\n/// import std.http.server;\n///\n/// server.text(200, \'ok\')\n/// ```\n'
+        + 'pub fn f() -> Int { return 0; }\n';
+    let where = in_std_nested('http', 'server', 'probe.thera');
+    testing.assert_eq(actual: check_file(where, src, find_sdk_root()).len(), expected: 0)?;
     return Result.Ok(void);
 }
