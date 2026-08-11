@@ -336,7 +336,7 @@ fn unusable_trust_roots_are_reported() -> Result<Void, Error> {
 
 /// Regenerate with (openssl, ed25519 for compactness):
 ///
-/// ```
+/// ```sh
 /// openssl req -x509 -newkey ed25519 -nodes -keyout ca.key -out ca.crt -days 9500 \
 ///   -subj "/CN=Thera std.net test CA" \
 ///   -addext "basicConstraints=critical,CA:TRUE" \
@@ -359,7 +359,7 @@ omV2ILMnXKa17+iXPISAqJBBCdBgbuZwcQYC
 /// so the two differ on purpose — verification is against the *name*, never the
 /// address).
 ///
-/// ```
+/// ```sh
 /// openssl req -newkey ed25519 -nodes -keyout leaf.key -out leaf.csr -subj "/CN=localhost"
 /// openssl x509 -req -in leaf.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
 ///   -out leaf.crt -days 9500 -extfile ext.cnf   # ext.cnf: CA:FALSE, serverAuth,

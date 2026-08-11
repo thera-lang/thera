@@ -1,0 +1,235 @@
+//! Compile-checking the code examples in a file's doc comments.
+//!
+//! Import as: `import 'doc_check'`; usage: `doc_check.check_file(path, src, root)`.
+//!
+//! Each verified fence (see `docs.thera`) is rendered as a source file and
+//! type-checked against the documented file's own import closure; the diagnostics
+//! come back mapped onto the doc comment's real lines.
+//!
+//! **This pass writes no analysis state.** That matters more than it looks: the
+//! session's incrementality (scale.md item 2) rests on every layer being a pure
+//! function of (file text, dependency surfaces) with a cache invalidated over the
+//! reverse-import cone. A doc example is a *derived* artifact — synthetic source at
+//! a path no one imports — so letting it into that machinery would corrupt it. In
+//! particular this pass does **not** go through `Session.check`, which would:
+//!
+//! - write the synthetic file into `parse_cache`, and
+//! - merge the synthetic file's import edges into `import_graph`, putting a phantom
+//!   node in the invalidation cone of every library the example imports.
+//!
+//! Instead it calls `loader.load_imports` and `checker.check` directly. Those are
+//! pure functions of their arguments; the caches they are *handed* are keyed by the
+//! canonical path of real files, so sharing them across examples is what makes this
+//! fast (one prelude parse for a whole corpus) without making it stateful. The
+//! result is that doc-example diagnostics for a file are a pure function of (its
+//! text, its dependency surfaces) — the very same key its check verdict already
+//! has, so they can later be cached and evicted right alongside it.
+
+import 'checker/checker';
+import 'diagnostic';
+import 'docs';
+import 'lexer/lexer';
+import 'loader';
+import 'parser/parser';
+import 'source';
+
+import std.path;
+
+/// Compile-check every verified doc example in `source`, which lives at `path`.
+///
+/// Returns one diagnostic per problem, attributed to `path` and pointing at the
+/// doc-comment line the failure came from. Malformed fences (an unknown attribute,
+/// an unterminated fence) are reported here too — one channel for everything the
+/// reader of that doc comment should know.
+///
+/// The three caches mirror `loader.load_imports`: pass a session's to share the
+/// import closure across a batch, or omit them for a self-contained run.
+pub fn check_file(
+    path: String,
+    source: String,
+    sdk_root: Option<String>,
+    named parse_cache: Map<String, loader.ParsedFile> = [:],
+    named overlays: Map<String, String> = [:],
+    named surface_cache: Map<String, loader.FileSurface> = [:],
+) -> List<diagnostic.Diagnostic> {
+    let canon = loader.canonical_path(path);
+    let lex = lexer.tokenize(source, file: canon);
+    let parsed = parser.parse_tokens(lex.tokens);
+    let out: List<diagnostic.Diagnostic> = [];
+    let library = documented_library(canon, sdk_root);
+
+    for doc in docs.doc_runs(lex.comments) {
+        for ex in docs.doc_examples(doc) {
+            for p in ex.problems {
+                out.push(diagnostic.in_file(p, ex.span, canon));
+            }
+            if !ex.verified {
+                continue;
+            }
+            for d in check_example(
+                doc,
+                ex,
+                library,
+                canon,
+                sdk_root,
+                parse_cache,
+                overlays,
+                surface_cache,
+            ) {
+                out.push(d);
+            }
+        }
+    }
+    // The primary is parsed only to keep the pipeline honest about broken files: a
+    // file that does not parse has no trustworthy doc comments either.
+    if parsed.errors.len() != 0 {
+        return [];
+    }
+    return out;
+}
+
+// Check one example and map its diagnostics back onto the doc comment.
+fn check_example(
+    doc: docs.DocComment,
+    ex: docs.DocExample,
+    library: Option<String>,
+    host: String,
+    sdk_root: Option<String>,
+    parse_cache: Map<String, loader.ParsedFile>,
+    overlays: Map<String, String>,
+    surface_cache: Map<String, loader.FileSurface>,
+) -> List<diagnostic.Diagnostic> {
+    let prog = docs.example_program(ex, library);
+    // A path beside the documented file, so `std.*` and relative imports resolve
+    // exactly as they would for a real sibling.
+    //
+    // **Unique per example**, which is not cosmetic. `load_imports` derives a
+    // surface for every file in the closure *including the primary* and stores it
+    // in the cache it was handed, so a virtual path reused across the examples in
+    // one directory would hand example two the namespaces of example one — a block
+    // importing `std.iter` silently resolving against a block that did not. That is
+    // the failure mode shared analysis state invites, and the reason the entry is
+    // also evicted below.
+    let virtual = path.join(
+        path.dirname(host),
+        '_doc_example.${path.stem(host)}.${ex.span.line}.thera',
+    );
+    let lex = lexer.tokenize(prog.source, file: virtual);
+    let parsed = parser.parse_tokens(lex.tokens);
+    let errors: List<diagnostic.Diagnostic> = [];
+    for e in lex.errors {
+        errors.push(e);
+    }
+    for e in parsed.errors {
+        errors.push(e);
+    }
+    if errors.len() == 0 {
+        let loaded = loader.load_imports(
+            virtual,
+            parsed.program,
+            sdk_root,
+            parse_cache: parse_cache,
+            overlays: overlays,
+            surface_cache: surface_cache,
+        );
+        // Leave the shared cache exactly as it was found: the synthetic file's own
+        // surface is a derived artifact keyed by a path no file occupies, and
+        // letting it accumulate is both a leak and a trap for a later lookup. The
+        // real files it pulled in stay cached — that sharing is the point.
+        match surface_cache.remove(loader.canonical_path(virtual)) {
+            Some(_) => void,
+            None => void,
+        }
+        let result = checker.check(
+            parsed.program,
+            loaded.programs,
+            loaded.file_namespaces,
+            loaded.file_bare_surface,
+        );
+        // Errors only. A doc example is a fragment, and warnings about fragments
+        // (`unused-import` above all) are noise the author cannot act on without
+        // making the example worse. The rot class this catches is compile failure.
+        for e in result.errors {
+            if diagnostic.is_error(e) {
+                errors.push(e);
+            }
+        }
+    }
+
+    // **One diagnostic per example, not one per error.** A block that is not Thera
+    // at all — the case the implicit-Thera default newly exposes — produces a
+    // parse-error cascade twenty lines long, which buries every other block in the
+    // report. The first failure is the actionable one and the rest follow from it;
+    // this is the same anti-cascade contract the parser already keeps
+    // (docs/frontend.md).
+    let Some(first) = errors.first() else {
+        return [];
+    };
+    return [
+        diagnostic.in_file(
+            'doc example does not compile: ${first.message}',
+            origin(doc, ex, prog, first.span.line),
+            host,
+        ),
+    ];
+}
+
+// The doc-comment line a synthesized line came from. Falls back to the opening
+// fence for a line the wrapper invented (its `fn main`, its trailing `return`) —
+// those are ours, not the author's, so the fence is the honest thing to point at.
+fn origin(
+    doc: docs.DocComment,
+    ex: docs.DocExample,
+    prog: docs.ExampleProgram,
+    synth_line: Int,
+) -> source.SourceSpan {
+    let body_line = prog.line_map.get(synth_line - 1).unwrap_or(-1);
+    if body_line < 0 {
+        return ex.span;
+    }
+    return doc.line_span(ex.fence_index + 1 + body_line);
+}
+
+// The library a file documents, auto-imported into its examples under its own
+// namespace: `sdk/std/path/path.thera` documents `std.path`, so its blocks may
+// write `path.join(…)` with no import line — which is what the corpus assumes.
+//
+// Only `std.*` for now. Outside the SDK a library is reached by relative import and
+// "the library this file belongs to" needs the package unit that scale.md item 4
+// still owes us; until then a non-SDK example writes its own imports.
+fn documented_library(canon: String, sdk_root: Option<String>) -> Option<String> {
+    let Some(root) = sdk_root else {
+        return Option.None;
+    };
+    let Some(std) = loader.std_root(root) else {
+        return Option.None;
+    };
+    let prefix = loader.canonical_path(std) + '/';
+    if !canon.starts_with(prefix) {
+        return Option.None;
+    }
+    let rest = canon.slice(prefix.len(), canon.len());
+    let parts = rest.split('/');
+    if parts.len() < 2 {
+        return Option.None;
+    }
+    // Never `std.core`: it is the prelude, already ambient and used unqualified, so
+    // importing it would be both redundant and an unused import.
+    if parts[0] == 'core' {
+        return Option.None;
+    }
+    return Option.Some(parts[0]);
+}
+
+/// How many verified examples `source` holds — the denominator for a survey.
+pub fn count_examples(source: String) -> Int {
+    let mut n = 0;
+    for doc in docs.doc_runs(lexer.tokenize(source).comments) {
+        for ex in docs.doc_examples(doc) {
+            if ex.verified {
+                n = n + 1;
+            }
+        }
+    }
+    return n;
+}

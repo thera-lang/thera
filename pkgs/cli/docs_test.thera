@@ -489,3 +489,218 @@ fn test_four_backticks_nest_a_three_backtick_fence() -> Result<Void, Error> {
     testing.assert_eq(actual: ex.problems, expected: [])?;
     return Result.Ok(void);
 }
+
+// --- Wrapper synthesis ---
+
+// The synthesized source for a doc comment's first example.
+fn wrapped(src: String, lib: Option<String>) -> String {
+    return example_program(examples_of(src)[0], lib).source;
+}
+
+// A one-fence doc whose body is `body`, on a `fn f` below it.
+fn doc_with(body: String) -> String {
+    return '/// ```\n' + body.split('\n').map((l) => '/// ${l}').join('\n')
+        + '\n/// ```\nfn f() -> Int { return 0; }\n';
+}
+
+@test
+fn test_bare_expression_becomes_a_discard() -> Result<Void, Error> {
+    // The corpus's REPL shape: no terminator, and the value is dropped. Both are
+    // errors in real Thera, and `let _ = …;` answers both at once.
+    testing.assert_eq(
+        actual: wrapped(doc_with("'hello'.slice(1, 4)"), Option.None),
+        expected: 'fn main() -> Result<Int, Error> {\n'
+        + "let _ = 'hello'.slice(1, 4);\n"
+        + 'return Result.Ok(0);\n}\n',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_terminator_lands_before_a_trailing_comment() -> Result<Void, Error> {
+    // Appending `;` at end of line would put it inside the comment.
+    testing.assert(
+        wrapped(doc_with("'hi'.len()   // two"), Option.None)
+        .contains("let _ = 'hi'.len();   // two"),
+        message: 'got: ${wrapped(doc_with("\'hi\'.len()   // two"), Option.None)}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_slash_inside_a_string_is_not_a_comment() -> Result<Void, Error> {
+    // The bug that sank the line-based prototype: `'a//b/'` was truncated at the
+    // `//`. Lexing rather than regexing is the whole reason this holds.
+    let out = wrapped(doc_with("path.components('a//b/')"), Option.None);
+    testing.assert(out.contains("let _ = path.components('a//b/');"), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_terminated_statement_is_left_alone() -> Result<Void, Error> {
+    let out = wrapped(doc_with('let xs = [1, 2];'), Option.None);
+    testing.assert(out.contains('let xs = [1, 2];'), message: 'got: ${out}')?;
+    testing.assert(!out.contains('let _ ='), message: 'no discard added: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_top_level_let_is_a_statement_not_a_declaration() -> Result<Void, Error> {
+    // `let` is legal in both positions; in a doc example it belongs in `main`.
+    // Sorting it into the declarations is what produced 41 false failures in the
+    // prototype.
+    let out = wrapped(doc_with('let n = 1;\nlet m = n + 1;'), Option.None);
+    testing.assert(
+        out.starts_with('fn main() -> Result<Int, Error> {\nlet n = 1;'),
+        message: 'got: ${out}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_declarations_are_hoisted_above_main() -> Result<Void, Error> {
+    let out = wrapped(doc_with('struct P { let x: Int; }\nlet p = P { x: 1 };'), Option.None);
+    testing.assert(
+        out.starts_with('struct P { let x: Int; }\nfn main()'),
+        message: 'got: ${out}',
+    )?;
+    testing.assert(out.contains('let p = P { x: 1 };'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_multi_line_declaration_stays_whole() -> Result<Void, Error> {
+    // Brace depth is tracked over tokens, so the body's lines are not mistaken for
+    // new top-level chunks.
+    let out = wrapped(doc_with('fn g() -> Int {\n    return 1;\n}\ng()'), Option.None);
+    testing.assert(
+        out.starts_with('fn g() -> Int {\n    return 1;\n}\nfn main()'),
+        message: 'got: ${out}',
+    )?;
+    testing.assert(out.contains('let _ = g();'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_block_with_its_own_main_gets_no_wrapper() -> Result<Void, Error> {
+    let body = 'fn main() -> Result<Int, Error> {\n    return Result.Ok(0);\n}';
+    testing.assert_eq(actual: wrapped(doc_with(body), Option.None), expected: body + '\n')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_documented_library_is_auto_imported() -> Result<Void, Error> {
+    let out = wrapped(doc_with("path.join('a', 'b')"), Option.Some('path'));
+    testing.assert(out.starts_with('import std.path;\n'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_auto_import_is_not_doubled() -> Result<Void, Error> {
+    let out = wrapped(doc_with("import std.path;\n\npath.join('a', 'b')"), Option.Some('path'));
+    testing.assert_eq(actual: count_of(out, 'import std.path;'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_another_library_import_is_kept() -> Result<Void, Error> {
+    let out = wrapped(doc_with('import std.io;\n\nio.read_all(s)?;'), Option.Some('net'));
+    testing.assert(out.contains('import std.net;'), message: 'got: ${out}')?;
+    testing.assert(out.contains('import std.io;'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_block_is_dedented() -> Result<Void, Error> {
+    // A block written inside an indented `impl` method's doc keeps its relative
+    // shape but loses the common margin.
+    let ex = examples_of(
+        '/// ```\n///     let a = 1;\n///     let b = 2;\n/// ```\nfn f() -> Int { return 0; }\n'
+    )[0];
+    let out = example_program(ex, Option.None).source;
+    testing.assert(out.contains('\nlet a = 1;\n'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_line_map_points_back_at_the_body() -> Result<Void, Error> {
+    // What lets a diagnostic inside the synthesized program name a real doc line.
+    let p = example_program(examples_of(doc_with('let a = 1;\nlet b = 2;'))[0], Option.None);
+    let lines = p.source.split('\n');
+    testing.assert_eq(actual: p.line_map.len(), expected: lines.len() - 1)?;
+    testing.assert_eq(actual: p.line_map[0], expected: -1)?; // `fn main() … {`
+    testing.assert_eq(actual: p.line_map[1], expected: 0)?;
+    testing.assert_eq(actual: p.line_map[2], expected: 1)?;
+    testing.assert_eq(actual: p.line_map[3], expected: -1)?; // `return Result.Ok(0);`
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_line_map_survives_hoisting() -> Result<Void, Error> {
+    // Declarations move above `main`, so the correspondence is not an offset — the
+    // explicit map is the only thing that stays right.
+    let p = example_program(
+        examples_of(doc_with('let n = 1;\nstruct P { let x: Int; }'))[0],
+        Option.None,
+    );
+    let lines = p.source.split('\n');
+    testing.assert_eq(actual: lines[0], expected: 'struct P { let x: Int; }')?;
+    testing.assert_eq(actual: p.line_map[0], expected: 1)?; // came from body line 1
+    testing.assert_eq(actual: lines[2], expected: 'let n = 1;')?;
+    testing.assert_eq(actual: p.line_map[2], expected: 0)?; // ...and this from line 0
+    return Result.Ok(void);
+}
+
+@test
+fn test_an_empty_block_still_yields_a_program() -> Result<Void, Error> {
+    let out = wrapped(doc_with(''), Option.None);
+    testing.assert(out.contains('fn main()'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+// Occurrences of `needle` in `s`.
+fn count_of(s: String, needle: String) -> Int {
+    return s.split(needle).len() - 1;
+}
+
+@test
+fn test_a_multi_line_chain_is_one_statement() -> Result<Void, Error> {
+    // Parens balance at each line end, so a per-line depth check would split this
+    // into three chunks and prefix the first with `let _ = ` — which is how six
+    // sdk/std blocks failed before the chunker became token-driven.
+    let out = wrapped(
+        doc_with('let evens = iter.range(0, 10)\n    .filter((n) => n % 2 == 0)\n    .to_list();'),
+        Option.None,
+    );
+    testing.assert(!out.contains('let _ ='), message: 'no discard: ${out}')?;
+    testing.assert(out.contains('let evens = iter.range(0, 10)\n'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_adjacent_bare_expressions_stay_separate() -> Result<Void, Error> {
+    // The REPL shape: two oracle lines in a row are two statements, and joining
+    // them would be a syntax error. A newline ends a statement when neither side
+    // wants to continue.
+    let out = wrapped(doc_with('xs.get(1)\nxs.get(9)'), Option.None);
+    testing.assert(out.contains('let _ = xs.get(1);'), message: 'got: ${out}')?;
+    testing.assert(out.contains('let _ = xs.get(9);'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_trailing_operator_continues_the_statement() -> Result<Void, Error> {
+    let out = wrapped(doc_with('let n = 1 +\n    2;'), Option.None);
+    testing.assert(!out.contains('let _ ='), message: 'no discard: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_if_else_is_one_statement() -> Result<Void, Error> {
+    // The `}` that returns to depth zero does not end the statement when `else`
+    // picks it up.
+    let out = wrapped(doc_with('if c {\n    a();\n} else {\n    b();\n}'), Option.None);
+    testing.assert(!out.contains('let _ ='), message: 'no discard: ${out}')?;
+    testing.assert_eq(actual: count_of(out, 'fn main()'), expected: 1)?;
+    return Result.Ok(void);
+}

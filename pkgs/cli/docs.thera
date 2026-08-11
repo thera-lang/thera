@@ -29,6 +29,7 @@
 
 import std.char;
 
+import 'lexer' as _; // Token, TokenKind, tokenize — the wrapper lexes, never parses
 import 'ast' as _; // Program, Decl, decl_span — AST types are used pervasively
 import 'source' as _; // Comment, CommentKind, SourceSpan
 
@@ -419,4 +420,330 @@ fn sentence_end(para: String) -> Int {
         i = i + 1;
     }
     return cs.len();
+}
+
+// --- Wrapper synthesis ---
+
+/// A doc example rendered as a compilable Thera source file, plus the line map back
+/// to the block it came from.
+pub struct ExampleProgram {
+    /// The synthesized source.
+    let source: String;
+    /// For each 0-based line of [ExampleProgram.source], the 0-based line of the
+    /// example's body it came from — or `-1` for a line the wrapper invented. This
+    /// is what lets a diagnostic inside the synthesized program point at the real
+    /// doc comment. Columns are carried through unchanged except on a line the
+    /// wrapper prefixed, so a column is exact for the lines that matter and
+    /// approximate for the handful that do not.
+    let line_map: List<Int>;
+}
+
+/// Render `ex` as a source file, per docs/documentation.md § What compiles.
+///
+/// Top-level declarations stay at the top level and loose statements are collected,
+/// in source order, into a synthesized `fn main() -> Result<Int, Error>` — the
+/// `Result` return being why `?` works in a doc example, which the corpus leans on
+/// heavily. A block that declares its own `main` is left alone. `library` is the
+/// documented library, auto-imported under its own namespace unless the block
+/// already imports it.
+///
+/// **REPL shape.** A loose statement that is a bare expression is emitted as
+/// `let _ = <expr>;`, which is what makes the corpus's `'hello'.slice(1, 4)` line
+/// compile — it covers both the missing terminator and the discarded `Result`
+/// without any relaxation in the checker.
+///
+/// This is a **pure function of the example's text**: it lexes, but reads no file,
+/// resolves no import, and touches no cache.
+pub fn example_program(ex: DocExample, library: Option<String>) -> ExampleProgram {
+    let body = dedent(ex.lines);
+    let text = body.join('\n');
+    let toks = tokenize(text).tokens;
+    let chunks = top_level_chunks(body, toks);
+
+    let out: List<String> = [];
+    let map: List<Int> = [];
+    if let Some(lib) = library {
+        if !imports_library(toks, lib) {
+            out.push('import std.${lib};');
+            map.push(-1);
+            out.push('');
+            map.push(-1);
+        }
+    }
+
+    // Declarations first, in source order, then the loose statements under one
+    // synthesized `main`. Hoisting is what breaks the one-line-per-line
+    // correspondence, which is exactly why the line map is explicit.
+    for c in chunks {
+        if !c.is_decl {
+            continue;
+        }
+        emit_lines(out, map, body, c, Option.None);
+    }
+    if declares_main(toks) {
+        return ExampleProgram { source: out.join('\n') + '\n', line_map: map };
+    }
+
+    out.push('fn main() -> Result<Int, Error> {');
+    map.push(-1);
+    for c in chunks {
+        if c.is_decl {
+            continue;
+        }
+        emit_lines(out, map, body, c, if c.needs_discard { Option.Some(c) } else { Option.None });
+    }
+    out.push('return Result.Ok(0);');
+    map.push(-1);
+    out.push('}');
+    map.push(-1);
+    return ExampleProgram { source: out.join('\n') + '\n', line_map: map };
+}
+
+// One top-level region of a doc example's body: a run of lines starting at a line
+// that begins something at bracket depth 0.
+struct Chunk {
+    let start: Int; // 0-based line
+    let end: Int; // 0-based, inclusive
+    let is_decl: Bool;
+    // A loose chunk whose last token is not `;` or `}` — a bare expression, which
+    // becomes `let _ = …;`.
+    let needs_discard: Bool;
+    let last_line: Int; // the line the closing `;` goes on
+    let last_col: Int; // 1-based column just past the last token
+}
+
+// Copy a chunk's lines into `out`, recording where each came from. `discard` marks
+// the chunk that gets the `let _ = ` prefix and the trailing `;`.
+fn emit_lines(
+    out: List<String>,
+    map: List<Int>,
+    body: List<String>,
+    c: Chunk,
+    discard: Option<Chunk>,
+) -> Void {
+    let mut i = c.start;
+    while i <= c.end && i < body.len() {
+        let mut line = body[i];
+        if let Some(d) = discard {
+            // Insert the terminator after the last *token*, never at end of line: a
+            // trailing `// comment` would otherwise swallow it.
+            if i == d.last_line {
+                line = line.slice(0, d.last_col - 1) + ';' + line.slice(d.last_col - 1, line.len());
+            }
+            if i == d.start {
+                line = 'let _ = ' + line;
+            }
+        }
+        out.push(line);
+        map.push(i);
+        i = i + 1;
+    }
+}
+
+// Split a body into its top-level chunks — one per statement or declaration.
+//
+// Driven by **tokens**, not lines, for two reasons a line-based splitter cannot
+// answer. A brace or a `//` inside a string literal is not punctuation
+// (`path.components('a//b/')`), and a statement routinely spans several lines:
+//
+//     let evens = iter.range(0, 10)
+//         .filter((n) => n % 2 == 0)
+//         .to_list();
+//
+// A chunk therefore ends where a statement really ends — a `;` or a closing `}` at
+// depth zero — or, for the REPL shape the corpus is full of, at a newline that no
+// token wants to continue across. That last rule is what keeps two adjacent oracle
+// lines (`xs.get(1)` / `xs.get(9)`) two examples rather than one syntax error,
+// while keeping the chain above whole.
+fn top_level_chunks(body: List<String>, toks: List<Token>) -> List<Chunk> {
+    let out: List<Chunk> = [];
+    let real = toks.filter((t) => t.kind != TokenKind.Eof);
+    let mut depth = 0;
+    let mut start = -1;
+    for t in real.enumerate() {
+        if start < 0 {
+            start = t.index;
+        }
+        depth = depth + bracket_delta(t.value.kind);
+        if depth < 0 {
+            depth = 0;
+        }
+        if depth != 0 {
+            continue;
+        }
+        let next = real.get(t.index + 1);
+        if ends_chunk(t.value, next) {
+            out.push(chunk_of(body, real, start, t.index, real.len()));
+            start = -1;
+        }
+    }
+    if start >= 0 {
+        out.push(chunk_of(body, real, start, real.len() - 1, real.len()));
+    }
+    return out;
+}
+
+// Whether a depth-zero `t` closes the statement it is in, given what follows.
+fn ends_chunk(t: Token, next: Option<Token>) -> Bool {
+    let Some(n) = next else {
+        return true; // end of block
+    };
+    if t.kind == TokenKind.Semi {
+        return true;
+    }
+    // A `}` back at depth zero ends its statement unless an `else` picks it up.
+    if t.kind == TokenKind.RBrace {
+        return n.kind != TokenKind.KwElse;
+    }
+    // Otherwise only a line break can end it, and only when neither side wants to
+    // carry on: a leading `.` or `?` continues a chain, and a trailing operator
+    // continues an expression.
+    if n.span.line == t.span.line {
+        return false;
+    }
+    return can_end_expression(t.kind) && !can_continue_expression(n.kind);
+}
+
+// Whether a token can be the last one of an expression.
+fn can_end_expression(k: TokenKind) -> Bool {
+    return match k {
+        Identifier => true,
+        IntLiteral => true,
+        FloatLiteral => true,
+        StringLiteral => true,
+        KwTrue => true,
+        KwFalse => true,
+        KwVoid => true,
+        RParen => true,
+        RBracket => true,
+        RBrace => true,
+        Question => true,
+        _ => false,
+    };
+}
+
+// Whether a token can carry the previous line's expression forward.
+fn can_continue_expression(k: TokenKind) -> Bool {
+    return match k {
+        Dot => true,
+        Question => true,
+        LParen => true,
+        LBracket => true,
+        _ => is_infix_operator(k),
+    };
+}
+
+fn is_infix_operator(k: TokenKind) -> Bool {
+    return match k {
+        Plus => true,
+        Minus => true,
+        Star => true,
+        Slash => true,
+        Percent => true,
+        EqEq => true,
+        BangEq => true,
+        Lt => true,
+        Gt => true,
+        LtEq => true,
+        GtEq => true,
+        AmpAmp => true,
+        PipePipe => true,
+        Amp => true,
+        Pipe => true,
+        Caret => true,
+        DotDot => true,
+        _ => false,
+    };
+}
+
+// Build the chunk spanning tokens `[first, last]`.
+fn chunk_of(body: List<String>, real: List<Token>, first: Int, last: Int, total: Int) -> Chunk {
+    let head = real[first];
+    let tail = real[last];
+    let is_decl = starts_declaration(head.kind);
+    let terminated = tail.kind == TokenKind.Semi || tail.kind == TokenKind.RBrace;
+    // Lines the chunk owns: from its first token's line to the line before the next
+    // chunk starts, so a trailing comment stays with the statement it annotates.
+    let end_line = if last + 1 < total { real[last + 1].span.line - 2 } else { body.len() - 1 };
+    return Chunk {
+        start: head.span.line - 1,
+        end: if end_line < tail.span.line - 1 { tail.span.line - 1 } else { end_line },
+        is_decl: is_decl,
+        needs_discard: !is_decl && !terminated,
+        last_line: tail.span.line - 1,
+        last_col: tail.span.column + tail.span.length,
+    };
+}
+
+// Whether a token can open a top-level declaration. `let` and `const` deliberately
+// are not here: at the top of a doc example they are loose statements headed for
+// `main`, not module-level bindings — the distinction a naive splitter gets wrong.
+fn starts_declaration(k: TokenKind) -> Bool {
+    return match k {
+        KwImport => true,
+        KwFn => true,
+        KwStruct => true,
+        KwEnum => true,
+        KwInterface => true,
+        KwImpl => true,
+        KwNative => true,
+        KwPub => true,
+        At => true,
+        _ => false,
+    };
+}
+
+fn bracket_delta(k: TokenKind) -> Int {
+    return match k {
+        LBrace => 1,
+        LParen => 1,
+        LBracket => 1,
+        RBrace => -1,
+        RParen => -1,
+        RBracket => -1,
+        _ => 0,
+    };
+}
+
+// Whether the block already imports `std.<lib>`, so the auto-import is not doubled.
+fn imports_library(toks: List<Token>, lib: String) -> Bool {
+    for t in toks.enumerate() {
+        if t.value.kind == TokenKind.KwImport && t.index + 1 < toks.len() {
+            if toks[t.index + 1].value == Option.Some('std') {
+                if t.index + 3 < toks.len() && toks[t.index + 3].value == Option.Some(lib) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+fn declares_main(toks: List<Token>) -> Bool {
+    for t in toks.enumerate() {
+        if t.value.kind == TokenKind.KwFn && t.index + 1 < toks.len() {
+            if toks[t.index + 1].value == Option.Some('main') {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Strip the block's common leading indentation; anything deeper is the author's.
+fn dedent(lines: List<String>) -> List<String> {
+    let mut common = -1;
+    for l in lines {
+        if l.trim() == '' {
+            continue;
+        }
+        let n = l.len() - l.trim_start().len();
+        if common < 0 || n < common {
+            common = n;
+        }
+    }
+    if common <= 0 {
+        return lines;
+    }
+    return lines.map((l) => if l.len() >= common { l.slice(common, l.len()) } else { l });
 }
