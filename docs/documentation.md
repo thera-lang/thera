@@ -662,15 +662,33 @@ and run against all 109 `sdk/std` blocks (`dev/doc_examples.thera`):
 | everything else                                       | 8      |
 
 That last row was entirely artifacts of the throwaway prototype's line-based
-extraction — the real pass is token-driven and clears them. It also held, until
-they were fixed, **two genuinely broken doc comments** — which is the point of
-the exercise, found in an afternoon: `sdk/std/net/net.thera` documented
-`'…'.to_bytes()`, a method that does not exist (it is `bytes()`), and
-`sdk/std/testing/env.thera` documented `fixed_env({ 'PORT': '8080' }, …)` using
-`{…}` map-literal syntax, which is not Thera. Both were exactly the rot class
-this arc exists to stop, and both had survived review.
+extraction — the real pass is token-driven and clears them.
+
+**Four genuinely broken doc comments** have fallen out so far, which is the
+point of the exercise:
+
+- `sdk/std/net/net.thera` documented `'…'.to_bytes()`, a method that does not
+  exist (it is `bytes()`).
+- `sdk/std/testing/env.thera` documented `fixed_env({ 'PORT': '8080' }, …)`,
+  using `{…}` map-literal syntax, which is not Thera.
+- `sdk/std/core/list.thera` documented `names.sort((a, b) => a < b)`, but `<`
+  takes Int or Double operands; strings order through `a.compare(b)`. The block
+  also never bound `names`, so this one hid behind an unbound name until the
+  binding was added — a reminder that the migration and the verification find
+  different bugs.
+- `sdk/std/core/map.thera` said in _prose_ that a map literal is `{k: v}` — the
+  same non-syntax as the second entry, found while fixing the fence beside it.
+  Verified fences do not police prose, but they do drag the eye to it.
+
+All four had survived review, and all four are the rot class this arc exists to
+stop.
 
 So phase 1 is verification **and** a bounded migration: roughly 42 blocks gain
 the binding or import they assume, 7 settle on `...`, 2 declare the type they
 use, and 3 gain a non-Thera tag. That is the honest cost, and it is one sweep,
 once — after which the default keeps it swept.
+
+The sweep runs per library
+([#174](https://github.com/thera-lang/thera/issues/174)). `sdk/std/core` is
+done: 41 of 41 verified blocks compile, with one signature sketch (`assert_eq`'s
+`-> ...`) parked at `thera,no_check` until elision lands.

@@ -12,7 +12,7 @@
 //!
 //! ```thera
 //! let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
-//! let names = users.map(u => u.name);
+//! let lengths = ['ada', 'bo'].map(s => s.len());      // [3, 2]
 //! ```
 //!
 //! `sort` takes an explicit comparator (`less`); a no-argument `sort()` keyed on a
@@ -240,9 +240,14 @@ impl List<T> {
     /// `a` should come before `b`; stable, O(n log n).
     ///
     /// ```thera
-    /// names.sort((a, b) => a < b);          // ascending
-    /// nums.sort((a, b) => b < a);           // descending
-    /// people.sort((a, b) => a.age < b.age); // by a field
+    /// let nums = [3, 1, 2];
+    /// nums.sort((a, b) => a < b);   // ascending:  [1, 2, 3]
+    /// nums.sort((a, b) => b < a);   // descending: [3, 2, 1]
+    ///
+    /// // `<` is Int/Double only — other element types order through their own
+    /// // comparison.
+    /// let names = ['bo', 'ada'];
+    /// names.sort((a, b) => a.compare(b) == Ordering.Less);
     /// ```
     pub fn sort(self, less: (T, T) -> Bool) -> Void {
         let out = self.sorted_by(less);
@@ -259,7 +264,10 @@ impl List<T> {
     /// runs in O(n log n) via a bottom-up merge.
     ///
     /// ```thera
-    /// let ordered = edits.sorted_by((a, b) => a.start < b.start);
+    /// struct Edit { let start: Int; let text: String; }
+    ///
+    /// let edits = [Edit { start: 9, text: 'b' }, Edit { start: 3, text: 'a' }];
+    /// let ordered = edits.sorted_by((a, b) => a.start < b.start);   // edits unchanged
     /// ```
     pub fn sorted_by(self, less: (T, T) -> Bool) -> List<T> {
         // Bottom-up merge sort over a working copy; `less` decides order and a
@@ -327,6 +335,8 @@ impl List<T> {
     /// — `iter()` runs the whole chain in one walk with no intermediates:
     ///
     /// ```thera
+    /// let xs = [1, 2, 3, 4, 5];
+    ///
     /// // eager: one intermediate list, then the final list — fine for small input
     /// let a = xs.map((n) => n * n).filter((n) => n > 10);
     ///
@@ -378,7 +388,7 @@ impl List<T> {
     /// element in with `combine`, left to right.
     ///
     /// ```thera
-    /// let sum = nums.fold(0, (acc, n) => acc + n);
+    /// let sum = [1, 2, 3].fold(0, (acc, n) => acc + n);   // 6
     /// ```
     pub fn fold<A>(self, initial: A, combine: (A, T) -> A) -> A {
         let mut acc = initial;

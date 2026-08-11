@@ -24,7 +24,8 @@ impl Option<T> {
     /// turn an absent value into a failure you can propagate with `?`.
     ///
     /// ```thera
-    /// let port = config.port.ok_or(error('port is required'))?;
+    /// let config = ['port': 8080];
+    /// let port = config.get('port').ok_or(error('port is required'))?;
     /// ```
     pub fn ok_or<E>(self, err: E) -> Result<T, E> {
         return match self {
@@ -38,7 +39,8 @@ impl Option<T> {
     /// `unwrap_or_else` if it is expensive).
     ///
     /// ```thera
-    /// let port = config.port.unwrap_or(8080);
+    /// let config = ['host': 443];
+    /// let port = config.get('port').unwrap_or(8080);   // 8080
     /// ```
     pub fn unwrap_or(self, fallback: T) -> T {
         return match self {
@@ -51,7 +53,10 @@ impl Option<T> {
     /// is for a plain boolean check.)
     ///
     /// ```thera
-    /// if config.port.is_some() { … }
+    /// let config = ['port': 8080];
+    /// if config.get('port').is_some() {
+    ///     println('the port was set explicitly');
+    /// }
     /// ```
     pub fn is_some(self) -> Bool {
         return match self {
@@ -63,7 +68,10 @@ impl Option<T> {
     /// Whether a value is absent.
     ///
     /// ```thera
-    /// if config.port.is_none() { … }
+    /// let config = ['port': 8080];
+    /// if config.get('host').is_none() {
+    ///     println('no host configured; using the default');
+    /// }
     /// ```
     pub fn is_none(self) -> Bool {
         return match self {
@@ -77,7 +85,8 @@ impl Option<T> {
     /// keeping the optional shape.
     ///
     /// ```thera
-    /// let initial = name.map((s) => s.slice(0, 1));   // Option<String>
+    /// let name = Option.Some('ada');
+    /// let initial = name.map((s) => s.slice(0, 1));   // Some('a')
     /// ```
     pub fn map<U>(self, f: (T) -> U) -> Option<U> {
         return match self {
@@ -91,7 +100,8 @@ impl Option<T> {
     /// the next step can also be absent.
     ///
     /// ```thera
-    /// let port = config.get('port').and_then((s) => s.to_int());   // Option<Int>
+    /// let config = ['port': '8080'];
+    /// let port = config.get('port').and_then((s) => s.to_int());   // Some(8080)
     /// ```
     pub fn and_then<U>(self, f: (T) -> Option<U>) -> Option<U> {
         return match self {
@@ -105,7 +115,12 @@ impl Option<T> {
     /// runs only on `None`.
     ///
     /// ```thera
-    /// let conf = cached.unwrap_or_else(() => load_config());
+    /// fn load_config() -> String {
+    ///     return 'defaults';   // pretend this reads a file
+    /// }
+    ///
+    /// let cached: Option<String> = Option.None;
+    /// let conf = cached.unwrap_or_else(() => load_config());   // 'defaults'
     /// ```
     pub fn unwrap_or_else(self, f: () -> T) -> T {
         return match self {
