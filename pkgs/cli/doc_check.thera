@@ -190,9 +190,11 @@ fn origin(
     return doc.line_span(ex.fence_index + 1 + body_line);
 }
 
-// The library a file documents, auto-imported into its examples under its own
-// namespace: `sdk/std/path/path.thera` documents `std.path`, so its blocks may
-// write `path.join(…)` with no import line — which is what the corpus assumes.
+// The library a file documents, as a dotted path under `std.` — `path` for
+// `sdk/std/path/path.thera`, `http.server` for `sdk/std/http/server/server.thera`.
+// It is auto-imported into that file's examples under its own namespace (the last
+// segment), so a block may write `path.join(…)` or `server.Router` with no import
+// line — which is what the corpus assumes throughout.
 //
 // Only `std.*` for now. Outside the SDK a library is reached by relative import and
 // "the library this file belongs to" needs the package unit that scale.md item 4
@@ -211,14 +213,21 @@ fn documented_library(canon: String, sdk_root: Option<String>) -> Option<String>
     let rest = canon.slice(prefix.len(), canon.len());
     let parts = rest.split('/');
     if parts.len() < 2 {
-        return Option.None;
+        return Option.None; // a loose file directly under `std/`
     }
+    // **The whole directory chain, not its first segment.** A library that fronts
+    // more than one public surface nests — `std.http` is `http/http.thera` plus
+    // `http/server/`, `http/sse/` and `http/common/` — so a doc comment in
+    // `http/server/server.thera` documents `std.http.server` and its examples write
+    // `server.Router`. Taking only `http` left `server` undefined, and the
+    // resulting diagnostics blamed whatever the block did next.
+    let dirs = parts.slice(0, parts.len() - 1);
     // Never `std.core`: it is the prelude, already ambient and used unqualified, so
     // importing it would be both redundant and an unused import.
-    if parts[0] == 'core' {
+    if dirs[0] == 'core' {
         return Option.None;
     }
-    return Option.Some(parts[0]);
+    return Option.Some(dirs.join('.'));
 }
 
 /// How many verified examples `source` holds — the denominator for a survey.
