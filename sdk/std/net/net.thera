@@ -18,6 +18,10 @@
 //! let tls = net.connect_tls('example.com', 443)?;
 //!
 //! // a server: one fiber per connection
+//! fn handle(conn: net.TcpStream) -> Void {
+//!     let _ = conn.close();
+//! }
+//!
 //! let listener = net.listen('127.0.0.1:8080')?;
 //! while true {
 //!     let conn = listener.accept()?;

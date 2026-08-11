@@ -81,7 +81,8 @@ impl Rng {
     /// A uniform Int in [low, high). Returns `low` when the range is empty.
     ///
     /// ```thera
-    /// let dice = rng.int(1, 7);   // 1..=6
+    /// let rng = random.seeded(42);
+    /// let dice = rng.int(low: 1, high: 7);   // 1..=6
     /// ```
     pub fn int(self, named low: Int, named high: Int) -> Int {
         if high <= low {
@@ -99,6 +100,7 @@ impl Rng {
     /// A uniformly chosen element, or None if the list is empty.
     ///
     /// ```thera
+    /// let rng = random.seeded(42);
     /// let pick = rng.choice(['rock', 'paper', 'scissors']);
     /// ```
     pub fn choice<T>(self, items: List<T>) -> Option<T> {

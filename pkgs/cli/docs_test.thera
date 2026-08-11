@@ -696,6 +696,19 @@ fn test_a_trailing_operator_continues_the_statement() -> Result<Void, Error> {
 }
 
 @test
+fn test_a_terminator_sharing_a_line_with_its_brace_is_not_a_new_chunk() -> Result<Void, Error> {
+    // `};` closing a multi-line struct literal: the `}` ends the expression and the
+    // `;` ends the statement, one token apart on one line. A chunk is sliced by
+    // line, so treating that as two chunks made both claim the line and the text
+    // came out twice — closing `main` early and spilling the rest to top level.
+    let out = wrapped(doc_with("let r = Req {\n    model: 'haiku',\n};\nsend(r)"), Option.None);
+    testing.assert_eq(actual: count_of(out, '};'), expected: 1)?;
+    testing.assert(out.contains('let _ = send(r);'), message: 'got: ${out}')?;
+    testing.assert_eq(actual: count_of(out, 'fn main()'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_if_else_is_one_statement() -> Result<Void, Error> {
     // The `}` that returns to depth zero does not end the statement when `else`
     // picks it up.

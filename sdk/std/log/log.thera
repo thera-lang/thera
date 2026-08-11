@@ -269,6 +269,10 @@ pub fn warn(msg: String) -> Void {
 /// for guarding an expensive message before building it:
 ///
 /// ```thera
+/// fn expensive_dump() -> String {
+///     return 'a large rendering of some state';
+/// }
+///
 /// if log.enabled('myapp.db', log.Level.Debug) {
 ///     log.named('myapp.db').debug(expensive_dump());
 /// }

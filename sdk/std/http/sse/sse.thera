@@ -3,12 +3,14 @@
 //! Import as: import std.http.sse
 //!
 //! ```thera
-//! import std.http.sse;
+//! import std.io;
 //!
 //! // `src` is any io.Reader — in practice a streaming HTTP response body.
+//! let src = io.from_string('event: delta\ndata: hello\n\n');
+//!
 //! for ev in sse.events(src) {
 //!     if ev.name == 'message_stop' { break; }
-//!     handle(ev.data);
+//!     println(ev.data);
 //! }
 //! ```
 //!

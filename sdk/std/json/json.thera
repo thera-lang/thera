@@ -9,13 +9,15 @@
 //! `json.Cursor` is how you read them into types.
 //!
 //! ```thera
+//! let text = '{"user": {"name": "ada"}}';
+//!
 //! // Navigate leniently — nothing fails, a miss is None:
 //! let root = json.parse(text)?;
-//! let name = root.get('user').get('name').as_string().unwrap_or('?');
+//! let lenient = root.get('user').get('name').as_string().unwrap_or('?');
 //!
 //! // Or read strictly, where a bad shape is an error that names its path:
 //! let at = json.cursor(root);
-//! let name = at.field('user').field('name').string()?;   // $.user.name
+//! let strict = at.field('user').field('name').string()?;   // $.user.name
 //!
 //! // Encode (each leaf wrapped — Thera has no heterogeneous literal):
 //! let doc = json.obj([
@@ -23,7 +25,7 @@
 //!     'tags': json.arr([json.str('a'), json.str('b')]),
 //!     'count': json.int(3),
 //! ]);
-//! let text = json.stringify(doc, pretty: true);
+//! let encoded = json.stringify(doc, pretty: true);
 //! ```
 //!
 //! The two reading styles are deliberate and not redundant: the accessors suit a
@@ -99,8 +101,19 @@ pub fn arr(items: List<Json>) -> Json {
 /// fields into a request body without a conditional insert per field:
 ///
 /// ```thera
+/// struct Completion {
+///     let model: String;
+///     let temperature: Option<Double>;
+///     let top_k: Option<Int>;
+/// }
+///
+/// let req = Completion {
+///     model: 'haiku',
+///     temperature: Option.Some(0.7),
+///     top_k: Option.None,
+/// };
 /// json.obj([
-///     'model': json.str(req.model),                          // always sent
+///     'model': json.str(req.model),                           // always sent
 ///     'temperature': json.opt(req.temperature, json.double),  // sent when Some
 ///     'top_k': json.opt(req.top_k, json.int),
 /// ], omit_nulls: true);
@@ -280,6 +293,12 @@ impl Display for DecodeError {
 /// accumulates the path and the readers can report it.
 ///
 /// ```thera
+/// struct Usage {
+///     let input_tokens: Int;
+///     let output_tokens: Int;
+///     let cache_read: Option<Int>;
+/// }
+///
 /// fn usage_from_json(at: json.Cursor) -> Result<Usage, json.DecodeError> {
 ///     return Result.Ok(Usage {
 ///         input_tokens: at.field('input_tokens').int()?,
@@ -288,6 +307,7 @@ impl Display for DecodeError {
 ///     });
 /// }
 ///
+/// let body = '{"usage": {"input_tokens": 12, "output_tokens": 34}}';
 /// let root = json.cursor(json.parse(body)?);
 /// let usage = usage_from_json(root.field('usage').object()?)?;
 /// ```
