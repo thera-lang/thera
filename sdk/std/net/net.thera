@@ -5,9 +5,12 @@
 //! Import as: import std.net
 //!
 //! ```thera
+//! import std.fiber;
+//! import std.io;
+//!
 //! // a client
 //! let sock = net.connect('example.com', 80)?;
-//! io.write_all(sock, 'GET / HTTP/1.0\r\n\r\n'.to_bytes())?;
+//! io.write_all(sock, 'GET / HTTP/1.0\r\n\r\n'.bytes())?;
 //! let reply = io.read_all(sock)?;
 //! sock.close()?;
 //!
