@@ -1,0 +1,157 @@
+//! Tests for doc-example compile-checking.
+//!
+//! The behaviours worth pinning are the two that are easy to lose: a diagnostic has
+//! to name the doc line the author wrote, and a batch has to produce the same
+//! answer per file however it is sliced — the property the session's incrementality
+//! rests on (scale.md item 2).
+
+import std.testing;
+
+import 'diagnostic' as _; // Diagnostic
+import 'doc_check' as _;
+import 'loader' as _;
+
+// Diagnostics for a source string, checked as if it were `sdk/std/path/path.thera`
+// so the documented-library auto-import is in play.
+fn check_at(rel: String, src: String) -> List<Diagnostic> {
+    return check_file(rel, src, find_sdk_root());
+}
+
+@test
+fn test_a_good_example_is_silent() -> Result<Void, Error> {
+    let src = '/// Joins.\n///\n/// ```\n/// path.join(\'a\', \'b\')\n/// ```\n'
+        + 'pub fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: check_at('sdk/std/path/probe.thera', src).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_broken_example_names_the_doc_line() -> Result<Void, Error> {
+    // The whole point of the line map: the diagnostic points at the author's line
+    // inside the fence, not at the fence and not at a synthesized line.
+    let src = '/// Joins.\n///\n/// ```\n/// let a = 1;\n/// nope_not_a_thing()\n/// ```\n'
+        + 'pub fn f() -> Int { return 0; }\n';
+    let ds = check_at('sdk/std/path/probe.thera', src);
+    testing.assert_eq(actual: ds.len(), expected: 1)?;
+    testing.assert_eq(actual: ds[0].span.line, expected: 5)?;
+    testing.assert(
+        ds[0].message.contains('doc example does not compile'),
+        message: 'got: ${ds[0].message}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_one_diagnostic_per_example_not_a_cascade() -> Result<Void, Error> {
+    // Prose that is not Thera at all produces a parse-error cascade; reporting all
+    // of it would bury every other block in the file.
+    let src = '/// ```\n/// this is not code at all, just words\n/// and more words here\n/// ```\n'
+        + 'pub fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: check_at('sdk/std/path/probe.thera', src).len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_no_check_is_not_checked() -> Result<Void, Error> {
+    let src = '/// ```thera,no_check\n/// this is design fiction()\n/// ```\n'
+        + 'pub fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: check_at('sdk/std/path/probe.thera', src).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_non_thera_fence_is_not_checked() -> Result<Void, Error> {
+    let src = '/// ```text\n/// --flag   a flag\n/// ```\npub fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: check_at('sdk/std/path/probe.thera', src).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_malformed_fence_is_reported() -> Result<Void, Error> {
+    let src = '/// ```thera,norun\n/// let a = 1;\n/// ```\npub fn f() -> Int { return 0; }\n';
+    let ds = check_at('sdk/std/path/probe.thera', src);
+    testing.assert_eq(actual: ds.len(), expected: 1)?;
+    testing.assert(
+        ds[0].message.contains('unknown fence attribute'),
+        message: 'got: ${ds[0].message}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_documented_library_needs_no_import() -> Result<Void, Error> {
+    // `sdk/std/path/…` documents `std.path`, so `path.` resolves with no import
+    // line — which is what the corpus assumes throughout.
+    let src = '/// ```\n/// path.dirname(\'a/b\')\n/// ```\npub fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: check_at('sdk/std/path/probe.thera', src).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_another_library_must_be_imported() -> Result<Void, Error> {
+    let bare = '/// ```\n/// json.parse(\'{}\')\n/// ```\npub fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: check_at('sdk/std/path/probe.thera', bare).len(), expected: 1)?;
+    let with_import = '/// ```\n/// import std.json;\n///\n/// json.parse(\'{}\')\n/// ```\n'
+        + 'pub fn f() -> Int { return 0; }\n';
+    testing.assert_eq(
+        actual: check_at('sdk/std/path/probe.thera', with_import).len(),
+        expected: 0,
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_results_do_not_depend_on_the_batch() -> Result<Void, Error> {
+    // Two examples in one directory shared a virtual path before, so the second
+    // inherited the first's namespaces and a correct block failed. Checking with a
+    // shared cache must give the same answer as checking alone — that independence
+    // is what lets these diagnostics be cached beside a file's check verdict.
+    let a = '/// ```\n/// import std.json;\n///\n/// json.parse(\'{}\')\n/// ```\n'
+        + 'pub fn f() -> Int { return 0; }\n';
+    let b = '/// ```\n/// path.dirname(\'a/b\')\n/// ```\npub fn g() -> Int { return 0; }\n';
+    let sdk = find_sdk_root();
+    let alone_a = check_file('sdk/std/path/one.thera', a, sdk).len();
+    let alone_b = check_file('sdk/std/path/two.thera', b, sdk).len();
+
+    let parse_cache: Map<String, ParsedFile> = [:];
+    let surface_cache: Map<String, FileSurface> = [:];
+    let batch_a = check_file(
+        'sdk/std/path/one.thera',
+        a,
+        sdk,
+        parse_cache: parse_cache,
+        surface_cache: surface_cache,
+    ).len();
+    let batch_b = check_file(
+        'sdk/std/path/two.thera',
+        b,
+        sdk,
+        parse_cache: parse_cache,
+        surface_cache: surface_cache,
+    ).len();
+    testing.assert_eq(actual: batch_a, expected: alone_a)?;
+    testing.assert_eq(actual: batch_b, expected: alone_b)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_shared_cache_gains_no_phantom_entries() -> Result<Void, Error> {
+    // The synthetic example file must not survive in the analysis state: it is a
+    // derived artifact at a path no file occupies, and a stale entry there is both
+    // a leak and a trap for a later lookup.
+    let src = '/// ```\n/// path.dirname(\'a/b\')\n/// ```\npub fn f() -> Int { return 0; }\n';
+    let surface_cache: Map<String, FileSurface> = [:];
+    let _ = check_file(
+        'sdk/std/path/probe.thera',
+        src,
+        find_sdk_root(),
+        surface_cache: surface_cache,
+    );
+    for k in surface_cache.keys() {
+        testing.assert(
+            !k.contains('_doc_example'),
+            message: 'the synthetic file was left in the cache: ${k}',
+        )?;
+    }
+    return Result.Ok(void);
+}

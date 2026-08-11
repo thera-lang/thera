@@ -8,7 +8,7 @@
 //! `flag('verbose')`, not `flag('--verbose')`; the parser owns the dash conventions
 //! and accepts:
 //!
-//! ```
+//! ```text
 //! --name             a long flag            (foo --verbose)
 //! -n                 its abbreviation       (foo -v)
 //! --name value       a long option + value  (foo --out result.txt)

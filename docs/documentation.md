@@ -651,7 +651,7 @@ What the verification faces on day one:
 | `docs/stdlib.md`       | 2              | 29       | design fiction; migrates to `thera,no_check` as its APIs land                                              |
 
 **Measured, not estimated.** The extraction and wrapper above were prototyped
-and run against all 109 `sdk/std` blocks (`dev/doc_example_survey.py`):
+and run against all 109 `sdk/std` blocks (`dev/doc_examples.thera`):
 
 | Outcome                                               | Blocks |
 | ----------------------------------------------------- | ------ |
@@ -661,14 +661,14 @@ and run against all 109 `sdk/std` blocks (`dev/doc_example_survey.py`):
 | reference a type they never declare (`Auth`, `Usage`) | 2      |
 | everything else                                       | 8      |
 
-That last row is entirely artifacts of the prototype's line-based extraction;
-the real pass is parser-based. It also held, until they were fixed, **two
-genuinely broken doc comments** — which is the point of the exercise, found in
-an afternoon: `sdk/std/net/net.thera` documented `'…'.to_bytes()`, a method that
-does not exist (it is `bytes()`), and `sdk/std/testing/env.thera` documented
-`fixed_env({ 'PORT': '8080' }, …)` using `{…}` map-literal syntax, which is not
-Thera. Both were exactly the rot class this arc exists to stop, and both had
-survived review.
+That last row was entirely artifacts of the throwaway prototype's line-based
+extraction — the real pass is token-driven and clears them. It also held, until
+they were fixed, **two genuinely broken doc comments** — which is the point of
+the exercise, found in an afternoon: `sdk/std/net/net.thera` documented
+`'…'.to_bytes()`, a method that does not exist (it is `bytes()`), and
+`sdk/std/testing/env.thera` documented `fixed_env({ 'PORT': '8080' }, …)` using
+`{…}` map-literal syntax, which is not Thera. Both were exactly the rot class
+this arc exists to stop, and both had survived review.
 
 So phase 1 is verification **and** a bounded migration: roughly 42 blocks gain
 the binding or import they assume, 7 settle on `...`, 2 declare the type they

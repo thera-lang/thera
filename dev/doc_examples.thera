@@ -1,0 +1,58 @@
+// Compile-check the doc examples across a source tree — the migration worklist for
+// docs/documentation.md phase 1, produced by the real extractor (`pkgs/cli/docs`)
+// and the real checker rather than an approximation. Not part of the build.
+//
+// Run: bin/thera.sh run dev/doc_examples.thera [root]
+
+import '../pkgs/cli/doc_check';
+import '../pkgs/cli/loader';
+
+import std.fs;
+import std.sort;
+
+fn thera_files(root: String) -> List<String> {
+    let out: List<String> = [];
+    for p in fs.walk(root) {
+        if p.ends_with('.thera') {
+            out.push(p);
+        }
+    }
+    return sort.sorted(out);
+}
+
+fn main(args: List<String>) -> Result<Int, Error> {
+    let root = args.get(0).unwrap_or('sdk/std');
+    let sdk = loader.find_sdk_root();
+
+    // One set of caches for the whole run: the prelude is parsed once, not once per
+    // example. They are keyed by real files' canonical paths, so sharing them is
+    // safe — see the note at the top of pkgs/cli/doc_check.thera.
+    let parse_cache: Map<String, loader.ParsedFile> = [:];
+    let surface_cache: Map<String, loader.FileSurface> = [:];
+
+    let mut files = 0;
+    let mut examples = 0;
+    let failures: List<String> = [];
+    for p in thera_files(root) {
+        let src = fs.read_text(p)?;
+        let ds = doc_check.check_file(
+            p,
+            src,
+            sdk,
+            parse_cache: parse_cache,
+            surface_cache: surface_cache,
+        );
+        files = files + 1;
+        examples = examples + doc_check.count_examples(src);
+        for d in ds {
+            failures.push('${p}:${d.span.line}: ${d.message}');
+        }
+    }
+
+    println('${files} files, ${examples} verified doc examples');
+    println('${examples - failures.len()} clean, ${failures.len()} failing:');
+    for f in failures {
+        println('  ${f}');
+    }
+    return Result.Ok(0);
+}
