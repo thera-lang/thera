@@ -25,7 +25,10 @@ impl Result<T, E> {
     /// a plain boolean check.)
     ///
     /// ```thera
-    /// if parse(s).is_ok() { … }
+    /// let parsed = '7'.to_int().ok_or(error('not a number'));
+    /// if parsed.is_ok() {
+    ///     println('that was a number');
+    /// }
     /// ```
     pub fn is_ok(self) -> Bool {
         return match self {
@@ -37,7 +40,10 @@ impl Result<T, E> {
     /// Whether this is `Err`.
     ///
     /// ```thera
-    /// if parse(s).is_err() { … }
+    /// let parsed = 'x'.to_int().ok_or(error('not a number'));
+    /// if parsed.is_err() {
+    ///     println('that was not a number');
+    /// }
     /// ```
     pub fn is_err(self) -> Bool {
         return match self {
@@ -50,7 +56,8 @@ impl Result<T, E> {
     /// a success value without unwrapping or touching the error.
     ///
     /// ```thera
-    /// let doubled = parse(s).map((n) => n * 2);   // Result<Int, E>
+    /// let parsed = '7'.to_int().ok_or(error('not a number'));
+    /// let doubled = parsed.map((n) => n * 2);   // Ok(14)
     /// ```
     pub fn map<U>(self, f: (T) -> U) -> Result<U, E> {
         return match self {
@@ -59,11 +66,13 @@ impl Result<T, E> {
         };
     }
 
-    /// Transform the `Err` value, leaving an `Ok` unchanged. Reach for it to wrap a
-    /// low-level error in a domain error before propagating with `?`.
+    /// Transform the `Err` value, leaving an `Ok` unchanged. Reach for it to add
+    /// context to a low-level error — or to lift it into a domain error type —
+    /// before propagating with `?`.
     ///
     /// ```thera
-    /// let n = read(path).map_err((e) => ConfigError.Io(e))?;
+    /// let parsed = 'x'.to_int().ok_or(error('not a number'));
+    /// let n = parsed.map_err((e) => error('config: ${e.message()}'))?;
     /// ```
     pub fn map_err<F>(self, f: (E) -> F) -> Result<T, F> {
         return match self {
@@ -77,7 +86,9 @@ impl Result<T, E> {
     /// usually clearer — reach for `and_then` in expression position.
     ///
     /// ```thera
-    /// let v = parse(s).and_then((n) => in_range(n));   // Result<Int, E>
+    /// let parsed = '7'.to_int().ok_or(error('not a number'));
+    /// let v = parsed.and_then((n) =>
+    ///     if n < 1024 { Result.Err(error('reserved port')) } else { Result.Ok(n) });
     /// ```
     pub fn and_then<U>(self, f: (T) -> Result<U, E>) -> Result<U, E> {
         return match self {
@@ -90,7 +101,8 @@ impl Result<T, E> {
     /// discard the error.
     ///
     /// ```thera
-    /// let port = parse(s).unwrap_or(8080);
+    /// let parsed = 'x'.to_int().ok_or(error('not a number'));
+    /// let port = parsed.unwrap_or(8080);   // 8080
     /// ```
     pub fn unwrap_or(self, fallback: T) -> T {
         return match self {
@@ -103,7 +115,8 @@ impl Result<T, E> {
     /// `unwrap_or` when the fallback depends on the error (or is expensive).
     ///
     /// ```thera
-    /// let n = parse(s).unwrap_or_else((e) => default_for(e));
+    /// let loaded: Result<String, Error> = Result.Err(error('no such file'));
+    /// let text = loaded.unwrap_or_else((e) => '# ${e.message()}');
     /// ```
     pub fn unwrap_or_else(self, f: (E) -> T) -> T {
         return match self {
@@ -116,7 +129,8 @@ impl Result<T, E> {
     /// → `None`. Reach for it when only presence matters, not the error.
     ///
     /// ```thera
-    /// let maybe = parse(s).ok();   // Option<Int>
+    /// let parsed = '7'.to_int().ok_or(error('not a number'));
+    /// let maybe = parsed.ok();   // Some(7)
     /// ```
     pub fn ok(self) -> Option<T> {
         return match self {

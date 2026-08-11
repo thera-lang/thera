@@ -2,20 +2,22 @@
 //!
 //! Map<K, V> is an ordered key-value store (insertion order is preserved). It is a
 //! built-in type: always in scope, never explicitly imported (there is no
-//! `import std.map`). Build one with a map literal: `{k1: v1, k2: v2}`.
+//! `import std.map`). Build one with a map literal: `[k1: v1, k2: v2]` (`[:]` when
+//! empty).
 //!
 //! Indexing:
 //!
 //! ```thera
-//! let v = scores[key];   // → V; traps if key is absent
-//! scores[key] = v;       // insert / update (the binding must be `mut`)
+//! let mut scores = ['ada': 3];
+//! let v = scores['ada'];   // → V; traps if the key is absent
+//! scores['bo'] = v + 1;    // insert / update (the binding must be `mut`)
 //! ```
 //!
 //! Use `.get(key)` when a missing key is a normal, expected case. See "Runtime
 //! faults" and "Collections" in docs/language.md.
 
 /// The built-in ordered key-value store — an opaque, runtime-represented value (no
-/// struct layout); a map literal (`{k: v}`) constructs one.
+/// struct layout); a map literal (`[k: v]`) constructs one.
 pub native type Map<K, V>
 
 impl Map<K, V> {
@@ -54,7 +56,8 @@ impl Map<K, V> {
     /// `get`, so a missing key needs no `match`.
     ///
     /// ```thera
-    /// counts.get_or('x', 0)
+    /// let counts = ['a': 1];
+    /// counts.get_or('x', 0)   // 0
     /// ```
     pub fn get_or(self, key: K, default: V) -> V {
         match self.get(key) {
@@ -82,6 +85,7 @@ impl Map<K, V> {
     /// — the paired form of [keys]/[values], for iterating both at once.
     ///
     /// ```thera
+    /// let scores = ['ada': 3, 'bo': 5];
     /// for e in scores.entries() {
     ///     println('${e.key}: ${e.value}');
     /// }

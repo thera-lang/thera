@@ -5,7 +5,7 @@
 //! materialized there), which is how `std.testing` reports the line a failing
 //! assertion was called from without the caller passing anything:
 //!
-//! ```thera
+//! ```thera,no_check
 //! pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T, at: SourceLoc = #loc) -> ...
 //! ```
 //!

@@ -206,8 +206,8 @@ impl String {
     /// of `String.from_chars`:
     ///
     /// ```thera
-    /// let cps = source.chars();
-    /// let same = String.from_chars(cps);
+    /// let cps = 'hi'.chars();              // [104, 105]
+    /// let same = String.from_chars(cps);   // 'hi'
     /// ```
     @extern('str_chars')
     pub native fn chars(self) -> List<Int>
