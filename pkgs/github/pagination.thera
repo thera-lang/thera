@@ -115,7 +115,7 @@ pub fn page_of<T>(
 
 /// The `rel="next"` URL from a `Link` header, if there is one.
 ///
-/// ```
+/// ```text
 /// Link: <https://api.github.com/repos/o/r/pulls?page=2>; rel="next",
 ///       <https://api.github.com/repos/o/r/pulls?page=9>; rel="last"
 /// ```

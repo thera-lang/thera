@@ -18,6 +18,7 @@ import 'bytecode/encoder';
 import 'element';
 import 'loader';
 import 'diagnostic'; // Diagnostic — the uniform phase error, produced by every phase
+import 'doc_check'; // check_file — doc examples, checked beside the file that holds them
 
 import std.path;
 
@@ -507,6 +508,29 @@ impl Session {
         }
         mark_checked_clean(self.checked, canon, loaded.programs, skip, out);
         return out;
+    }
+
+    // Compile-check the doc examples in `source` (located at `p`), as `doc-example`
+    // warnings (see doc_check.thera).
+    //
+    // Deliberately *not* folded into `check`, on two counts. **Scope:** `check`
+    // walks the import closure to type-check, but doc examples are extracted only
+    // from the files a command was pointed at — your dependency's documentation is
+    // not your diagnostic, and a caller who cannot see the difference would report
+    // the whole SDK's doc comments against a two-line program. **State:** this pass
+    // writes nothing back. It borrows the session's caches, so the closure is
+    // parsed once for a whole run rather than once per example, and leaves them as
+    // it found them; going through `check` instead would put a phantom synthetic
+    // file in the parse cache and the import graph.
+    pub fn check_doc_examples(self, source: String, p: String) -> List<diagnostic.Diagnostic> {
+        return doc_check.check_file(
+            p,
+            source,
+            self.sdk_root,
+            parse_cache: self.parse_cache,
+            overlays: self.overlays,
+            surface_cache: self.surface_cache,
+        );
     }
 
     // Compile `source` (located at `p`) to `.thera-bc` bytes with its import

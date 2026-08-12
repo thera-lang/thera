@@ -521,11 +521,18 @@ target set** and compile-checks it. A block that does not compile is a
 
 ```
 $ thera check sdk/std
-sdk/std/core/string.thera:31:5: warning: doc example does not compile:
-  no method `slize` on `String` (doc-example)
+sdk/std/core/string.thera:31:5: warning: doc example does not compile: no method `slize` on `String` (doc-example)
 
 Checked 22 source files; 0 issues found; 1 warning.
+
+note: a doc example opts out of checking with a `thera,no_check` fence attribute; `// ignore:` cannot appear inside a doc comment.
 ```
+
+The closing note is printed once per run, not once per diagnostic, and only when
+there was a `doc-example` warning to explain. It is there because the rule name
+on the diagnostic line reads as an invitation to write `// ignore: doc-example`
+— which cannot work, since a `//` line inside a doc comment ends the doc run it
+sits in. The note points at the opt-out that does.
 
 Two scoping decisions make this safe to have on by default:
 
@@ -545,6 +552,28 @@ check time, while a downstream user of the SDK is not.
 Promotion to error follows the same policy as `[Symbol]` references: available
 once the corpus is clean and the extractor has enough mileage to be trusted, and
 not before.
+
+**What a block may assume, and where that comes from.** An example is checked as
+a file sitting beside the one that documents it, with its library already
+imported: a doc comment in `sdk/std/path/path.thera` gets `import std.path;`,
+one in `sdk/std/http/server/server.thera` gets `import std.http.server;`, and
+one in `pkgs/github/client.thera` gets `import github;` — the directory
+library's own name, which resolves relatively. Everything else the block needs,
+it writes.
+
+The one gap: a file that belongs to **no** library — a loose script, not a
+directory library's member — gets no auto-import, so a doc comment on its own
+function sees an undefined name. Nothing in the tree is shaped that way today,
+which is why it is a gap rather than a bug; a self-import under the bare surface
+(`import 'foo' as _;`) is the obvious answer when a real case turns up.
+
+**Cost.** Checking the examples is not free: each one is a synthesized file that
+goes through import loading and the checker. Over `pkgs sdk/std examples` — 221
+files, 112 examples — it adds about 30% to `thera check`'s wall clock. Files
+with no fence bail after lexing and never pay a parse. The next lever, if that
+ever bites, is caching a file's doc-example verdict under the same key its check
+verdict already has: both are a pure function of (file text, dependency
+surfaces), which is the property `doc_check.thera` is built to preserve.
 
 ### `thera test` — run
 
@@ -619,7 +648,7 @@ sits against the rest of developer tooling.
 | `@test` functions, `thera test`                            | **done**                                                                                            |
 | Attaching docs to AST nodes                                | **done** — `docs.attach` (`pkgs/cli/docs.thera`), a span-keyed side table                           |
 | Fence extraction + compile-check                           | **done** — `docs.doc_examples` / `doc_check.check_file`                                             |
-| The `doc-example` warning in `thera check`                 | pending — **phase 1**, the high-order bit                                                           |
+| The `doc-example` warning in `thera check`                 | **done** — target-set files only; `bin/test.sh` gates the corpus                                    |
 | The doc-example dialect (bare exprs, unused `Result`)      | **done**; `...` elision is pending — phase 1                                                        |
 | Making `sdk/std`'s examples self-contained                 | **done** — 108 of 108 compile; see the snapshot below                                               |
 | `--docs` (Markdown fences)                                 | pending — phase 2                                                                                   |

@@ -444,8 +444,9 @@ pub struct ExampleProgram {
 /// in source order, into a synthesized `fn main() -> Result<Int, Error>` — the
 /// `Result` return being why `?` works in a doc example, which the corpus leans on
 /// heavily. A block that declares its own `main` is left alone. `library` is the
-/// documented library, auto-imported under its own namespace unless the block
-/// already imports it.
+/// documented library, written exactly as an import names it (`std.http.server`,
+/// `github`), and auto-imported under its own namespace — the last dotted segment —
+/// unless the block already imports it.
 ///
 /// **REPL shape.** A loose statement that is a bare expression is emitted as
 /// `let _ = <expr>;`, which is what makes the corpus's `'hello'.slice(1, 4)` line
@@ -464,7 +465,7 @@ pub fn example_program(ex: DocExample, library: Option<String>) -> ExampleProgra
     let map: List<Int> = [];
     if let Some(lib) = library {
         if !imports_library(toks, lib) {
-            out.push('import std.${lib};');
+            out.push('import ${lib};');
             map.push(-1);
             out.push('');
             map.push(-1);
@@ -711,9 +712,9 @@ fn bracket_delta(k: TokenKind) -> Int {
     };
 }
 
-// Whether the block already imports `std.<lib>`, so the auto-import is not doubled.
+// Whether the block already imports `lib`, so the auto-import is not doubled.
 fn imports_library(toks: List<Token>, lib: String) -> Bool {
-    let want = 'std.${lib}';
+    let want = lib;
     for t in toks.enumerate() {
         if t.value.kind != TokenKind.KwImport {
             continue;

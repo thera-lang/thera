@@ -78,6 +78,7 @@ impl Client {
     /// A client for `token`, or an unauthenticated one if it is `None`.
     ///
     /// ```thera
+    /// let secret = 'ghp_…';
     /// let gh = github.Client.new(token: Option.Some(secret));
     /// let prs = gh.pulls().list(owner: 'thera-lang', repo: 'thera')?;
     /// ```
@@ -225,7 +226,14 @@ pub fn decoded<T>(
 /// generate.
 ///
 /// ```thera
-/// let url = client.url('/repos/${owner}/${repo}/pulls', query: params([
+/// let client = github.Client.new();
+/// let owner = 'thera-lang';
+/// let repo = 'thera';
+/// let state = 'open';
+/// let head: Option<String> = Option.None;   // an optional parameter, left out
+/// let per_page = 30;
+///
+/// let url = client.url('/repos/${owner}/${repo}/pulls', query: github.params([
 ///     'state': Option.Some(state),
 ///     'head': head,
 ///     'per_page': Option.Some(per_page.to_string()),

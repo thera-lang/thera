@@ -590,21 +590,32 @@ fn test_a_block_with_its_own_main_gets_no_wrapper() -> Result<Void, Error> {
 
 @test
 fn test_the_documented_library_is_auto_imported() -> Result<Void, Error> {
-    let out = wrapped(doc_with("path.join('a', 'b')"), Option.Some('path'));
+    let out = wrapped(doc_with("path.join('a', 'b')"), Option.Some('std.path'));
     testing.assert(out.starts_with('import std.path;\n'), message: 'got: ${out}')?;
     return Result.Ok(void);
 }
 
 @test
+fn test_a_relative_library_is_auto_imported() -> Result<Void, Error> {
+    // Outside the SDK a directory library is named by its own directory and
+    // resolves relatively — and the synthetic file is a sibling, so the bare name
+    // works. The caller hands over whichever spelling names the library; the
+    // wrapper does not second-guess it with an `std.` prefix.
+    let out = wrapped(doc_with('github.from_env()'), Option.Some('github'));
+    testing.assert(out.starts_with('import github;\n'), message: 'got: ${out}')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_the_auto_import_is_not_doubled() -> Result<Void, Error> {
-    let out = wrapped(doc_with("import std.path;\n\npath.join('a', 'b')"), Option.Some('path'));
+    let out = wrapped(doc_with("import std.path;\n\npath.join('a', 'b')"), Option.Some('std.path'));
     testing.assert_eq(actual: count_of(out, 'import std.path;'), expected: 1)?;
     return Result.Ok(void);
 }
 
 @test
 fn test_another_library_import_is_kept() -> Result<Void, Error> {
-    let out = wrapped(doc_with('import std.io;\n\nio.read_all(s)?;'), Option.Some('net'));
+    let out = wrapped(doc_with('import std.io;\n\nio.read_all(s)?;'), Option.Some('std.net'));
     testing.assert(out.contains('import std.net;'), message: 'got: ${out}')?;
     testing.assert(out.contains('import std.io;'), message: 'got: ${out}')?;
     return Result.Ok(void);
