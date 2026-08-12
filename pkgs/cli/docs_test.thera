@@ -614,6 +614,33 @@ fn test_the_auto_import_is_not_doubled() -> Result<Void, Error> {
 }
 
 @test
+fn test_the_auto_import_dedups_on_the_namespace_not_the_path() -> Result<Void, Error> {
+    // The same library is named two ways from inside the tree that defines it, and
+    // both bind `cli`. A block writing `import std.cli;` in a file whose library
+    // resolved to the relative spelling must not also get `import cli;` — Thera
+    // rejects one namespace defined twice, which is how this reached CI: the built
+    // SDK checking in-repo `sdk/std` sources takes exactly that path.
+    let out = wrapped(doc_with('import std.cli;\n\ncli.Args.new([])'), Option.Some('cli'));
+    testing.assert(!out.contains('import cli;'), message: 'got: ${out}')?;
+    testing.assert_eq(actual: count_of(out, 'import '), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_an_aliased_import_does_not_suppress_the_auto_import() -> Result<Void, Error> {
+    // `as p` binds `p`, not `path`, so the block still needs `path` bound; and
+    // `as _` binds nothing at all.
+    let aliased = wrapped(
+        doc_with('import std.path as p;\n\np.join(\'a\')'),
+        Option.Some('std.path'),
+    );
+    testing.assert(aliased.contains('import std.path;'), message: 'got: ${aliased}')?;
+    let bare = wrapped(doc_with('import std.path as _;\n\njoin(\'a\')'), Option.Some('std.path'));
+    testing.assert(bare.contains('import std.path;'), message: 'got: ${bare}')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_another_library_import_is_kept() -> Result<Void, Error> {
     let out = wrapped(doc_with('import std.io;\n\nio.read_all(s)?;'), Option.Some('std.net'));
     testing.assert(out.contains('import std.net;'), message: 'got: ${out}')?;

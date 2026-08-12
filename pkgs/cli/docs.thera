@@ -712,18 +712,42 @@ fn bracket_delta(k: TokenKind) -> Int {
     };
 }
 
-// Whether the block already imports `lib`, so the auto-import is not doubled.
+// Whether the block already binds the namespace the auto-import would, so it is not
+// doubled.
+//
+// **The namespace, not the import path.** The same library can be named two ways
+// from inside the tree that defines it — `import std.cli;` and, from a sibling
+// file, `import cli;` — and both bind `cli`. Comparing paths let the pair through,
+// and Thera then rejects the block for defining one namespace twice. Comparing what
+// an import *binds* is also the safe direction: two imports binding one namespace
+// is always an error, so suppressing the synthetic one can never lose anything.
 fn imports_library(toks: List<Token>, lib: String) -> Bool {
-    let want = lib;
+    let want = last_segment(lib);
     for t in toks.enumerate() {
         if t.value.kind != TokenKind.KwImport {
             continue;
         }
-        // Rebuild the dotted path that follows, so a nested library
-        // (`import std.http.server;`) is compared whole rather than one segment
-        // deep.
-        let mut got = '';
-        let mut i = t.index + 1;
+        if let Some(bound) = imported_namespace(toks, t.index + 1) {
+            if bound == want {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// The namespace an import binds, given the index just past its `import` keyword —
+// None when it binds nothing (`as _`, the bare-surface form).
+fn imported_namespace(toks: List<Token>, start: Int) -> Option<String> {
+    // The dotted path, rebuilt whole so a nested library
+    // (`import std.http.server;`) is read as `server` rather than `std`. A relative
+    // import is a string literal (`import 'client';`), whose own text is the path.
+    let mut got = '';
+    let mut i = start;
+    if toks.get(i).map((t) => t.kind == TokenKind.StringLiteral).unwrap_or(false) {
+        got = toks[i].value.unwrap_or('');
+        i = i + 1;
+    } else {
         while i < toks.len() {
             let k = toks[i].kind;
             if k == TokenKind.Dot {
@@ -735,11 +759,32 @@ fn imports_library(toks: List<Token>, lib: String) -> Bool {
             }
             i = i + 1;
         }
-        if got == want {
-            return true;
-        }
     }
-    return false;
+    if got == '' {
+        return Option.None;
+    }
+    // `as` renames the binding, and `as _` removes it (the names land bare
+    // instead).
+    if toks.get(i).map((t) => t.kind == TokenKind.KwAs).unwrap_or(false) {
+        let Some(alias) = toks.get(i + 1) else {
+            return Option.None;
+        };
+        let name = alias.value.unwrap_or('');
+        if name == '' || name == '_' {
+            return Option.None;
+        }
+        return Option.Some(name);
+    }
+    return Option.Some(last_segment(got));
+}
+
+// The last `.`- or `/`-separated segment — the namespace a dotted or relative
+// import path binds.
+fn last_segment(p: String) -> String {
+    let dotted = p.split('.');
+    let tail = dotted[dotted.len() - 1];
+    let parts = tail.split('/');
+    return parts[parts.len() - 1];
 }
 
 fn declares_main(toks: List<Token>) -> Bool {
