@@ -1572,13 +1572,12 @@ are never split across lines.
   (they force an ambiguous indent-width rule under the `///` prefix). **The
   fence tag is a contract.** Inside a doc comment, a fence **is Thera by
   default** and is compile-checked by `thera check` (a failure is the
-  `doc-example` warning) and run by `thera test` when it carries a `// =>`
-  oracle; tag non-Thera content ` ```text ` (or whatever it is). In a `.md` file
-  the reverse holds — a block is Thera only when tagged ` ```thera `.
-  Comma-separated attributes opt out: ` ```thera,no_run ` (compile-checked,
-  never run) and ` ```thera,no_check ` (rendered, never checked). Full rules,
-  including the REPL-shape relaxations, `...` elision, and the requirement that
-  an example bind every name it uses, are in
+  `doc-example` warning); tag non-Thera content ` ```text ` (or whatever it is).
+  In a `.md` file the reverse holds — a block is Thera only when tagged
+  ` ```thera `. Comma-separated attributes opt out: ` ```thera,no_run `
+  (compile-checked, never run) and ` ```thera,no_check ` (rendered, never
+  checked). Full rules, including the REPL-shape relaxations and the requirement
+  that an example bind every name it uses, are in
   [documentation.md § Tier 1](documentation.md#tier-1--fenced-examples-in-doc-comments).
 
 There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite
@@ -2278,7 +2277,7 @@ its _Implementation status_ for which are live.
 | `thera run`        | Run a source file                                            |
 | `thera check`      | Type-check without running (defaults to the cwd)             |
 | `thera test`       | Run tests (defaults to the cwd; `--verbose` for full report) |
-| `… --docs`         | On `check`/`test`, also verify fenced examples in `*.md`     |
+| `… --docs`         | On `check`, also verify fenced examples in `*.md`            |
 | `thera fmt`        | Format source files in place (`--check` to only report)      |
 | `thera lint`       | Report non-idiomatic code shapes (defaults to the cwd)       |
 | `thera lint --fix` | Apply the safe lint rewrites (explicit target required)      |
@@ -2289,13 +2288,12 @@ its _Implementation status_ for which are live.
 
 `thera test [file|dir]` runs the `@test` functions in a `*_test.thera` file, or
 in every `*_test.thera` found under a directory (the current directory when no
-target is given). It also runs the `@example` functions beside them and the
-oracle-bearing doc examples in the files under the target, counting each
-separately in the summary (`Ran 214 tests, 38 doc examples and 3 examples …`) —
-see [documentation.md § Verification](documentation.md#verification). The
-default output is quiet: a block per **failing** test — its name, with the
-failure detail indented under it in the standard `path:line:column: message`
-diagnostic shape — then one summary line. A green run prints only the summary:
+target is given). It also runs the `@example` functions beside them, counted
+separately in the summary (`Ran 214 tests and 3 examples …`) — see
+[documentation.md § Verification](documentation.md#verification). The default
+output is quiet: a block per **failing** test — its name, with the failure
+detail indented under it in the standard `path:line:column: message` diagnostic
+shape — then one summary line. A green run prints only the summary:
 
 ```
 $ thera test src

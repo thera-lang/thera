@@ -173,11 +173,11 @@ checking and refactors with no special tooling at all.
 
 Size decides the tier:
 
-| Example                                              | Lives in                                         | Verified by                                                      | Reached from                     |
-| ---------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------- | -------------------------------- |
-| **One call**, one to five lines                      | a fenced `thera` block in a `///` / `//!` doc    | `thera check` (compile), `thera test` (run, if it has an oracle) | inline, at the symbol            |
-| **A workflow**, several calls with real control flow | an `@example` fn in the sibling `foo_test.thera` | `thera test` (always compiled and run)                           | a `/// @file#fragment` reference |
-| **A whole program**                                  | `examples/*.thera`                               | `bin/test.sh` (compiled and run)                                 | an ordinary Markdown link        |
+| Example                                              | Lives in                                         | Verified by                            | Reached from                     |
+| ---------------------------------------------------- | ------------------------------------------------ | -------------------------------------- | -------------------------------- |
+| **One call**, one to five lines                      | a fenced `thera` block in a `///` / `//!` doc    | `thera check` (compile)                | inline, at the symbol            |
+| **A workflow**, several calls with real control flow | an `@example` fn in the sibling `foo_test.thera` | `thera test` (always compiled and run) | a `/// @file#fragment` reference |
+| **A whole program**                                  | `examples/*.thera`                               | `bin/test.sh` (compiled and run)       | an ordinary Markdown link        |
 
 Push down a tier whenever an example stops being a single idea. A twelve-line
 block inside a `///` is a workflow example wearing the wrong hat: it is
@@ -206,19 +206,19 @@ remove.
 and `docs/` is full of JSON, shell, and EBNF fences; there a block is Thera only
 when tagged `thera`.
 
-| Fence in a `///` / `//!` doc comment | Rendered | Compile-checked | Run                 |
-| ------------------------------------ | -------- | --------------- | ------------------- |
-| ` ``` ` (bare) or ` ```thera `       | yes      | **yes**         | if it has an oracle |
-| ` ```thera,no_run `                  | yes      | **yes**         | no                  |
-| ` ```thera,no_check `                | yes      | no              | no                  |
-| ` ```text `, ` ```sh `, ` ```json `  | yes      | no              | no                  |
+| Fence in a `///` / `//!` doc comment | Rendered | Compile-checked |
+| ------------------------------------ | -------- | --------------- |
+| ` ``` ` (bare) or ` ```thera `       | yes      | **yes**         |
+| ` ```thera,no_run `                  | yes      | **yes**         |
+| ` ```thera,no_check `                | yes      | no              |
+| ` ```text `, ` ```sh `, ` ```json `  | yes      | no              |
 
-| Fence in a `.md` file                  | Rendered | Compile-checked | Run                 |
-| -------------------------------------- | -------- | --------------- | ------------------- |
-| ` ```thera `                           | yes      | **yes**         | if it has an oracle |
-| ` ```thera,no_run `                    | yes      | **yes**         | no                  |
-| ` ```thera,no_check `                  | yes      | no              | no                  |
-| ` ``` ` (bare), ` ```sh `, ` ```json ` | yes      | no              | no                  |
+| Fence in a `.md` file                  | Rendered | Compile-checked |
+| -------------------------------------- | -------- | --------------- |
+| ` ```thera `                           | yes      | **yes**         |
+| ` ```thera,no_run `                    | yes      | **yes**         |
+| ` ```thera,no_check `                  | yes      | no              |
+| ` ``` ` (bare), ` ```sh `, ` ```json ` | yes      | no              |
 
 **Attributes are comma-separated**, after the language tag — the spelling Rust's
 doctests use, so it is already familiar. A space after the comma is accepted and
@@ -241,7 +241,10 @@ too.
 - **`no_run`** — compile-checked, never executed. For a block whose effects are
   real: opening a socket, writing a file, spawning a process, sleeping. The
   static bar still catches the rot class that matters (fictional syntax,
-  fictional APIs, names stale after a rename).
+  fictional APIs, names stale after a rename). With
+  [run mode paused](#run-mode--paused) nothing executes doc examples today, so
+  the attribute is currently inert — but it is accepted and recorded now, so
+  side-effectful blocks are already marked if running ever lands.
 - **`no_check`** — rendered, never checked. For **design fiction**: an example
   of an API that does not exist yet. Reach for it only when `no_run` genuinely
   cannot work. Every `no_check` block is a small permanent liability, and the
@@ -259,7 +262,7 @@ where the person trusting the example can see it.
 
 ### The doc-example dialect
 
-A doc example is compiled as a Thera source file, with three relaxations. Each
+A doc example is compiled as a Thera source file, with two relaxations. Each
 exists because REPL shape is what makes a small example readable, and a
 verification rule that fought that shape would just push authors to stop tagging
 their fences.
@@ -279,24 +282,13 @@ pub native fn slice(self, start: Int, end: Int) -> String
 **2. An unused `Result` is not an error.** `fs.read_text(path)` on a line of its
 own reads fine in an example and would be a mistake in real code.
 
-**3. `...` elides code.** It is legal wherever a block body, a statement, an
-expression, or a member list is omitted, and it type-checks as a **diverging
-hole** — like `throw` — so the enclosing signature still checks in full:
-
-```thera
-pub fn get(self, index: Int) -> Option<T> { ... }
-
-if config.port.is_some() { ... }
-```
-
-This is what lets a block whose whole point is a _signature_ or a _shape_ stay
-verified rather than degrading to `no_check`. A block containing `...` is
-compile-only: it is never run, even if it carries an oracle. Outside a doc
-example `...` is not Thera, and the diagnostic says so.
-
-The spelling is the three ASCII dots. The corpus also writes the single
-character `…` in this position; that is prose punctuation, it is not typeable
-without effort, and `thera fmt` rewrites it to `...` inside a verified block.
+That is the whole dialect. A third relaxation — `...` eliding a body or a
+statement, typed as a diverging hole — was specified and is **parked**
+([#176](https://github.com/thera-lang/thera/issues/176)): the `sdk/std`
+migration proved it unnecessary by writing out every statement its `...` stood
+for, and a grammar form legal only inside doc examples is a real dialect fork to
+carry for the few blocks that want one. A block that genuinely cannot spell its
+point as compilable code takes `thera,no_check`.
 
 ### What compiles, and what does not
 
@@ -318,7 +310,6 @@ own `main` gets no wrapper.
 | declarations — `fn`, `struct`, `enum`, `impl` | yes      |
 | declarations _and_ loose statements, mixed    | yes      |
 | its own `fn main`                             | yes      |
-| a signature with an elided body — `{ ... }`   | yes      |
 
 **Imports.** The prelude (`std.core`) is ambient as always, and in a doc comment
 the **documented library is auto-imported under its own namespace** — a block in
@@ -347,81 +338,40 @@ assume a variable into existence:
 ````
 
 Binding the context is nearly always an improvement rather than a tax: the
-example becomes copy-pasteable, and it gains something concrete for a `// =>`
-oracle to pin. Where the setup would genuinely drown the point being
-illustrated, that is the signal to move the example down a tier — a
+example becomes copy-pasteable, and it gains a concrete result worth showing in
+a trailing `// =>` comment. Where the setup would genuinely drown the point
+being illustrated, that is the signal to move the example down a tier — a
 [`@example` function](#tier-2--example-functions) can afford a few lines of
 scaffolding, a `///` block cannot.
 
-### Running is opt-in by shape
+### Run mode — paused
 
-Compile-checking is the universal bar. **Running is opt-in, and the opt-in is an
-oracle** — the same marker is both the assertion and the run-me signal, so there
-is no separate attribute to forget. The directive vocabulary is shared verbatim
-with the [`tests/lang`](../tests/lang/README.md) conformance harness, because
-two spellings of one idea is exactly the drift this doc exists to prevent.
+Compile-checking is the universal bar, and today it is the only one: **nothing
+executes a doc example.** A run mode was designed — `// =>` / `// expect:`
+oracles doubling as the run-me signal, `// expect error:` check-mode blocks, and
+ambient clock/RNG/env pinned for determinism — and is **consciously paused**,
+with the full design and the unpause trigger recorded in
+[#184](https://github.com/thera-lang/thera/issues/184). The short version of
+why: every bug the verification arc has actually caught was _statically_ wrong,
+the determinism story needs a runtime affordance that does not exist, and an
+example whose _behavior_ is worth verifying already has a home as ordinary code
+— a [tier-2 `@example` function](#tier-2--example-functions) or a program in
+`examples/`.
 
-| Directive                 | Mode  | Meaning                                                                                |
-| ------------------------- | ----- | -------------------------------------------------------------------------------------- |
-| `// => <value>`           | run   | debug-format the expression on this line and compare to `<value>`                      |
-| `// expect: <line>`       | run   | the next line of the program's stdout, compared in order                               |
-| `// expect error: <text>` | check | the block must **fail** to compile, with a diagnostic on this line containing `<text>` |
-
-A block with any `// expect error:` is a check-mode block; a block with `// =>`
-or `// expect:` is a run-mode block; a block with neither is compile-only. The
-two modes do not mix, and a block that mixes them is a `doc-example` warning.
+Until then, a trailing `// => <value>` comment is the **convention** for showing
+a result — readable and copy-pasteable, but unverified prose:
 
 ````thera
 /// **Example:**
 /// ```thera
 /// let xs = [10, 20, 30];
-/// xs.get(1)             // => Some(20)
-/// xs.get(9)             // => None
-/// println('${xs.len()} items');   // expect: 3 items
+/// xs.get(1)   // => Some(20)
+/// xs.get(9)   // => None
 /// ```
 ````
 
-The `// =>` transform is also what makes REPL-style lines legal as _assertions_
-rather than as discarded expressions: the harness rewrites the line into a
-comparison, so a wrong value fails rather than being computed and thrown away.
-
-Check-mode blocks are how a document demonstrates a diagnostic — the compiler's
-own error becomes the thing under test:
-
-````thera
-/// ```thera
-/// let x = if c { 1 };   // expect error: missing else
-/// ```
-````
-
-### Determinism
-
-A run-mode block executes with its **ambient capabilities pinned**, so that
-`no_run` stays rare and an example that touches the clock is still an example
-rather than a flake. Before the synthesized `main` runs, the harness freezes the
-ambient clock at `2026-01-01T00:00:00Z` (epoch millis `1767225600000`), seeds
-the RNG at `0`, and gives the block an empty environment. These are the ambient
-counterparts of `std.testing`'s `fixed_clock` / `fixed_env` doubles
-([stdlib.md § the ambient-capability model](stdlib.md)), installed rather than
-passed — a doc example has no seam to thread a capability through.
-
-Anything genuinely unpinnable — a network call, a real filesystem write, a
-subprocess — gets `no_run`.
-
-### Identity and reporting
-
-A doc example's name is **`path:line` of its opening fence**. No naming
-ceremony, clickable in every terminal and editor, and stable under edits
-elsewhere in the file. A failure reports that name, then the failing oracle's
-own line under it, in the standard `path:line:column: message` diagnostic shape:
-
-```
-$ thera test sdk/std
-sdk/std/core/string.thera:30: doc example failed
-  sdk/std/core/string.thera:31:5: expected 'ell', got 'ello'
-
-Ran 214 tests and 38 doc examples for 22 files; 1 failure.
-```
+The spelling is kept exactly because it is the paused design's oracle syntax: if
+run mode lands, the corpus is already written in its vocabulary.
 
 ## Tier 2 — `@example` functions
 
@@ -509,9 +459,11 @@ question belongs to
 
 ## Verification
 
-Two commands, split by what they cost. Compile-checking is fast, deterministic,
-needs no sandbox, and catches the entire observed rot class — so it belongs in
-the edit loop. Running costs more and belongs in the test run.
+Compile-checking is fast, deterministic, needs no sandbox, and catches the
+entire observed rot class — so it lives in `thera check`, in the edit loop.
+(Running doc examples belongs to the paused run mode,
+[#184](https://github.com/thera-lang/thera/issues/184); `thera test` runs the
+`@test` — and, when phase 3 lands, `@example` — functions, not fenced blocks.)
 
 ### `thera check` — compile
 
@@ -569,26 +521,16 @@ which is why it is a gap rather than a bug; a self-import under the bare surface
 
 **Cost.** Checking the examples is not free: each one is a synthesized file that
 goes through import loading and the checker. Over `pkgs sdk/std examples` — 221
-files, 112 examples — it adds about 30% to `thera check`'s wall clock. Files
-with no fence bail after lexing and never pay a parse. The next lever, if that
-ever bites, is caching a file's doc-example verdict under the same key its check
+files, 112 examples — it adds about 30% to `thera check`'s wall clock today.
+Files with no fence bail after lexing and never pay a parse. The dominant term
+is rebuilding the element model per example, which the session already knows how
+to avoid for ordinary checks (its base-library cache); reusing that for doc
+examples is the next piece of work
+([#183](https://github.com/thera-lang/thera/issues/183)) and should bring the
+cost roughly in line with the example code actually under analysis. The lever
+after that is caching a file's doc-example verdict under the same key its check
 verdict already has: both are a pure function of (file text, dependency
 surfaces), which is the property `doc_check.thera` is built to preserve.
-
-### `thera test` — run
-
-`thera test` compile-checks every verified fence and additionally **runs** the
-oracle-bearing ones, alongside the `@test` and `@example` functions. Here a
-failure is a test failure and the exit code is 1. This is the gate that keeps
-the executable claims true:
-
-```
-$ thera test sdk/std
-sdk/std/path/path.thera:212: doc example failed
-  sdk/std/path/path.thera:213:1: expected 'src/main.md', got 'src/main.thera.md'
-
-Ran 214 tests, 38 doc examples and 3 examples for 22 files; 1 failure.
-```
 
 ### Markdown: the `--docs` flag
 
@@ -596,7 +538,6 @@ Fences in `*.md` are verified on the same contract, but only when asked:
 
 ```
 $ thera check --docs docs/
-$ thera test --docs docs/
 ```
 
 `--docs` adds the Markdown files under the target to the set. It is opt-in
@@ -615,8 +556,9 @@ shipping a `serve(addr, handler)` form that never compiled, and
 
 The short version, in the order the decision actually gets made:
 
-1. **Is it one call?** Fenced `thera` block at the symbol. Add `// =>` if the
-   result is worth pinning; that is nearly always.
+1. **Is it one call?** Fenced `thera` block at the symbol. Show the result in a
+   trailing `// =>` comment when there is one worth showing; that is nearly
+   always.
 2. **Does it need more than about five lines, or a helper?** `@example` fn in
    the sibling `foo_test.thera`, referenced with `/// @file#fragment`.
 3. **Is it a program someone would run?** `examples/`.
@@ -640,37 +582,36 @@ table below is mirrored as a checklist in the tracking epic,
 its sub-issues. See the [roadmap](roadmap.md#developer-tooling) for how this arc
 sits against the rest of developer tooling.
 
-| Piece                                                      | Status                                                                                              |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `///` / `//!` / `//` lexing, comment side channel          | **done**                                                                                            |
-| The conventions above; `sdk/std` migrated to `///` / `//!` | **done** (`pkgs/cli` and `examples/` not yet migrated)                                              |
-| `examples/` compiled and run by `bin/test.sh`              | **done**                                                                                            |
-| `@test` functions, `thera test`                            | **done**                                                                                            |
-| Attaching docs to AST nodes                                | **done** — `docs.attach` (`pkgs/cli/docs.thera`), a span-keyed side table                           |
-| Fence extraction + compile-check                           | **done** — `docs.doc_examples` / `doc_check.check_file`                                             |
-| The `doc-example` warning in `thera check`                 | **done** — target-set files only; `bin/test.sh` gates the corpus                                    |
-| The doc-example dialect (bare exprs, unused `Result`)      | **done**; `...` elision is pending — phase 1                                                        |
-| Making `sdk/std`'s examples self-contained                 | **done** — 108 of 108 compile; see the snapshot below                                               |
-| `--docs` (Markdown fences)                                 | pending — phase 2                                                                                   |
-| `@example`, `/// @file#fragment` references, inlining      | pending — phase 3, lands with the doc generator ([scale.md item 5](scale.md#5-generated-api-index)) |
-| `// =>` / `// expect:` / `// expect error:` oracles        | pending — phase 4                                                                                   |
-| `lint --fix` sweep: trailing-comment results → `// =>`     | pending — phase 5                                                                                   |
-| `[Symbol]` resolution + `doc-reference` warning            | pending                                                                                             |
-| LSP hover showing item/file docs                           | pending                                                                                             |
+| Piece                                                      | Status                                                                                                                 |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `///` / `//!` / `//` lexing, comment side channel          | **done**                                                                                                               |
+| The conventions above; `sdk/std` migrated to `///` / `//!` | **done** (`pkgs/cli` and `examples/` not yet migrated)                                                                 |
+| `examples/` compiled and run by `bin/test.sh`              | **done**                                                                                                               |
+| `@test` functions, `thera test`                            | **done**                                                                                                               |
+| Attaching docs to AST nodes                                | **done** — `docs.attach` (`pkgs/cli/docs.thera`), a span-keyed side table                                              |
+| Fence extraction + compile-check                           | **done** — `docs.doc_examples` / `doc_check.check_file`                                                                |
+| The `doc-example` warning in `thera check`                 | **done** — target-set files only; `bin/test.sh` gates the corpus                                                       |
+| The doc-example dialect (bare exprs, unused `Result`)      | **done** — `...` elision was dropped from the dialect ([#176](https://github.com/thera-lang/thera/issues/176), parked) |
+| Making `sdk/std`'s examples self-contained                 | **done** — 108 of 108 compile; see the snapshot below                                                                  |
+| Doc-example checking at full speed                         | in progress — [#183](https://github.com/thera-lang/thera/issues/183), the base-library cache reuse                     |
+| `--docs` (Markdown fences)                                 | pending — phase 2                                                                                                      |
+| `@example`, `/// @file#fragment` references, inlining      | pending — phase 3, lands with the doc generator ([scale.md item 5](scale.md#5-generated-api-index))                    |
+| Run mode: oracles, determinism, the `lint --fix` sweep     | **paused** — was phases 4–5; design and unpause trigger in [#184](https://github.com/thera-lang/thera/issues/184)      |
+| `[Symbol]` resolution + `doc-reference` warning            | pending                                                                                                                |
+| LSP hover showing item/file docs                           | pending                                                                                                                |
 
-Phasing is deliberate. Phase 1 alone catches every bug that motivated the work —
-all of them were **statically** wrong — so it is worth landing before anything
-that needs a runner. The later phases are upgrades to blocks that already
-compile.
-
-Two things should land _with_ phase 1 rather than after it, because they are
-what makes the existing corpus taggable at all: the doc-example dialect (without
-it, `sdk/std`'s REPL-shaped fences all fail) and `...` elision (without it, 14
-of language.md's most illustrative blocks would have to degrade to `no_check`).
-The dialect is language surface, so it wants [conformance](conformance.md) IDs
-when it lands. The dialect is in; elision is the one piece still outstanding,
-and `sdk/std` no longer needs it — the migration wrote out every statement its
-`...` stood for. It is `docs/language.md` that phase 2 will hand the bill to.
+Phasing is deliberate, and the 2026-08 re-plan sharpened it: phase 1 alone
+catches every bug that motivated the work — all of them were **statically**
+wrong — so the analysis pieces (phases 1–3: compile-check, Markdown via
+`--docs`, `@example` references) are the arc, and the run-mode phases (4–5) are
+paused rather than queued
+([#184](https://github.com/thera-lang/thera/issues/184)). The dialect that
+landed with phase 1 is language surface, so it wants
+[conformance](conformance.md) IDs. `...` elision, once slated to land alongside
+it, was dropped from the dialect after the `sdk/std` migration showed the corpus
+did not need it ([#176](https://github.com/thera-lang/thera/issues/176));
+language.md's eliding blocks settle at phase 2 by writing their statements out
+or taking `no_check`.
 
 ## Corpus snapshot (2026-08)
 

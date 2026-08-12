@@ -325,10 +325,10 @@ alone catches the rot class that prompted this item.
 
 **Direction — settled, and now spec'd in full.** The whole surface lives in
 [documentation.md](documentation.md): the three tiers below, the fence tag as
-the contract, compile-check as the universal bar with running opt-in by oracle,
-and the phasing. The principle: **minimize code that lives as strings** — only
-the smallest examples sit in comments; anything bigger is real code that
-participates in checking and refactors with no special tooling.
+the contract, compile-check as the universal bar, and the phasing. The
+principle: **minimize code that lives as strings** — only the smallest examples
+sit in comments; anything bigger is real code that participates in checking and
+refactors with no special tooling.
 
 1. **One-liners in doc comments** — fenced blocks in `///`/`//!`, REPL style
    (~99 blocks across 33 `sdk/std` files today). Locality is the point: they
@@ -357,32 +357,29 @@ participates in checking and refactors with no special tooling.
 **Static vs. run.** Compile-check (parse, resolve, type-check) is the universal
 bar for every tagged block — it is deterministic, needs no sandbox, and catches
 the observed rot class (fictional syntax, fictional APIs, stale names after
-renames). **Running is opt-in by shape**: a block runs iff it contains a
-`// => value` oracle (the harness debug-formats the expression and compares —
-the marker is both the assertion and the run-me signal; Go's `// Output:`
-design) or `// error:` expectations (check mode, per the `tests/lang` harness).
-The transform is also what makes REPL-style lines legal — bare expression
-statements and discarded `Result`s are errors, so oracle lines compile _as
-assertions_, not verbatim. Blocks with neither marker are compile-only. Wrapper
-synthesis: implicit `fn main` + prelude + the documented library auto-imported
-under its own namespace (existing examples already assume this —
-`path.components(...)`).
+renames). Wrapper synthesis makes the REPL shape compile: implicit `fn main` +
+prelude + the documented library auto-imported under its own namespace (existing
+examples already assume this — `path.components(...)`). **Running is paused**: a
+run mode was designed — `// =>` oracles doubling as the run-me signal, pinned
+ambient capabilities for determinism — and consciously parked, with the design
+and unpause trigger in [#184](https://github.com/thera-lang/thera/issues/184);
+verified _behavior_ lives in tier 2/3, which are ordinary code.
 
 **Phasing.** Spec the whole surface first, so examples get written in the final
 shape — done, in [documentation.md](documentation.md). Then implement in stages:
-(1) extraction + **compile-check** of tagged fences — the high-order bit; (2)
-Markdown fences behind `--docs`; (3) `@example` + references + `thera doc`/hover
-inlining (lands with item 5's doc generator — the reference convention is only
-as good as its rendering); (4) `// =>` oracles and check-mode blocks; (5) the
-`lint --fix` sweep converting the stdlib blocks' trailing comments to `// =>`
-where they parse as values.
+(1) extraction + **compile-check** of tagged fences — the high-order bit,
+landed; (2) Markdown fences behind `--docs`; (3) `@example` + references +
+`thera doc`/hover inlining (lands with item 5's doc generator — the reference
+convention is only as good as its rendering). The former phases 4–5 — oracles
+and the `lint --fix` sweep upgrading trailing comments to them — are the paused
+run mode above.
 
 **What the write-up settled beyond the above**, recorded here because they are
 the decisions a reader of this doc would want:
 
-- **The command split.** `thera check` compile-checks tagged fences;
-  `thera test` additionally runs the oracle-bearing ones. Compile-check is
-  deterministic and cheap, so it belongs in the edit loop.
+- **The command split.** `thera check` compile-checks tagged fences —
+  deterministic and cheap, so it belongs in the edit loop. (`thera test` running
+  the oracle-bearing ones is part of the paused run mode.)
 - **`doc-example` is a warning, not an error** — and fences are extracted only
   from the files `check` was pointed at, never the import closure. A doc comment
   is not the program: a stale example must never stop unrelated code from
@@ -394,22 +391,20 @@ the decisions a reader of this doc would want:
   tries to compile the fences in a README or a vendored document.
 - **A doc-example dialect**, which is what makes the existing corpus taggable at
   all: bare expression statements and unused `Result`s are legal (REPL shape is
-  the point — otherwise `sdk/std`'s 109 fences all fail), and `...` elides a
-  body, expression, or member list as a diverging hole (otherwise 14 of
-  language.md's most illustrative blocks degrade to `no_check`). This is
-  language surface and wants conformance IDs when it lands.
-
-The three open questions are closed: `// =>` runs get pinned ambient
-capabilities (fixed clock/env/RNG), so `no_run` stays rare; a doc example's
-identity is `path:line`; and the directive vocabulary is `tests/lang`'s verbatim
-— `// expect error:`, not a second lighter spelling.
+  the point — otherwise `sdk/std`'s 109 fences all fail). This is language
+  surface and wants conformance IDs. A third relaxation — `...` eliding a body
+  as a diverging hole — was dropped after the `sdk/std` migration showed the
+  corpus did not need it
+  ([#176](https://github.com/thera-lang/thera/issues/176), parked).
 
 **Status:** spec'd in [documentation.md](documentation.md) (which also absorbed
-language.md's doc-model section); implementation pending, with phase 1 the arc
-to run first — it catches every bug that motivated the item, all of which were
-statically wrong. Tracked as
-[issue #165](https://github.com/thera-lang/thera/issues/165) (the arc) and
-[#126](https://github.com/thera-lang/thera/issues/126) (phase 1).
+language.md's doc-model section). Phase 1 has **landed** — extraction,
+compile-check, and the `doc-example` warning in `thera check`, with the
+`sdk/std` corpus migrated and gated — and it caught every bug that motivated the
+item, all of which were statically wrong. Tracked as
+[issue #165](https://github.com/thera-lang/thera/issues/165) (the arc), with
+[#183](https://github.com/thera-lang/thera/issues/183) (checking cost) the next
+piece of work.
 
 ### 7. Doc-reference integrity, promoted to errors
 
