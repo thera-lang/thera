@@ -259,6 +259,14 @@ pub fn stream(request: common.Request) -> Result<Stream, common.HttpError> {
 /// has to outlive the call:
 ///
 /// ```thera
+/// import std.http.sse;
+///
+/// let req = http.Request {
+///     method: 'GET',
+///     url: 'https://example.com/events',
+///     headers: [:],
+///     body: Bytes.empty(),
+/// };
 /// let count = http.with_stream(req, handle: (s) => {
 ///     let mut n = 0;
 ///     for ev in sse.events(s.body) { n = n + 1; }

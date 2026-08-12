@@ -434,6 +434,16 @@ impl Command {
     /// directly.
     ///
     /// ```thera
+    /// fn app() -> cli.Command {
+    ///     return cli.Command.new('tool')
+    ///         .subcommand(cli.Command.new('build').flag('--release'));
+    /// }
+    ///
+    /// fn dispatch(name: String, matches: cli.Matches) -> Result<Int, Error> {
+    ///     println('${name}: release=${matches.flag('--release')}');
+    ///     return Result.Ok(0);
+    /// }
+    ///
     /// fn main(argv: List<String>) -> Result<Int, Error> {
     ///     match app().run(argv) {
     ///         Exit(code) => return Result.Ok(code),

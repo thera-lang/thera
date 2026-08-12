@@ -611,22 +611,23 @@ table below is mirrored as a checklist in the tracking epic,
 its sub-issues. See the [roadmap](roadmap.md#developer-tooling) for how this arc
 sits against the rest of developer tooling.
 
-| Piece                                                        | Status                                                                                              |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `///` / `//!` / `//` lexing, comment side channel            | **done**                                                                                            |
-| The conventions above; `sdk/std` migrated to `///` / `//!`   | **done** (`pkgs/cli` and `examples/` not yet migrated)                                              |
-| `examples/` compiled and run by `bin/test.sh`                | **done**                                                                                            |
-| `@test` functions, `thera test`                              | **done**                                                                                            |
-| Attaching docs to AST nodes                                  | **done** — `docs.attach` (`pkgs/cli/docs.thera`), a span-keyed side table                           |
-| Fence extraction + compile-check, `doc-example` warning      | pending — **phase 1**, the high-order bit                                                           |
-| The doc-example dialect (bare exprs, unused `Result`, `...`) | pending — lands with phase 1                                                                        |
-| Making `sdk/std`'s examples self-contained                   | pending — lands with phase 1; see the snapshot below                                                |
-| `--docs` (Markdown fences)                                   | pending — phase 2                                                                                   |
-| `@example`, `/// @file#fragment` references, inlining        | pending — phase 3, lands with the doc generator ([scale.md item 5](scale.md#5-generated-api-index)) |
-| `// =>` / `// expect:` / `// expect error:` oracles          | pending — phase 4                                                                                   |
-| `lint --fix` sweep: trailing-comment results → `// =>`       | pending — phase 5                                                                                   |
-| `[Symbol]` resolution + `doc-reference` warning              | pending                                                                                             |
-| LSP hover showing item/file docs                             | pending                                                                                             |
+| Piece                                                      | Status                                                                                              |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `///` / `//!` / `//` lexing, comment side channel          | **done**                                                                                            |
+| The conventions above; `sdk/std` migrated to `///` / `//!` | **done** (`pkgs/cli` and `examples/` not yet migrated)                                              |
+| `examples/` compiled and run by `bin/test.sh`              | **done**                                                                                            |
+| `@test` functions, `thera test`                            | **done**                                                                                            |
+| Attaching docs to AST nodes                                | **done** — `docs.attach` (`pkgs/cli/docs.thera`), a span-keyed side table                           |
+| Fence extraction + compile-check                           | **done** — `docs.doc_examples` / `doc_check.check_file`                                             |
+| The `doc-example` warning in `thera check`                 | pending — **phase 1**, the high-order bit                                                           |
+| The doc-example dialect (bare exprs, unused `Result`)      | **done**; `...` elision is pending — phase 1                                                        |
+| Making `sdk/std`'s examples self-contained                 | **done** — 108 of 108 compile; see the snapshot below                                               |
+| `--docs` (Markdown fences)                                 | pending — phase 2                                                                                   |
+| `@example`, `/// @file#fragment` references, inlining      | pending — phase 3, lands with the doc generator ([scale.md item 5](scale.md#5-generated-api-index)) |
+| `// =>` / `// expect:` / `// expect error:` oracles        | pending — phase 4                                                                                   |
+| `lint --fix` sweep: trailing-comment results → `// =>`     | pending — phase 5                                                                                   |
+| `[Symbol]` resolution + `doc-reference` warning            | pending                                                                                             |
+| LSP hover showing item/file docs                           | pending                                                                                             |
 
 Phasing is deliberate. Phase 1 alone catches every bug that motivated the work —
 all of them were **statically** wrong — so it is worth landing before anything
@@ -635,10 +636,12 @@ compile.
 
 Two things should land _with_ phase 1 rather than after it, because they are
 what makes the existing corpus taggable at all: the doc-example dialect (without
-it, `sdk/std`'s 109 REPL-shaped fences all fail) and `...` elision (without it,
-14 of language.md's most illustrative blocks would have to degrade to
-`no_check`). The dialect is language surface, so it wants
-[conformance](conformance.md) IDs when it lands.
+it, `sdk/std`'s REPL-shaped fences all fail) and `...` elision (without it, 14
+of language.md's most illustrative blocks would have to degrade to `no_check`).
+The dialect is language surface, so it wants [conformance](conformance.md) IDs
+when it lands. The dialect is in; elision is the one piece still outstanding,
+and `sdk/std` no longer needs it — the migration wrote out every statement its
+`...` stood for. It is `docs/language.md` that phase 2 will hand the bill to.
 
 ## Corpus snapshot (2026-08)
 
@@ -664,31 +667,41 @@ and run against all 109 `sdk/std` blocks (`dev/doc_examples.thera`):
 That last row was entirely artifacts of the throwaway prototype's line-based
 extraction — the real pass is token-driven and clears them.
 
-**Four genuinely broken doc comments** have fallen out so far, which is the
-point of the exercise:
+**The sweep is done** ([#174](https://github.com/thera-lang/thera/issues/174)):
+**108 of 108** verified `sdk/std` blocks compile. One signature sketch
+(`assert_eq`'s `-> ...` in `core/source_loc.thera`) is parked at
+`thera,no_check` — a sketched _return type_ is not a program, and elision will
+not rescue it — which is why the denominator moved from 109 to 108. The `...`
+row above was settled by writing the statement the elision stood for, so no
+block is waiting on [#176](https://github.com/thera-lang/thera/issues/176).
 
-- `sdk/std/net/net.thera` documented `'…'.to_bytes()`, a method that does not
-  exist (it is `bytes()`).
-- `sdk/std/testing/env.thera` documented `fixed_env({ 'PORT': '8080' }, …)`,
-  using `{…}` map-literal syntax, which is not Thera.
-- `sdk/std/core/list.thera` documented `names.sort((a, b) => a < b)`, but `<`
-  takes Int or Double operands; strings order through `a.compare(b)`. The block
-  also never bound `names`, so this one hid behind an unbound name until the
-  binding was added — a reminder that the migration and the verification find
-  different bugs.
-- `sdk/std/core/map.thera` said in _prose_ that a map literal is `{k: v}` — the
-  same non-syntax as the second entry, found while fixing the fence beside it.
-  Verified fences do not police prose, but they do drag the eye to it.
+**Seven genuinely broken doc comments** fell out, which is the point of the
+exercise. They sort into three kinds:
 
-All four had survived review, and all four are the rot class this arc exists to
-stop.
+_Calls that do not exist._ `net.thera` documented `'…'.to_bytes()` (it is
+`bytes()`), and `random.thera` documented `rng.int(1, 7)` against a
+named-parameter signature (`rng.int(low: 1, high: 7)`).
 
-So phase 1 is verification **and** a bounded migration: roughly 42 blocks gain
-the binding or import they assume, 7 settle on `...`, 2 declare the type they
-use, and 3 gain a non-Thera tag. That is the honest cost, and it is one sweep,
-once — after which the default keeps it swept.
+_Syntax the compiler rejects._ `testing/env.thera` documented
+`fixed_env({ 'PORT': '8080' }, …)`, using a `{…}` map literal, which is not
+Thera; `core/map.thera` said the same thing in _prose_, found while fixing the
+fence beside it (verified fences do not police prose, but they do drag the eye
+to it); and `core/list.thera` documented `names.sort((a, b) => a < b)`, but `<`
+takes Int or Double operands, so strings order through `a.compare(b)`.
 
-The sweep runs per library
-([#174](https://github.com/thera-lang/thera/issues/174)). `sdk/std/core` is
-done: 41 of 41 verified blocks compile, with one signature sketch (`assert_eq`'s
-`-> ...`) parked at `thera,no_check` until elision lands.
+_Names that would not resolve._ `cli/args.thera` wrote `Args.new(…)` and
+`term.thera` wrote `Color.Red`, both unqualified, where a client of the library
+must write `cli.Args` and `term.Color`. These are the doc bugs an agent is most
+likely to copy verbatim.
+
+All seven had survived review. Note how many surfaced only _after_ their block's
+missing binding was supplied: the migration and the verification find different
+bugs, and the migration has to go first for the verification to see anything.
+
+The migration also turned up a bug in the extractor. A statement whose closing
+brace and semicolon share a line (`let r = Req {` … `};`, over several lines)
+was split into two chunks — and since a chunk is sliced out of the block by
+_line_, both claimed the line they shared and the text came out twice. The
+chunker now takes a boundary only at a line break, which makes its granularity
+match its slicing. A corpus this size is a better test of the extractor than the
+extractor's own unit tests were.

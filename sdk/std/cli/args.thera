@@ -7,10 +7,13 @@
 //! import std.cli;
 //!
 //! fn main(parameters: List<String>) -> Result<Int, Error> {
-//!     let args = Args.new(parameters);
+//!     let args = cli.Args.new(parameters);
 //!     let path = args.positional(0).ok_or(error('usage: tool <path>'))?;
 //!     let verbose = args.flag('--verbose', default: false);
-//!     ...
+//!     if verbose {
+//!         println('reading ${path}');
+//!     }
+//!     return Result.Ok(0);
 //! }
 //! ```
 

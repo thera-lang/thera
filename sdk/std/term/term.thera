@@ -57,7 +57,7 @@ pub enum Color {
 /// TTY; return `text` unchanged otherwise, so redirected output stays clean.
 ///
 /// ```thera
-/// print(term.style('error: not found', color: Color.Red, bold: true));
+/// print(term.style('error: not found', color: term.Color.Red, bold: true));
 /// ```
 pub fn style(text: String, named color: Color, named bold: Bool = false) -> String {
     if !is_tty() {

@@ -80,6 +80,12 @@ struct Route {
 /// middleware**; anything richer is ecosystem (docs/stdlib.md § `std.http`).
 ///
 /// ```thera
+/// import std.http;
+///
+/// fn on_hook(req: http.Request) -> Result<http.Response, Error> {
+///     return Result.Ok(server.text(200, 'thanks'));
+/// }
+///
 /// let handler = server.Router.new()
 ///     .route('GET', '/health', (_req) => Result.Ok(server.text(200, 'ok')))
 ///     .route('POST', '/hook', on_hook)

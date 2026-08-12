@@ -9,6 +9,7 @@
 //!     let doc = resp.json()?;
 //! }
 //!
+//! let payload = '{"name": "thing"}';
 //! let made = http.post('https://example.com/things', body: payload.bytes(),
 //!     headers: ['content-type': 'application/json'])?;
 //! ```
@@ -26,8 +27,18 @@
 //! `io.Reader`; `with_stream` is the same thing with the close taken care of:
 //!
 //! ```thera
+//! import std.http.sse;
+//!
+//! let request = http.Request {
+//!     method: 'GET',
+//!     url: 'https://example.com/events',
+//!     headers: [:],
+//!     body: Bytes.empty(),
+//! };
 //! http.with_stream(request, handle: (s) => {
-//!     for ev in sse.events(s.body) { … }   // std.http.sse
+//!     for ev in sse.events(s.body) {
+//!         println(ev.data);
+//!     }
 //!     return Result.Ok(void);
 //! })?;
 //! ```

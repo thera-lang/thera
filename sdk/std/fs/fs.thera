@@ -5,15 +5,21 @@
 //! Import as: import std.fs
 //!
 //! ```thera
+//! import std.io;
+//!
 //! let text = fs.read_text('config.json')?;
-//! for name in fs.list_dir('.')? { ... }
+//! for name in fs.list_dir('.')? {
+//!     println(name);
+//! }
 //!
 //! // every .thera file under src/, recursively
 //! let sources = fs.walk('src').filter((p) => p.ends_with('.thera')).to_list();
 //!
 //! // stream a file line by line without loading it whole
 //! let f = fs.open('big.log')?;
-//! for line in io.lines(f) { ... }
+//! for line in io.lines(f) {
+//!     println(line);
+//! }
 //! f.close()?;
 //! ```
 //!
@@ -444,10 +450,12 @@ pub fn create(path: String) -> Result<File, FsError> {
 /// `fs.remove(f.path())` when done (there are no finalizers).
 ///
 /// ```thera
+/// import std.io;
+///
 /// let f = fs.temp_file(prefix: 'build-')?;
-/// io.write_all(f, someBytes)?;
+/// io.write_all(f, 'partial output'.bytes())?;
 /// f.close()?;
-/// // ... use f.path() ...
+/// println('wrote ${f.path()}');
 /// fs.remove(f.path())?;
 /// ```
 pub fn temp_file(named prefix: String = 'tmp') -> Result<File, FsError> {

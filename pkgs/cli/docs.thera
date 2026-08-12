@@ -588,6 +588,16 @@ fn ends_chunk(t: Token, next: Option<Token>) -> Bool {
     let Some(n) = next else {
         return true; // end of block
     };
+    // **A chunk boundary is always a line boundary.** A chunk is sliced out of the
+    // body as a run of *lines*, so two chunks that shared a line would each claim
+    // the whole of it and the text would be emitted twice. `let x = Foo { a: 1 };`
+    // spread over several lines is the shape that finds this: the `}` closes the
+    // statement's expression and the `;` opens nothing, yet they sit on one line.
+    // Deferring to the next line break costs nothing — the rules below only ever
+    // merge statements that a reader already sees as one line.
+    if n.span.line == t.span.line {
+        return false;
+    }
     if t.kind == TokenKind.Semi {
         return true;
     }
@@ -595,12 +605,8 @@ fn ends_chunk(t: Token, next: Option<Token>) -> Bool {
     if t.kind == TokenKind.RBrace {
         return n.kind != TokenKind.KwElse;
     }
-    // Otherwise only a line break can end it, and only when neither side wants to
-    // carry on: a leading `.` or `?` continues a chain, and a trailing operator
-    // continues an expression.
-    if n.span.line == t.span.line {
-        return false;
-    }
+    // Otherwise it ends only when neither side wants to carry on: a leading `.` or
+    // `?` continues a chain, and a trailing operator continues an expression.
     return can_end_expression(t.kind) && !can_continue_expression(n.kind);
 }
 

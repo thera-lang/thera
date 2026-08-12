@@ -12,6 +12,12 @@ import std.time;
 /// it always reports `millis`.
 ///
 /// ```thera
+/// import std.time;
+///
+/// fn stamp(clock: time.Clock) -> String {
+///     return 'at=${clock.now_millis()}';
+/// }
+///
 /// let clock = testing.fixed_clock(1000);
 /// testing.assert_eq(actual: stamp(clock), expected: 'at=1000')?;
 /// ```

@@ -48,6 +48,10 @@ impl Clock for SystemClock {
 /// capability to pass into testable logic.
 ///
 /// ```thera
+/// fn run(clock: time.Clock) -> Void {
+///     println('now: ${clock.now_millis()}');
+/// }
+///
 /// let clock = time.system_clock();
 /// run(clock);
 /// ```

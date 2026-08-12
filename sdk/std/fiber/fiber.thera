@@ -129,11 +129,12 @@ pub interface Selectable {
 /// block, because nothing else runs in between.
 ///
 /// ```thera
+/// let jobs: fiber.Channel<Int> = fiber.channel();
+/// let quit: fiber.Channel<Void> = fiber.channel();
+///
 /// let i = fiber.select([jobs, quit]);
 /// if i == 0 {
-///     match jobs.receive() { Some(job) => run(job), None => void }
-/// } else {
-///     return;
+///     match jobs.receive() { Some(job) => println('job ${job}'), None => void }
 /// }
 /// ```
 ///
@@ -205,6 +206,9 @@ pub struct Timer {
 /// A [Selectable] that becomes ready once `d` has elapsed.
 ///
 /// ```thera
+/// import std.time;
+///
+/// let work: fiber.Channel<Int> = fiber.channel();
 /// let i = fiber.select([work, fiber.after(time.Duration.seconds(5))]);
 /// ```
 pub fn after(d: time.Duration) -> Timer {

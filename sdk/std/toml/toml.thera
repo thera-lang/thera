@@ -8,6 +8,8 @@
 //! — and the typed `get_*` helpers read one value leniently.
 //!
 //! ```thera
+//! let text = '[package]\nname = "thera"\n';
+//!
 //! let doc = toml.parse(text)?;
 //! let name = doc.get_string('package.name').unwrap_or('unnamed');
 //! let port = doc.get_int('server.port').unwrap_or(8080);
@@ -24,6 +26,8 @@
 //! (`expected a string at generate.operations[2], got integer`).
 //!
 //! ```thera
+//! let doc = toml.parse('spec_url = "https://example.com/openapi.json"')?;
+//!
 //! let at = toml.cursor(doc);
 //! let url = at.field('spec_url').string()?;          // required
 //! let lane = at.field('generate').field('beta_lane').opt_bool()?;  // absent → None
@@ -281,6 +285,11 @@ impl Display for DecodeError {
 /// typed.
 ///
 /// ```thera
+/// struct Auth {
+///     let header: String;
+///     let env: Option<String>;
+/// }
+///
 /// fn auth_from_toml(at: toml.Cursor) -> Result<Auth, toml.DecodeError> {
 ///     return Result.Ok(Auth {
 ///         header: at.field('header').string()?,
@@ -288,6 +297,7 @@ impl Display for DecodeError {
 ///     });
 /// }
 ///
+/// let text = '[auth]\nheader = "x-api-key"\n';
 /// let root = toml.cursor(toml.parse(text)?);
 /// let auth = auth_from_toml(root.field('auth').table()?)?;
 /// ```

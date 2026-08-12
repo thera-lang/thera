@@ -23,6 +23,7 @@
 //! ```thera
 //! for line in io.lines(io.stdin()) { println(line); }
 //!
+//! let text = 'first\n\nthird\n';
 //! let nonblank = io.lines(io.from_string(text))
 //!     .filter((s) => s.len() > 0)
 //!     .to_list();
