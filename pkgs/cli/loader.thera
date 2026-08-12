@@ -207,6 +207,22 @@ fn resolve_library_file(base: String) -> Option<String> {
     return Option.None;
 }
 
+// Whether `dir` is a **directory library** — a directory fronted by its
+// `<dir>/<name>.thera` barrel, the only surface importable from outside it.
+//
+// Public because "which library does this file belong to?" is a question outside
+// the loader too: doc-example synthesis asks it to decide what to auto-import into
+// a file's examples (`doc_check.documented_library`). The answer is a function of
+// the filesystem, like every other import resolution here.
+pub fn is_directory_library(dir: String) -> Bool {
+    for ext in source_exts() {
+        if is_file(path.join(dir, path.basename(dir) + ext)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // The recovered program for a file plus any lex/parse diagnostics it produced.
 // `pub` so a caller checking many files (`check <dir>`) can hold a cross-file parse
 // cache (`Map<path, ParsedFile>`) and hand it to `load_imports` — the shared import

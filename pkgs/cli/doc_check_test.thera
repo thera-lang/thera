@@ -99,6 +99,43 @@ fn test_a_malformed_fence_is_reported() -> Result<Void, Error> {
 }
 
 @test
+fn test_every_diagnostic_is_a_doc_example_warning() -> Result<Void, Error> {
+    // Never an error, whatever the block did. A doc comment is not the program, so
+    // a stale example must not gate a compile — and the rule name is what
+    // `--fatal-warnings` and the LSP key on.
+    let broken = '/// ```\n/// nope_not_a_thing()\n/// ```\npub fn f() -> Int { return 0; }\n';
+    let malformed = '/// ```thera,norun\n/// let a = 1;\n/// ```\npub fn f() -> Int { return 0; }\n';
+    for src in [broken, malformed] {
+        let ds = check_at('probe.thera', src);
+        testing.assert_eq(actual: ds.len(), expected: 1)?;
+        testing.assert_eq(actual: ds[0].severity, expected: Severity.Warning)?;
+        testing.assert_eq(actual: ds[0].rule, expected: Option.Some('doc-example'))?;
+        testing.assert(!is_error(ds[0]), message: 'must not gate: ${ds[0].message}')?;
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_file_with_no_examples_reports_nothing() -> Result<Void, Error> {
+    // The early bail: no fence means the primary is never even parsed. A file that
+    // does not parse but holds no example must still come back silent rather than
+    // tripping over the guard.
+    let unparseable = '/// Just a doc.\npub fn f( -> { !!!\n';
+    testing.assert_eq(actual: check_at('probe.thera', unparseable).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_broken_file_reports_no_examples() -> Result<Void, Error> {
+    // With a fence present the primary *is* parsed, and a file that does not parse
+    // has no trustworthy doc comments — better silent than a list derived from a
+    // recovered tree.
+    let src = '/// ```\n/// nope_not_a_thing()\n/// ```\npub fn f( -> { !!!\n';
+    testing.assert_eq(actual: check_at('probe.thera', src).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_the_documented_library_needs_no_import() -> Result<Void, Error> {
     // A file in the SDK's `std/path/` documents `std.path`, so `path.` resolves
     // with no import line — which is what the corpus assumes throughout.

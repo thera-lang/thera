@@ -1,6 +1,6 @@
 //! An example program: list a repository's open pull requests.
 //!
-//! ```
+//! ```sh
 //! bin/thera.sh run pkgs/github/example.thera                 # thera-lang/thera
 //! bin/thera.sh run pkgs/github/example.thera rust-lang/rust  # any public repo
 //! ```

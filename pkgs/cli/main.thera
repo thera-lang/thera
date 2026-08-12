@@ -367,6 +367,7 @@ fn do_check(
     let printed: Set<String> = Set.new();
     let mut total = 0;
     let mut warnings = 0;
+    let mut doc_examples = false;
     let mut unreadable = false;
     for file in sorted {
         match fs.read_text(file) {
@@ -376,7 +377,22 @@ fn do_check(
                 // it resembles (eslint, ruff, mypy). stderr is reserved for
                 // operational failures (below) and `emit`, which is a compiler
                 // whose product is the `.thera-bc`. (See docs/architecture.md.)
-                let diags = sess.check(source, file);
+                //
+                // The file's own diagnostics, then its doc examples', collected
+                // into a fresh list — `check` may hand back a cached parse's
+                // diagnostics, which are the session's to keep, not ours to append
+                // to.
+                let diags: List<diagnostic.Diagnostic> = [];
+                for d in sess.check(source, file) {
+                    diags.push(d);
+                }
+                // Target set only — this is the one place that knows which files
+                // the user pointed at, which is why the call lives here and not
+                // inside `sess.check` (see `Session.check_doc_examples`).
+                for d in sess.check_doc_examples(source, file) {
+                    diags.push(d);
+                    doc_examples = true;
+                }
                 for d in diags {
                     let line = session.format_diagnostic(d, file);
                     if !printed.contains(line) {
@@ -413,6 +429,17 @@ fn do_check(
         summary = '${summary}; ${warnings} ${runner.plural(warnings, 'warning')}';
     }
     println('${summary}.');
+    // Said once per run, not once per diagnostic. The rule name printed on each
+    // `doc-example` line reads as an invitation to write `// ignore: doc-example`,
+    // which cannot work: a `//` line inside a doc comment ends the doc run. Point
+    // at the opt-out that does.
+    if doc_examples {
+        println('');
+        println(
+            'note: a doc example opts out of checking with a `thera,no_check` fence attribute; '
+            + '`// ignore:` cannot appear inside a doc comment.'
+        );
+    }
     // Errors always gate. `--fatal-warnings` additionally promotes any warning to a
     // failing exit (the CI knob for a warning-free tree).
     if total > 0 || (fatal_warnings && warnings > 0) {

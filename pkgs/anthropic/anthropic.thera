@@ -10,6 +10,9 @@
 //! [docs/api-access.md](../../docs/api-access.md) Arc 2.
 //!
 //! ```thera
+//! import std.json;
+//!
+//! let body = '{"content": [{"type": "text", "text": "hi"}]}';
 //! let msg = anthropic.message_from_json(json.cursor(json.parse(body)?))?;
 //! for block in msg.content {
 //!     match block {

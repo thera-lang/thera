@@ -1,11 +1,10 @@
 // Process-level integration guards for the `thera` CLI.
 //
-// These assert *observable process behavior* that the in-process @test suites
-// can't reach: the LSP stdout transport over a real pipe, profiler determinism
-// across two separate runs, the stdout/stderr stream split, `fmt --check`
-// semantics, and per-file diagnostic attribution. Each guard shells out to the
-// real launcher (the same one under test) via std.process, mirroring
-// tests/lang_runner.thera.
+// These assert *observable process behavior* that the in-process @test suites can't
+// reach: the LSP stdout transport over a real pipe, profiler determinism across two
+// separate runs, the stdout/stderr stream split, `fmt --check` semantics, and
+// per-file diagnostic attribution. Each guard shells out to the real launcher (the
+// same one under test) via std.process, mirroring tests/lang_runner.thera.
 //
 // Usage (from the repo root):
 //   thera run tests/integration_runner.thera <thera-cmd>
@@ -19,7 +18,7 @@ import std.path;
 
 enum Verdict {
     Pass,
-    Fail(String),     // reason
+    Fail(String), // reason
 }
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
@@ -29,9 +28,9 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     }
     let thera = parameters[0];
 
-    // One unique scratch dir for every fixture, cleaned up at the end. Fixtures
-    // are generated here (never committed) so the corpus fmt/check guards — which
-    // scan the real tree — can't be tripped by a deliberately broken file.
+    // One unique scratch dir for every fixture, cleaned up at the end. Fixtures are
+    // generated here (never committed) so the corpus fmt/check guards — which scan
+    // the real tree — can't be tripped by a deliberately broken file.
     let work = make_workdir()?;
 
     let names: List<String> = [];
@@ -54,6 +53,9 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 
     names.push('check --fatal-warnings (warning gates only with the flag)');
     results.push(guard_fatal_warnings(thera, work));
+
+    names.push('check doc examples (broken fence warns, gates only with the flag)');
+    results.push(guard_doc_example(thera, work));
 
     names.push('test --verbose (per-test duration column + per-file total)');
     results.push(guard_test_timing(thera, work));
@@ -97,8 +99,8 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 // Drive the real `thera lsp` process over stdin/stdout the way an editor does: a
 // single Content-Length-framed `initialize`, then EOF (the server exits). This
 // exercises the actual stdout transport — the in-process server @tests use a
-// StringWriter and so can't catch a framing/flushing regression. The body
-// carries "capabilities", so finding it proves the full message arrived.
+// StringWriter and so can't catch a framing/flushing regression. The body carries
+// "capabilities", so finding it proves the full message arrived.
 fn guard_lsp(thera: String) -> Verdict {
     let body = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}';
     let frame = 'Content-Length: ${body.bytes().len()}\r\n\r\n${body}';
@@ -178,10 +180,14 @@ fn guard_check_stream(thera: String, work: String) -> Verdict {
         Ok(r) => r,
         Err(e) => { return Verdict.Fail('check failed to run: ${e.message()}'); },
     };
-    if r.stdout.contains('undefined name: missing') && !r.stderr.contains('undefined name: missing') {
+    if r.stdout.contains(
+        'undefined name: missing'
+    ) && !r.stderr.contains('undefined name: missing') {
         return Verdict.Pass;
     }
-    return Verdict.Fail('expected the diagnostic on stdout only\nstdout:\n${r.stdout}\nstderr:\n${r.stderr}');
+    return Verdict.Fail(
+        'expected the diagnostic on stdout only\nstdout:\n${r.stdout}\nstderr:\n${r.stderr}'
+    );
 }
 
 // `thera fmt --check` must not modify files, list the ones needing formatting on
@@ -232,12 +238,15 @@ fn guard_fmt_check(thera: String, work: String) -> Verdict {
 
 // An error in an imported file must be attributed to *that* file, not the
 // entrypoint that triggered the compile — a diagnostic span carries source text,
-// not a path, so the reporter resolves the owning file. Covers both a
-// name/method error and a parse error in the import.
+// not a path, so the reporter resolves the owning file. Covers both a name/method
+// error and a parse error in the import.
 fn guard_attribution(thera: String, work: String) -> Verdict {
     let helper = path.join(work, 'helper.thera');
     let app = path.join(work, 'app.thera');
-    match fs.write_text(app, "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n") {
+    match fs.write_text(
+        app,
+        "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n",
+    ) {
         Ok(_) => {},
         Err(e) => { return Verdict.Fail('writing app.thera failed: ${e.message()}'); },
     };
@@ -259,7 +268,9 @@ fn guard_attribution(thera: String, work: String) -> Verdict {
     match line_containing(combined1, 'frobnicate') {
         Some(line) => {
             if !line.contains('helper.thera') {
-                return Verdict.Fail('frobnicate diagnostic not attributed to helper.thera:\n${line}');
+                return Verdict.Fail(
+                    'frobnicate diagnostic not attributed to helper.thera:\n${line}'
+                );
             }
             if line.contains('app.thera') {
                 return Verdict.Fail('frobnicate diagnostic wrongly names app.thera:\n${line}');
@@ -270,7 +281,10 @@ fn guard_attribution(thera: String, work: String) -> Verdict {
 
     // (2) A parse error in the import must be surfaced (not dropped under exit 0)
     // and attributed to helper.thera at the right line.
-    match fs.write_text(helper, 'pub fn greet(n: String) -> String {\n    let x = ;\n    return n;\n}\n') {
+    match fs.write_text(
+        helper,
+        'pub fn greet(n: String) -> String {\n    let x = ;\n    return n;\n}\n',
+    ) {
         Ok(_) => {},
         Err(e) => { return Verdict.Fail('rewriting helper.thera failed: ${e.message()}'); },
     };
@@ -288,9 +302,9 @@ fn guard_attribution(thera: String, work: String) -> Verdict {
     return Verdict.Pass;
 }
 
-// A warning-only file (an unused import) must exit 0 by default — warnings
-// inform — but exit 1 under `--fatal-warnings`, the CI knob for a warning-free
-// tree. A clean file must exit 0 either way.
+// A warning-only file (an unused import) must exit 0 by default — warnings inform —
+// but exit 1 under `--fatal-warnings`, the CI knob for a warning-free tree. A clean
+// file must exit 0 either way.
 fn guard_fatal_warnings(thera: String, work: String) -> Verdict {
     let warn = path.join(work, 'warn.thera');
     match fs.write_text(warn, 'import std.fs;\nfn main() -> Int { return 0; }\n') {
@@ -303,7 +317,9 @@ fn guard_fatal_warnings(thera: String, work: String) -> Verdict {
         Err(e) => { return Verdict.Fail('check failed to run: ${e.message()}'); },
     };
     if plain.exit_code != 0 {
-        return Verdict.Fail('a warning-only file should exit 0 without --fatal-warnings (got ${plain.exit_code})');
+        return Verdict.Fail(
+            'a warning-only file should exit 0 without --fatal-warnings (got ${plain.exit_code})'
+        );
     }
     if !plain.stdout.contains('unused-import') {
         return Verdict.Fail('expected an unused-import warning\nstdout:\n${plain.stdout}');
@@ -314,13 +330,71 @@ fn guard_fatal_warnings(thera: String, work: String) -> Verdict {
         Err(e) => { return Verdict.Fail('check --fatal-warnings failed to run: ${e.message()}'); },
     };
     if fatal.exit_code != 1 {
-        return Verdict.Fail('a warning-only file should exit 1 under --fatal-warnings (got ${fatal.exit_code})');
+        return Verdict.Fail(
+            'a warning-only file should exit 1 under --fatal-warnings (got ${fatal.exit_code})'
+        );
     }
     return Verdict.Pass;
 }
 
-// `test --verbose` renders each test's wall-clock duration as a trailing column
-// and a `(N tests, T ms)` rollup per file — the view for spotting a slow test.
+// A doc example that does not compile is a `doc-example` **warning**: reported,
+// pointing at the author's line inside the fence, but leaving the exit code at 0 —
+// a stale doc comment must never stop unrelated code from building. It gates only
+// under `--fatal-warnings`, and a `no_check` fence silences it entirely.
+fn guard_doc_example(thera: String, work: String) -> Verdict {
+    let broken = path.join(work, 'docex.thera');
+    let src = '/// Adds.\n///\n/// ```\n/// nope_not_a_thing()\n/// ```\n'
+        + 'pub fn add(a: Int, b: Int) -> Int { return a + b; }\n';
+    match fs.write_text(broken, src) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing fixture failed: ${e.message()}'); },
+    };
+
+    let plain = match process.run(thera, args: ['check', broken]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check failed to run: ${e.message()}'); },
+    };
+    if plain.exit_code != 0 {
+        return Verdict.Fail('a broken doc example should exit 0 (got ${plain.exit_code})');
+    }
+    if !plain.stdout.contains('doc-example') || !plain.stdout.contains('docex.thera:4:') {
+        return Verdict.Fail('expected a doc-example warning on line 4\nstdout:\n${plain.stdout}');
+    }
+    // The note that redirects the reader from `// ignore:` (impossible inside a doc
+    // comment) to the fence attribute that does work.
+    if !plain.stdout.contains('no_check') {
+        return Verdict.Fail('expected the no_check opt-out note\nstdout:\n${plain.stdout}');
+    }
+
+    let fatal = match process.run(thera, args: ['check', '--fatal-warnings', broken]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check --fatal-warnings failed to run: ${e.message()}'); },
+    };
+    if fatal.exit_code != 1 {
+        return Verdict.Fail(
+            'a broken doc example should exit 1 under --fatal-warnings (got ${fatal.exit_code})'
+        );
+    }
+
+    // The opt-out, which is the only suppression there is.
+    match fs.write_text(broken, src.replace('```\n/// nope', '```thera,no_check\n/// nope')) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('rewriting fixture failed: ${e.message()}'); },
+    };
+    let opted = match process.run(thera, args: ['check', '--fatal-warnings', broken]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check failed to run: ${e.message()}'); },
+    };
+    if opted.exit_code != 0 {
+        return Verdict.Fail(
+            'no_check should silence it even under --fatal-warnings\nstdout:\n${opted.stdout}'
+        );
+    }
+    return Verdict.Pass;
+}
+
+// `test --verbose` renders each test's wall-clock duration as a trailing column and
+// a `(N tests, T ms)` rollup per file — the view for spotting a slow test.
 fn guard_test_timing(thera: String, work: String) -> Verdict {
     let dir = path.join(work, 'timing');
     match fs.create_dir_all(dir) {
@@ -340,7 +414,9 @@ fn guard_test_timing(thera: String, work: String) -> Verdict {
         Err(e) => { return Verdict.Fail('test --verbose failed to run: ${e.message()}'); },
     };
     if r.exit_code != 0 {
-        return Verdict.Fail('expected the sample tests to pass (exit ${r.exit_code})\n${r.stdout}\n${r.stderr}');
+        return Verdict.Fail(
+            'expected the sample tests to pass (exit ${r.exit_code})\n${r.stdout}\n${r.stderr}'
+        );
     }
     // The per-test line must carry a duration column.
     match line_containing(r.stdout, 'alpha') {
@@ -360,8 +436,8 @@ fn guard_test_timing(thera: String, work: String) -> Verdict {
 
 // --- helpers ---
 
-// A unique, empty scratch directory under the system temp root. `temp_file` mints
-// a unique name atomically; we drop the file and use a sibling directory.
+// A unique, empty scratch directory under the system temp root. `temp_file` mints a
+// unique name atomically; we drop the file and use a sibling directory.
 fn make_workdir() -> Result<String, Error> {
     let f = fs.temp_file(prefix: 'thera-itest-')?;
     let base = f.path();
