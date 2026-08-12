@@ -519,18 +519,17 @@ function sees an undefined name. Nothing in the tree is shaped that way today,
 which is why it is a gap rather than a bug; a self-import under the bare surface
 (`import 'foo' as _;`) is the obvious answer when a real case turns up.
 
-**Cost.** Checking the examples is not free: each one is a synthesized file that
-goes through import loading and the checker. Over `pkgs sdk/std examples` — 221
-files, 112 examples — it adds about 30% to `thera check`'s wall clock today.
-Files with no fence bail after lexing and never pay a parse. The dominant term
-is rebuilding the element model per example, which the session already knows how
-to avoid for ordinary checks (its base-library cache); reusing that for doc
-examples is the next piece of work
-([#183](https://github.com/thera-lang/thera/issues/183)) and should bring the
-cost roughly in line with the example code actually under analysis. The lever
-after that is caching a file's doc-example verdict under the same key its check
-verdict already has: both are a pure function of (file text, dependency
-surfaces), which is the property `doc_check.thera` is built to preserve.
+**Cost.** Close to free
+([#183](https://github.com/thera-lang/thera/issues/183)): each example layers
+over the same cached base element models the session's ordinary checks use — one
+base per distinct import set per run, with the synthetic file layered on top,
+never stored — and the host file's cached parse supplies its comments, so the
+pass re-lexes nothing. Over `pkgs sdk/std examples` — 221 files, 112 examples —
+it adds no measurable wall clock to `thera check` (it first shipped at +30%,
+before the caches were shared). The remaining lever, if a workload ever needs
+it, is caching a file's doc-example verdict under the same key its check verdict
+already has: both are a pure function of (file text, dependency surfaces), which
+is the property `doc_check.thera` is built to preserve.
 
 ### Markdown: the `--docs` flag
 

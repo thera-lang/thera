@@ -244,6 +244,93 @@ pub fn layer_primary(
     return Option.Some(library);
 }
 
+// The most distinct closure signatures a library cache retains before evicting its
+// least-recently-used entry. Sized to comfortably exceed the distinct import-sets
+// of a real project (files sharing imports share a signature), so workspace-wide
+// analysis effectively never evicts; a size-aware policy can refine this later.
+const LIBRARY_CACHE_CAP: Int = 1024;
+
+// One cached imports-only library plus its member set. The cache's owner evicts by
+// content — an entry dies when any member file is invalidated (the session's
+// `evict_libraries_with` walks `members`); `library_for` below evicts only by
+// count.
+pub struct CachedLibrary {
+    let members: Set<String>;
+    let library: LibraryElement;
+}
+
+// The element model for one request through `cache`: the imports-only base —
+// cache-hit by closure signature, else built and stored — with `program` (the
+// primary, at canonical path `canon`) layered on top. None when the layered path
+// can't serve the request (the primary appears in its own import closure: an SDK
+// file checked as the primary, or an import cycle through the root; or a primary
+// `impl` targets a type the primary doesn't declare, `layer_primary`'s poisoning
+// gate) — the caller then runs the full uncached build.
+//
+// An entry's key is the sorted member keys of the closure — **real files only, the
+// primary is layered, never stored** — so one cache serves every caller whose
+// closures overlap: the session's ordinary checks and the doc-example pass hit the
+// same bases. `imports` through `file_bare_surface` are the current load's
+// (`loader.LoadedImports`), passed as plain data so this library needs no loader
+// import.
+pub fn library_for(
+    cache: Map<String, CachedLibrary>,
+    program: Program,
+    canon: String,
+    imports: List<Program>,
+    file_imports: Map<String, List<String>>,
+    file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    file_bare_surface: Map<String, Map<String, String>>,
+) -> Option<LibraryElement> {
+    let keys: List<String> = [];
+    for p in imports {
+        let k = file_key(p.file_path);
+        if k == canon {
+            return Option.None; // the primary is in its own closure
+        }
+        keys.push(k);
+    }
+    for f in file_imports.keys() {
+        if file_imports[f].contains(canon) {
+            return Option.None; // an import references the primary
+        }
+    }
+    let signature = keys.sorted_by((a, b) => a.compare(b) == Ordering.Less).join('\n');
+    let base = match cache.get(signature) {
+        Some(c) => {
+            // Mark as most-recently-used: the map is insertion-ordered, so remove +
+            // re-insert moves this signature to the end (`evict_lru` drops the
+            // front). No rebuild — the frozen base is reused as-is.
+            cache.remove(signature);
+            cache[signature] = c;
+            c.library
+        },
+        None => {
+            if cache.len() >= LIBRARY_CACHE_CAP {
+                evict_lru(cache);
+            }
+            let built = build_import_library(imports, file_namespaces, file_bare_surface);
+            let members: Set<String> = Set.new();
+            for k in keys {
+                members.add(k);
+            }
+            cache[signature] = CachedLibrary { members: members, library: built };
+            built
+        },
+    };
+    return layer_primary(base, program, file_namespaces, file_bare_surface);
+}
+
+// Drop the least-recently-used cached library — the front entry, since a hit moves
+// its signature to the back (see `library_for`). Bounds the cache without a
+// clear-all that would throw away every warm base at once.
+fn evict_lru(cache: Map<String, CachedLibrary>) -> Void {
+    let keys = cache.keys();
+    if keys.len() > 0 {
+        cache.remove(keys[0]);
+    }
+}
+
 // Distinct identity for path-less (in-memory) programs, stamped before any table is
 // keyed: two hermetic programs aliasing one `<anon>` key merge their name spaces —
 // a same-named helper in each reads as a same-file duplicate, and private access

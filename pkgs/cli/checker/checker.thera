@@ -35,16 +35,20 @@ pub fn has_errors(r: CheckResult) -> Bool {
 
 // Type-check `program`. `imports` are pre-registered (their declarations resolve
 // into the element model but are not themselves checked); `namespaces` carries the
-// import-namespace surfaces. Returns the accumulated diagnostics.
+// import-namespace surfaces. Returns the accumulated diagnostics. `prebuilt` is a
+// caller's cached-base + layered-primary library (`element.library_for`) —
+// behavior-identical to the full build by the resolver's contract.
 pub fn check(
     program: Program,
     imports: List<Program>,
     file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     file_bare_surface: Map<String, Map<String, String>>,
+    named prebuilt: Option<LibraryElement> = Option.None,
 ) -> CheckResult {
     let errors: List<diagnostic.Diagnostic> = [];
     let records: List<TypeRecord> = [];
-    let library = element.build_library(program, imports, file_namespaces, file_bare_surface);
+    let library = prebuilt.unwrap_or_else(() =>
+        element.build_library(program, imports, file_namespaces, file_bare_surface));
     check_duplicates(errors, program, imports);
     check_shadowed_surface(errors, program, library);
     check_unused_imports(errors, program, library);

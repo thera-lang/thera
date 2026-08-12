@@ -22,13 +22,6 @@ import 'doc_check'; // check_file — doc examples, checked beside the file that
 
 import std.path;
 
-// The most distinct closure signatures the imports-only library cache retains
-// before evicting the least-recently-used entry. Sized to comfortably exceed the
-// distinct import-sets of a real project (files sharing imports share a signature),
-// so workspace-wide analysis effectively never evicts; a size-aware policy can
-// refine this later.
-const LIBRARY_CACHE_CAP: Int = 1024;
-
 // The outcome of compiling a source: any diagnostics, and the encoded `.thera-bc`
 // bytes when there were none.
 pub struct CompileOutcome {
@@ -76,20 +69,14 @@ pub struct Session {
     // reused across requests so a keystroke re-resolves the primary, not the whole
     // closure (`element.layer_primary` stacks the primary on the cached base
     // without mutating it — the frozen-base invariant). Evicted when any member is
-    // invalidated.
-    let library_cache: Map<String, CachedLibrary>;
+    // invalidated. Shared with the doc-example pass, whose synthetic primaries
+    // layer over the same bases (`element.library_for` holds the lookup logic).
+    let library_cache: Map<String, element.CachedLibrary>;
     // Canonical path -> the file's committed-type record from the last check that
     // walked it (CH19), serving `type_at`/`records_for`. As fresh as that check:
     // evicted over the invalidation cone with `checked`; files the checker skipped
     // (the SDK, files already clean before records existed) have no entry.
     let type_records: Map<String, List<element.TypeRecord>>;
-}
-
-// One cached imports-only library plus its member set (for eviction: an entry dies
-// when any member file is invalidated).
-pub struct CachedLibrary {
-    let members: Set<String>;
-    let library: element.LibraryElement;
 }
 
 pub fn new_session(sdk_root: Option<String>) -> Session {
@@ -215,19 +202,6 @@ impl Session {
         return;
     }
 
-    // Drop the least-recently-used cached library — the front entry, since a hit
-    // moves its signature to the back (see `library_for`). Bounds the cache without
-    // the old clear-all, which threw away every warm base at once.
-    fn evict_lru_library(self) -> Void {
-        let keys = self.library_cache.keys();
-        if keys.len() > 0 {
-            match self.library_cache.remove(keys[0]) {
-                Some(_) => void,
-                None => void,
-            }
-        }
-    }
-
     // Drop every cached imports-only library whose closure contains `k`.
     fn evict_libraries_with(self, k: String) -> Void {
         let stale: List<String> = [];
@@ -244,67 +218,23 @@ impl Session {
         }
     }
 
-    // The element model for this request through the library cache: the
-    // imports-only base — cache-hit by closure signature, else built and stored —
-    // with the primary layered on top. None when the layered path can't serve the
-    // request (the primary appears in its own import closure: an SDK file checked
-    // as the primary, or an import cycle through the root; or a primary `impl`
-    // targets a type the primary doesn't declare) — the caller then runs the full
-    // uncached build.
+    // The element model for this request through the library cache — see
+    // `element.library_for` (the logic lives there so the doc-example pass can
+    // share the same cache): the imports-only base, cache-hit by closure signature,
+    // with the primary layered on top; None when the layered path can't serve the
+    // request and the caller runs the full uncached build.
     fn library_for(
         self,
         program: Program,
         canon: String,
         loaded: loader.LoadedImports,
     ) -> Option<element.LibraryElement> {
-        let keys: List<String> = [];
-        for p in loaded.programs {
-            let k = element.file_key(p.file_path);
-            if k == canon {
-                return Option.None; // the primary is in its own closure
-            }
-            keys.push(k);
-        }
-        for f in loaded.file_imports.keys() {
-            if loaded.file_imports[f].contains(canon) {
-                return Option.None; // an import references the primary
-            }
-        }
-        let signature = keys.sorted_by((a, b) => a.compare(b) == Ordering.Less).join('\n');
-        let base = match self.library_cache.get(signature) {
-            Some(c) => {
-                // Mark as most-recently-used: the map is insertion-ordered, so
-                // remove + re-insert moves this signature to the end (`evict_lru`
-                // drops the front). No rebuild — the frozen base is reused as-is.
-                self.library_cache.remove(signature);
-                self.library_cache[signature] = c;
-                c.library
-            },
-            None => {
-                // Bound the cache with LRU eviction (not clear-all): workspace-wide
-                // analysis holds one signature per distinct import-set, so the cap
-                // is high enough not to bite most projects — a real project rarely
-                // has this many distinct closures. A smarter size-aware policy is a
-                // follow-up.
-                if self.library_cache.len() >= LIBRARY_CACHE_CAP {
-                    self.evict_lru_library();
-                }
-                let built = element.build_import_library(
-                    loaded.programs,
-                    loaded.file_namespaces,
-                    loaded.file_bare_surface,
-                );
-                let members: Set<String> = Set.new();
-                for k in keys {
-                    members.add(k);
-                }
-                self.library_cache[signature] = CachedLibrary { members: members, library: built };
-                built
-            },
-        };
-        return element.layer_primary(
-            base,
+        return element.library_for(
+            self.library_cache,
             program,
+            canon,
+            loaded.programs,
+            loaded.file_imports,
             loaded.file_namespaces,
             loaded.file_bare_surface,
         );
@@ -518,10 +448,13 @@ impl Session {
     // from the files a command was pointed at — your dependency's documentation is
     // not your diagnostic, and a caller who cannot see the difference would report
     // the whole SDK's doc comments against a two-line program. **State:** this pass
-    // writes nothing back. It borrows the session's caches, so the closure is
-    // parsed once for a whole run rather than once per example, and leaves them as
-    // it found them; going through `check` instead would put a phantom synthetic
-    // file in the parse cache and the import graph.
+    // writes nothing back. It borrows the session's caches — the parse and surface
+    // caches so the closure is parsed once for a whole run rather than once per
+    // example (the host's own cached parse also spares a re-lex for its comments),
+    // and the library cache so every example layers over the same frozen bases the
+    // ordinary checks use — and leaves them as it found them; going through `check`
+    // instead would put a phantom synthetic file in the parse cache and the import
+    // graph.
     pub fn check_doc_examples(self, source: String, p: String) -> List<diagnostic.Diagnostic> {
         return doc_check.check_file(
             p,
@@ -530,6 +463,7 @@ impl Session {
             parse_cache: self.parse_cache,
             overlays: self.overlays,
             surface_cache: self.surface_cache,
+            library_cache: self.library_cache,
         );
     }
 

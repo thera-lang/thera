@@ -10,6 +10,7 @@ import std.testing;
 
 import 'diagnostic' as _; // Diagnostic
 import 'doc_check' as _;
+import 'element' as _; // CachedLibrary — the shared base-model cache
 import 'loader' as _;
 
 // A path inside the running SDK's `std/<lib>/` directory. Derived, not hardcoded:
@@ -205,6 +206,60 @@ fn test_the_shared_cache_gains_no_phantom_entries() -> Result<Void, Error> {
         testing.assert(
             !k.contains('_doc_example'),
             message: 'the synthetic file was left in the cache: ${k}',
+        )?;
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_shared_library_cache_changes_no_answers() -> Result<Void, Error> {
+    // The base element model comes through the shared cache when one is handed in —
+    // same diagnostics either way, or the cache is not the pure speedup it claims
+    // to be.
+    let good = '/// ```\n/// path.dirname(\'a/b\')\n/// ```\npub fn f() -> Int { return 0; }\n';
+    let broken = '/// ```\n/// let a = 1;\n/// nope_not_a_thing()\n/// ```\n'
+        + 'pub fn g() -> Int { return 0; }\n';
+    let sdk = find_sdk_root();
+    let library_cache: Map<String, CachedLibrary> = [:];
+    for probe in [['one.thera', good, '0'], ['two.thera', broken, '1']] {
+        let alone = check_file(in_std('path', probe[0]), probe[1], sdk);
+        let cached = check_file(
+            in_std('path', probe[0]),
+            probe[1],
+            sdk,
+            library_cache: library_cache,
+        );
+        testing.assert_eq(actual: '${cached.len()}', expected: probe[2])?;
+        testing.assert_eq(actual: cached.len(), expected: alone.len())?;
+        for pair in cached.enumerate() {
+            testing.assert_eq(actual: pair.value.message, expected: alone[pair.index].message)?;
+            testing.assert_eq(actual: pair.value.span.line, expected: alone[pair.index].span.line)?;
+        }
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_the_library_cache_stores_real_closures_only() -> Result<Void, Error> {
+    // One entry for the two examples — they share an import set, and sharing the
+    // base per distinct set is the whole speedup — and the synthetic primary's path
+    // appears in no key: bases are keyed by real files' closure signatures, the
+    // primary is layered on top, never stored.
+    let src = '/// ```\n/// path.dirname(\'a/b\')\n/// ```\npub fn f() -> Int { return 0; }\n'
+        + '/// ```\n/// path.basename(\'a/b\')\n/// ```\npub fn g() -> Int { return 0; }\n';
+    let library_cache: Map<String, CachedLibrary> = [:];
+    let ds = check_file(
+        in_std('path', 'probe.thera'),
+        src,
+        find_sdk_root(),
+        library_cache: library_cache,
+    );
+    testing.assert_eq(actual: ds.len(), expected: 0)?;
+    testing.assert_eq(actual: library_cache.len(), expected: 1)?;
+    for k in library_cache.keys() {
+        testing.assert(
+            !k.contains('_doc_example'),
+            message: 'the synthetic file leaked into a base signature: ${k}',
         )?;
     }
     return Result.Ok(void);
