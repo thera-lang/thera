@@ -345,18 +345,18 @@ already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
   ignored, which the existing corpus already conforms to; **compile-check is the
   universal bar** and lands as a `doc-example` **warning** on `thera check`
   (target-set files only, never the import closure — `bin/test.sh`'s
-  `--fatal-warnings` is what gates the repo), while running is opt-in by shape
-  (a `// => value` oracle, `// expect:` stdout, or `// expect error:` — the
-  `tests/lang` directive vocabulary verbatim) and belongs to `thera test`.
-  Markdown fences are opt-in behind `--docs`.
+  `--fatal-warnings` is what gates the repo). Markdown fences are opt-in behind
+  `--docs`. A run mode (`// =>` oracles on `thera test`) was designed and is
+  **paused** — [#184](https://github.com/thera-lang/thera/issues/184).
 
-  Phase 1 is **extraction + compile-check + the doc-example dialect**, and it
-  catches every bug above (all were statically wrong). The dialect ships with it
-  because it is what makes the corpus taggable: bare expression statements and
-  unused `Result`s are legal inside an example (REPL shape), and `...` elides a
-  body/expression/member list as a diverging hole. Then `--docs`,
-  `@example`/references with the doc generator, oracles, and the `// =>`
-  migration sweep.
+  Phase 1 — **extraction + compile-check + the doc-example dialect** — has
+  landed, and it catches every bug above (all were statically wrong). The
+  dialect shipped with it because it is what makes the corpus taggable: bare
+  expression statements and unused `Result`s are legal inside an example (REPL
+  shape); `...` elision was dropped as unneeded
+  ([#176](https://github.com/thera-lang/thera/issues/176), parked). Next:
+  checking cost ([#183](https://github.com/thera-lang/thera/issues/183)), then
+  `--docs`, then `@example`/references with the doc generator.
 
 - **Doc-comment tooling — machinery pending.** The conventions
   ([documentation.md](documentation.md), syntax in
