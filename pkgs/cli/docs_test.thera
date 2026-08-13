@@ -813,3 +813,36 @@ fn test_doc_refs_after_an_inline_code_span() -> Result<Void, Error> {
     testing.assert_eq(actual: ref_names(src), expected: 'get')?;
     return Result.Ok(void);
 }
+
+// --- doc_at ---
+
+// A span targeting the first occurrence of `marker` — only the offset matters to
+// `doc_at`.
+fn span_at(src: String, marker: String) -> SourceSpan {
+    return SourceSpan {
+        source: src,
+        file: '',
+        offset: src.find(marker).unwrap_or(0),
+        length: marker.len(),
+        line: 1,
+        column: 1,
+    };
+}
+
+@test
+fn test_doc_at_picks_the_innermost_item() -> Result<Void, Error> {
+    let src = '/// The box.\nstruct S {\n    /// The count.\n    let count: Int;\n}\n'
+        + '/// Impl-level.\nimpl S {\n    /// Bumps.\n    fn bump(self) -> Int { return 1; }\n}\n';
+    let lex = tokenize(src);
+    let program = parse_tokens(lex.tokens).program;
+    let map = attach(program, lex.comments);
+    let doc_text = (m: String) => match doc_at(map, program, span_at(src, m)) {
+        Some(d) => d.text(),
+        None => '<none>',
+    };
+    testing.assert_eq(actual: doc_text('count: Int'), expected: 'The count.')?;
+    testing.assert_eq(actual: doc_text('bump(self)'), expected: 'Bumps.')?;
+    testing.assert_eq(actual: doc_text('struct S'), expected: 'The box.')?;
+    testing.assert_eq(actual: doc_text('impl S'), expected: 'Impl-level.')?;
+    return Result.Ok(void);
+}
