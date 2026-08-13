@@ -2351,14 +2351,39 @@ pub fn describe_param(p: Param) -> String {
     };
 }
 
+// Rendered the way the source spells it — `struct`, or the opaque `native type`
+// (core/list.thera's own form), never an invented `type X = {…}`: the render sits
+// in a ` ```thera ` block, so anything it shows is syntax an agent may imitate.
 fn describe_type_decl(d: TypeDecl) -> String {
+    let params = describe_type_params(d.type_params);
+    if d.is_native {
+        return 'native type ${d.name}${params}';
+    }
+    if d.fields.len() == 0 {
+        return 'struct ${d.name}${params} {}';
+    }
     let fields = d.fields.map((f) => '  ${f.name}: ${describe_type(f.type_ann)}').join('\n');
-    return 'type ${d.name} = {\n${fields}\n}';
+    return 'struct ${d.name}${params} {\n${fields}\n}';
+}
+
+// `<T, U: Eq + Display>` as declared; '' for a non-generic type.
+fn describe_type_params(ps: List<TypeParam>) -> String {
+    if ps.len() == 0 {
+        return '';
+    }
+    return '<${ps.map((p) => describe_type_param(p)).join(', ')}>';
+}
+
+fn describe_type_param(p: TypeParam) -> String {
+    if p.bounds.len() == 0 {
+        return p.name;
+    }
+    return '${p.name}: ${p.bounds.map((b) => bound_text(b)).join(' + ')}';
 }
 
 fn describe_enum(d: EnumDecl) -> String {
     let variants = d.variants.map((v) => variant_render_indented(v)).join('\n');
-    return 'enum ${d.name} {\n${variants}\n}';
+    return 'enum ${d.name}${describe_type_params(d.type_params)} {\n${variants}\n}';
 }
 
 // `Enum.Variant` / `Enum.Variant(T, …)` — the qualified variant render (hover).
@@ -2377,8 +2402,13 @@ fn variant_render_indented(v: EnumVariant) -> String {
 }
 
 fn describe_interface(d: InterfaceDecl) -> String {
+    let params = describe_type_params(d.type_params);
+    let supers = match d.super_interfaces.len() {
+        0 => '',
+        _ => ': ${d.super_interfaces.map((b) => bound_text(b)).join(' + ')}',
+    };
     let methods = d.methods.map((m) => '  ${describe_fn(m)}').join('\n');
-    return 'interface ${d.name} {\n${methods}\n}';
+    return 'interface ${d.name}${params}${supers} {\n${methods}\n}';
 }
 
 fn describe_const(d: ConstDecl) -> String {

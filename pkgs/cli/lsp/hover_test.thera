@@ -256,7 +256,6 @@ fn test_hover_local_without_record_degrades_to_the_name() -> Result<Void, Error>
     testing.assert_eq(actual: code, expected: '```thera\nxs\n```')?;
     return Result.Ok(void);
 }
-
 // ---- docs under the signature ----
 
 @test
@@ -294,5 +293,53 @@ fn test_hover_member_doc_is_the_members_not_the_owners() -> Result<Void, Error> 
     testing.assert(!field.contains('A counter box.'), message: 'not the struct doc: ${field}')?;
     let method = rendered_with_docs(src, at(src, 'self.helper(1)', 5));
     testing.assert(method.contains('Bumps by n.'), message: 'method doc: ${method}')?;
+    return Result.Ok(void);
+}
+
+// ---- type declaration renders ----
+
+@test
+fn test_hover_struct_renders_as_source_syntax() -> Result<Void, Error> {
+    // `struct`, never an invented `type X = {…}` — the render sits in a
+    // ```thera block, so it must be syntax the language accepts.
+    let src = 'struct Response { let status: Int; let body: String; }\n'
+        + 'fn f(r: Response) -> Int { return r.status; }\n';
+    let code = rendered(src, at(src, 'Response)', 0));
+    testing.assert(code.contains('struct Response {'), message: 'struct keyword: ${code}')?;
+    testing.assert(code.contains('status: Int'), message: 'fields: ${code}')?;
+    testing.assert(!code.contains('type Response'), message: 'no invented form: ${code}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_native_type_renders_as_declared() -> Result<Void, Error> {
+    // The opaque form, exactly as core/list.thera spells it — no empty braces.
+    let src = 'pub native type Handle<T>\nfn f(h: Handle<Int>) -> Int { return 0; }\n';
+    let code = rendered(src, at(src, 'Handle<Int>', 0));
+    testing.assert_eq(actual: code, expected: '```thera\nnative type Handle<T>\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_empty_struct_has_no_dangling_braces() -> Result<Void, Error> {
+    let src = 'struct Marker {}\nfn f(m: Marker) -> Int { return 0; }\n';
+    let code = rendered(src, at(src, 'Marker)', 0));
+    testing.assert_eq(actual: code, expected: '```thera\nstruct Marker {}\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_generic_renders_carry_the_parameters() -> Result<Void, Error> {
+    let src = 'struct Box<T: Display> { let value: T; }\n'
+        + 'interface Keyed<K>: Display { fn key(self) -> K; }\n'
+        + 'fn f(b: Box<Int>) -> Int { return 0; }\n'
+        + 'fn g(k: Keyed<Int>) -> Int { return 0; }\n';
+    let boxed = rendered(src, at(src, 'Box<Int>', 0));
+    testing.assert(boxed.contains('struct Box<T: Display> {'), message: 'bounds: ${boxed}')?;
+    let keyed = rendered(src, at(src, 'Keyed<Int>', 0));
+    testing.assert(
+        keyed.contains('interface Keyed<K>: Display {'),
+        message: 'params + supers: ${keyed}',
+    )?;
     return Result.Ok(void);
 }
