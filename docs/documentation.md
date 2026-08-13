@@ -596,7 +596,7 @@ sits against the rest of developer tooling.
 | `--docs` (Markdown fences)                                 | pending — phase 2                                                                                                      |
 | `@example`, `/// @file#fragment` references, inlining      | pending — phase 3, lands with the doc generator ([scale.md item 5](scale.md#5-generated-api-index))                    |
 | Run mode: oracles, determinism, the `lint --fix` sweep     | **paused** — was phases 4–5; design and unpause trigger in [#184](https://github.com/thera-lang/thera/issues/184)      |
-| `[Symbol]` resolution + `doc-reference` warning            | pending                                                                                                                |
+| `[Symbol]` resolution + `doc-reference` warning            | **done** — target-set files only, beside `doc-example`; `@file#fragment` targets join at phase 3                       |
 | LSP hover showing item/file docs                           | pending                                                                                                                |
 
 Phasing is deliberate, and the 2026-08 re-plan sharpened it: phase 1 alone

@@ -340,6 +340,139 @@ fn is_closing_fence(line: String, opener: Int) -> Bool {
     return n >= opener && line.trim().len() == n;
 }
 
+// --- Symbol references ---
+
+/// A `[Symbol]` reference in a doc comment — a checked, navigable mention of a
+/// declared symbol (docs/documentation.md § Symbol references).
+pub struct DocRef {
+    /// The dotted name between the brackets, exactly as written (`Display`,
+    /// `String.slice`, `fs.read_text`).
+    let name: String;
+    /// The source span of the whole `[name]`, brackets included.
+    let span: SourceSpan;
+}
+
+/// Every `[Symbol]` reference in `doc`, in source order.
+///
+/// A reference is a bracketed **dotted identifier chain** with nothing else inside
+/// — which is what separates it from prose brackets (`[low, high]`) without a
+/// dictionary. Three contexts are inert by design: a fenced block (code, not
+/// prose), a `` `code` `` span (the spec's escape hatch for code-shaped text that
+/// is not a reference), and a Markdown link (`[text](path)` — the trailing paren is
+/// the tell the spec keys on).
+pub fn doc_refs(doc: DocComment) -> List<DocRef> {
+    let out: List<DocRef> = [];
+    let mut fence = 0;
+    for entry in doc.lines.enumerate() {
+        let line = entry.value;
+        let ticks = fence_ticks(line);
+        if fence == 0 && ticks != 0 {
+            fence = ticks;
+            continue;
+        }
+        if fence != 0 {
+            if is_closing_fence(line, fence) {
+                fence = 0;
+            }
+            continue;
+        }
+        refs_in_line(out, doc, entry.index, line);
+    }
+    return out;
+}
+
+// Scan one non-fence line for references, skipping inline `code` spans.
+fn refs_in_line(out: List<DocRef>, doc: DocComment, index: Int, line: String) -> Void {
+    // Almost every doc line has no bracket at all, and this scan runs over every
+    // doc line of every file `check` was pointed at — so ask the native the cheap
+    // question before paying for a code-point walk.
+    if !line.contains('[') {
+        return;
+    }
+    let cs = line.chars();
+    let mut i = 0;
+    while i < cs.len() {
+        if cs[i] == char.BACKTICK {
+            // Skip to the closing backtick; an unpaired one inerts the rest of the
+            // line, which errs on the quiet side.
+            i = i + 1;
+            while i < cs.len() && cs[i] != char.BACKTICK {
+                i = i + 1;
+            }
+            i = i + 1;
+            continue;
+        }
+        if cs[i] != char.LBRACKET {
+            i = i + 1;
+            continue;
+        }
+        let start = i;
+        match ref_end(cs, start + 1) {
+            Some(end) => {
+                // `[text](path)` is a Markdown link, not a reference.
+                if end + 1 >= cs.len() || cs[end + 1] != char.LPAREN {
+                    out.push(DocRef {
+                        name: line.slice(start + 1, end),
+                        span: line_sub_span(doc, index, start, end + 1 - start),
+                    });
+                }
+                i = end + 1;
+            },
+            None => {
+                i = i + 1;
+            },
+        }
+    }
+    return;
+}
+
+// The index of the `]` closing a reference whose content starts at `i`, or None
+// when the content is not a dotted identifier chain.
+fn ref_end(cs: List<Int>, i: Int) -> Option<Int> {
+    let mut j = i;
+    let mut expect_ident = true;
+    while j < cs.len() {
+        let c = cs[j];
+        if c == char.RBRACKET {
+            return if j > i && !expect_ident { Option.Some(j) } else { Option.None };
+        }
+        if c == char.DOT {
+            if expect_ident {
+                return Option.None; // a leading, trailing, or doubled dot
+            }
+            expect_ident = true;
+        } else if char.is_alpha(c) || c == char.UNDERSCORE {
+            expect_ident = false;
+        } else if char.is_digit(c) {
+            if expect_ident {
+                return Option.None; // a segment cannot start with a digit
+            }
+        } else {
+            return Option.None; // anything else is prose
+        }
+        j = j + 1;
+    }
+    return Option.None; // unclosed
+}
+
+// The span of `[length]` code points starting at content index `start` of the run's
+// line at `index` — mapped back through the marker (`/// ` or `///`) the content
+// had stripped, so the diagnostic underlines the reference itself.
+fn line_sub_span(doc: DocComment, index: Int, start: Int, length: Int) -> SourceSpan {
+    let ls = doc.line_span(index);
+    let raw = ls.text();
+    let rest = raw.slice(3, raw.len());
+    let prefix = if rest.starts_with(' ') { 4 } else { 3 };
+    return SourceSpan {
+        source: ls.source,
+        file: ls.file,
+        offset: ls.offset + prefix + start,
+        length: length,
+        line: ls.line,
+        column: ls.column + prefix + start,
+    };
+}
+
 // The start line of every item a doc run can attach to, mapped to that item's span
 // offset. A declaration's span starts at its first decorator (or `pub`, or the
 // introducing keyword), so this is the line a doc must sit directly above.

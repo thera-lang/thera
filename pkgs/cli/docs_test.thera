@@ -755,3 +755,61 @@ fn test_if_else_is_one_statement() -> Result<Void, Error> {
     testing.assert_eq(actual: count_of(out, 'fn main()'), expected: 1)?;
     return Result.Ok(void);
 }
+
+// --- [Symbol] references ---
+
+// Every reference in every run of `src`, in order.
+fn refs_of(src: String) -> List<DocRef> {
+    let out: List<DocRef> = [];
+    for doc in doc_runs(tokenize(src).comments) {
+        for r in doc_refs(doc) {
+            out.push(r);
+        }
+    }
+    return out;
+}
+
+fn ref_names(src: String) -> String {
+    return refs_of(src).map((r) => r.name).join(' ');
+}
+
+@test
+fn test_doc_refs_finds_dotted_chains() -> Result<Void, Error> {
+    let src = '/// See [Display] and [String.slice]; also [fs.read_text].\n'
+        + 'fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: ref_names(src), expected: 'Display String.slice fs.read_text')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_doc_refs_skips_inert_contexts() -> Result<Void, Error> {
+    // A `code` span, a fenced block, and a Markdown link are all inert; so is any
+    // bracket whose content is not a dotted identifier chain.
+    let src = '/// Not `[slice]` and not [a link](x.md); not [low, high] or [x.].\n'
+        + '///\n'
+        + '/// ```\n'
+        + '/// let xs = [Display];\n'
+        + '/// ```\n'
+        + 'fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: ref_names(src), expected: '')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_doc_refs_span_underlines_the_reference() -> Result<Void, Error> {
+    let src = '/// See [thing].\nfn thing() -> Int { return 0; }\n';
+    let rs = refs_of(src);
+    testing.assert_eq(actual: rs.len(), expected: 1)?;
+    testing.assert_eq(actual: rs[0].span.line, expected: 1)?;
+    testing.assert_eq(actual: rs[0].span.column, expected: 9)?;
+    testing.assert_eq(actual: rs[0].span.text(), expected: '[thing]')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_doc_refs_after_an_inline_code_span() -> Result<Void, Error> {
+    // The scan resumes after a code span rather than going inert to end of line.
+    let src = '/// Use `xs[0]` via [get].\nfn get() -> Int { return 0; }\n';
+    testing.assert_eq(actual: ref_names(src), expected: 'get')?;
+    return Result.Ok(void);
+}
