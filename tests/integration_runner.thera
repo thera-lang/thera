@@ -56,6 +56,8 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 
     names.push('check doc examples (broken fence warns, gates only with the flag)');
     results.push(guard_doc_example(thera, work));
+    names.push('check doc references (broken [Symbol] warns, backticks opt out)');
+    results.push(guard_doc_reference(thera, work));
 
     names.push('test --verbose (per-test duration column + per-file total)');
     results.push(guard_test_timing(thera, work));
@@ -388,6 +390,67 @@ fn guard_doc_example(thera: String, work: String) -> Verdict {
     if opted.exit_code != 0 {
         return Verdict.Fail(
             'no_check should silence it even under --fatal-warnings\nstdout:\n${opted.stdout}'
+        );
+    }
+    return Verdict.Pass;
+}
+
+// A `[Symbol]` reference that names nothing is a `doc-reference` **warning** on the
+// same footing as `doc-example`: reported at the reference itself, exit 0, gating
+// only under `--fatal-warnings`. The opt-out is backticks — a code span is inert —
+// and the closing note is the doc-example rule's alone, so a refs-only run must not
+// print it.
+fn guard_doc_reference(thera: String, work: String) -> Verdict {
+    let file = path.join(work, 'docref.thera');
+    let src = '/// Pairs with [absent_fn] and [add].\n'
+        + 'pub fn add(a: Int, b: Int) -> Int { return a + b; }\n';
+    match fs.write_text(file, src) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('writing fixture failed: ${e.message()}'); },
+    };
+
+    let plain = match process.run(thera, args: ['check', file]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check failed to run: ${e.message()}'); },
+    };
+    if plain.exit_code != 0 {
+        return Verdict.Fail('a broken doc reference should exit 0 (got ${plain.exit_code})');
+    }
+    if !plain.stdout.contains('doc-reference') || !plain.stdout.contains('absent_fn') {
+        return Verdict.Fail('expected a doc-reference warning\nstdout:\n${plain.stdout}');
+    }
+    if plain.stdout.contains('doc reference does not resolve: `add`') {
+        return Verdict.Fail('the resolving reference was reported\nstdout:\n${plain.stdout}');
+    }
+    if plain.stdout.contains('no_check') {
+        return Verdict.Fail(
+            'the no_check note is doc-example\'s, not this rule\'s\nstdout:\n${plain.stdout}'
+        );
+    }
+
+    let fatal = match process.run(thera, args: ['check', '--fatal-warnings', file]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check --fatal-warnings failed to run: ${e.message()}'); },
+    };
+    if fatal.exit_code != 1 {
+        return Verdict.Fail(
+            'a broken doc reference should exit 1 under --fatal-warnings (got ${fatal.exit_code})'
+        );
+    }
+
+    // The opt-out: backticks make the bracket a code span, visibly inert.
+    match fs.write_text(file, src.replace('[absent_fn]', '`[absent_fn]`')) {
+        Ok(_) => {},
+        Err(e) => { return Verdict.Fail('rewriting fixture failed: ${e.message()}'); },
+    };
+    let opted = match process.run(thera, args: ['check', '--fatal-warnings', file]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('check failed to run: ${e.message()}'); },
+    };
+    if opted.exit_code != 0 {
+        return Verdict.Fail(
+            'a backticked bracket should be inert even under --fatal-warnings\n'
+            + 'stdout:\n${opted.stdout}'
         );
     }
     return Verdict.Pass;

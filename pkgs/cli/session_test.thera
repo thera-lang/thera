@@ -555,12 +555,12 @@ fn test_doc_examples_stop_at_the_target_file() -> Result<Void, Error> {
     let a_src = fs.read_text(a_path)?;
 
     testing.assert_eq(actual: sess.check(a_src, a_path).len(), expected: 0)?;
-    testing.assert_eq(actual: sess.check_doc_examples(a_src, a_path).len(), expected: 0)?;
+    testing.assert_eq(actual: sess.check_docs(a_src, a_path).len(), expected: 0)?;
 
     // Pointed at directly, the same block is reported — so the silence above is
     // scoping, not the check quietly failing to run.
     let b_path = '${dir}/b.thera';
-    let ds = sess.check_doc_examples(fs.read_text(b_path)?, b_path);
+    let ds = sess.check_docs(fs.read_text(b_path)?, b_path);
     testing.assert_eq(actual: ds.len(), expected: 1)?;
     testing.assert_eq(actual: ds[0].rule, expected: Option.Some('doc-example'))?;
 
@@ -584,14 +584,14 @@ fn test_doc_examples_reuse_the_cached_parse() -> Result<Void, Error> {
     let c_path = '${dir}/c.thera';
     let c_src = fs.read_text(c_path)?;
     testing.assert_eq(actual: sess.check(c_src, c_path).len(), expected: 0)?;
-    let ds = sess.check_doc_examples(c_src, c_path);
+    let ds = sess.check_docs(c_src, c_path);
     testing.assert_eq(actual: ds.len(), expected: 1)?;
     testing.assert_eq(actual: ds[0].span.line, expected: 4)?;
 
     let d_path = '${dir}/d.thera';
     let d_src = fs.read_text(d_path)?;
     let _ = sess.check(d_src, d_path);
-    testing.assert_eq(actual: sess.check_doc_examples(d_src, d_path).len(), expected: 0)?;
+    testing.assert_eq(actual: sess.check_docs(d_src, d_path).len(), expected: 0)?;
 
     cleanup(dir);
     return Result.Ok(void);

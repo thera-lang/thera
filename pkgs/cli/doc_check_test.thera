@@ -286,3 +286,55 @@ fn test_a_nested_auto_import_is_not_doubled() -> Result<Void, Error> {
     testing.assert_eq(actual: check_file(where, src, find_sdk_root()).len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// --- `[Symbol]` references ---
+
+@test
+fn test_resolving_references_are_silent() -> Result<Void, Error> {
+    // Every scope the spec names: the file's own decls, a member of a type the file
+    // declares or impls, the prelude, a namespace member, and a built-in's member
+    // through the flat table.
+    let src = '/// See [f], [Probe.tag], [go], [Display], [json.parse] and [Map.entries].\n'
+        + 'import std.json;\n'
+        + 'pub struct Probe {\n'
+        + '    let tag: String;\n'
+        + '}\n'
+        + 'impl Probe {\n'
+        + '    pub fn go(self) -> Int { return 0; }\n'
+        + '}\n'
+        + 'pub fn f() -> Option<json.Json> { return Option.None; }\n';
+    testing.assert_eq(actual: check_at('probe.thera', src).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_broken_reference_is_a_doc_reference_warning() -> Result<Void, Error> {
+    let src = '/// See [gone] and [json.nope].\n'
+        + 'import std.json;\n'
+        + 'pub fn f() -> Option<json.Json> { return Option.None; }\n';
+    let ds = check_at('probe.thera', src);
+    testing.assert_eq(actual: ds.len(), expected: 2)?;
+    for d in ds {
+        testing.assert_eq(actual: d.severity, expected: Severity.Warning)?;
+        testing.assert_eq(actual: d.rule, expected: Option.Some('doc-reference'))?;
+        testing.assert(
+            d.message.contains('doc reference does not resolve'),
+            message: 'got: ${d.message}',
+        )?;
+    }
+    testing.assert_eq(actual: ds[0].span.line, expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_a_member_reference_checks_the_member() -> Result<Void, Error> {
+    // `Probe` resolves; `Probe.gone` must not — the member is checked, not just the
+    // type.
+    let src = '/// See [Probe.gone].\n'
+        + 'pub struct Probe {\n'
+        + '    let tag: String;\n'
+        + '}\n'
+        + 'pub fn f() -> Int { return 0; }\n';
+    testing.assert_eq(actual: check_at('probe.thera', src).len(), expected: 1)?;
+    return Result.Ok(void);
+}

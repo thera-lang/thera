@@ -440,8 +440,9 @@ impl Session {
         return out;
     }
 
-    // Compile-check the doc examples in `source` (located at `p`), as `doc-example`
-    // warnings (see doc_check.thera).
+    // Verify the doc comments in `source` (located at `p`): compile-check its doc
+    // examples and resolve its `[Symbol]` references, as `doc-example` /
+    // `doc-reference` warnings (see doc_check.thera).
     //
     // Deliberately *not* folded into `check`, on two counts. **Scope:** `check`
     // walks the import closure to type-check, but doc examples are extracted only
@@ -455,7 +456,7 @@ impl Session {
     // ordinary checks use — and leaves them as it found them; going through `check`
     // instead would put a phantom synthetic file in the parse cache and the import
     // graph.
-    pub fn check_doc_examples(self, source: String, p: String) -> List<diagnostic.Diagnostic> {
+    pub fn check_docs(self, source: String, p: String) -> List<diagnostic.Diagnostic> {
         return doc_check.check_file(
             p,
             source,

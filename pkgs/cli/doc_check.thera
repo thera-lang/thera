@@ -1,10 +1,13 @@
-//! Compile-checking the code examples in a file's doc comments.
+//! Verifying a file's doc comments: compile-checking the code examples and
+//! resolving the `[Symbol]` references.
 //!
 //! Import as: `import 'doc_check'`; usage: `doc_check.check_file(path, src, root)`.
 //!
 //! Each verified fence (see `docs.thera`) is rendered as a source file and
 //! type-checked against the documented file's own import closure; the diagnostics
-//! come back mapped onto the doc comment's real lines.
+//! come back mapped onto the doc comment's real lines. Each `[Symbol]` reference
+//! resolves against the host's own element model — the same layered model its
+//! ordinary check uses.
 //!
 //! **This pass writes no analysis state.** That matters more than it looks: the
 //! session's incrementality (scale.md item 2) rests on every layer being a pure
@@ -28,6 +31,7 @@
 //! same key its check verdict already has, so they can later be cached and evicted
 //! right alongside it.
 
+import 'ast/ast' as _; // Program — the host's parse, threaded to reference resolution
 import 'checker/checker';
 import 'diagnostic';
 import 'docs';
@@ -49,12 +53,19 @@ import std.path;
 /// whether to trust the example can see that nobody checked it.
 pub let RULE: String = 'doc-example';
 
-/// Compile-check every verified doc example in `source`, which lives at `path`.
+/// The rule name a broken `[Symbol]` reference reports under. Like [RULE] it has no
+/// `// ignore:` form; the opt-out is backticks — `` `code` `` is inert text, so a
+/// bracket that was prose all along becomes a code span, visibly.
+pub let REF_RULE: String = 'doc-reference';
+
+/// Verify the doc comments in `source`, which lives at `path`: compile-check every
+/// verified example (the `doc-example` warning) and resolve every `[Symbol]`
+/// reference (the `doc-reference` warning).
 ///
-/// Returns one **`doc-example` warning** per problem, attributed to `path` and
-/// pointing at the doc-comment line the failure came from. Malformed fences (an
-/// unknown attribute, an unterminated fence) are reported here too — one channel
-/// for everything the reader of that doc comment should know.
+/// Returns one warning per problem, attributed to `path` and pointing at the
+/// doc-comment line the failure came from. Malformed fences (an unknown attribute,
+/// an unterminated fence) are reported here too — one channel for everything the
+/// reader of that doc comment should know.
 ///
 /// **Warning, never error.** A doc comment is not the program, and a stale example
 /// must not stop unrelated code from compiling or running — the failure mode where
@@ -74,67 +85,87 @@ pub fn check_file(
     named library_cache: Map<String, element.CachedLibrary> = [:],
 ) -> List<diagnostic.Diagnostic> {
     let canon = loader.canonical_path(path);
-    let runs = host_doc_runs(canon, source, parse_cache);
-    if !has_examples(runs) {
+    let Some(host) = host_context(canon, source, parse_cache) else {
         return [];
-    }
+    };
 
     let out: List<diagnostic.Diagnostic> = [];
-    let library = documented_library(canon, sdk_root);
-    for doc in runs {
-        for ex in docs.doc_examples(doc) {
-            for p in ex.problems {
-                out.push(diagnostic.warning(p, ex.span, RULE));
-            }
-            if !ex.verified {
-                continue;
-            }
-            for d in check_example(
-                doc,
-                ex,
-                library,
-                canon,
-                sdk_root,
-                parse_cache,
-                overlays,
-                surface_cache,
-                library_cache,
-            ) {
-                out.push(d);
+    if has_examples(host.runs) {
+        let library = documented_library(canon, sdk_root);
+        for doc in host.runs {
+            for ex in docs.doc_examples(doc) {
+                for p in ex.problems {
+                    out.push(diagnostic.warning(p, ex.span, RULE));
+                }
+                if !ex.verified {
+                    continue;
+                }
+                for d in check_example(
+                    doc,
+                    ex,
+                    library,
+                    canon,
+                    sdk_root,
+                    parse_cache,
+                    overlays,
+                    surface_cache,
+                    library_cache,
+                ) {
+                    out.push(d);
+                }
             }
         }
     }
+    check_references(
+        out,
+        host,
+        canon,
+        sdk_root,
+        parse_cache,
+        overlays,
+        surface_cache,
+        library_cache,
+    );
     return out;
 }
 
-// The host file's doc runs — from the cached parse when the cache it was handed
-// holds one (the CLI checks a file immediately before this pass, so that path reads
-// the retained comments and re-lexes nothing), else from a fresh lex. Most files in
-// a tree hold no fenced example at all, so the miss path answers that cheap
-// question first and parses only when a fence makes it worth it. Either way a file
-// that does not lex and parse cleanly yields nothing: a broken file has no
-// trustworthy doc comments, so it reports nothing rather than a list derived from a
-// guess.
-fn host_doc_runs(
+// The host file's parse and doc runs — from the cached parse when the cache it was
+// handed holds one (the CLI checks a file immediately before this pass, so that
+// path reads the retained program and comments and re-lexes nothing), else from a
+// fresh lex. Most files in a tree hold neither a fenced example nor a `[Symbol]`
+// reference, so the miss path answers that cheap question first and parses only
+// when there is work. Either way a file that does not lex and parse cleanly yields
+// None: a broken file has no trustworthy doc comments, so it reports nothing rather
+// than a list derived from a guess.
+struct HostDoc {
+    let program: Program;
+    let runs: List<docs.DocComment>;
+}
+
+fn host_context(
     canon: String,
     source: String,
     parse_cache: Map<String, loader.ParsedFile>,
-) -> List<docs.DocComment> {
+) -> Option<HostDoc> {
     if let Some(pf) = parse_cache.get(canon) {
         if pf.diagnostics.len() != 0 {
-            return [];
+            return Option.None;
         }
-        return docs.doc_runs(pf.comments);
+        return Option.Some(HostDoc { program: pf.program, runs: docs.doc_runs(pf.comments) });
     }
     let lex = lexer.tokenize(source, file: canon);
     let runs = docs.doc_runs(lex.comments);
-    if !has_examples(runs) {
-        return runs;
+    if !has_examples(runs) && !has_refs(runs) {
+        return Option.None;
     }
-    if lex.errors.len() != 0 || parser.parse_tokens(lex.tokens).errors.len() != 0 {
-        return [];
+    if lex.errors.len() != 0 {
+        return Option.None;
     }
-    return runs;
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() != 0 {
+        return Option.None;
+    }
+    return Option.Some(HostDoc { program: parsed.program, runs: runs });
 }
 
 // Whether any run holds a fence this pass has something to say about — a verified
@@ -144,6 +175,189 @@ fn has_examples(runs: List<docs.DocComment>) -> Bool {
         for ex in docs.doc_examples(doc) {
             if ex.verified || ex.problems.len() != 0 {
                 return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Whether any run holds a `[Symbol]` reference.
+fn has_refs(runs: List<docs.DocComment>) -> Bool {
+    for doc in runs {
+        if docs.doc_refs(doc).len() != 0 {
+            return true;
+        }
+    }
+    return false;
+}
+
+// --- `[Symbol]` references ---
+
+// Resolve every `[Symbol]` reference in the host's doc comments and report the ones
+// that name nothing, as `doc-reference` warnings — the doc-rot protection: a rename
+// that misses a doc mention gets caught rather than silently detaching.
+fn check_references(
+    out: List<diagnostic.Diagnostic>,
+    host: HostDoc,
+    canon: String,
+    sdk_root: Option<String>,
+    parse_cache: Map<String, loader.ParsedFile>,
+    overlays: Map<String, String>,
+    surface_cache: Map<String, loader.FileSurface>,
+    library_cache: Map<String, element.CachedLibrary>,
+) -> Void {
+    let refs: List<docs.DocRef> = [];
+    for doc in host.runs {
+        for r in docs.doc_refs(doc) {
+            refs.push(r);
+        }
+    }
+    if refs.len() == 0 {
+        return;
+    }
+    // A reference resolves from the documented file's own scope, so the model is
+    // the *host's* — the same layered element model its ordinary check used,
+    // through the same shared base cache (a hit, in the CLI). The host is a real
+    // file, so this load writes only entries the session's own check already owns;
+    // nothing synthetic enters the caches on this path.
+    let loaded = loader.load_imports(
+        canon,
+        host.program,
+        sdk_root,
+        parse_cache: parse_cache,
+        overlays: overlays,
+        surface_cache: surface_cache,
+    );
+    let lib = element.library_for(
+        library_cache,
+        host.program,
+        canon,
+        loaded.programs,
+        loaded.file_imports,
+        loaded.file_namespaces,
+        loaded.file_bare_surface,
+    ).unwrap_or_else(() => element.build_library(
+        host.program,
+        loaded.programs,
+        loaded.file_namespaces,
+        loaded.file_bare_surface,
+    ));
+    for r in refs {
+        if !ref_resolves(lib, host.program, canon, r.name) {
+            out.push(diagnostic.warning(
+                'doc reference does not resolve: `${r.name}`',
+                r.span,
+                REF_RULE,
+            ));
+        }
+    }
+    return;
+}
+
+// Whether `name` — the dotted text of a `[Symbol]` reference — names a declared
+// symbol, resolved from the documented file's scope the way code resolves a name:
+// the file's own declarations, the bare surface (prelude and `as _` imports), and
+// the namespaces its imports bind. Two documentarian's allowances on top: a bare
+// name may be a member of any type this file declares or `impl`s (so `[slice]`
+// inside `core/string.thera` reads as the method beside it), and a type in member
+// position may come from the flat type table (so `[Map.entries]` reaches the
+// built-in). The flat fallback is looser than code scope, but the rot protection is
+// unharmed: a renamed symbol fails every table.
+fn ref_resolves(
+    lib: element.LibraryElement,
+    program: Program,
+    canon: String,
+    name: String,
+) -> Bool {
+    let file = Option.Some(canon);
+    let parts = name.split('.');
+    if parts.len() == 1 {
+        return element.file_owns(lib, file, name)
+            || element.bare_surface_has(lib, file, name)
+            || element.namespaces_in(lib, file).has(name)
+            || lib.type_defs.has(name)
+            || local_member(lib, program, file, name);
+    }
+    if parts.len() == 2 {
+        // `ns.member` first, then `Type.member` — a namespace and a type sharing a
+        // name is already illegal, so the order never decides anything.
+        if let Some(ns) = element.namespaces_in(lib, file).get(parts[0]) {
+            if element.namespace_exposes(ns, parts[1]) {
+                return true;
+            }
+        }
+        if let Some(t) = type_in_scope(lib, file, parts[0]) {
+            return type_has_member(t, parts[1]);
+        }
+        return false;
+    }
+    if parts.len() == 3 {
+        // `ns.Type.member` — the type resolves through the namespace's origin map
+        // (the file that declares it), falling back to the flat table.
+        let Some(ns) = element.namespaces_in(lib, file).get(parts[0]) else {
+            return false;
+        };
+        if !element.namespace_exposes(ns, parts[1]) {
+            return false;
+        }
+        let owned = match ns.origin.get(parts[1]) {
+            Some(o) => lib.file_type_defs.get(o).and_then((m) => m.get(parts[1])),
+            None => Option.None,
+        };
+        if let Some(t) = owned {
+            return type_has_member(t, parts[2]);
+        }
+        let Some(t) = lib.type_defs.get(parts[1]) else {
+            return false;
+        };
+        return type_has_member(t, parts[2]);
+    }
+    return false;
+}
+
+// The type `name` resolves to from `file`: its own declaration first, then the flat
+// table (built-ins above all).
+fn type_in_scope(
+    lib: element.LibraryElement,
+    file: Option<String>,
+    name: String,
+) -> Option<element.TypeDefElement> {
+    if let Some(own) = lib.file_type_defs.get(element.file_key(file)) {
+        if let Some(t) = own.get(name) {
+            return Option.Some(t);
+        }
+    }
+    return lib.type_defs.get(name);
+}
+
+fn type_has_member(t: element.TypeDefElement, name: String) -> Bool {
+    return element.find_method(t, name).is_some()
+        || t.fields.has(name)
+        || element.find_variant(t, name).is_some();
+}
+
+// Whether `name` is a member of a type this file declares or `impl`s — the scope a
+// reader of the file is standing in, which is what lets a doc beside a method name
+// it bare.
+fn local_member(
+    lib: element.LibraryElement,
+    program: Program,
+    file: Option<String>,
+    name: String,
+) -> Bool {
+    if let Some(own) = lib.file_type_defs.get(element.file_key(file)) {
+        for tn in own.keys() {
+            if type_has_member(own[tn], name) {
+                return true;
+            }
+        }
+    }
+    for d in program.decls {
+        if let Impl(x) = d {
+            if let Some(t) = type_in_scope(lib, file, x.type_name) {
+                if type_has_member(t, name) {
+                    return true;
+                }
             }
         }
     }

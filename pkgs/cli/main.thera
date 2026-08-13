@@ -378,7 +378,7 @@ fn do_check(
                 // operational failures (below) and `emit`, which is a compiler
                 // whose product is the `.thera-bc`. (See docs/architecture.md.)
                 //
-                // The file's own diagnostics, then its doc examples', collected
+                // The file's own diagnostics, then its doc comments', collected
                 // into a fresh list — `check` may hand back a cached parse's
                 // diagnostics, which are the session's to keep, not ours to append
                 // to.
@@ -388,10 +388,14 @@ fn do_check(
                 }
                 // Target set only — this is the one place that knows which files
                 // the user pointed at, which is why the call lives here and not
-                // inside `sess.check` (see `Session.check_doc_examples`).
-                for d in sess.check_doc_examples(source, file) {
+                // inside `sess.check` (see `Session.check_docs`).
+                for d in sess.check_docs(source, file) {
                     diags.push(d);
-                    doc_examples = true;
+                    // The closing note below is about the doc-example opt-out, so
+                    // only that rule earns it.
+                    if d.rule == Option.Some('doc-example') {
+                        doc_examples = true;
+                    }
                 }
                 for d in diags {
                     let line = session.format_diagnostic(d, file);
