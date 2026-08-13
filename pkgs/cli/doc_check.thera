@@ -18,16 +18,20 @@
 //!   node in the invalidation cone of every library the example imports.
 //!
 //! Instead it calls `loader.load_imports` and `checker.check` directly. Those are
-//! pure functions of their arguments; the caches they are *handed* are keyed by the
-//! canonical path of real files, so sharing them across examples is what makes this
-//! fast (one prelude parse for a whole corpus) without making it stateful. The
-//! result is that doc-example diagnostics for a file are a pure function of (its
-//! text, its dependency surfaces) — the very same key its check verdict already
-//! has, so they can later be cached and evicted right alongside it.
+//! pure functions of their arguments; the caches they are *handed* are keyed by
+//! real files — canonical paths for parses and surfaces, closure signatures of real
+//! files for the element-model bases (`element.library_for` layers the synthetic
+//! primary on top without storing it) — so sharing them across examples is what
+//! makes this fast (one prelude parse, one base build per import set for a whole
+//! corpus) without making it stateful. The result is that doc-example diagnostics
+//! for a file are a pure function of (its text, its dependency surfaces) — the very
+//! same key its check verdict already has, so they can later be cached and evicted
+//! right alongside it.
 
 import 'checker/checker';
 import 'diagnostic';
 import 'docs';
+import 'element';
 import 'lexer/lexer';
 import 'loader';
 import 'parser/parser';
@@ -57,8 +61,9 @@ pub let RULE: String = 'doc-example';
 /// an agent cannot build its project because a library's doc comment drifted is
 /// worse than the drift. See docs/documentation.md § `thera check`.
 ///
-/// The three caches mirror `loader.load_imports`: pass a session's to share the
-/// import closure across a batch, or omit them for a self-contained run.
+/// The four caches mirror the session's: pass a session's to share the import
+/// closure and the element-model bases across a batch, or omit them for a
+/// self-contained run.
 pub fn check_file(
     path: String,
     source: String,
@@ -66,20 +71,11 @@ pub fn check_file(
     named parse_cache: Map<String, loader.ParsedFile> = [:],
     named overlays: Map<String, String> = [:],
     named surface_cache: Map<String, loader.FileSurface> = [:],
+    named library_cache: Map<String, element.CachedLibrary> = [:],
 ) -> List<diagnostic.Diagnostic> {
     let canon = loader.canonical_path(path);
-    let lex = lexer.tokenize(source, file: canon);
-    let runs = docs.doc_runs(lex.comments);
-    // Most files in a tree hold no fenced example at all, and this pass runs over
-    // every file `check` was pointed at — so answer the cheap question first and
-    // leave before parsing anything. Lexing alone settles it.
+    let runs = host_doc_runs(canon, source, parse_cache);
     if !has_examples(runs) {
-        return [];
-    }
-    // Only now is the primary parsed, and only to keep the pipeline honest about
-    // broken files: a file that does not parse has no trustworthy doc comments
-    // either, so it reports nothing rather than a list derived from a guess.
-    if parser.parse_tokens(lex.tokens).errors.len() != 0 {
         return [];
     }
 
@@ -102,12 +98,43 @@ pub fn check_file(
                 parse_cache,
                 overlays,
                 surface_cache,
+                library_cache,
             ) {
                 out.push(d);
             }
         }
     }
     return out;
+}
+
+// The host file's doc runs — from the cached parse when the cache it was handed
+// holds one (the CLI checks a file immediately before this pass, so that path reads
+// the retained comments and re-lexes nothing), else from a fresh lex. Most files in
+// a tree hold no fenced example at all, so the miss path answers that cheap
+// question first and parses only when a fence makes it worth it. Either way a file
+// that does not lex and parse cleanly yields nothing: a broken file has no
+// trustworthy doc comments, so it reports nothing rather than a list derived from a
+// guess.
+fn host_doc_runs(
+    canon: String,
+    source: String,
+    parse_cache: Map<String, loader.ParsedFile>,
+) -> List<docs.DocComment> {
+    if let Some(pf) = parse_cache.get(canon) {
+        if pf.diagnostics.len() != 0 {
+            return [];
+        }
+        return docs.doc_runs(pf.comments);
+    }
+    let lex = lexer.tokenize(source, file: canon);
+    let runs = docs.doc_runs(lex.comments);
+    if !has_examples(runs) {
+        return runs;
+    }
+    if lex.errors.len() != 0 || parser.parse_tokens(lex.tokens).errors.len() != 0 {
+        return [];
+    }
+    return runs;
 }
 
 // Whether any run holds a fence this pass has something to say about — a verified
@@ -133,6 +160,7 @@ fn check_example(
     parse_cache: Map<String, loader.ParsedFile>,
     overlays: Map<String, String>,
     surface_cache: Map<String, loader.FileSurface>,
+    library_cache: Map<String, element.CachedLibrary>,
 ) -> List<diagnostic.Diagnostic> {
     let prog = docs.example_program(ex, library);
     // A path beside the documented file, so `std.*` and relative imports resolve
@@ -171,15 +199,33 @@ fn check_example(
         // surface is a derived artifact keyed by a path no file occupies, and
         // letting it accumulate is both a leak and a trap for a later lookup. The
         // real files it pulled in stay cached — that sharing is the point.
-        match surface_cache.remove(loader.canonical_path(virtual)) {
+        let virtual_canon = loader.canonical_path(virtual);
+        match surface_cache.remove(virtual_canon) {
             Some(_) => void,
             None => void,
         }
+        // The element model through the shared base cache — the session's own path
+        // for ordinary checks. Examples with one import set (the auto-import plus
+        // whatever the block adds) share a closure signature, so the base is built
+        // once per distinct set per run rather than once per example — the cost
+        // that used to dominate this pass. Bases are keyed by *real* files'
+        // signatures only; the synthetic primary is layered on top, never stored,
+        // so the no-analysis-state contract above holds. None (`layer_primary`'s
+        // fallbacks) means `check` runs its full uncached build.
         let result = checker.check(
             parsed.program,
             loaded.programs,
             loaded.file_namespaces,
             loaded.file_bare_surface,
+            prebuilt: element.library_for(
+                library_cache,
+                parsed.program,
+                virtual_canon,
+                loaded.programs,
+                loaded.file_imports,
+                loaded.file_namespaces,
+                loaded.file_bare_surface,
+            ),
         );
         // Errors only. A doc example is a fragment, and warnings about fragments
         // (`unused-import` above all) are noise the author cannot act on without

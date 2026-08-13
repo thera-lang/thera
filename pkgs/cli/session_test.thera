@@ -567,3 +567,32 @@ fn test_doc_examples_stop_at_the_target_file() -> Result<Void, Error> {
     cleanup(dir);
     return Result.Ok(void);
 }
+
+// The doc-example pass reads the session's cached parse of the host file — in the
+// CLI, `check` runs immediately before it — so the warm path must answer exactly
+// like a cold one: the broken example reported at the author's line, and a file
+// that does not parse staying silent (its cached parse carries the diagnostics that
+// say so).
+@test
+fn test_doc_examples_reuse_the_cached_parse() -> Result<Void, Error> {
+    let broken = '/// Helps.\n///\n/// ```\n/// nope_not_a_thing()\n/// ```\n'
+        + 'pub fn helper() -> Int { return 1; }\n';
+    let unparseable = '/// ```\n/// nope()\n/// ```\npub fn f( -> { !!!\n';
+    let dir = fixture_dir('docwarm', ['c.thera': broken, 'd.thera': unparseable])?;
+    let sess = new_session(Option.None);
+
+    let c_path = '${dir}/c.thera';
+    let c_src = fs.read_text(c_path)?;
+    testing.assert_eq(actual: sess.check(c_src, c_path).len(), expected: 0)?;
+    let ds = sess.check_doc_examples(c_src, c_path);
+    testing.assert_eq(actual: ds.len(), expected: 1)?;
+    testing.assert_eq(actual: ds[0].span.line, expected: 4)?;
+
+    let d_path = '${dir}/d.thera';
+    let d_src = fs.read_text(d_path)?;
+    let _ = sess.check(d_src, d_path);
+    testing.assert_eq(actual: sess.check_doc_examples(d_src, d_path).len(), expected: 0)?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
