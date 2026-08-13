@@ -9,6 +9,7 @@ import std.fs;
 import 'element';
 import 'loader';
 import 'session' as _;
+import 'source' as _; // SourceSpan — doc_markdown's lookup key
 
 // A fixture tree under the OS temp dir: `files` are (name, source) pairs written
 // into a fresh `thera_session_<tag>_test` directory. Returns the canonical
@@ -592,6 +593,54 @@ fn test_doc_examples_reuse_the_cached_parse() -> Result<Void, Error> {
     let d_src = fs.read_text(d_path)?;
     let _ = sess.check(d_src, d_path);
     testing.assert_eq(actual: sess.check_docs(d_src, d_path).len(), expected: 0)?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// Hover's doc lookup: the Markdown doc of the item declared at (file, name span),
+// read from the session's cached parse — which the closure load of any check or
+// hover has already warmed for every resolvable target.
+@test
+fn test_doc_markdown_reads_the_cached_parse() -> Result<Void, Error> {
+    let dir = fixture_dir('hoverdoc', [
+        'util.thera': '/// Helps twice.\npub fn helper() -> Int { return 1; }\n'
+        + 'pub fn plain() -> Int { return 2; }\n',
+        'main.thera': 'import \'util\';\nfn main() -> Int { return util.helper() + util.plain(); }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let main_path = '${dir}/main.thera';
+    testing.assert_eq(actual: sess.check(fs.read_text(main_path)?, main_path).len(), expected: 0)?;
+
+    // The declaring file entered the parse cache with the closure; the name span is
+    // the target's own name token, located straight from the fixture text.
+    let util_path = loader.canonical_path('${dir}/util.thera');
+    let util_src = fs.read_text(util_path)?;
+    let name_span = SourceSpan {
+        source: util_src,
+        file: util_path,
+        offset: util_src.find('helper').unwrap_or(0),
+        length: 6,
+        line: 1,
+        column: 1,
+    };
+    let doc = sess.doc_markdown(util_path, name_span).unwrap_or('<none>');
+    testing.assert_eq(actual: doc, expected: 'Helps twice.')?;
+
+    // An undocumented item, and a file the session has never seen, answer None.
+    let plain_span = SourceSpan {
+        source: util_src,
+        file: util_path,
+        offset: util_src.find('plain').unwrap_or(0),
+        length: 5,
+        line: 1,
+        column: 1,
+    };
+    testing.assert(sess.doc_markdown(util_path, plain_span).is_none(), message: 'no doc')?;
+    testing.assert(
+        sess.doc_markdown('${dir}/absent.thera', name_span).is_none(),
+        message: 'unknown file',
+    )?;
 
     cleanup(dir);
     return Result.Ok(void);

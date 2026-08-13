@@ -10,6 +10,7 @@ import '../parser/parser';
 import '../checker/checker';
 import 'hover' as _;
 import 'resolve' as _;
+import '../docs'; // attach/doc_at — the doc-lookup half of the doc-bearing tests
 
 // The rendered hover code for `src` at code-point `offset` ('' when hover is null).
 fn rendered(src: String, offset: Int) -> String {
@@ -25,8 +26,38 @@ fn rendered(src: String, offset: Int) -> String {
         file_bare_surface: bare,
         primary_types: [],
     };
-    return hover.handle_hover(ctx, src, offset)
+    return hover.handle_hover(ctx, src, offset, doc_of: (f, s) => Option.None)
         .get('contents').get('value').as_string().unwrap_or('');
+}
+
+// Like `rendered`, with a real doc lookup: the same attachment the session's
+// `doc_markdown` performs, over this one hermetic file.
+fn rendered_with_docs(src: String, offset: Int) -> String {
+    let lex = lexer.tokenize(src);
+    let program = parser.parse_tokens(lex.tokens).program;
+    let imports: List<Program> = [];
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    let bare: Map<String, Map<String, String>> = [:];
+    let ctx = ResolveCtx {
+        program: program,
+        tokens: lex.tokens,
+        imports: imports,
+        file_namespaces: nss,
+        file_bare_surface: bare,
+        primary_types: [],
+    };
+    let map = docs.attach(program, lex.comments);
+    return hover
+        .handle_hover(
+            ctx,
+            src,
+            offset,
+            doc_of: (f, s) => docs.doc_at(map, program, s).map((d) => d.text()),
+        )
+        .get('contents')
+        .get('value')
+        .as_string()
+        .unwrap_or('');
 }
 
 // The offset `delta` code points past the first occurrence of `marker` in `src`.
@@ -154,7 +185,7 @@ fn rendered_with_types(src: String, offset: Int) -> String {
         file_bare_surface: bare,
         primary_types: checker.check(program, [], [:], [:]).records,
     };
-    return hover.handle_hover(ctx, src, offset)
+    return hover.handle_hover(ctx, src, offset, doc_of: (f, s) => Option.None)
         .get('contents').get('value').as_string().unwrap_or('');
 }
 
@@ -223,5 +254,45 @@ fn test_hover_local_without_record_degrades_to_the_name() -> Result<Void, Error>
     let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
     let code = rendered(src, at(src, 'xs[0]', 0));
     testing.assert_eq(actual: code, expected: '```thera\nxs\n```')?;
+    return Result.Ok(void);
+}
+
+// ---- docs under the signature ----
+
+@test
+fn test_hover_shows_the_doc_under_the_signature() -> Result<Void, Error> {
+    let src = '/// Adds one.\nfn add_one(n: Int) -> Int { return n + 1; }\n'
+        + 'fn f() -> Int { return add_one(1); }\n';
+    let code = rendered_with_docs(src, at(src, 'add_one(1)', 2));
+    testing.assert(code.starts_with('```thera\n'), message: 'signature first: ${code}')?;
+    testing.assert(code.contains('---'), message: 'has the rule: ${code}')?;
+    testing.assert(code.contains('Adds one.'), message: 'has the doc: ${code}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_without_a_doc_is_signature_only() -> Result<Void, Error> {
+    let src = 'fn add_one(n: Int) -> Int { return n + 1; }\n'
+        + 'fn f() -> Int { return add_one(1); }\n';
+    let code = rendered_with_docs(src, at(src, 'add_one(1)', 2));
+    testing.assert(code.len() != 0, message: 'still hovers')?;
+    testing.assert(!code.contains('---'), message: 'no rule without a doc: ${code}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_member_doc_is_the_members_not_the_owners() -> Result<Void, Error> {
+    // Innermost wins: the field's own doc, never the enclosing struct's.
+    let src = '/// A counter box.\nstruct S {\n    /// How many so far.\n    let count: Int;\n}\n'
+        + 'impl S {\n'
+        + '    /// Bumps by n.\n'
+        + '    fn helper(self, n: Int) -> Int { return self.count + n; }\n'
+        + '    fn go(self) -> Int { return self.helper(1); }\n'
+        + '}\n';
+    let field = rendered_with_docs(src, at(src, 'self.count + n', 5));
+    testing.assert(field.contains('How many so far.'), message: 'field doc: ${field}')?;
+    testing.assert(!field.contains('A counter box.'), message: 'not the struct doc: ${field}')?;
+    let method = rendered_with_docs(src, at(src, 'self.helper(1)', 5));
+    testing.assert(method.contains('Bumps by n.'), message: 'method doc: ${method}')?;
     return Result.Ok(void);
 }

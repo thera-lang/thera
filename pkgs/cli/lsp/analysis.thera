@@ -11,6 +11,7 @@ import std.fiber;
 import '../ast/ast' as _; // Program
 import '../loader';
 import '../session';
+import '../source' as _; // SourceSpan — the doc-lookup delegate's key
 import 'resolve'; // ResolveCtx
 import 'references'; // collect_in / matching_spans (semantic)
 import 'rename'; // edits_for / is_identifier (semantic rename)
@@ -498,6 +499,12 @@ impl Analysis {
     // shared setup behind hover/definition.
     fn doc_ctx(self, uri: String) -> Option<resolve.ResolveCtx> {
         return self.docs.get(uri).map((text) => self.ctx_for(paths.uri_to_path(uri), text));
+    }
+
+    // The Markdown doc for the item declared at (`file`, `name_span`) — hover's doc
+    // lookup, delegated to the session's cached parses.
+    pub fn doc_markdown(self, file: String, name_span: SourceSpan) -> Option<String> {
+        return self.session.doc_markdown(file, name_span);
     }
 
     // Every file to scan for project-wide references/rename: the open documents

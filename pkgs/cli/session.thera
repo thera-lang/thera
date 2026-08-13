@@ -19,6 +19,7 @@ import 'element';
 import 'loader';
 import 'diagnostic'; // Diagnostic — the uniform phase error, produced by every phase
 import 'doc_check'; // check_file — doc examples, checked beside the file that holds them
+import 'docs'; // attach/doc_at — the doc a hovered symbol's declaration carries
 
 import std.path;
 
@@ -466,6 +467,26 @@ impl Session {
             surface_cache: self.surface_cache,
             library_cache: self.library_cache,
         );
+    }
+
+    // The Markdown documentation of the item whose declaration contains `name_span`
+    // in `file` — the doc a hover shows under the signature. Reads the file's
+    // cached parse (`ParsedFile` retains comments for exactly this consumer), so it
+    // answers only for files a closure load has already touched — which every
+    // resolvable hover target is. None for an undocumented item, an unknown file,
+    // or a file whose parse is broken.
+    pub fn doc_markdown(self, file: String, name_span: SourceSpan) -> Option<String> {
+        if file == '' {
+            return Option.None; // a builtin — no source, no doc
+        }
+        let Some(pf) = self.parse_cache.get(loader.canonical_path(file)) else {
+            return Option.None;
+        };
+        if pf.comments.len() == 0 {
+            return Option.None;
+        }
+        let map = docs.attach(pf.program, pf.comments);
+        return docs.doc_at(map, pf.program, name_span).map((d) => d.text());
     }
 
     // Compile `source` (located at `p`) to `.thera-bc` bytes with its import

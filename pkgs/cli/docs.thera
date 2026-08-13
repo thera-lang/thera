@@ -481,30 +481,63 @@ fn line_sub_span(doc: DocComment, index: Int, start: Int, length: Int) -> Source
 // legal, and a doc above them documents the first.
 fn anchor_lines(program: Program) -> Map<Int, Int> {
     let anchors: Map<Int, Int> = [:];
+    for s in documentable_spans(program) {
+        note(anchors, s);
+    }
+    return anchors;
+}
+
+// Every span a doc run can attach to — each declaration, plus the members that take
+// their own docs (`impl`/`interface` methods, struct fields, enum variants),
+// members after their owner so `note`'s first-writer rule keeps the original order.
+// Shared between anchoring (`attach`) and containment lookup ([doc_at]).
+fn documentable_spans(program: Program) -> List<SourceSpan> {
+    let out: List<SourceSpan> = [];
     for d in program.decls {
-        note(anchors, decl_span(d));
+        out.push(decl_span(d));
         if let Impl(x) = d {
             for m in x.methods {
-                note(anchors, m.span);
+                out.push(m.span);
             }
         }
         if let Interface(x) = d {
             for m in x.methods {
-                note(anchors, m.span);
+                out.push(m.span);
             }
         }
         if let Type(x) = d {
             for f in x.fields {
-                note(anchors, f.span);
+                out.push(f.span);
             }
         }
         if let Enum(x) = d {
             for v in x.variants {
-                note(anchors, v.span);
+                out.push(v.span);
             }
         }
     }
-    return anchors;
+    return out;
+}
+
+/// The doc attached to the documentable item whose span contains `target` — the
+/// **innermost** such item, so a method wins over its enclosing `impl` and a field
+/// over its struct. `target` is any span inside the declaration; the resolver's
+/// name spans are the intended callers (LSP hover: a resolved symbol's `name_span`,
+/// this map, and the declaring file's program meet here).
+pub fn doc_at(map: DocMap, program: Program, target: SourceSpan) -> Option<DocComment> {
+    let mut best: Option<SourceSpan> = Option.None;
+    for s in documentable_spans(program) {
+        if s.offset <= target.offset && target.offset < s.offset + s.length {
+            let tighter = match best {
+                Some(b) => s.length < b.length,
+                None => true,
+            };
+            if tighter {
+                best = Option.Some(s);
+            }
+        }
+    }
+    return best.and_then((s) => map.at(s));
 }
 
 fn note(anchors: Map<Int, Int>, span: SourceSpan) -> Void {

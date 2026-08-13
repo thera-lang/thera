@@ -1,7 +1,10 @@
 // LSP hover — a thin renderer over the shared cursor resolver (`resolve.thera`):
 // resolve the name/`self` under the cursor to a target, then present its
-// signature/type as a Markdown code block. All resolution (self / self.member /
-// parameters / Enum.Variant / top-level decls) lives in `resolve`.
+// signature/type as a Markdown code block, with the declaration's doc comment
+// beneath it. All resolution (self / self.member / parameters / Enum.Variant /
+// top-level decls) lives in `resolve`; the doc text comes through `doc_of`, the
+// caller's lookup from (declaring file, name span) to Markdown — the server passes
+// the session's (`Session.doc_markdown`), a hermetic caller passes an inert one.
 
 import std.json as _;
 
@@ -9,21 +12,42 @@ import '../source' as _; // SourceSpan
 import 'resolve'; // resolve_at
 import 'positions'; // span_to_range
 
-// The `Hover` (as JSON) for `offset` in `text`: the resolved signature/type, or
-// JSON null when nothing resolves.
-pub fn handle_hover(ctx: resolve.ResolveCtx, text: String, offset: Int) -> Json {
+// The `Hover` (as JSON) for `offset` in `text`: the resolved signature/type plus
+// the declaration's doc, or JSON null when nothing resolves.
+pub fn handle_hover(
+    ctx: resolve.ResolveCtx,
+    text: String,
+    offset: Int,
+    named doc_of: (String, SourceSpan) -> Option<String>,
+) -> Json {
     return match resolve.resolve_at(ctx, text, offset) {
-        Some(r) => hover_result(r.render, r.ref_span),
+        Some(r) => hover_result(r.render, doc_for(r, doc_of), r.ref_span),
         None => json.null(),
     };
 }
 
-fn hover_result(code: String, span: SourceSpan) -> Json {
+// The doc for a resolved target: its symbol's declaring file and name span feed the
+// caller's lookup. A target with no navigable declaration (a builtin) has no doc
+// site to read.
+fn doc_for(r: resolve.Resolved, doc_of: (String, SourceSpan) -> Option<String>) -> Option<String> {
+    let Some(s) = r.symbol() else {
+        return Option.None;
+    };
+    let Some(span) = s.name_span() else {
+        return Option.None;
+    };
+    return doc_of(s.file(), span);
+}
+
+fn hover_result(code: String, doc: Option<String>, span: SourceSpan) -> Json {
+    // The doc is already Markdown (the doc-comment subset), rendered under the
+    // signature past a rule — the layout every mainstream editor uses.
+    let value = match doc {
+        Some(d) => '```thera\n${code}\n```\n\n---\n\n${d}',
+        None => '```thera\n${code}\n```',
+    };
     return json.obj([
-        'contents': json.obj([
-            'kind': json.str('markdown'),
-            'value': json.str('```thera\n${code}\n```'),
-        ]),
+        'contents': json.obj(['kind': json.str('markdown'), 'value': json.str(value)]),
         'range': positions.span_to_range(span),
     ]);
 }

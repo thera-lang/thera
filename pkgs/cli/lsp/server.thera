@@ -645,10 +645,16 @@ impl Server {
         };
     }
 
-    // Hover at a position: the resolved declaration's signature, or JSON null.
+    // Hover at a position: the resolved declaration's signature and doc comment, or
+    // JSON null.
     fn hover(self, uri: Option<String>, position: Json) -> Json {
         return match self.analysis.analyze_at(uri, position) {
-            Some(a) => hover.handle_hover(a.ctx, a.text, a.offset),
+            Some(a) => hover.handle_hover(
+                a.ctx,
+                a.text,
+                a.offset,
+                doc_of: (f, s) => self.analysis.doc_markdown(f, s),
+            ),
             None => json.null(),
         };
     }
