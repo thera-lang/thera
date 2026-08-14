@@ -283,12 +283,14 @@ pub native fn slice(self, start: Int, end: Int) -> String
 own reads fine in an example and would be a mistake in real code.
 
 That is the whole dialect. A third relaxation — `...` eliding a body or a
-statement, typed as a diverging hole — was specified and is **parked**
-([#176](https://github.com/thera-lang/thera/issues/176)): the `sdk/std`
-migration proved it unnecessary by writing out every statement its `...` stood
-for, and a grammar form legal only inside doc examples is a real dialect fork to
-carry for the few blocks that want one. A block that genuinely cannot spell its
-point as compilable code takes `thera,no_check`.
+statement, typed as a diverging hole — was specified and then **declined**
+([#176](https://github.com/thera-lang/thera/issues/176), closed 2026-08): the
+`sdk/std` migration proved it unnecessary by writing out every statement its
+`...` stood for, and a grammar form legal only inside doc examples is a real
+dialect fork to carry for the few blocks that want one. An example that wants to
+gesture at unspecified code writes real (brief) code, or a `// ...` comment —
+which is ordinary Thera, no dialect needed. A block that genuinely cannot spell
+its point as compilable code takes `thera,no_check`.
 
 ### What compiles, and what does not
 
@@ -607,10 +609,10 @@ paused rather than queued
 ([#184](https://github.com/thera-lang/thera/issues/184)). The dialect that
 landed with phase 1 is language surface, so it wants
 [conformance](conformance.md) IDs. `...` elision, once slated to land alongside
-it, was dropped from the dialect after the `sdk/std` migration showed the corpus
-did not need it ([#176](https://github.com/thera-lang/thera/issues/176));
-language.md's eliding blocks settle at phase 2 by writing their statements out
-or taking `no_check`.
+it, was declined after the `sdk/std` migration showed the corpus did not need it
+([#176](https://github.com/thera-lang/thera/issues/176), closed); language.md's
+eliding blocks settle at phase 2 by writing their statements out (a `// ...`
+comment marks anything genuinely unspecified) or taking `no_check`.
 
 ## Corpus snapshot (2026-08)
 
