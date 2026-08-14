@@ -1,0 +1,114 @@
+//! spec: bare-variant-construction
+//! mode: run
+
+// Bare variant construction (language.md "Bare variant construction"): where
+// the position's expected type pins an enum, its variants construct bare — the
+// expression-side mirror of bare match patterns. The qualified form stays the
+// general case; a real binding always wins over the variant reading.
+
+enum Judgement {
+    Pass,
+    Fail(String),
+}
+
+enum LoadError {
+    NotFound(String),
+    Corrupt,
+}
+
+// A file-tier binding sharing a variant's name: the binding wins, the variant
+// stays reachable qualified.
+const Pass: Int = 7;
+
+fn half(n: Int) -> Option<Int> {
+    if n % 2 == 0 {
+        return Some(n / 2);           // return position pins Option
+    }
+    return None;
+}
+
+fn wrapped(n: Int) -> Result<Option<Int>, Error> {
+    return Some(n);                   // implicit-Ok composition: Some targets the payload
+}
+
+fn load(id: Int) -> Result<Int, LoadError> {
+    if id < 0 {
+        throw NotFound('id ${id}');   // throw position pins the Err payload enum
+    }
+    if id == 0 {
+        throw Corrupt;                // payload-free variant, same position
+    }
+    return Ok(id * 10);
+}
+
+fn judge(n: Int) -> Judgement {
+    if n > 5 {
+        return Fail('too big');       // a user enum constructs bare the same way
+    }
+    return Judgement.Pass;            // qualified stays valid (bare `Pass` is the const here)
+}
+
+fn show(v: Option<Int>) -> String {
+    return match v {
+        Some(n) => 'some ${n}',
+        None => 'none',
+    };
+}
+
+fn describe(r: Result<Int, LoadError>) -> String {
+    return match r {
+        Ok(v) => 'ok ${v}',
+        Err(e) => match e {
+            NotFound(what) => 'not found (${what})',
+            Corrupt => 'corrupt',
+        },
+    };
+}
+
+fn main() -> Result<Void, Error> {
+    let a: Option<Int> = Some(3);     // annotated binding
+    let b: Option<Int> = None;
+    println(show(a));                 // expect: some 3
+    println(show(b));                 // expect: none
+
+    println(show(Some(41)));          // argument position
+    // expect: some 41
+
+    let r: Result<Option<Int>, Error> = Ok(Some(7));   // payloads nest
+    if let Ok(v) = r {
+        println('nested ${show(v)}'); // expect: nested some 7
+    }
+
+    println(show(half(8)));           // expect: some 4
+    println(show(half(9)));           // expect: none
+
+    let w = wrapped(5)?;
+    println(show(w));                 // expect: some 5
+
+    println(describe(load(3)));       // expect: ok 30
+    println(describe(load(-1)));      // expect: not found (id -1)
+    println(describe(load(0)));       // expect: corrupt
+
+    match judge(9) {
+        Pass => println('pass'),
+        Fail(why) => println('fail: ${why}'),
+    }
+    // expect: fail: too big
+
+    // The const `Pass` wins over the variant everywhere the name is bare.
+    println('${Pass}');               // expect: 7
+
+    // Match arm bodies inherit the match's expectation.
+    let flipped: Option<Int> = match half(8) {
+        Some(n) => Some(n + 1),
+        None => None,
+    };
+    println(show(flipped));           // expect: some 5
+
+    // Assignment targets pin their RHS.
+    let mut cur: Option<Int> = None;
+    cur = Some(12);
+    println(show(cur));               // expect: some 12
+
+    return Ok(void);
+}

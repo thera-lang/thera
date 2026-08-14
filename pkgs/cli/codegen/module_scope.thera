@@ -187,6 +187,11 @@ pub struct ModuleScope {
     // inside the lambda still resolves through its bound when the lambda is
     // compiled as its own (type-parameter-less) unit.
     let lambda_bounds: Map<Int, Map<String, List<TypeId>>>;
+    // And their return type (from the lambda's inferred function type — annotation
+    // or the expected signature), so the body's return positions see the same
+    // expectation the checker threaded (a bare `Some(x)` tail, a `return` inside a
+    // block body).
+    let lambda_return_types: Map<Int, Type>;
     // The `self_type` codegen actually put in each unit's inference context,
     // recorded during compilation so the differential oracle can observe (not
     // model) what codegen built and compare it to the checker-correct value.
@@ -225,6 +230,7 @@ pub fn new_module_scope(library: element.LibraryElement) -> ModuleScope {
         cell_type: Option.None,
         lambda_param_types: [:],
         lambda_bounds: [:],
+        lambda_return_types: [:],
         unit_ctx_self: [:],
         library: library,
     };
@@ -639,6 +645,7 @@ impl ModuleScope {
         decl: FnDecl,
         boxed: Set<String>,
         param_types: Map<String, Type>,
+        return_type: Type,
         bounds: Map<String, List<TypeId>>,
         file: Option<String>,
     ) -> Int {
@@ -648,6 +655,10 @@ impl ModuleScope {
             self.boxed_params[index] = boxed;
         }
         self.lambda_param_types[index] = param_types;
+        match return_type {
+            Unknown => void, // nothing typed the lambda — no expectation to carry
+            _ => { self.lambda_return_types[index] = return_type; },
+        }
         if bounds.len() > 0 {
             self.lambda_bounds[index] = bounds;
         }

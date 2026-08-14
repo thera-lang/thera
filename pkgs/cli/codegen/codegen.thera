@@ -383,14 +383,21 @@ impl FnCompiler {
         for tp in fn_decl.type_params {
             type_params.add(tp.name);
         }
-        let return_type = fn_decl.return_type.map(
-            (ref) => resolve_type_ref_in(
-                ref,
-                file_scope(self.scope.library, self.file),
-                type_params,
-                self_type,
-            )
-        );
+        // A lifted lambda's return type was stashed at lift time (its inferred
+        // function type's return); a normal unit resolves its annotation. Only the
+        // *annotation* drives implicit-`Ok` wrapping below — a lambda's stashed
+        // type threads expectations without changing its wrap behavior.
+        let return_type = match self.scope.lambda_return_types.get(index) {
+            Some(rt) => Option.Some(rt),
+            None => fn_decl.return_type.map(
+                (ref) => resolve_type_ref_in(
+                    ref,
+                    file_scope(self.scope.library, self.file),
+                    type_params,
+                    self_type,
+                )
+            ),
+        };
         // Implicit-`Ok` wrapping applies only when the *resolved* return type is
         // the core `Result` (identity, not spelling — X1).
         self.returns_result = match return_type {
@@ -498,7 +505,13 @@ impl FnCompiler {
             self.slots = [:];
             self.type_scope = [:];
             let start = self.code.len();
-            self.expr(init.value);
+            // The global's declared type (its element's — consts and globals share
+            // `ConstElement`) is the initializer's expectation, as at a local
+            // `let`.
+            let expected = file_scope(self.scope.library, init.file)
+                .resolve_const(init.name)
+                .map((c) => c.ty);
+            self.expr_expecting(init.value, expected);
             self.reject_effectful_natives(start, init.span);
             self.emit(Instr.GlobalSet(init.slot));
         }
@@ -877,6 +890,9 @@ impl FnCompiler {
     }
 
     fn assign(self, target: Expr, value: Expr, span: SourceSpan) -> Void {
+        // The target's type is the value's expectation (as in the checker), so a
+        // bare variant or `[]`-as-map on the RHS lowers correctly.
+        let expected = Option.Some(infer_expr(target, self.type_scope, self.ctx, Option.None));
         match target {
             Ident(_, name) => {
                 match self.slots.get(name) {
@@ -884,10 +900,10 @@ impl FnCompiler {
                         if self.boxed_locals.contains(name) {
                             // Write into the cell, not the slot.
                             self.emit(Instr.Load(slot));
-                            self.expr(value);
+                            self.expr_expecting(value, expected);
                             self.emit(Instr.FieldSet(0));
                         } else {
-                            self.expr(value);
+                            self.expr_expecting(value, expected);
                             self.emit(Instr.Store(slot));
                         }
                     },
@@ -897,14 +913,14 @@ impl FnCompiler {
             Field(_, object, field) => {
                 if let Some(info) = self.struct_of(object, span) {
                     self.expr(object);
-                    self.expr(value);
+                    self.expr_expecting(value, expected);
                     self.emit(Instr.FieldSet(self.field_index(info, field.name, span)));
                 }
             },
             Index(_, object, index) => {
                 self.expr(object);
                 self.expr(index);
-                self.expr(value);
+                self.expr_expecting(value, expected);
                 if self.is_core(object, 'List') {
                     self.emit(Instr.Simple(Op.ListSet));
                 } else if self.is_core(object, 'Map') {
@@ -935,8 +951,20 @@ impl FnCompiler {
                 }
             },
             Some(v) => {
-                self.expr_expecting(v, self.ctx.return_type);
-                if self.returns_result && !self.is_core(v, 'Result') {
+                // The effective expectation: the return type, or — under the
+                // implicit-`Ok` rule — its `Ok` payload when a bare variant names
+                // that enum instead (`return Some(x)`); the checker made the same
+                // choice. The wrap test infers with that expectation too, so a bare
+                // `Ok(x)` reads as the `Result` it constructs (not `Unknown`, which
+                // would double-wrap).
+                let expected = return_value_expected(v, self.type_scope, self.ctx);
+                self.expr_expecting(v, expected);
+                let vt = infer_expr(v, self.type_scope, self.ctx, expected);
+                let is_result = match type_id_of_type(vt) {
+                    Some(id) => element.is_core_id(self.scope.library, id, 'Result'),
+                    None => false,
+                };
+                if self.returns_result && !is_result {
                     self.emit(Instr.EnumNew(TY_RESULT, TAG_OK, 1));
                 }
             },
@@ -944,9 +972,11 @@ impl FnCompiler {
         self.emit(Instr.Simple(Op.Return));
     }
 
-    // `throw e` is sugar for `return Err(e)` in a `Result`-returning function.
+    // `throw e` is sugar for `return Err(e)` in a `Result`-returning function. The
+    // `Err` payload type is the value's expectation, so a bare variant of the
+    // function's error enum constructs (`throw NotFound`).
     fn emit_throw(self, value: Expr) -> Void {
-        self.expr(value);
+        self.expr_expecting(value, throw_value_expected(self.ctx));
         self.emit(Instr.EnumNew(TY_RESULT, TAG_ERR, 1));
         self.emit(Instr.Simple(Op.Return));
     }
@@ -1130,14 +1160,28 @@ impl FnCompiler {
             Bool(_, v) => { self.emit(Instr.ConstBool(v)); },
             Unit(_) => { self.emit(Instr.Simple(Op.ConstUnit)); },
             Str(_, _) => { self.string_expr(e); },
-            Ident(span, name) => { self.load_local_value(name, span); },
+            Ident(span, name) => {
+                // A bare payload-free variant under a matching expectation (`None`
+                // where an `Option` is expected) constructs; a real binding always
+                // wins (`bare_variant` is shadow-aware).
+                match self.bare_variant(name, expected) {
+                    Some(ev) => { self.emit(Instr.EnumNew(ev.info.ty, ev.tag, 0)); },
+                    None => { self.load_local_value(name, span); },
+                }
+            },
             Unary(span, op, operand) => { self.unary_expr(op, operand, span); },
             Binary(span, left, op, right) => { self.binary_expr(left, op, right, span); },
             ListLit(_, items) => {
-                for item in items {
-                    self.expr(item);
+                // `[]` under a `Map` expectation is the empty map (the checker
+                // types it that way; the lowering must agree).
+                if items.len() == 0 && self.expects_core(expected, 'Map') {
+                    self.emit(Instr.CallNative('map_new', 0));
+                } else {
+                    for item in items {
+                        self.expr(item);
+                    }
+                    self.emit(Instr.ListNew(items.len()));
                 }
-                self.emit(Instr.ListNew(items.len()));
             },
             MapLit(_, entries) => {
                 for entry in entries {
@@ -1153,7 +1197,7 @@ impl FnCompiler {
             },
             Field(span, object, field) => { self.field_expr(object, field.name, span); },
             Struct(x) => { self.struct_expr(x); },
-            Call(x) => { self.call_expr(x); },
+            Call(x) => { self.call_expr(x, expected); },
             Propagate(_, inner) => { self.propagate_expr(inner); },
             Match(x) => { self.match_expr(x, expected); },
             Block(_, block) => { self.emit_block_value(block, expected); },
@@ -1277,10 +1321,17 @@ impl FnCompiler {
         // The lifted unit's parameter types (captures + lambda params), stashed so
         // its body can be inferred when compiled as its own unit. The lambda's own
         // param types come from its full inferred function type (annotation or the
-        // expected function type); captures keep their enclosing types.
-        let param_types = match infer_expr(Expr.Lambda(x), self.type_scope, self.ctx, expected) {
+        // expected function type); captures keep their enclosing types. The return
+        // type is stashed alongside, so the body's return positions keep their
+        // expectation.
+        let fn_type = infer_expr(Expr.Lambda(x), self.type_scope, self.ctx, expected);
+        let param_types = match fn_type {
             Function(ps, _) => ps,
             _ => [],
+        };
+        let lambda_return = match fn_type {
+            Function(_, ret) => ret,
+            _ => Type.Unknown,
         };
         let stash: Map<String, Type> = [:];
         for c in captures {
@@ -1303,6 +1354,7 @@ impl FnCompiler {
             lifted,
             boxed_captures,
             stash,
+            lambda_return,
             self.type_param_bounds,
             self.file,
         );
@@ -1978,6 +2030,51 @@ impl FnCompiler {
         return self.static_type_id(e).map((t) => t.name);
     }
 
+    // A bare-variant construction site (`Ok(x)` where a `Result` is expected): the
+    // element model's resolution — which a lexical or file-tier binding always wins
+    // over — mapped to this backend's enum info and tag.
+    fn bare_variant(self, name: String, expected: Option<Type>) -> Option<EnumVariantRef> {
+        if let Some(sel) = resolve_bare_variant(name, expected, self.type_scope, self.ctx) {
+            if let Some(info) = self.scope.resolve_enum(sel.element.owner_file, sel.element.name) {
+                let tag = tag_of(info, name);
+                if tag >= 0 {
+                    return Option.Some(EnumVariantRef { info: info, tag: tag });
+                }
+            }
+        }
+        return Option.None;
+    }
+
+    // Whether the expected type is the core type `name` (`Map` for the `[]`-as-
+    // empty-map rule).
+    fn expects_core(self, expected: Option<Type>, name: String) -> Bool {
+        return match expected {
+            Some(t) => match type_id_of_type(t) {
+                Some(id) => element.is_core_id(self.scope.library, id, name),
+                None => false,
+            },
+            None => false,
+        };
+    }
+
+    // Emit the written arguments in call order, each with its expected parameter
+    // type — the emission for positional-only callees (natives, enum constructors,
+    // function-valued locals/fields), which have no labels or defaults to reorder
+    // around. `expected` is the context's type for the call's result, which an
+    // enum-constructor callee's payload parameters instantiate from.
+    fn emit_args_expecting(self, x: CallExpr, expected: Option<Type>) -> Void {
+        let eps = expected_arg_types(x.callee, x.args, self.type_scope, self.ctx, expected);
+        for p in x.args.enumerate() {
+            let exp = match eps {
+                Some(list) => if p.index < list.len() {
+                    Option.Some(list[p.index])
+                } else { Option.None },
+                None => Option.None,
+            };
+            self.expr_expecting(p.value.value, exp);
+        }
+    }
+
     // The owner-correct identity of a static type-name receiver — a bare `Type` or
     // a qualified `ns.Type` — resolved through this file's scope so a name two
     // libraries share reaches the one this file sees. Scope-aware, not
@@ -2006,11 +2103,11 @@ impl FnCompiler {
 
     // --- calls ---
 
-    fn call_expr(self, x: CallExpr) -> Void {
+    fn call_expr(self, x: CallExpr, expected: Option<Type>) -> Void {
         let callee = x.callee;
         match callee {
             Field(_, obj, field) => {
-                self.method_call(x, obj, field.name);
+                self.method_call(x, obj, field.name, expected);
                 return;
             },
             Ident(_, name) => {
@@ -2018,9 +2115,7 @@ impl FnCompiler {
                 // a function-typed parameter) shadows a same-named function.
                 if self.slots.has(name) {
                     self.load_local_value(name, x.span);
-                    for arg in x.args {
-                        self.expr(arg.value);
-                    }
+                    self.emit_args_expecting(x, Option.None);
                     self.emit(Instr.CallIndirect(x.args.len()));
                     return;
                 }
@@ -2044,10 +2139,15 @@ impl FnCompiler {
                         self.emit(Instr.CallNative(native_fn, 1));
                         return;
                     }
-                    for arg in x.args {
-                        self.expr(arg.value);
-                    }
+                    self.emit_args_expecting(x, Option.None);
                     self.emit(Instr.CallNative(native_fn, x.args.len()));
+                    return;
+                }
+                // A bare variant construction (`Ok(x)` under a `Result`
+                // expectation) — after every real binding has had its chance.
+                if let Some(ev) = self.bare_variant(name, expected) {
+                    self.emit_args_expecting(x, expected);
+                    self.emit(Instr.EnumNew(ev.info.ty, ev.tag, x.args.len()));
                     return;
                 }
                 self.error('unknown function: ${name}', x.span);
@@ -2061,9 +2161,9 @@ impl FnCompiler {
     // callee a site is — codegen no longer re-derives that classification, it
     // dispatches on it and only chooses the backend lowering (native symbol vs.
     // unit index vs. virtual selector) for the resolved kind.
-    fn method_call(self, x: CallExpr, obj: Expr, field: String) -> Void {
+    fn method_call(self, x: CallExpr, obj: Expr, field: String, expected: Option<Type>) -> Void {
         let emitted = match infer_callee_kind(obj, field, x.args.len(), self.type_scope, self.ctx) {
-            EnumCtor => self.emit_enum_ctor(x, obj, field),
+            EnumCtor => self.emit_enum_ctor(x, obj, field, expected),
             EnumName => self.emit_enum_name_call(x, obj),
             Namespace => self.emit_namespace_call(x, obj, field),
             StaticMethod => self.emit_static_method_call(x, obj, field),
@@ -2081,12 +2181,10 @@ impl FnCompiler {
     }
 
     // Enum payload constructor: `Shape.Circle(5)`.
-    fn emit_enum_ctor(self, x: CallExpr, obj: Expr, field: String) -> Bool {
+    fn emit_enum_ctor(self, x: CallExpr, obj: Expr, field: String, expected: Option<Type>) -> Bool {
         match self.enum_variant(obj, field) {
             Some(ev) => {
-                for arg in x.args {
-                    self.expr(arg.value);
-                }
+                self.emit_args_expecting(x, expected);
                 self.emit(Instr.EnumNew(ev.info.ty, ev.tag, x.args.len()));
                 return true;
             },
@@ -2120,9 +2218,7 @@ impl FnCompiler {
                     self.file,
                 ).member_owner(ns_name, field) {
                     if let Some(native_sym) = self.scope.native_in_file(owner, field) {
-                        for arg in x.args {
-                            self.expr(arg.value);
-                        }
+                        self.emit_args_expecting(x, Option.None);
                         self.emit(Instr.CallNative(native_sym, x.args.len()));
                         return true;
                     }
@@ -2153,9 +2249,7 @@ impl FnCompiler {
         if let Some(static_type) = self.static_type_name(obj) {
             if let Some(m) = self.scope.native_static_methods.get(static_type) {
                 if let Some(native_sym) = m.get(field) {
-                    for arg in x.args {
-                        self.expr(arg.value);
-                    }
+                    self.emit_args_expecting(x, Option.None);
                     self.emit(Instr.CallNative(native_sym, x.args.len()));
                     return true;
                 }
@@ -2184,9 +2278,7 @@ impl FnCompiler {
             if let Some(m) = self.scope.native_instance_methods.get(t) {
                 if let Some(instance_native) = m.get(field) {
                     self.expr(obj);
-                    for arg in x.args {
-                        self.expr(arg.value);
-                    }
+                    self.emit_args_expecting(x, Option.None);
                     // `list.len()` lowers to the `ListLen` primitive (the receiver
                     // is on the stack) rather than a native round-trip — it is by
                     // far the hottest native. Other instance natives stay
@@ -2270,16 +2362,7 @@ impl FnCompiler {
                 // No consultable signature (a universal selector): emit the written
                 // arguments as-is, threading expected types in call order as
                 // before.
-                let expected = expected_arg_types(x.callee, x.args, self.type_scope, self.ctx);
-                for p in x.args.enumerate() {
-                    let exp = match expected {
-                        Some(eps) => if p.index < eps.len() {
-                            Option.Some(eps[p.index])
-                        } else { Option.None },
-                        None => Option.None,
-                    };
-                    self.expr_expecting(p.value.value, exp);
-                }
+                self.emit_args_expecting(x, Option.None);
                 self.emit(Instr.CallVirtual(field, x.args.len() + 1));
             },
         }
@@ -2295,9 +2378,7 @@ impl FnCompiler {
                 if fi >= 0 {
                     self.expr(obj);
                     self.emit(Instr.FieldGet(fi));
-                    for arg in x.args {
-                        self.expr(arg.value);
-                    }
+                    self.emit_args_expecting(x, Option.None);
                     self.emit(Instr.CallIndirect(x.args.len()));
                     return true;
                 }
@@ -2380,7 +2461,7 @@ impl FnCompiler {
         args: List<CallArg>,
         ordered: List<OrderedArg>,
     ) -> Void {
-        let expected = expected_param_types(callee, args, self.type_scope, self.ctx);
+        let expected = expected_param_types(callee, args, self.type_scope, self.ctx, Option.None);
         for p in ordered.enumerate() {
             let exp = match expected {
                 Some(eps) => if p.index < eps.len() {

@@ -744,18 +744,22 @@ measurement instrument for this list.
   member positions are grammatically unambiguous, so making keywords contextual
   there (the TypeScript move) costs nothing in local reasoning. Do this before
   the OpenAPI generator, not after.
-- **Bare variant construction where the expected type is known.** The most
-  frequent first-contact error is `Ok(x)` / `Some(v)` for `Result.Ok(x)` /
-  `Option.Some(v)` — and it is a recurring tax (every function's exit paths,
-  forever), against an enormous Rust prior. The asymmetry is the tell: patterns
-  are bare _because the scrutinee's type is known_, and bidirectional inference
-  already flows expected types into expressions — so allow bare `Variant(args)`
-  exactly where an expected enum type pins it (`return Ok(x)`, an argument, an
-  annotated binding), keeping the qualified form as the general case. The
-  reserved-names rule means `Ok`/`Some`/`None`/`Err` can never mean anything
-  else, so "one name, one meaning" survives. A smaller extension on the same
-  principle, to evaluate with it: accept `[]` as the empty map where the
-  expected type is a `Map` (today it infers `List<?>` and mismatches).
+- **Bare variant construction where the expected type is known — landed**
+  ([#139](https://github.com/thera-lang/thera/issues/139); normative text in
+  [language.md → Bare variant construction](language.md#bare-variant-construction)).
+  The most frequent first-contact error was `Ok(x)` / `Some(v)` for
+  `Result.Ok(x)` / `Option.Some(v)` — a recurring tax (every function's exit
+  paths, forever), against an enormous Rust prior. The asymmetry was the tell:
+  patterns are bare _because the scrutinee's type is known_, and bidirectional
+  inference already flowed expected types into expressions — so bare
+  `Variant(args)` now resolves exactly where an expected enum type pins it
+  (`return Ok(x)` — composing with implicit-`Ok`, so `return Some(x)` targets
+  the payload — `throw` values, arguments, annotated bindings, struct fields,
+  assignment RHS), with the qualified form as the general case and a real
+  binding always winning over the variant reading. The `[]`-as-empty-map
+  extension landed with it, and enum constructions (both forms) got the
+  arity/payload checking the lenient path previously skipped. Re-mine
+  transcripts to confirm the error class is gone.
 - **`let … else` completion.** The v1 limits — the `else` must end in a
   _literal_ `return`/`throw` (divergence through nested branches isn't
   recognized), and the pattern binds at most one variable — are checker

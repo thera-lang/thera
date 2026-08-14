@@ -1,0 +1,26 @@
+//! spec: bare-variant-construction
+//! mode: check
+
+// The limits of bare variant construction: nothing pins → undefined (with a
+// teaching hint); the wrong enum pinned → undefined; arity and payload types
+// are checked at the construction.
+
+fn main() -> Void {
+    // No expectation: an un-annotated binding doesn't pin an enum, so the
+    // qualified form is required.
+    let _a = Ok(3);                   // expect error: undefined name: Ok
+    let _b = Some('x');               // expect error: undefined name: Some
+
+    // The expected type names a different enum.
+    let _c: Option<Int> = Ok(3);      // expect error: undefined name: Ok
+
+    // Arity is exact.
+    let _d: Option<Int> = Some;       // expect error: variant `Option.Some` takes 1 argument, got none
+    let _e: Option<Int> = Some(1, 2); // expect error: variant `Option.Some` takes 1 argument, got 2
+    let _f: Option<Int> = None(1);    // expect error: variant `Option.None` takes 0 arguments, got 1
+
+    // Payload types are checked against the expected enum's arguments (the
+    // construction also reports at the binding, hence the split).
+    let _g: Option<Int> =             // expect error: binding '_g': expected Option<Int>, found Option<String>
+        Some('x');                    // expect error: argument to `Option.Some`: expected Int, found String
+}

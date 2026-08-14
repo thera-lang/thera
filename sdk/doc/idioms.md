@@ -40,13 +40,13 @@ fn load(path: String) -> Result<Config, Error> {
     if text.is_empty() {
         throw error('empty config: ${path}');   // throw = return Result.Err(…)
     }
-    return Config { path: path, hits: 0, root: Option.None };  // implicit Ok on return
+    return Config { path: path, hits: 0, root: None };  // implicit Ok on return
 }
 
 fn main(args: List<String>) -> Result<Int, Error> {
     let cfg = load(args.get(0).unwrap_or('config.toml'))?;
     println('loaded ${cfg.path}');        // ${} interpolation renders any value
-    return Result.Ok(0);
+    return Ok(0);
 }
 ```
 
@@ -60,21 +60,29 @@ literals conventionally use single quotes.
 
 Each of these is a real first-contact error, most-frequent first.
 
-1. **Construct `Result`/`Option` qualified; match them bare.** They are ordinary
-   prelude enums, not keywords.
+1. **Bare `Ok(x)`/`Some(v)` works only where the expected type pins the enum.**
+   `Result`/`Option` are ordinary prelude enums, not keywords. A return value,
+   an annotated binding, a call argument, a `throw` — positions with a known
+   expected type — construct bare, exactly as match patterns are bare:
 
    ```thera
-   let a = Result.Ok(3);         // not Ok(3)
-   let b = Option.Some('x');     // not Some('x')
-   let c: Option<Int> = Option.None;
-   match b { Some(s) => println(s), None => void };   // patterns stay bare
+   fn find(id: Int) -> Result<Option<User>, Error> {
+       if id < 0 { throw error('bad id'); }
+       return Ok(None);                    // the return type pins both
+   }
+   let c: Option<Int> = None;              // the annotation pins Option
+   match c { Some(s) => println('${s}'), None => void };
    ```
+
+   Where nothing pins the type, qualify — `let a = Result.Ok(3);`, not
+   `let a = Ok(3);` (an un-annotated binding has no expected type; the
+   diagnostic tells you which enum to name).
 
 2. **Nothing wraps or converts implicitly** — with one exception: `return x;` in
    a `Result`-returning function wraps to `Ok(x)`, and a `Result<Void, _>`
    function returning normally is `Ok(void)`. Everywhere else, spell it: pass
-   `Option.Some(x)` where `Option<T>` is expected, never bare `x`. There is no
-   `Int` → `Double` coercion — call `.to_double()`.
+   `Some(x)` where `Option<T>` is expected, never bare `x`. There is no `Int` →
+   `Double` coercion — call `.to_double()`.
 
 3. **Don't guess an API — look it up.** The biggest error source is calling
    methods that don't exist (`s.parse<Int>()`, `time.monotonic_ms()`).
@@ -127,7 +135,7 @@ Each of these is a real first-contact error, most-frequent first.
    ```thera
    let mut xs: List<Int> = [];               // [] alone can't infer
    let m: Map<String, Int> = ['a': 1];       // not {'a': 1}
-   let empty: Map<String, Int> = [:];        // empty map is [:]
+   let empty: Map<String, Int> = [];         // [] under a Map expectation is [:]
    ```
 
    The same applies to generic calls whose type parameter appears only in the

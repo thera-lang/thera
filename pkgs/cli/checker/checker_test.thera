@@ -2009,3 +2009,86 @@ fn test_named_parameters_must_be_a_suffix() -> Result<Void, Error> {
     )?;
     return Result.Ok(void);
 }
+
+// --- bare variant construction (language.md "Bare variant construction") ---
+
+@test
+fn test_bare_variant_clean_where_expected_type_pins() -> Result<Void, Error> {
+    // Return position, annotated let, and argument position all pin the enum.
+    testing.assert_eq(
+        actual: errors_of('enum E { A, B(Int) }\n'
+            + 'fn f() -> E { return B(3); }\n'
+            + 'fn g() -> E { return A; }\n'
+            + 'fn take(e: E) -> Void {}\n'
+            + 'fn h() -> Void { let x: E = A; take(x); take(B(1)); }')
+        .len(),
+        expected: 0,
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bare_variant_without_expectation_is_undefined_with_hint() -> Result<Void, Error> {
+    // An un-annotated binding pins nothing: undefined, with the qualify hint.
+    let errs = errors_of('enum E { A, B(Int) }\nfn f() -> Void { let _x = B(3); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert(
+        first_message(errs).contains('undefined name: B')
+        && first_message(errs).contains('a variant of `E`'),
+        message: 'message names the owning enum: ${first_message(errs)}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bare_variant_arity_and_payload_are_checked() -> Result<Void, Error> {
+    let arity = errors_of('enum E { B(Int) }\nfn f() -> E { return B(); }');
+    testing.assert_eq(actual: arity.len(), expected: 1)?;
+    testing.assert_eq(
+        actual: first_message(arity),
+        expected: 'variant `E.B` takes 1 argument, got 0',
+    )?;
+    let payload = errors_of("enum E { B(Int) }\nfn f() -> E { return B('x'); }");
+    testing.assert(
+        first_message(payload).contains('argument to `E.B`: expected Int, found String'),
+        message: 'payload type is checked: ${first_message(payload)}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_qualified_variant_arity_is_checked() -> Result<Void, Error> {
+    // The qualified form gets the same payload validation (previously lenient).
+    let errs = errors_of('enum E { B(Int) }\nfn f() -> E { return E.B(1, 2); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(
+        actual: first_message(errs),
+        expected: 'variant `E.B` takes 1 argument, got 2',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_real_binding_wins_over_bare_variant() -> Result<Void, Error> {
+    // A file-tier const claims the name; the variant reading never applies, so the
+    // mismatch reports against the const's type.
+    let errs = errors_of('enum E { A }\nconst A: Int = 1;\nfn f() -> E { return A; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert(
+        first_message(errs).contains('return type mismatch'),
+        message: 'the const wins: ${first_message(errs)}',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty_brackets_are_a_map_under_map_expectation() -> Result<Void, Error> {
+    testing.assert_eq(
+        actual: errors_of('fn f() -> Map<String, Int> { return []; }').len(),
+        expected: 0,
+    )?;
+    // Without a Map expectation `[]` stays a list — a Map/List mismatch reports.
+    let errs = errors_of('fn f() -> Map<String, Int> { return [1]; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    return Result.Ok(void);
+}

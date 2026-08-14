@@ -147,7 +147,7 @@ pub fn infer_expr(
         ListLit(_, items) => infer_list(items, scope, ctx, expected),
         MapLit(_, entries) => infer_map(entries, scope, ctx, expected),
         Struct(x) => infer_struct(x, scope, ctx),
-        Ident(_, name) => infer_ident(name, scope, ctx),
+        Ident(_, name) => infer_ident(name, scope, ctx, expected),
         Call(x) => infer_call(x, scope, ctx, expected),
         Field(_, object, field) => infer_field(object, field.name, expected, scope, ctx),
         Index(_, object, _) => index_result(infer_expr(object, scope, ctx, Option.None), ctx),
@@ -187,6 +187,16 @@ fn infer_list(
     ctx: InferCtx,
     expected: Option<Type>,
 ) -> Type {
+    // `[]` under a `Map` expectation is the empty map — the empty bracket literal
+    // is shape-ambiguous the way `[:]` is not, so the expectation decides (issue #139's
+    // companion rule). Non-empty literals are never reinterpreted.
+    if items.len() == 0 {
+        if let Some(k) = expected_arg(expected, 'Map', 0, ctx) {
+            if let Some(v) = expected_arg(expected, 'Map', 1, ctx) {
+                return iface(ctx, 'Map', [k, v]);
+            }
+        }
+    }
     if let Some(e) = expected_arg(expected, 'List', 0, ctx) {
         return iface(ctx, 'List', [e]);
     }
@@ -284,7 +294,12 @@ fn infer_struct(x: StructExpr, scope: Map<String, Type>, ctx: InferCtx) -> Type 
     };
 }
 
-fn infer_ident(name: String, scope: Map<String, Type>, ctx: InferCtx) -> Type {
+fn infer_ident(
+    name: String,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+    expected: Option<Type>,
+) -> Type {
     if let Some(t) = scope.get(name) { return t; }
     if let Some(c) = ctx_scope(ctx).resolve_const(name) { return c.ty; }
     // A free function named in value position is a function-typed value —
@@ -295,6 +310,9 @@ fn infer_ident(name: String, scope: Map<String, Type>, ctx: InferCtx) -> Type {
     if let Some(fn_el) = ctx_scope(ctx).resolve_function(name) {
         if let Some(t) = function_value_type(fn_el) { return t; }
     }
+    // A bare payload-free variant construction (`None` where an `Option<T>` is
+    // expected) — after every real binding has had its chance.
+    if let Some(t) = bare_variant_type(name, [], expected, scope, ctx) { return t; }
     return Type.Unknown;
 }
 
@@ -882,7 +900,7 @@ fn infer_call(
     // Bidirectional: when the callee's parameter types are known, infer each
     // argument against the matching one, so an un-annotated lambda argument takes
     // its parameter types from the callee's signature.
-    let expected_params = expected_arg_types(callee, args, scope, ctx);
+    let expected_params = expected_arg_types(callee, args, scope, ctx, expected);
     let arg_types: List<Type> = [];
     for p in args.enumerate() {
         let exp = match expected_params {
@@ -935,6 +953,9 @@ fn infer_call_ident(
     if let Some(fn_el) = ctx_scope(ctx).resolve_function(name) {
         return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx);
     }
+    // A bare variant construction (`Ok(x)` where a `Result<T, E>` is expected) —
+    // only when nothing real binds the name.
+    if let Some(t) = bare_variant_type(name, arg_types, expected, scope, ctx) { return t; }
     return Type.Unknown;
 }
 
@@ -1141,9 +1162,10 @@ pub fn expected_arg_types(
     args: List<CallArg>,
     scope: Map<String, Type>,
     ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Option<List<Type>> {
     let bindings: Map<String, Type> = [:];
-    return match callee_params(callee, args, scope, ctx, bindings) {
+    return match callee_params(callee, args, scope, ctx, expected, bindings) {
         Some(positional) => {
             bind_from_args(positional, args, scope, ctx, bindings);
             Option.Some(params_for_args(positional, args).map((m) => match m {
@@ -1164,9 +1186,10 @@ pub fn expected_param_types(
     args: List<CallArg>,
     scope: Map<String, Type>,
     ctx: InferCtx,
+    expected: Option<Type>,
 ) -> Option<List<Type>> {
     let bindings: Map<String, Type> = [:];
-    return match callee_params(callee, args, scope, ctx, bindings) {
+    return match callee_params(callee, args, scope, ctx, expected, bindings) {
         Some(positional) => {
             bind_from_args(positional, args, scope, ctx, bindings);
             Option.Some(positional.map((p) => substitute(p.ty, bindings)))
@@ -1179,12 +1202,17 @@ pub fn expected_param_types(
 // resolved cheaply here. Receiver-supplied type-parameter bindings (a method's `T`
 // from the receiver's type args) are merged into `bindings`. A function-*typed*
 // callee (a local `let f: (Int) -> Int`, a function-valued field) has plain types —
-// synthesized as label-less parameters so both views above apply uniformly.
+// synthesized as label-less parameters so both views above apply uniformly. An enum
+// construction — qualified or bare — has its variant's payload fields as its
+// positional parameters, instantiated from the expected enum's type arguments
+// (`expected` is the context's type for the *call's result*), so a payload argument
+// (an un-annotated lambda, a nested bare variant) sees its expected type.
 fn callee_params(
     callee: Expr,
     args: List<CallArg>,
     scope: Map<String, Type>,
     ctx: InferCtx,
+    expected: Option<Type>,
     bindings: Map<String, Type>,
 )
     -> Option<List<ParameterElement>> {
@@ -1200,13 +1228,25 @@ fn callee_params(
                             Function(ps, _) => Option.Some(plain_params(ps)),
                             _ => Option.None,
                         },
-                        None => Option.None,
+                        None => match resolve_bare_variant(name, expected, scope, ctx) {
+                            Some(sel) => {
+                                bind_expected_enum_args(sel, expected, bindings);
+                                Option.Some(plain_params(sel.variant.fields))
+                            },
+                            None => Option.None,
+                        },
                     };
                 },
             }
         },
         Field(_, obj, fid) => {
             let field = fid.name;
+            // Qualified enum construction, checked before the static-receiver forms
+            // (mirroring `infer_call_field`'s cascade).
+            if let Some(sel) = resolve_enum_ctor(obj, field, scope, ctx) {
+                bind_expected_enum_args(sel, expected, bindings);
+                return Option.Some(plain_params(sel.variant.fields));
+            }
             // A static-receiver callee — a static method (`Set.new`,
             // `ns.Type.make`) or a namespaced free/native fn (`fs.read_text`) — has
             // no value receiver: its params come straight from the resolved callee
@@ -1258,6 +1298,23 @@ fn callee_params(
         _ => void,
     }
     return params.map((ps) => non_self_params(ps));
+}
+
+// Bind an enum construction's type parameters from the expected type's arguments
+// when it is the same enum — the instantiation an enum-ctor callee's payload
+// parameters see (`Ok(…)` under `Result<Option<Int>, E>` exposes a
+// `Option<Int>`-typed parameter).
+fn bind_expected_enum_args(
+    sel: EnumVariantSel,
+    expected: Option<Type>,
+    bindings: Map<String, Type>,
+) -> Void {
+    let eargs = enum_expected_args(sel.element.name, expected);
+    for p in sel.element.type_parameters.enumerate() {
+        if p.index < eargs.len() {
+            bindings[p.value] = eargs[p.index];
+        }
+    }
 }
 
 // Plain types as label-less parameter elements (a function-typed callee has no
@@ -1619,9 +1676,91 @@ fn type_def_for_expr(object: Expr, scope: Map<String, Type>, ctx: InferCtx)
     return Option.None;
 }
 
+// A resolved enum construction site: the enum's definition and the variant being
+// constructed. Produced for both construction forms — the qualified
+// `(ns.)?Enum.Variant(…)` (`resolve_enum_ctor`) and the bare `Variant(…)` under a
+// matching expected type (`resolve_bare_variant`) — and shared by the checker's
+// payload validation and codegen's lowering.
+pub struct EnumVariantSel {
+    let element: TypeDefElement;
+    let variant: EnumVariantElement;
+}
+
 // If `object` names a declared enum (possibly namespace-qualified) and `variant` is
-// one of its variants, the constructed enum type (with type args recovered from
-// `arg_types`).
+// one of its variants, the selected variant.
+pub fn resolve_enum_ctor(
+    object: Expr,
+    variant: String,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+) -> Option<EnumVariantSel> {
+    if let Some(element) = type_def_for_expr(object, scope, ctx) {
+        if element.kind == TypeDefKind.Enum {
+            if let Some(v) = find_variant(element, variant) {
+                return Option.Some(EnumVariantSel { element: element, variant: v });
+            }
+        }
+    }
+    return Option.None;
+}
+
+// A bare variant construction resolved from the context's expected type: `name` is
+// a variant of the enum `expected` names, and nothing real binds the name — a
+// lexical or file-tier binding always wins, the variant only fills the gap (the
+// expression dual of a match pattern's bare constructor, which reads the same
+// information from its scrutinee's type).
+pub fn resolve_bare_variant(
+    name: String,
+    expected: Option<Type>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+) -> Option<EnumVariantSel> {
+    if scope.has(name) || ctx_scope(ctx).binds_value(name) {
+        return Option.None;
+    }
+    if let Some(t) = expected {
+        if let Interface(id, _) = t {
+            if let Some(element) = ctx_scope(ctx).resolve_type_def(id) {
+                if element.kind == TypeDefKind.Enum {
+                    if let Some(v) = find_variant(element, name) {
+                        return Option.Some(EnumVariantSel { element: element, variant: v });
+                    }
+                }
+            }
+        }
+    }
+    return Option.None;
+}
+
+// The constructed type of an enum construction: type args recovered from the
+// payload (`arg_types` unified against the variant's fields), with any parameter
+// the payload didn't determine filled from the expected type when it is the same
+// enum — so `Result.Ok(x)` against an expected `Result<T, Error>` recovers `E` (the
+// un-constructed `Err`'s type), which the `Ok` payload alone can't. The payload
+// wins where both apply (a real mismatch is reported elsewhere).
+fn variant_construction_type(
+    sel: EnumVariantSel,
+    arg_types: List<Type>,
+    expected: Option<Type>,
+) -> Type {
+    let element = sel.element;
+    let bindings: Map<String, Type> = [:];
+    let mut i = 0;
+    while i < arg_types.len() && i < sel.variant.fields.len() {
+        unify(sel.variant.fields[i], arg_types[i], bindings);
+        i = i + 1;
+    }
+    let expected_args = enum_expected_args(element.name, expected);
+    let args: List<Type> = [];
+    for p in element.type_parameters.enumerate() {
+        let tp = p.value;
+        args.push(bindings.get(tp).unwrap_or_else(() => arg_at(expected_args, p.index)));
+    }
+    return Type.Interface(TypeId { owner: element.owner_file, name: element.name }, args);
+}
+
+// The qualified construction's type (`(ns.)?Enum.Variant(payload…)`), or None when
+// `object` doesn't name an enum with this variant.
 fn enum_variant_type(
     object: Expr,
     variant: String,
@@ -1630,50 +1769,81 @@ fn enum_variant_type(
     scope: Map<String, Type>,
     ctx: InferCtx,
 ) -> Option<Type> {
-    match type_def_for_expr(object, scope, ctx) {
-        Some(element) => {
-            if element.kind != TypeDefKind.Enum {
-                return Option.None;
-            }
-            match find_variant(element, variant) {
-                Some(v) => {
-                    let bindings: Map<String, Type> = [:];
-                    let mut i = 0;
-                    while i < arg_types.len() && i < v.fields.len() {
-                        unify(v.fields[i], arg_types[i], bindings);
-                        i = i + 1;
-                    }
-                    // A type parameter the constructed variant's payload didn't
-                    // determine is filled from the expected type when it is the
-                    // same enum — so `Result.Ok(x)` against an expected
-                    // `Result<T, Error>` recovers `E` (the un-constructed `Err`'s
-                    // type), which the `Ok` payload alone can't. The payload wins
-                    // where both apply (a real mismatch is reported elsewhere).
-                    let expected_args = enum_expected_args(element.name, expected);
-                    let args: List<Type> = [];
-                    for p in element.type_parameters.enumerate() {
-                        let tp = p.value;
-                        args.push(
-                            bindings.get(tp).unwrap_or_else(() => arg_at(expected_args, p.index))
-                        );
-                    }
-                    return Option.Some(
-                        Type.Interface(
-                            TypeId { owner: element.owner_file, name: element.name },
-                            args,
-                        )
-                    );
-                },
-                None => { return Option.None; },
-            }
-        },
-        None => { return Option.None; },
+    return resolve_enum_ctor(object, variant, scope, ctx)
+        .map((sel) => variant_construction_type(sel, arg_types, expected));
+}
+
+// The bare construction's type (`Ok(x)` where a `Result<T, E>` is expected), or
+// None when the expectation doesn't pin an enum with this variant (or the name is
+// really bound).
+fn bare_variant_type(
+    name: String,
+    arg_types: List<Type>,
+    expected: Option<Type>,
+    scope: Map<String, Type>,
+    ctx: InferCtx,
+) -> Option<Type> {
+    return resolve_bare_variant(name, expected, scope, ctx)
+        .map((sel) => variant_construction_type(sel, arg_types, expected));
+}
+
+// The expected type a `return` value threads into bidirectional inference: normally
+// the declared return type — but in a `Result`-returning function the implicit-`Ok`
+// rule also admits a bare `T`, so a bare variant construction that names a variant
+// of `T` rather than of `Result` itself threads `T` instead (`return Some(x)` in a
+// `-> Result<Option<Int>, E>` function constructs the `Option`, then wraps).
+// `Ok`/`Err` — variants of the `Result` — win when both could apply. Shared by the
+// checker's `Return` arm and codegen's `emit_return`, so both phases make the same
+// choice.
+pub fn return_value_expected(value: Expr, scope: Map<String, Type>, ctx: InferCtx)
+    -> Option<Type> {
+    let ret = ctx.return_type;
+    if let Some(name) = bare_ctor_name(value) {
+        if resolve_bare_variant(name, ret, scope, ctx).is_some() { return ret; }
+        if let Some(payload) = result_arg(ret, 0, ctx) {
+            let p = Option.Some(payload);
+            if resolve_bare_variant(name, p, scope, ctx).is_some() { return p; }
+        }
     }
+    return ret;
+}
+
+// The expected type of a `throw` value: the enclosing `Result`'s `Err` payload — so
+// `throw NotFound(path)` constructs the function's error enum bare. None when the
+// function doesn't return a core `Result` (the checker reports that separately).
+pub fn throw_value_expected(ctx: InferCtx) -> Option<Type> {
+    return result_arg(ctx.return_type, 1, ctx);
+}
+
+// The bare name an expression would construct with, when it has the shape of a bare
+// variant construction — a lone identifier (`None`) or a call with an identifier
+// callee (`Ok(x)`).
+fn bare_ctor_name(value: Expr) -> Option<String> {
+    return match value {
+        Ident(_, name) => Option.Some(name),
+        Call(x) => match x.callee {
+            Ident(_, name) => Option.Some(name),
+            _ => Option.None,
+        },
+        _ => Option.None,
+    };
+}
+
+// Type argument `idx` of `t` when it is a core `Result`, else None.
+fn result_arg(t: Option<Type>, idx: Int, ctx: InferCtx) -> Option<Type> {
+    if let Some(rt) = t {
+        if let Interface(id, args) = rt {
+            if is_core_id(ctx.library, id, 'Result') && args.len() > idx {
+                return Option.Some(args[idx]);
+            }
+        }
+    }
+    return Option.None;
 }
 
 // The type arguments of `expected` when it is the enum named `name`, else empty —
 // so an enum construction can recover parameters its payload didn't determine.
-fn enum_expected_args(name: String, expected: Option<Type>) -> List<Type> {
+pub fn enum_expected_args(name: String, expected: Option<Type>) -> List<Type> {
     return match expected {
         Some(t) => match t {
             Interface(ename, eargs) => if ename.name == name { eargs } else { [] },
