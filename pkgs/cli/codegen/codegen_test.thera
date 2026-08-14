@@ -722,3 +722,34 @@ fn test_huge_string_literal_chunks_at_the_argc_limit() -> Result<Void, Error> {
     testing.assert_eq(actual: concat_argcs(code_of(src, 'main')), expected: [255, 46])?;
     return Result.Ok(void);
 }
+
+// --- bare variant construction lowering ---
+
+@test
+fn test_bare_variant_lowers_to_enum_new() -> Result<Void, Error> {
+    let src = 'enum E { A, B(Int) }\n'
+        + 'fn f() -> E { return B(3); }\n'
+        + 'fn g() -> E { return A; }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'f'), 'enum_new'), expected: 1)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'g'), 'enum_new'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty_brackets_lower_to_map_new_under_map_expectation() -> Result<Void, Error> {
+    let map_src = 'fn f() -> Map<String, Int> { return []; }';
+    testing.assert_eq(actual: errors_of(map_src), expected: 0)?;
+    testing.assert_eq(
+        actual: count_tag(code_of(map_src, 'f'), 'call_native:map_new'),
+        expected: 1,
+    )?;
+    // Under a List expectation `[]` still lowers to a list.
+    let list_src = 'fn f() -> List<Int> { return []; }';
+    testing.assert_eq(actual: errors_of(list_src), expected: 0)?;
+    testing.assert_eq(
+        actual: count_tag(code_of(list_src, 'f'), 'call_native:map_new'),
+        expected: 0,
+    )?;
+    return Result.Ok(void);
+}

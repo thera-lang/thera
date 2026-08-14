@@ -201,8 +201,11 @@ kind. The full relation is specified in [Assignability](#assignability).
 
 **Inference is local and bidirectional.** Expected types flow down (a lambda's
 parameter types from the callee's signature, an enum construction's type
-arguments from its context); initializer types flow up (`let n = xs.len()` is
-`Int`); an underdetermined empty literal is pinned by its first use (see
+arguments from its context — and, where the context pins the enum, the bare
+construction form itself: `return Ok(n);` — see
+[Bare variant construction](#bare-variant-construction)); initializer types flow
+up (`let n = xs.len()` is `Int`); an underdetermined empty literal is pinned by
+its first use (see
 [Type annotations & inference](#type-annotations--inference)). There is no
 whole-program constraint solving: a type is always derivable from what's on the
 page nearby, which is the property that lets a reader — human or LLM — reason
@@ -333,7 +336,9 @@ Map literals use **brackets** — `['a': 1]`, empty `[:]` — so `{…}` always 
 a block (or a struct body), map keys are unrestricted expressions, and a map
 literal is valid anywhere an expression is (including a bare match-arm body).
 The pre-migration brace form (`{'a': 1}`) is a parse error with a hint pointing
-at the bracket syntax.
+at the bracket syntax. Where the expected type is a `Map<K, V>`, a bare `[]`
+also reads as the empty map (see
+[Bare variant construction](#bare-variant-construction) for the principle).
 
 **Ordering.** As _types_, `Map` and `Set` promise keyed access and uniqueness —
 not a particular ordering; code shouldn't lean on element order as part of the
@@ -689,9 +694,12 @@ fn read_port(args: Args) -> Result<Int, Error> {
 ```
 
 `Result<T, E>` is an ordinary enum defined in the prelude (`std.core`), with
-variants `Ok(T)` and `Err(E)`. It is constructed like any enum — qualified:
-`Result.Ok(value)`, `Result.Err(e)`. The `?` operator and the implicit-`Ok`
-wrapping below know it by name, but it is otherwise not special.
+variants `Ok(T)` and `Err(E)`. It is constructed like any enum — qualified
+(`Result.Ok(value)`, `Result.Err(e)`), or bare where the expected type pins it
+(`return Ok(value);` — see
+[Bare variant construction](#bare-variant-construction)). The `?` operator and
+the implicit-`Ok` wrapping below know it by name, but it is otherwise not
+special.
 
 `?` propagates a failure to the caller: `expr?` unwraps the success case
 (`Ok(v)` → `v`) or returns the failure (`Err(e)`) from the enclosing function.
@@ -749,7 +757,10 @@ convenience, and calling them for effect is normal.
 
 `throw expr` is sugar for `return Result.Err(expr)` in a `Result`-returning
 function. It is a reserved keyword — not an exception mechanism. There is no
-stack unwinding; control simply returns to the caller with an `Err` value.
+stack unwinding; control simply returns to the caller with an `Err` value. The
+`Err` payload type is the thrown value's expected type, so a function whose
+error type is its own enum can throw a bare variant: `throw NotFound(path);`
+(see [Bare variant construction](#bare-variant-construction)).
 
 ```thera
 fn parse_port(s: String) -> Result<Int, Error> {
@@ -789,8 +800,10 @@ There is no `null`. Absent values are represented explicitly as `Option<T>`,
 which is either `Some(value)` or `None`. A value of type `String` is always a
 string; a value that might be absent has type `Option<String>`.
 
-Like `Result`, `Option` is an ordinary prelude enum, constructed qualified:
-`Option.Some(value)`, `Option.None`.
+Like `Result`, `Option` is an ordinary prelude enum, constructed qualified
+(`Option.Some(value)`, `Option.None`) — or bare where the expected type pins it
+(`let d: Option<String> = None;` — see
+[Bare variant construction](#bare-variant-construction)).
 
 ```thera
 struct Config {
@@ -1204,7 +1217,9 @@ import 'ast' as _;            // Expr, Stmt, Decl, … usable bare in this file
 `std.core` is the **prelude**: automatically imported into every file, with its
 names available **unqualified** (`Result`/`Option`/`Error`, `Eq`/`Display`/
 `Debug`, `println`/…). `Result`/`Option` are ordinary prelude enums, so their
-variants are constructed qualified (`Result.Ok`, `Option.None`). It is the one
+variants are constructed qualified (`Result.Ok`, `Option.None`) or bare where
+the expected type pins the enum
+([Bare variant construction](#bare-variant-construction)). It is the one
 unqualified import; every other library is referenced through its namespace.
 `std.cli` (the `Args` argument parser) is an ordinary library — `import std.cli`
 when you need it.
@@ -1460,8 +1475,11 @@ first match; failing all steps is a located error.
 - **A bare value name** (`name`, or the callee of `name(...)`): (1) an in-scope
   local binding → it; (2) a same-file top-level `fn`/`const` → it; (3) a public
   `fn`/`const` from an `as _` import → it; (4) a prelude public `fn`/`const` →
-  it; else **undefined**. A bare name is _never_ resolved against a namespaced
-  import — it must be qualified.
+  it; (5) a variant of the enum the position's **expected type** names → a bare
+  variant construction (see
+  [Bare variant construction](#bare-variant-construction)); else **undefined**.
+  A bare name is _never_ resolved against a namespaced import — it must be
+  qualified.
 - **A qualified value** (`ns.name`): `ns` must be an import namespace of the
   current file (not shadowed by a local named `ns`), and `name` must be in
   `ns`'s public surface; it resolves to that library's `pub` declaration.
@@ -1484,10 +1502,52 @@ first match; failing all steps is a located error.
 
 Qualification therefore applies to **free functions, consts, and type names** —
 the things a library owns at top level. Methods and variants are selected within
-an already-resolved receiver/type, not separately namespace-qualified.
-Resolution is **owner-correct**: two libraries may share a top-level name
-(`std.json.parse` vs `std.toml.parse`), each qualified reference dispatching to
-its own library.
+an already-resolved receiver/type — or, for a bare variant construction, within
+the expected type — not separately namespace-qualified. Resolution is
+**owner-correct**: two libraries may share a top-level name (`std.json.parse` vs
+`std.toml.parse`), each qualified reference dispatching to its own library.
+
+### Bare variant construction
+
+A variant is normally constructed qualified — `Result.Ok(x)`, `Shape.Circle(r)`
+— and that stays the general form: a bare variant name is never resolved against
+"all enums everywhere". But **where the position's expected type already pins an
+enum**, its variants construct bare:
+
+```thera
+fn parse_port(s: String) -> Result<Int, Error> {
+    let n = s.to_int().ok_or(error('not a number'))?;
+    return Ok(n);                     // the return type pins Result
+}
+
+let last: Option<Int> = None;         // an annotated binding pins Option
+found.push(Some(3));                  // an argument position (found: List<Option<Int>>)
+let r: Result<Option<Int>, Error> = Ok(Some(7));   // payloads nest — each position pins the next
+```
+
+The rule is the expression-side mirror of match patterns, which are already bare
+(`Ok(port) => …`) _because the scrutinee's type is known_: the reader of
+`return Ok(n)` has the same local information — the declared return type — that
+a pattern reader has. The pinning positions are exactly the ones bidirectional
+inference already feeds: an annotated `let`'s initializer, a `return` value
+(including, in a `Result`-returning function, the `Ok` payload —
+`return Some(x)` composes with the implicit-`Ok` wrap; `Ok`/`Err` themselves win
+when both readings apply), a `throw` value (the `Err` payload), a call argument,
+a struct-literal field, an assignment's right-hand side, and value positions
+that inherit an expectation (a match arm's body, an `if`/block tail). Where
+nothing pins the enum — `let x = Ok(3);` with no annotation — the qualified form
+remains required, and the diagnostic says so.
+
+**A real binding always wins.** If a lexical or file-tier binding — a local, a
+same-file `fn`/`const`, an `as _` import, the prelude — claims the name, the
+name means that binding and never the variant: bare variants fill a gap, they
+never shadow. Construction is checked like a call: arity is exact and payload
+types must fit (`Some` alone, `Some(1, 2)`, and `Some('x')` against an expected
+`Option<Int>` are all located errors).
+
+An **empty bracket literal follows the same principle**: `[]` where the expected
+type is a `Map<K, V>` is the empty map (`[:]` stays the explicit spelling; a
+_non-empty_ list literal is never reinterpreted).
 
 ---
 

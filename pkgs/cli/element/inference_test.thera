@@ -402,3 +402,62 @@ fn test_empty_memo_leaves_inference_untouched() -> Result<Void, Error> {
     testing.assert_eq(actual: ctx.types.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// --- bare variant construction / expected-driven literals ---
+
+@test
+fn test_empty_list_under_map_expectation_is_map() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of(''));
+    let want = mk_iface(ctx, 'Map', [
+        Type.Primitive(Primitive.Str),
+        Type.Primitive(Primitive.Int),
+    ]);
+    testing.assert_eq(actual: type_of_expecting('[]', ctx, want), expected: want)?;
+    // Non-empty stays a list, whatever the expectation.
+    testing.assert_eq(
+        actual: type_of_expecting('[1]', ctx, want),
+        expected: mk_iface(ctx, 'List', [Type.Primitive(Primitive.Int)]),
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bare_variant_constructs_the_expected_enum() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of('enum E { A, B(Int) }'));
+    let want = mk_iface(ctx, 'E', []);
+    testing.assert_eq(actual: type_of_expecting('B(3)', ctx, want), expected: want)?;
+    testing.assert_eq(actual: type_of_expecting('A', ctx, want), expected: want)?;
+    // No expectation: the bare name stays Unknown (undefined — the checker's gate
+    // reports it).
+    testing.assert_eq(actual: type_of('A', empty_scope(), ctx), expected: Type.Unknown)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bare_variant_keeps_expected_type_args() -> Result<Void, Error> {
+    // The expected enum's type arguments carry over — including ones the payload
+    // alone can't determine.
+    let ctx = new_ctx(lib_of('enum Box<T> { Empty, Full(T) }'));
+    let want = mk_iface(ctx, 'Box', [Type.Primitive(Primitive.Str)]);
+    testing.assert_eq(actual: type_of_expecting('Empty', ctx, want), expected: want)?;
+    testing.assert_eq(actual: type_of_expecting("Full('x')", ctx, want), expected: want)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bare_variant_loses_to_a_scope_binding() -> Result<Void, Error> {
+    // A lexical binding claims the name: the variant reading never applies.
+    let ctx = new_ctx(lib_of('enum E { A }'));
+    let scope = empty_scope();
+    scope['A'] = Type.Primitive(Primitive.Int);
+    testing.assert_eq(
+        actual: infer_expr(
+            parse_expression(tokenize('A').tokens),
+            scope,
+            ctx,
+            Option.Some(mk_iface(ctx, 'E', [])),
+        ),
+        expected: Type.Primitive(Primitive.Int),
+    )?;
+    return Result.Ok(void);
+}

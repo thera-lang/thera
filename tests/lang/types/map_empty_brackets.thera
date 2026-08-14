@@ -1,0 +1,40 @@
+//! spec: type-map-bracket
+//! mode: run
+
+// `[]` where the expected type is a `Map<K, V>` is the empty map — the empty
+// bracket literal is shape-ambiguous the way `[:]` is not, so the expectation
+// decides (language.md "Bare variant construction", companion rule). A
+// non-empty list literal is never reinterpreted, and without a `Map`
+// expectation `[]` stays a list.
+
+fn count_tags(tags: Map<String, Int>) -> Int {
+    return tags.len();
+}
+
+fn empty_scores() -> Map<String, Int> {
+    return [];                        // return position
+}
+
+fn main() -> Void {
+    let m: Map<String, Int> = [];     // annotated binding
+    println('${m.len()}');            // expect: 0
+
+    println('${count_tags([])}');     // argument position
+    // expect: 0
+
+    println('${empty_scores().len()}');
+    // expect: 0
+
+    let mut n: Map<String, Int> = ['a': 1];
+    n = [];                           // assignment RHS
+    println('${n.len()}');            // expect: 0
+
+    // Still writable, i.e. genuinely a map.
+    let mut w: Map<String, Int> = [];
+    w['k'] = 5;
+    println('${w['k']}');             // expect: 5
+
+    // And `[]` under a List expectation stays a list.
+    let xs: List<Int> = [];
+    println('${xs.len()}');           // expect: 0
+}
