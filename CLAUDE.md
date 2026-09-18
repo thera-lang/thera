@@ -114,6 +114,9 @@ there at runtime)
 ## Working conventions
 
 - Keep every change `cargo test` / `cargo clippy` / `cargo fmt --check` clean.
+  The Rust toolchain is pinned in `rust-toolchain.toml` (repo root), so local
+  and CI lint with the same clippy; the `rust-toolchain` workflow opens a bump
+  PR when a new stable ships.
 - Work in small, self-contained increments, each with tests.
 - Match the surrounding code's style and comment density.
 - **Markdown is formatted by `bin/fmt_docs.sh`** — run it after editing any

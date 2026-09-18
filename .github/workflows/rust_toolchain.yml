@@ -1,0 +1,68 @@
+# Weekly check for a new stable Rust. When the pin in rust-toolchain.toml is
+# behind, opens a PR bumping it, so CI on that PR — not on unrelated PRs — is
+# where new clippy lints surface. Rust ships stable every six weeks, so a weekly
+# cadence catches a release within days.
+#
+# Creating the PR needs the repo setting "Allow GitHub Actions to create and
+# approve pull requests" (Settings → Actions → General → Workflow permissions).
+name: rust-toolchain
+
+on:
+  schedule:
+    - cron: "17 9 * * 1" # Mondays 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    name: check for a new stable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: compare pinned vs. latest stable
+        id: ver
+        run: |
+          pinned=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          latest=$(curl -fsSL https://static.rust-lang.org/dist/channel-rust-stable.toml \
+            | sed -n '/^\[pkg.rust\]/,/^version/ s/^version = "\([0-9.]*\).*/\1/p')
+          echo "pinned=$pinned latest=$latest"
+          test -n "$latest" || { echo "could not determine latest stable"; exit 1; }
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          if [ "$pinned" = "$latest" ]; then
+            echo "up to date"
+          elif git ls-remote --exit-code --heads origin "rust_toolchain_$latest" >/dev/null; then
+            echo "bump branch already exists; skipping"
+          else
+            echo "bump=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: open bump PR
+        if: steps.ver.outputs.bump == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PINNED: ${{ steps.ver.outputs.pinned }}
+          LATEST: ${{ steps.ver.outputs.latest }}
+        run: |
+          branch="rust_toolchain_$LATEST"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          sed -i "s/^channel = \"$PINNED\"/channel = \"$LATEST\"/" rust-toolchain.toml
+          git commit -am "Bump the pinned Rust toolchain from $PINNED to $LATEST"
+          git push -u origin "$branch"
+          gh pr create --title "Bump the pinned Rust toolchain from $PINNED to $LATEST" --body "$(cat <<BODY
+          Rust $LATEST is the current stable; the pin in \`rust-toolchain.toml\` was $PINNED.
+
+          - If CI is green, merge.
+          - If \`runtime (cargo)\` fails, new clippy lints (or a compile change) need addressing on this branch first.
+
+          Release notes: https://github.com/rust-lang/rust/blob/master/RELEASES.md
+
+          Opened by the \`rust-toolchain\` workflow.
+          BODY
+          )"

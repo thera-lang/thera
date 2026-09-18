@@ -1,0 +1,12 @@
+# Pins the Rust toolchain so CI and local builds lint and compile with the same
+# rustc/clippy. rustup reads this file from any working directory under the repo
+# (the build scripts `cd runtime` before invoking cargo) and installs the pinned
+# version on first use.
+#
+# Bumping: a new stable ships every six weeks. The `rust-toolchain` workflow
+# checks weekly and opens a PR that edits `channel` below; CI on that PR is the
+# evaluation (new clippy lints show up there, not on unrelated PRs). Edit by
+# hand for an out-of-cycle bump.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]

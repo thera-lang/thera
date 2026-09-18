@@ -16,9 +16,10 @@ env:
 
 jobs:
   # Rust runtime: format, lint, and unit tests. Independent gate, runs in parallel
-  # with `build` — a runtime regression fails CI on its own. Uses the runner's
-  # preinstalled toolchain (rustup default profile: cargo + rustfmt + clippy),
-  # which tracks a recent stable — no explicit `rustup install` step.
+  # with `build` — a runtime regression fails CI on its own. The toolchain is
+  # pinned by rust-toolchain.toml (repo root); the runner's rustup installs that
+  # version on first cargo use, so there is no explicit `rustup install` step.
+  # Bumps arrive as PRs from the `rust-toolchain` workflow.
   runtime:
     name: runtime (cargo)
     runs-on: ubuntu-latest
