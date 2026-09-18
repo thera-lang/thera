@@ -2227,7 +2227,8 @@ fn native_map_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
         return Err(bug("map literal: expected an even number of arguments"));
     }
     // `new_map` (via `MapObj::from_pairs`) dedups, later keys overwriting earlier.
-    let entries: Vec<(Value, Value)> = args.chunks_exact(2).map(|p| (p[0], p[1])).collect();
+    let (pairs, _) = args.as_chunks::<2>();
+    let entries: Vec<(Value, Value)> = pairs.iter().map(|&[k, v]| (k, v)).collect();
     Ok(Value::new_map(entries))
 }
 
