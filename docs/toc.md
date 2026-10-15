@@ -6,6 +6,13 @@ this is"; read top-down for progressive detail.
 - [overview.md](overview.md) — the **why**: an external-facing whitepaper on
   what Thera is, the LLM-native design rationale, the CLI-tooling target domain,
   the runtime, and the key design trade-offs.
+- [agent-productivity-study.md](agent-productivity-study.md) — the **evaluation
+  plan**: a budget-capped pilot and follow-up methodology for measuring whether
+  agents write and maintain correct code more efficiently in Thera than in
+  comparable languages, despite much less prior exposure.
+- [agent-productivity-results.md](agent-productivity-results.md) — **preliminary
+  evidence**: conclusions from the first six creation tasks, confidence and
+  limitations, with methodology and supporting data in an addendum.
 - [language.md](language.md) — the language **reference**: syntax and semantics
   (types, functions, control flow, tail expressions, error handling, interfaces,
   generics & assignability, visibility & libraries, name resolution & scoping),
