@@ -8,5 +8,5 @@
 # evaluation (new clippy lints show up there, not on unrelated PRs). Edit by
 # hand for an out-of-cycle bump.
 [toolchain]
-channel = "1.98.1"
+channel = "1.99.1"
 components = ["rustfmt", "clippy"]
