@@ -4,9 +4,9 @@
 # version on first use.
 #
 # Bumping: a new stable ships every six weeks. The `rust-toolchain` workflow
-# checks weekly and opens a PR that edits `channel` below; CI on that PR is the
-# evaluation (new clippy lints show up there, not on unrelated PRs). Edit by
-# hand for an out-of-cycle bump.
+# checks weekly and fails when `channel` below is behind; bump it in its own PR,
+# so CI on that PR is the evaluation (new clippy lints show up there, not on
+# unrelated PRs).
 [toolchain]
 channel = "1.99.1"
 components = ["rustfmt", "clippy"]
